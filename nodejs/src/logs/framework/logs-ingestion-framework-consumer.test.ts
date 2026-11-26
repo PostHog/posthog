@@ -19,6 +19,7 @@ import { LogRecord, encodeLogRecords } from '../log-record-avro'
 import { DEFAULT_LOGS_RETENTION_DAYS, LogsIngestionConsumer, logMessageDlqCounter } from '../logs-ingestion-consumer'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from '../outputs/outputs'
 import { DEFAULT_TRACES_RETENTION_DAYS } from '../retention/tracing-config-cache'
+import { compileRuleSet } from '../sampling/compile-rules'
 import { TracesIngestionConsumer } from '../traces-ingestion-consumer'
 import { createLogsIngestionConsumer, createTracesIngestionConsumer } from './create-consumer'
 import { LogsIngestionFrameworkConsumer } from './logs-ingestion-framework-consumer'
@@ -101,6 +102,17 @@ function producedTo(topic: string): { headers?: Record<string, string>; value: u
         .filter((batch) => batch.topic === topic)
         .flatMap((batch) => batch.messages.map((message) => ({ headers: message.headers, value: message.value })))
 }
+
+const dropEverything = compileRuleSet([
+    {
+        id: '00000000-0000-0000-0000-0000000000bb',
+        rule_type: 'path_drop',
+        scope_service: null,
+        scope_path_pattern: null,
+        scope_attribute_filters: [],
+        config: { patterns: ['.*'] },
+    },
+])
 
 const kafkaDeliveryError = (code: number): Error => LibrdKafkaError.create(new Error(err2str(code)))
 
@@ -363,6 +375,35 @@ describe('LogsIngestionFrameworkConsumer', () => {
             expect(await fallback['defaultRetentionDays'](team.id, { retention_days: 30 })).toBe(
                 DEFAULT_TRACES_RETENTION_DAYS
             )
+        })
+
+        it.each([
+            { label: 'drops spans with the span rules when the team is enabled', enabled: true },
+            { label: 'leaves spans untouched when the team is not enabled', enabled: false },
+        ])('$label', async ({ enabled }) => {
+            const getCompiledRuleSet = jest.fn().mockResolvedValue(dropEverything)
+            await consumer.stop()
+            // The logs gate is set the other way, so the traces consumer must read its own gate.
+            consumer = withoutKafka(
+                new TracesIngestionFrameworkConsumer(
+                    tracesConfig({
+                        TRACES_SAMPLING_ENABLED_TEAMS: enabled ? String(team.id) : '',
+                        LOGS_SAMPLING_ENABLED_TEAMS: enabled ? '' : '*',
+                    }),
+                    { ...consumerDeps(), samplingRulesCache: { getCompiledRuleSet } }
+                )
+            )
+            await consumer.start()
+
+            await processAndWait(await createKafkaMessages(1, { token: team.api_token }))
+
+            if (enabled) {
+                expect(getCompiledRuleSet).toHaveBeenCalledWith(team.id, 'spans')
+                expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(0)
+            } else {
+                expect(getCompiledRuleSet).not.toHaveBeenCalled()
+                expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(1)
+            }
         })
     })
 

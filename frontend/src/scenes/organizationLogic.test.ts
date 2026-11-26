@@ -1,9 +1,11 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -147,6 +149,36 @@ describe('organizationLogic', () => {
             expect(logic.values.currentOrganization).toEqual(ORGANIZATION_WITH_TEAMS)
         })
 
+        test.each([
+            ['organization_deactivated', false],
+            ['organization_pending_deletion', true],
+        ])('refreshes blocked metadata through discovery for %s', async (code, pendingDeletion) => {
+            const organization = {
+                ...ORGANIZATION_WITH_TEAMS,
+                is_active: false,
+                is_pending_deletion: pendingDeletion,
+                is_not_active_reason: 'An organization administrator must review billing.',
+            }
+            useMocks({
+                get: {
+                    '/api/organizations/@current': () => [403, { code }],
+                    '/api/organizations/': ({ request }) =>
+                        new URL(request.url).searchParams.get('offset') === '0'
+                            ? [200, { results: [{ id: 'another-org' }], next: 'next-page' }]
+                            : [200, { results: [organization], next: null }],
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            await expectLogic(logic, () => logic.actions.loadCurrentOrganization()).toFinishAllListeners()
+
+            expect(logic.values.currentOrganization).toEqual(organization)
+            expect(logic.values.currentOrganizationBlockPage).toBe(
+                pendingDeletion ? '/organization-pending-deletion' : '/organization-deactivated'
+            )
+            expect(logic.values.isPathOpenWhileBlocked('/organization/billing')).toBe(!pendingDeletion)
+        })
+
         it('drops the organization when the server says it is out of reach', async () => {
             useMocks({ get: { '/api/organizations/@current': () => [403, { detail: 'nope' }] } })
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
@@ -200,5 +232,22 @@ describe('organizationLogic', () => {
 
             expect(logic.values.isPathInAnotherOrganization('/project/424242/dashboard')).toBe(leaves)
         })
+    })
+
+    it('removes the create organization dialog from the URL before redirecting to onboarding', async () => {
+        initKeaTests()
+        logic = organizationLogic()
+        logic.mount()
+        const modalLogic = globalModalsLogic()
+        modalLogic.mount()
+        router.actions.push('/project/1/replay/home', { modal: 'create-organization' })
+        expect(modalLogic.values.isCreateOrganizationModalShown).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.createOrganizationSuccess(MOCK_DEFAULT_ORGANIZATION)
+        }).toFinishAllListeners()
+
+        expect(router.values.searchParams.modal).toBeUndefined()
+        expect(modalLogic.values.isCreateOrganizationModalShown).toBe(false)
     })
 })

@@ -20,6 +20,8 @@ common-kafka = { path = "../common/kafka" }
 common-database = { path = "../common/database" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
+common-ingestion-response = { path = "../common/ingestion-response" }
+common-ingestion-warnings = { path = "../common/ingestion_warnings" }
 common-redis = { path = "../common/redis" }
 redis = { workspace = true }
 common-posthog = { path = "../common/posthog" }
@@ -28,7 +30,7 @@ posthog-symbol-data = { path = "../common/symbol_data" }
 hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 url = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"
@@ -37,7 +39,7 @@ symbolic = { version = "13.9", features = ["sourcemapcache", "debuginfo", "symca
 # so until then cymbal takes `symbolic-demangle` directly. At 14.0, put `demangle` back on
 # `symbolic` and remove this dependency.
 symbolic-demangle = { version = "13.9", default-features = false, features = ["cpp", "msvc", "rust"] }
-zip = "4.0"
+zip = "7.4"
 proguard = "5.6.2"
 reqwest = { workspace = true, features = ["brotli", "deflate", "gzip", "zstd"] }
 sha2 = "0.10.8"
@@ -48,7 +50,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 moka = { workspace = true }
 rdkafka = { workspace = true }
-posthog-rs = { workspace = true }
+posthog = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 regex = { workspace = true }

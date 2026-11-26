@@ -5,7 +5,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 from products.warehouse_sources.sources.wufoo._config import WufooSourceConfig
-from products.warehouse_sources.sources.wufoo.settings import FORMS_PAGE_LIMIT
+from products.warehouse_sources.sources.wufoo.settings import FORMS_PAGE_LIMIT, WUFOO_ENDPOINTS
 from products.warehouse_sources.sources.wufoo.source import WufooSource
 from products.warehouse_sources.sources.wufoo.wufoo import PAGE_SIZE, WufooResumeConfig, validate_credentials
 
@@ -134,8 +134,7 @@ class TestFanout:
                 "Forms",
                 "/forms/p1/fields.json",
                 "Fields",
-                PAGE_SIZE,
-                1,
+                [PAGE_SIZE],
             ),
             (
                 "report_fields_single_page",
@@ -144,8 +143,26 @@ class TestFanout:
                 "Reports",
                 "/reports/p1/fields.json",
                 "Fields",
-                PAGE_SIZE,
-                1,
+                [PAGE_SIZE],
+            ),
+            (
+                "report_widgets_single_page",
+                "report_widgets",
+                "/reports.json",
+                "Reports",
+                "/reports/p1/widgets.json",
+                "Widgets",
+                [PAGE_SIZE],
+            ),
+            # Comments page like entries, so a full page is followed until a short one.
+            (
+                "form_comments_multi_page",
+                "form_comments",
+                "/forms.json",
+                "Forms",
+                "/forms/p1/comments.json",
+                "Comments",
+                [PAGE_SIZE, 2],
             ),
             # A report that ignores pageSize and sends every entry must not be asked for the same rows again.
             (
@@ -155,8 +172,7 @@ class TestFanout:
                 "Reports",
                 "/reports/p1/entries.json",
                 "Entries",
-                PAGE_SIZE + 50,
-                1,
+                [PAGE_SIZE + 50],
             ),
             (
                 "report_entries_short_page",
@@ -165,8 +181,7 @@ class TestFanout:
                 "Reports",
                 "/reports/p1/entries.json",
                 "Entries",
-                3,
-                1,
+                [3],
             ),
         ]
     )
@@ -178,22 +193,33 @@ class TestFanout:
         parent_key: str,
         child_path: str,
         child_key: str,
-        child_rows: int,
-        expected_child_requests: int,
+        child_pages: list[int],
     ) -> None:
+        pages = []
+        offset = 0
+        for count in child_pages:
+            ids = range(offset, offset + count)
+            pages.append(
+                _rows(
+                    child_key,
+                    [{"EntryId": str(i), "ID": f"Field{i}", "CommentId": str(i), "Hash": f"w{i}"} for i in ids],
+                )
+            )
+            offset += count
         result = _driver().run(
             endpoint,
-            route(
-                {
-                    parent_path: [_rows(parent_key, [{"Hash": "p1"}])],
-                    child_path: [_rows(child_key, [{"EntryId": str(i), "ID": f"Field{i}"} for i in range(child_rows)])],
-                }
-            ),
+            route({parent_path: [_rows(parent_key, [{"Hash": "p1"}])], child_path: pages}),
         )
 
         assert result.raised is None
-        assert len(result.rows) == child_rows
-        assert result.paths.count(f"/api/v3{child_path}") == expected_child_requests
+        assert len(result.rows) == sum(child_pages)
+        assert result.paths.count(f"/api/v3{child_path}") == len(child_pages)
+        # Each primary key column is set and unique across the table, so the parent hash rename must
+        # not overwrite a child's own `Hash`.
+        primary_keys = WUFOO_ENDPOINTS[endpoint].primary_keys
+        keys = {tuple(row[k] for k in primary_keys) for row in result.rows}
+        assert len(keys) == len(result.rows)
+        assert all(None not in key and "p1" in key for key in keys)
         # Neither parent list takes the offset params the top-level tables send.
         assert result.requests[0].param("pageStart") is None
 

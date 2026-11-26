@@ -648,7 +648,7 @@ class TestGroupingJudgeNeverChangesTheMerge(BaseTest):
                 return_value=capture,
             ),
             patch(f"{JUDGE_MODULE}.execute_hogql_query", return_value=texts),
-            patch(f"{JUDGE_MODULE}.build_ai_gateway_anthropic_client", return_value=client, side_effect=build_error),
+            patch(f"{JUDGE_MODULE}.build_anthropic_client", return_value=client, side_effect=build_error),
             patch(f"{JUDGE_MODULE}.TOTAL_BUDGET_SECONDS", 0.5),
             patch(f"{JUDGE_MODULE}.current_judge_config", return_value=JudgeConfig(sample_rate=1.0)),
         ):

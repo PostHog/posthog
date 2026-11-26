@@ -1,6 +1,7 @@
 import json
 import uuid
 import base64
+import asyncio
 import logging
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +50,8 @@ HANDOFF = "handoff"
 OLD_WORKER_HANDOFF = "old_worker_handoff"
 FAIL = "fail"
 SUCCEED = "succeed"
+# Runs until the test cancels the workflow, the way a person's cancel or a schema teardown does.
+WAIT_FOR_CANCEL = "wait_for_cancel"
 
 
 @pytest.fixture(autouse=True)
@@ -65,8 +68,10 @@ class _WorkflowRun:
     updates: list[UpdateExternalDataJobStatusInputs]
     buffer_one_triggers: int
     handoffs_recorded: list[int]
+    finished_labels: list[tuple[str, str]]
     history: WorkflowHistory
     failed: bool
+    stand_downs: dict[str, int]
 
 
 def _activities(
@@ -78,13 +83,12 @@ def _activities(
     updates: list[UpdateExternalDataJobStatusInputs],
     buffer_one: list[str],
     failed_runs_in_a_row: int = 0,
-    deferred: bool = False,
+    lock_result: AcquireV3LockActivityOutputs | None = None,
+    import_started: asyncio.Event | None = None,
 ) -> list:
     @activity.defn(name="acquire_v3_pipeline_lock_activity")
     async def acquire_lock(inputs: AcquireV3LockActivityInputs) -> AcquireV3LockActivityOutputs:
-        if deferred:
-            return AcquireV3LockActivityOutputs(acquired=False, token="token", deferred=True)
-        return AcquireV3LockActivityOutputs(acquired=True, token="token")
+        return lock_result or AcquireV3LockActivityOutputs(acquired=True, token="token")
 
     @activity.defn(name="create_external_data_job_model_activity")
     async def create_job(inputs: CreateExternalDataJobModelActivityInputs) -> CreateExternalDataJobModelActivityOutputs:
@@ -112,6 +116,17 @@ def _activities(
             raise WorkerShuttingDownError("1", "import_data_activity_sync", _TASK_QUEUE, attempt, "wf", "wt")
         if step == FAIL:
             raise RuntimeError("source went away")
+        if step == WAIT_FOR_CANCEL:
+            assert import_started is not None
+            import_started.set()
+            # Cancellation reaches an activity only through a heartbeat response.
+            while True:
+                activity.heartbeat()
+                try:
+                    await asyncio.wait_for(activity.wait_for_cancelled(), timeout=0.05)
+                except TimeoutError:
+                    continue
+                raise asyncio.CancelledError()
         return PipelineResult(should_trigger_cdp_producer=False, consumer_manages_job_status=True)
 
     @activity.defn(name="update_external_data_job_model")
@@ -140,8 +155,9 @@ async def _run_workflow(
     *,
     handoffs_are_free: bool = True,
     failed_runs_in_a_row: int = 0,
-    deferred: bool = False,
+    lock_result: AcquireV3LockActivityOutputs | None = None,
 ) -> _WorkflowRun:
+    import_started = asyncio.Event()
     import_inputs: list[ImportDataActivityInputs] = []
     import_attempts: list[int] = []
     updates: list[UpdateExternalDataJobStatusInputs] = []
@@ -150,10 +166,14 @@ async def _run_workflow(
 
     with (
         mock.patch.object(workflow_module.workflow, "start_child_workflow", new_callable=mock.AsyncMock),
-        mock.patch.object(workflow_module, "get_data_import_finished_metric"),
+        mock.patch.object(workflow_module, "get_data_import_finished_metric") as finished_metric,
         mock.patch.object(workflow_module, "get_import_handoffs_per_run_metric") as handoffs_metric,
         mock.patch.object(workflow_module, "get_retry_budget_reduced_metric"),
-        mock.patch.object(workflow_module, "get_run_deferred_metric"),
+        mock.patch.object(workflow_module, "get_run_deferred_metric") as deferred_metric,
+        mock.patch.object(
+            workflow_module, "get_organization_deactivated_skipped_metric"
+        ) as organization_deactivated_metric,
+        mock.patch.object(workflow_module, "get_v3_lock_skipped_metric") as lock_skipped_metric,
     ):
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
@@ -168,10 +188,12 @@ async def _run_workflow(
                     updates=updates,
                     buffer_one=buffer_one,
                     failed_runs_in_a_row=failed_runs_in_a_row,
-                    deferred=deferred,
+                    lock_result=lock_result,
+                    import_started=import_started,
                 ),
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
+                max_heartbeat_throttle_interval=workflow_module.dt.timedelta(milliseconds=50),
             ):
                 handle = await env.client.start_workflow(
                     ExternalDataJobWorkflow.run,
@@ -186,6 +208,9 @@ async def _run_workflow(
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=workflow_module.dt.timedelta(hours=1),
                 )
+                if WAIT_FOR_CANCEL in script:
+                    await import_started.wait()
+                    await handle.cancel()
                 try:
                     await handle.result()
                 except WorkflowFailureError:
@@ -194,6 +219,11 @@ async def _run_workflow(
 
         handoffs_recorded = [call.args[0] for call in handoffs_metric.return_value.record.call_args_list]
         assert all(call.args == ("Postgres",) for call in handoffs_metric.call_args_list)
+        stand_downs = {
+            "deferred": deferred_metric.return_value.add.call_count,
+            "organization_deactivated": organization_deactivated_metric.return_value.add.call_count,
+            "lock_skipped": lock_skipped_metric.return_value.add.call_count,
+        }
 
     return _WorkflowRun(
         import_inputs=import_inputs,
@@ -201,8 +231,10 @@ async def _run_workflow(
         updates=updates,
         buffer_one_triggers=len(buffer_one),
         handoffs_recorded=handoffs_recorded,
+        finished_labels=[(call.kwargs["status"], call.kwargs["streak"]) for call in finished_metric.call_args_list],
         history=history,
         failed=failed,
+        stand_downs=stand_downs,
     )
 
 
@@ -316,14 +348,24 @@ async def test_a_failing_schema_gets_fewer_attempts_than_a_healthy_one():
 
 
 @pytest.mark.asyncio
-async def test_a_deferred_run_imports_nothing_and_writes_no_status():
+@pytest.mark.parametrize(
+    "lock_result",
+    [
+        AcquireV3LockActivityOutputs(acquired=False, token="token", deferred=True),
+        AcquireV3LockActivityOutputs(acquired=False, token="token", organization_deactivated=True),
+    ],
+    ids=["deferred", "organization_deactivated"],
+)
+async def test_a_stood_down_run_imports_nothing_and_writes_no_status(lock_result: AcquireV3LockActivityOutputs):
     # A terminal status here would repaint the schema and overwrite the error the customer reads.
-    run = await _run_workflow([SUCCEED], deferred=True)
+    run = await _run_workflow([SUCCEED], lock_result=lock_result)
 
     assert not run.failed
     assert run.import_inputs == []
     assert run.updates == []
     assert run.buffer_one_triggers == 0
+    reason = "deferred" if lock_result.deferred else "organization_deactivated"
+    assert run.stand_downs == {"deferred": 0, "organization_deactivated": 0, "lock_skipped": 0, reason: 1}
 
 
 @pytest.mark.asyncio
@@ -332,3 +374,23 @@ async def test_the_import_learns_which_retry_cap_it_is_on():
     run = await _run_workflow([SUCCEED])
 
     assert [inputs.on_resumable_retry_budget for inputs in run.import_inputs] == [True]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "script,expected_labels",
+    [
+        pytest.param([WAIT_FOR_CANCEL], ("cancelled", "none"), id="cancelled_run_is_not_a_failure"),
+        pytest.param([FAIL], ("failed", "new"), id="failed_run_is_still_a_failure"),
+    ],
+)
+async def test_the_finished_metric_keeps_cancelled_runs_out_of_failures(
+    script: list[str], expected_labels: tuple[str, str]
+):
+    # The failure-rate alerts count status="failed". One action that cancels every schema of a
+    # source must not page them; the job row still records the run as Failed.
+    run = await _run_workflow(script)
+
+    assert run.failed
+    assert run.finished_labels == [expected_labels]
+    assert [update.status for update in run.updates] == [ExternalDataJob.Status.FAILED]

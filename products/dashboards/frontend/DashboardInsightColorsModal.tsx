@@ -91,7 +91,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
 
     const ensureEditMode = (): void => {
         if (!dashboardEditing) {
-            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardInsightColorsModal)
+            setDashboardEditing(true, DashboardEventSource.DashboardInsightColorsModal)
         }
     }
 
@@ -199,7 +199,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                         data-attr="dashboard-colors-save"
                         onClick={() => {
                             hideInsightColorsModal()
-                            setDashboardEditing(null, DashboardEventSource.DashboardInsightColorsModal)
+                            setDashboardEditing(false, DashboardEventSource.DashboardInsightColorsModal)
                         }}
                         disabledReason={
                             dashboardLoading

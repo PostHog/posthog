@@ -1,10 +1,15 @@
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Final, Literal, get_args
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.alias_generators import to_camel
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
+
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 
 
 class Contract(BaseModel):
@@ -34,6 +39,9 @@ class TraceNode(Contract):
     id: str
     kind: TraceNodeKind
     name: str
+    label: str = Field(
+        description="The node's name, numbered #1, #2 and so on when nodes in the trace share it, in tree order."
+    )
     model: str | None
     stats: TraceNodeStats
     has_error: bool
@@ -60,15 +68,27 @@ class TraceGit(Contract):
     repo: str | None = Field(description="The repository as owner/name, or null when the branch's event has none.")
 
 
-class Trace(Contract):
+class TraceOverview(Contract):
     id: str
     name: str | None
     created_at: datetime
     session_id: str | None
-    person: TracePerson | None
     totals: TraceNodeStats
     has_error: bool
     error_count: int
+    totals_partial: bool = Field(
+        description="Whether the token counts, error count and tools were computed from only some of the trace's "
+        "events, because the trace has more events than were read or may have started before the time range read."
+    )
+    cost_and_latency_partial: bool = Field(
+        description="Whether the cost and latency were computed from only some of the trace's events, because the "
+        "trace may have started before the time range read. Otherwise they cover the whole trace, even when the "
+        "token counts are partial."
+    )
+
+
+class Trace(TraceOverview):
+    person: TracePerson | None
     tree: list[TraceNode]
     timeline: list[TraceTimelineRow]
     total_ms: float
@@ -95,10 +115,13 @@ class TraceNodeMetadata(Contract):
     prompt_version: float | None
 
 
-class TraceNodeEvent(Contract):
+class TraceNodeDetailEvent(Contract):
     name: str
     uuid: str
     timestamp: datetime
+
+
+class TraceNodeEvent(TraceNodeDetailEvent):
     properties: dict[str, Any] = Field(
         description="The event's properties as ingested, including its input and output values."
     )
@@ -107,12 +130,170 @@ class TraceNodeEvent(Contract):
     )
 
 
+TraceMessageRole = Literal["system", "user", "assistant", "tool"]
+# Unlike a bare Literal, a type alias becomes an OpenAPI component named after the alias. A bare Literal would take a
+# name derived from the field, `MediaTypeEnum`, which any other `media_type` field could collide with.
+type TraceAttachmentMediaType = Literal["image", "audio", "video", "file"]
+
+
+class TraceTextPart(Contract):
+    kind: Literal["text"]
+    text: str = Field(description="The text of the message, as captured.")
+
+
+class TraceThinkingPart(Contract):
+    kind: Literal["thinking"]
+    text: str = Field(description="The model's reasoning text.")
+
+
+class TraceToolCallPart(Contract):
+    kind: Literal["toolCall"]
+    name: str = Field(description="The name of the called tool, or an empty string when the event has none.")
+    args: Any = Field(
+        description="The call's arguments, parsed from JSON text when they parse, with JSON text inside them parsed "
+        "too. Otherwise the text as captured."
+    )
+    result: Any | None = Field(
+        description="The content of the tool message that answers this call, parsed from JSON text when no number "
+        "loses precision in a browser, with JSON text inside it parsed the same way. Null when no tool message "
+        "answers the call."
+    )
+
+
+class TraceAttachmentPart(Contract):
+    kind: Literal["attachment"]
+    media_type: TraceAttachmentMediaType = Field(description="The kind of media, which decides how it is shown.")
+    name: str | None = Field(
+        description="The file name, or the content item's type for an item that is not known media. Null otherwise."
+    )
+    mime_type: str | None = Field(description="The MIME type, such as `image/png`, or null when it is not known.")
+    url: str | None = Field(
+        description="A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded "
+        "media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted."
+    )
+
+
+TraceMessagePart = Annotated[
+    TraceTextPart | TraceThinkingPart | TraceToolCallPart | TraceAttachmentPart, Field(discriminator="kind")
+]
+
+
+class TraceMessage(Contract):
+    id: str = Field(description="An id that is unique within the node, made of the node id, the side and a position.")
+    role: TraceMessageRole
+    parts: list[TraceMessagePart] = Field(
+        description="The message's text, reasoning, tool calls and attachments, in order."
+    )
+    is_internal: bool = Field(
+        description="Whether the message is a tool message, or holds only reasoning and tool calls."
+    )
+    source_node_id: str | None = Field(
+        description="The id of the node whose input or output holds this message, or null when it is not known."
+    )
+
+
+class TraceMessagesSide(Contract):
+    kind: Literal["messages"]
+    messages: list[TraceMessage] = Field(
+        description="The conversation, normalized from the provider's format by the built-in parsers and the "
+        "project's custom parsers."
+    )
+
+
+class TraceJsonSide(Contract):
+    kind: Literal["json"]
+    value: Any = Field(
+        description="The side's value for a side that is not a conversation, with JSON text in it parsed when no "
+        "number loses precision in a browser. The value as captured when the side could not be normalized."
+    )
+
+
+TraceSideContent = Annotated[TraceMessagesSide | TraceJsonSide, Field(discriminator="kind")]
+
+
+class TraceNodeContent(Contract):
+    input: TraceSideContent = Field(description="The node's input, as messages or as JSON.")
+    output: TraceSideContent = Field(description="The node's output, as messages or as JSON.")
+
+
+PARSER_RECIPE_MAX_SOURCE_LENGTH: Final = 100_000
+
+
+class TraceParserTestError(Contract):
+    source: Literal["existing_recipes", "candidate"] = Field(
+        description="Whose parsers failed on the side: the project's saved ones, so the side fails with or without the "
+        "parser under test, or the parser under test."
+    )
+    message: str = Field(description="Why the parsers stopped, such as running out of time or work budget.")
+
+
+class TraceParserTestSide(Contract):
+    needed_fixing: bool = Field(
+        description="The side has content that the project's saved parsers leave unparsed, so it renders as raw JSON "
+        "or as one message holding its JSON."
+    )
+    fixed: bool = Field(description="The side needed fixing, and the parser under test makes it recognized.")
+    broken: bool = Field(
+        description="The project's saved parsers parse the side, and with the parser under test added it is no longer "
+        "parsed, for example because the parser uses up the time the side needed."
+    )
+    error: TraceParserTestError | None = Field(description="Set when parsing the side failed instead of finishing.")
+
+
+class TraceNodeParserTest(Contract):
+    content: TraceNodeContent = Field(
+        description="The node's input and output as they would render with the parser under test saved."
+    )
+    input: TraceParserTestSide
+    output: TraceParserTestSide
+    passed: bool = Field(
+        description="At least one side needed fixing, the parser under test fixes every side that did, and it breaks "
+        "no side. Nothing is saved either way."
+    )
+
+
 class TraceNodeDetail(Contract):
     id: str
     kind: TraceNodeKind
     error: str | None
     metadata: TraceNodeMetadata
-    event: TraceNodeEvent | None
+    event: TraceNodeDetailEvent | None
+    content: TraceNodeContent = Field(description="The node's input and output, ready to render.")
+
+
+class TraceNodeRaw(Contract):
+    id: str = Field(description="The node id: the event's uuid, or the trace id for the root node.")
+    kind: TraceNodeKind
+    event: TraceNodeEvent | None = Field(
+        description="The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event."
+    )
+
+
+_JSON_VALUE_VARIANTS: list[dict[str, Any]] = [
+    {"type": "object", "additionalProperties": True},
+    {"type": "array", "items": {}},
+    {"type": "string"},
+    {"type": "number"},
+    {"type": "boolean"},
+]
+JSONValue = Annotated[Any, WithJsonSchema({"oneOf": _JSON_VALUE_VARIANTS})]
+NullableJSONValue = Annotated[Any, WithJsonSchema({"oneOf": [*_JSON_VALUE_VARIANTS, {"type": "null"}]})]
+
+
+class TraceNodeDatasetItem(Contract):
+    client_item_id: str = Field(
+        description="An id that identifies the step among dataset items: the event's uuid, or the trace id for the root."
+    )
+    source_trace_id: str = Field(description="The id of the trace the step belongs to.")
+    source_event_id: str = Field(description="The step's event uuid, or the trace id for the root.")
+    source_timestamp: datetime = Field(description="When the trace happened, as given by the timestamp hint.")
+    input: JSONValue = Field(description="The step's input value as ingested, or an empty object when it has none.")
+    source_output: NullableJSONValue = Field(
+        description="The step's output value as ingested, or null when it has none."
+    )
+    metadata: dict[str, Any] = Field(
+        description="The step's custom event properties, without `$` names. Empty for the root."
+    )
 
 
 class EvaluationPassFilters(Contract):
@@ -178,6 +359,9 @@ class TraceCluster(Contract):
     job_name: str | None
     cluster_id: int = Field(description="The cluster's id within its run. -1 is the run's outliers.")
     title: str | None
+    label: str = Field(
+        description="The cluster's title, or Outliers for the run's outliers, or Cluster <id> when the run gave it no title."
+    )
     description: str | None
     is_outlier: bool = Field(description="The trace fit no cluster in this run.")
 
@@ -280,6 +464,15 @@ class TraceFeedbackSummary(Contract):
     thumbs_down: int = Field(description="Thumbs down answers to 2-point survey rating questions.")
 
 
+class TraceStepFeedback(Contract):
+    node_id: str = Field(
+        description="The tree node the entries target: the step's event uuid, or the trace id for trace-level feedback."
+    )
+    scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
+    response_count: int
+    total: int = Field(description="Scores plus responses.")
+
+
 class TraceFeedback(Contract):
     scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
     responses: list[TraceFeedbackResponse] = Field(description="What users said, oldest first.")
@@ -290,6 +483,7 @@ class TraceFeedback(Contract):
         description="ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes."
     )
     summary: TraceFeedbackSummary
+    steps: list[TraceStepFeedback] = Field(description="One entry per node with feedback, sorted by node id.")
 
 
 class TraceHumanReviewScore(Contract):
@@ -326,6 +520,216 @@ class TraceReviewStatus(Contract):
         description="The review queue the trace waits in, or null when it waits in none the user may see. Saving a review "
         "normally takes the trace out of its queue."
     )
+
+
+class TraceListItem(TraceOverview):
+    default_node_id: str | None = Field(
+        description="The step the trace opens on. Null when the totals are partial, because the opening step may be "
+        "among the events not read."
+    )
+    first_error: str | None = Field(
+        description="The error text of the trace's earliest failed step that carries one, cut at 200 characters. "
+        "Null when no failed step carries error text."
+    )
+    tools_called: list[str] = Field(
+        description="The tools the trace's steps called, each once, in the order first called."
+    )
+    is_support_trace: bool = Field(description="Whether a support agent ran the trace while impersonating the user.")
+    review: TraceReviewStatus | None = Field(
+        description="The trace's review and review queue, or null when it has neither that the user may see."
+    )
+
+
+class SessionListItem(Contract):
+    """A session and its facts. The facts cover every trace of the session that the AI events retention still holds,
+    whatever a list's date range, and at most its 1,000 most recent traces. A session the AI events retention does not
+    hold whole is read from the shared events table instead, over fewer of its most recent traces the more such
+    sessions a list page holds: from a week before a list's date range to its end, or for a single session from 10
+    minutes before its timestamp hint to now."""
+
+    id: str = Field(description="The session id, as sent in `$ai_session_id`.")
+    first_seen: datetime = Field(
+        description="When the session's first turn started. Send it as the timestamp hint of links into the session."
+    )
+    last_seen: datetime = Field(description="When the session's last activity ended.")
+    duration_ms: float | None = Field(description="Milliseconds from the first turn's start to the last answer.")
+    turn_count: int = Field(description="How many traces the session holds, one per turn.")
+    totals: TraceNodeStats = Field(
+        description="The sum of the session's trace totals. Latency is the total time the user waited, summed over the "
+        "turns."
+    )
+    errored_turns: int = Field(description="How many of the session's turns have an error.")
+    totals_partial: bool = Field(
+        description="Whether the session holds more traces than were read, so that the first seen time, duration, "
+        "turn count, totals and errored turns were computed from only its most recent traces."
+    )
+
+
+class SessionList(Contract):
+    items: list[SessionListItem] = Field(description="A page of sessions, by latest activity in range, newest first.")
+    next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
+
+
+class TraceListCounts(Contract):
+    total: int = Field(description="How many traces the selection holds, ignoring its quick filter.")
+    errors: int = Field(description="How many of them have an error.")
+    feedback: int = Field(description="How many of them have user feedback.")
+
+
+class TraceList(Contract):
+    items: list[TraceListItem] = Field(description="A page of traces, newest first.")
+    counts: TraceListCounts | None = Field(description="The selection's counts, on the first page only.")
+    next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
+
+
+class TracePreviewMissingReason(LabeledStrEnum):
+    TOO_LARGE = "too_large"
+    TIMED_OUT = "timed_out"
+
+
+class TracePreview(Contract):
+    trace_id: str = Field(description="The trace the preview belongs to.")
+    input: str | None = Field(
+        description="The user's message the trace answered, cut at 200 characters. Null when there is nothing to "
+        "show, or when it could not be read and `inputMissingReason` says why."
+    )
+    output: str | None = Field(
+        description="The trace's answer, cut at 200 characters. Null when there is nothing to show, or when it could "
+        "not be read and `outputMissingReason` says why."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there "
+        "is nothing to show."
+    )
+    output_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `output` is null: `too_large` when the answer is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `output` is null. Null with a null `output` means "
+        "there is nothing to show."
+    )
+
+
+class TracePreviewList(Contract):
+    items: list[TracePreview] = Field(
+        description="One preview per requested trace, in the order requested. A trace that is not found previews as "
+        "nulls."
+    )
+
+
+class TraceTurnSides(Contract):
+    input: TraceSideContent | None = Field(
+        description="What the trace added to the conversation: the user's message and what followed it, without the "
+        "history earlier turns carry. Null when it could not be read or there is nothing to show."
+    )
+    output: TraceSideContent | None = Field(
+        description="The trace's answer, with the hidden steps that led to it. Null when it could not be read or "
+        "there is nothing to show."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
+        "the page ran out of time before reading it. Null with a null `input` means there is nothing to show."
+    )
+    output_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
+        "the page ran out of time before reading it. Null with a null `output` means there is nothing to show."
+    )
+
+
+class TraceTurn(TraceTurnSides):
+    trace_id: str = Field(description="The trace the turn belongs to.")
+
+
+class SessionTurn(TraceListItem):
+    wait_slow: bool = Field(description="Whether the user waited 10 seconds or more for the turn's answer.")
+    silence_before_ms: int | None = Field(
+        description="Milliseconds from the previous turn's answer to this turn's start, when they are a minute or "
+        "more. Null for a shorter gap and for the session's first turn."
+    )
+
+
+class SessionTurnPage(Contract):
+    items: list[SessionTurn] = Field(
+        description="A page of the session's traces, one per turn, oldest first, each read as the traces list reads "
+        "it. A turn's input and output are read by trace id from the traces' turns."
+    )
+    previous_cursor: str | None = Field(description="The cursor of the page before this one, or null on the first.")
+    next_cursor: str | None = Field(
+        description="The cursor of the next page, or null on the last one. A page read before a cursor always has one."
+    )
+
+
+class TraceTurnList(Contract):
+    items: list[TraceTurn] = Field(
+        description="One turn per requested trace that was found, in the order requested. A trace that is not found "
+        "is left out."
+    )
+
+
+class TracePersonItem(Contract):
+    trace_id: str = Field(description="The trace the person belongs to.")
+    person: TracePerson | None = Field(
+        description="The person the trace ran for, labeled by the project's display name properties or else by "
+        "their distinct id. Null when the trace is not found or carries no distinct id."
+    )
+
+
+class TracePeopleList(Contract):
+    items: list[TracePersonItem] = Field(description="One item per requested trace, in the order requested.")
+
+
+class SessionPreview(Contract):
+    session_id: str = Field(description="The session the title belongs to.")
+    input: str | None = Field(
+        description="The session's title: the user's message its first trace answered, cut at 200 characters. The "
+        "first trace is the one whose first event came earliest, ties broken by trace id. Null when there is nothing "
+        "to show, when the AI events retention no longer holds the session, or when the message could not be read and "
+        "`inputMissingReason` says why."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there "
+        "is nothing to show."
+    )
+
+
+class SessionPreviewList(Contract):
+    items: list[SessionPreview] = Field(
+        description="One title per requested session, in the order requested. A session that is not found has a null "
+        "title."
+    )
+
+
+class SessionPersonItem(Contract):
+    session_id: str = Field(description="The session the person belongs to.")
+    person: TracePerson | None = Field(
+        description="The person the session's first trace ran for, labeled by the project's display name properties or "
+        "else by their distinct id. Null when the AI events retention no longer holds the session, or its first trace "
+        "carries no distinct id."
+    )
+
+
+class SessionPeopleList(Contract):
+    items: list[SessionPersonItem] = Field(description="One item per requested session, in the order requested.")
+
+
+TraceSentimentLabel = Literal["positive", "neutral", "negative"]
+
+
+class TraceSentiment(Contract):
+    label: TraceSentimentLabel = Field(
+        description="The trace's sentiment, from the average of its latest sentiment result per generation. Neutral "
+        "when neither positive nor negative beats neutral by a clear margin."
+    )
+    score: float = Field(description="The average score of the label, from 0 to 1.")
+
+
+class TraceSentimentItem(Contract):
+    trace_id: str = Field(description="The trace the sentiment belongs to.")
+    sentiment: TraceSentiment | None = Field(description="Null when the trace is not found or has no sentiment result.")
+
+
+class TraceSentimentList(Contract):
+    items: list[TraceSentimentItem] = Field(description="One item per requested trace, in the order requested.")
 
 
 class TraceSearchMatch(Contract):
@@ -378,6 +782,7 @@ class TraceSummaryContent(Contract):
 class TraceSummaryFailure(Contract):
     reason: TraceSummaryFailureReason
     message: str = Field(description="Why the summary failed, ready to show to the user.")
+    retryable: bool = Field(description="Whether a new request could succeed; false when it would fail the same way.")
 
 
 class TraceSummary(Contract):
@@ -433,9 +838,8 @@ class TraceExportFile(Contract):
         description="True when the trace has more events than an export reads. The file then holds the earliest "
         "events only, and leaves out the later steps."
     )
-    nodes: list[TraceNodeDetail] = Field(
-        description="Every node with its event properties as ingested, inputs and outputs included: the root first, "
-        "then the tree in pre-order."
+    nodes: list[TraceNodeRaw] = Field(
+        description="Every node with its event as ingested: the root first, then the tree in pre-order."
     )
 
 
@@ -568,7 +972,6 @@ class PassRateOverview(Contract):
     median_comparison: PeriodComparison | None = Field(
         description="Median pass rate in each period, over evaluations with results in both. Null when none has."
     )
-    median_trend: list[float | None] = Field(description="Median pass rate per bucket, aligned with `buckets`.")
 
 
 class OverviewSentiment(Contract):
@@ -633,3 +1036,267 @@ class ScoreHistogram(Contract):
     buckets: list[ScoreBucket] = Field(
         description="One bucket per integer on a small integer scale, else ten equal buckets across the scale."
     )
+
+
+EvaluationUnitKind = Literal["generation", "trace", "session"]
+PreviewOutcome = Literal["pass", "fail", "na", "error"]
+
+
+@frozen
+class EvaluationPreviewSettle:
+    """How an unsaved trace or session evaluation waits for a unit to settle, as far as a preview reads it."""
+
+    strategy: Literal["fixed_window", "inactivity"] | None = None
+    window_seconds: int | None = None
+    quiet_period_seconds: int | None = None
+
+
+@frozen
+class EvaluationPreviewScope:
+    """Which traffic an unsaved evaluation would run on."""
+
+    target: EvaluationUnitKind
+    conditions: Sequence[Mapping[str, Any]]
+    settle: EvaluationPreviewSettle
+
+
+@frozen
+class EvaluationTrafficSample:
+    """One unit an unsaved evaluation would run on, previewed from its latest generation."""
+
+    sample_id: str
+    sample_type: EvaluationUnitKind
+    trace_id: str | None
+    timestamp: datetime
+    input_preview: str
+    output_preview: str
+
+
+@frozen
+class JudgeModel:
+    provider: str
+    model: str
+    provider_key_id: str | None
+
+
+@frozen
+class UnsavedJudge:
+    """An LLM judge that is not saved yet, already validated the way saving validates it."""
+
+    evaluation_config: Mapping[str, Any]
+    output_type: Literal["boolean", "numeric", "categorical"]
+    output_config: Mapping[str, Any]
+    model: JudgeModel | None
+
+
+@frozen
+class EvaluationTestResult:
+    """What an unsaved evaluation returned for one unit."""
+
+    sample_id: str
+    sample_type: EvaluationUnitKind
+    event_uuid: str | None
+    trace_id: str | None
+    input_preview: str
+    output_preview: str
+    result: bool | None
+    score: float | None
+    categories: list[str] | None
+    reasoning: str | None
+    error: str | None
+    outcome: PreviewOutcome | None
+
+
+class JudgeModelError(Exception):
+    """The judge's model settings name a provider key it cannot use."""
+
+
+class JudgeTestAlreadyRunningError(Exception):
+    """This user's previous judge test has not finished."""
+
+
+@frozen
+class EvalSuggestionsPlan:
+    """The teams the weekly eval suggestions run covers, and how many run at once."""
+
+    team_ids: list[int]
+    max_concurrent_teams: int
+
+
+@frozen
+class EvalSuggestionRun:
+    id: UUID
+    trigger: str
+    created_at: datetime
+    completed_at: datetime | None
+
+
+@frozen
+class EvalSuggestion:
+    id: UUID
+    kind: str
+    status: str
+    applies: bool
+    template_key: str
+    headline: str
+    outcome: str
+    reason: str
+    observation: str
+    observation_scope: str
+    draft: Mapping[str, Any]
+    filters: Sequence[Mapping[str, Any]]
+    rollout_percentage: float
+    measured_failure_rate: float | None
+    sample_size: int | None
+    evidence: Sequence[Mapping[str, Any]]
+    estimated_weekly_runs: int | None
+    estimated_weekly_cost_usd: float | None
+    judge_model: str
+    created_evaluation: UUID | None
+    target_evaluation: UUID | None
+    target_evaluation_name: str | None
+    fix_problem: str | None
+    similar_evaluation: UUID | None
+    similar_evaluation_name: str | None
+    dismiss_reason: str | None
+    created_at: datetime
+
+
+@frozen
+class EvalSuggestionList:
+    run: EvalSuggestionRun | None
+    pending: bool
+    results: list[EvalSuggestion]
+
+
+@frozen
+class EvalSuggestionSettings:
+    enabled: bool
+
+
+@frozen
+class EvalSuggestionAcceptEstimate:
+    target: str
+    units: int
+    window_start: datetime | None
+    window_end: datetime | None
+    judge_model: str | None
+    estimated_cost_usd: float | None
+
+
+@frozen
+class EvalSuggestionAccepted:
+    suggestion: EvalSuggestion
+    evaluation_id: UUID
+    backfill_id: UUID | None
+    backfill_units: int | None
+    # A repeat returns the evaluation the first accept created, which can have been restricted since.
+    evaluation_access: ObjectAccessRef
+
+
+class EvalSuggestionNotFoundError(Exception):
+    """No suggestion with this id in the team, or it names an evaluation the user cannot read."""
+
+
+class TraceMetricKey(LabeledStrEnum):
+    COST = "cost"
+    USERS = "users"
+    SESSIONS = "sessions"
+    TRACES = "traces"
+    ERROR_RATE = "error_rate"
+    P95_LATENCY = "p95_latency"
+
+
+class TraceMetricChangeUnit(LabeledStrEnum):
+    PERCENT = "percent"
+    POINTS = "points"
+    SECONDS = "seconds"
+
+
+class TraceMetricChangeTone(LabeledStrEnum):
+    GOOD = "good"
+    BAD = "bad"
+    NEUTRAL = "neutral"
+
+
+class TraceMetricStatus(LabeledStrEnum):
+    OK = "ok"
+    NOT_SET_UP = "not_set_up"
+
+
+class TraceMetricBucketSize(LabeledStrEnum):
+    HOUR = "hour"
+    DAY = "day"
+
+
+class TraceMetricLatencyQuantiles(Contract):
+    p50_seconds: float = Field(description="The median trace latency, in seconds.")
+    p99_seconds: float = Field(description="The 99th percentile trace latency, in seconds.")
+
+
+class TraceMetricTile(Contract):
+    key: TraceMetricKey = Field(description="The metric this tile shows.")
+    label: str = Field(description="The metric's display name.")
+    value: float | None = Field(
+        description="The metric over the date range. Cost is in USD, error rate is a fraction from 0 to 1, p95 latency "
+        "is in seconds. Null when the range has nothing to compute it from."
+    )
+    previous: float | None = Field(
+        description="The metric over the period of the same length right before the date range, or null."
+    )
+    change: float | None = Field(
+        description="How far the value moved from the previous period, in `changeUnit`. Null when either side is null, "
+        "or when a percent change has a previous value of zero."
+    )
+    change_unit: TraceMetricChangeUnit = Field(description="The unit of `change`.")
+    change_tone: TraceMetricChangeTone = Field(
+        description="Whether the change is good or bad news. A rising error rate or p95 latency is `bad` and a falling "
+        "one `good`. Every other metric, and no change, is `neutral`."
+    )
+    status: TraceMetricStatus = Field(
+        description="`not_set_up` when the project has traces in the range but none carries the data this metric "
+        "needs, such as no cost, no latency, no session or no identified user."
+    )
+    docs_url: str | None = Field(
+        description="The docs page that explains how to capture this metric. Set only when `status` is `not_set_up`."
+    )
+    setup_label: str | None = Field(
+        description="The text of the link to `docsUrl`, such as Identify users. Set only when `status` is `not_set_up`."
+    )
+    detail: str | None = Field(
+        description="One line about the value, such as the number of errored traces. Null on the p95 latency tile, "
+        "which has `latencyQuantiles` instead, and when the range has nothing to compute it from."
+    )
+    latency_quantiles: TraceMetricLatencyQuantiles | None = Field(
+        description="The p50 and p99 trace latency over the date range. Set only on the p95 latency tile, and null "
+        "when the range has no latency."
+    )
+    series: list[float | None] = Field(
+        description="The metric over the traces that started in each bucket, in the order of `bucketStarts`. Null "
+        "where a bucket has nothing to compute it from."
+    )
+    insight_query: str = Field(
+        description="A HogQL query that returns `series`: one row per bucket, with its start in `bucket` and the "
+        "metric in `value`. Run it as an SQL insight to explore the same numbers."
+    )
+
+
+class TraceMetrics(Contract):
+    date_from: datetime = Field(description="The start of the date range.")
+    date_to: datetime = Field(description="The end of the date range.")
+    previous_date_from: datetime = Field(description="The start of the previous period the tiles compare against.")
+    previous_date_to: datetime = Field(description="The end of the previous period, which is `dateFrom`.")
+    bucket_size: TraceMetricBucketSize = Field(description="The width of each bucket.")
+    bucket_starts: list[datetime] = Field(
+        description="The start of each hour or day of the date range in the project's time zone, oldest first, with "
+        "no gaps."
+    )
+    tiles: list[TraceMetricTile] = Field(description="One tile for each metric.")
+
+
+TRACE_METRICS_RANGE_TOO_LONG_DETAIL = "This range is too long to compute. Try a shorter one."
+
+
+class TraceMetricsRangeTooLong(Contract):
+    detail: str = Field(default=TRACE_METRICS_RANGE_TOO_LONG_DETAIL, description="What went wrong, for a person.")
+    code: Literal["range_too_long"] = Field(default="range_too_long", description="A stable code to branch on.")

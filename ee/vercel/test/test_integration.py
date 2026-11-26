@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -18,6 +18,9 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.api.email_verification import VERIFICATION_DISABLED_FLAG
+from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.integrations import IntegrationConflict, IntegrationReader
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -27,13 +30,17 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.project_creation_limits import ORGANIZATION_PROJECT_LIMIT_MESSAGE, PLAN_PROJECT_LIMIT_MESSAGE
+from posthog.tasks.email import send_email_verification_code
 from posthog.utils import absolute_uri
 
 from products.experiments.backend.facade.contracts import ExperimentChanged
 from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.api.vercel.test.base import fake_vercel_token_endpoint
 from ee.api.vercel.types import VercelUserClaims
+from ee.models.license import License, LicenseManager
 from ee.vercel.integration import (
     RequiresExistingUserLogin,
     SSOParams,
@@ -42,8 +49,14 @@ from ee.vercel.integration import (
     get_or_create_connectable_resource,
 )
 
+SIX_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 6}
+UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
+BILLING_NEXT = "%2Forganization%2Fbilling%2Foverview"
+
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
 EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
+
+EXISTING_USER_EMAIL = "kim@example.com"
 
 
 class TestVercelIntegration(TestCase):
@@ -312,12 +325,18 @@ class TestVercelIntegration(TestCase):
 
         mock_report.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("same_address", EXISTING_USER_EMAIL),
+            ("ascii_case_variant", "Kim@Example.com"),
+            ("kelvin_sign_variant", "\u212aim@example.com"),
+        ]
+    )
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_upsert_installation_existing_user_new_org(self, mock_report):
+    def test_upsert_installation_existing_user_new_org(self, _name, contact_email, mock_report):
         """Test: External user (no Vercel mapping) installs - added to org but no mapping until SSO."""
-        existing_user = User.objects.create_user(
-            email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
-        )
+        existing_user = User.objects.create_user(email=EXISTING_USER_EMAIL, password="existing", first_name="Existing")
+        self.payload["account"]["contact"]["email"] = contact_email
         new_installation_id = self.NEW_INSTALLATION_ID
         existing_user_claims = self._create_user_claims("existing_user_789")
         existing_user_claims.installation_id = new_installation_id
@@ -345,6 +364,7 @@ class TestVercelIntegration(TestCase):
         membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
         assert membership.level == OrganizationMembership.Level.OWNER
         assert OrganizationProvisioning.objects.get(organization=new_org).partner == "vercel"
+        assert list(EmailLookupHandler.users_matching_email(EXISTING_USER_EMAIL)) == [existing_user]
 
         mock_report.assert_not_called()
 
@@ -527,21 +547,88 @@ class TestVercelIntegration(TestCase):
         assert user.is_email_verified is expect_login
         assert (request.session.get(SESSION_KEY) == str(user.pk)) is expect_login
 
-    @parameterized.expand([("verified_claim", True), ("unverified_claim", False)])
-    @patch("ee.vercel.integration.report_user_signed_up")
-    def test_sso_login_verifies_a_new_users_email_only_from_a_verified_claim(
-        self, _name: str, claim_email_verified: bool, mock_report: Mock
+    @parameterized.expand(
+        [
+            ("verified_claim", True, True, False, False, None),
+            ("unverified_claim", False, True, False, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
+            ("missing_claim", None, True, False, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
+            (
+                "unverified_claim_and_send_fails",
+                False,
+                True,
+                False,
+                True,
+                f"reason=vercel_sso&next={BILLING_NEXT}&email_sent=false",
+            ),
+            (
+                "unverified_claim_and_email_unavailable",
+                False,
+                False,
+                False,
+                False,
+                f"reason=vercel_sso&next={BILLING_NEXT}&email_sent=false",
+            ),
+            (
+                "unverified_claim_and_verification_disabled_for_org",
+                False,
+                True,
+                True,
+                False,
+                f"reason=vercel_sso&next={BILLING_NEXT}",
+            ),
+        ]
+    )
+    @patch("posthog.ph_client.posthoganalytics.get_feature_flag")
+    @patch("posthog.email.is_email_available")
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_sso_logs_in_a_new_user_only_from_a_verified_claim(
+        self,
+        _name: str,
+        claim_email_verified: bool | None,
+        email_available: bool,
+        verification_disabled_for_org: bool,
+        send_fails: bool,
+        verify_email_query: str | None,
+        mock_send_email: Mock,
+        mock_is_email_available: Mock,
+        mock_get_feature_flag: Mock,
     ) -> None:
+        mock_is_email_available.return_value = email_available
+        mock_get_feature_flag.side_effect = lambda key, distinct_id, **_: (
+            verification_disabled_for_org
+            and key == VERIFICATION_DISABLED_FLAG
+            and distinct_id == str(self.organization.id)
+        )
+        if send_fails:
+            mock_send_email.side_effect = Exception("email provider unavailable")
+        elif not email_available:
+            mock_send_email.side_effect = send_email_verification_code
         claims = self._create_user_claims("vercel_new_user")
         claims.user_email = "new-sso-user@example.com"
         claims.user_email_verified = claim_email_verified
+        code = f"new_user_code_{_name}"
+        VercelIntegration.set_cached_claims(code, claims, timeout=300)
+        team, resource = self.make_team_with_vercel(self.organization, self.user)
         request = RequestFactory().get("/")
         SessionMiddleware(lambda request: HttpResponse()).process_request(request)
 
-        user = VercelIntegration._authenticate_and_login_user(request, claims, None)
+        redirect_url = VercelIntegration.authenticate_sso(
+            request, SSOParams(mode="sso", code=code, state="state", path="billing", resource_id=str(resource.pk))
+        )
 
-        assert user.email == "new-sso-user@example.com"
-        assert user.is_email_verified is claim_email_verified
+        user = User.objects.get(email="new-sso-user@example.com")
+        self.installation.refresh_from_db()
+        assert self.installation.config["user_mappings"]["vercel_new_user"] == user.pk
+        assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        assert user.current_team == team
+        assert user.is_email_verified is (claim_email_verified is True)
+        if verify_email_query is None:
+            assert redirect_url == VercelIntegration.SSO_PATH_REDIRECT_MAP["billing"]
+            assert request.session.get(SESSION_KEY) == str(user.pk)
+        else:
+            assert redirect_url == f"/verify_email/{user.uuid}?{verify_email_query}"
+            assert SESSION_KEY not in request.session
+            assert mock_send_email.call_args.args[0] == user.pk
 
     @parameterized.expand(
         [
@@ -823,9 +910,24 @@ class TestVercelIntegration(TestCase):
 
         mock_report.assert_not_called()
 
-    def test_get_resource_not_found(self):
+    @parameterized.expand([("missing_id",), ("another_organization",), ("not_a_number",)])
+    def test_resource_not_found(self, case: str):
+        if case == "another_organization":
+            other_org = Organization.objects.create(name="Other Org")
+            _, other_resource = self.make_team_with_vercel(other_org, self.user)
+            resource_id = str(other_resource.pk)
+        else:
+            resource_id = "999999" if case == "missing_id" else "abc"
+
         with self.assertRaises(NotFound):
-            VercelIntegration.get_resource("999999")
+            VercelIntegration.get_resource(self.installation_id, resource_id)
+        with self.assertRaises(NotFound):
+            VercelIntegration.update_resource(self.installation_id, resource_id, {"name": "Hacked"})
+        with self.assertRaises(NotFound):
+            VercelIntegration.delete_resource(self.installation_id, resource_id)
+        if case == "another_organization":
+            other_resource.refresh_from_db()
+            assert other_resource.config["name"] == "Test Resource"
 
     def test_create_resource(self):
         resource_data = {
@@ -851,12 +953,84 @@ class TestVercelIntegration(TestCase):
         assert resource.team.organization == self.organization
         assert resource.created_by == self.installation.created_by
 
+    @parameterized.expand(
+        [
+            ("billing_grants_more_projects", [], [SIX_PROJECTS_FEATURE], None, None),
+            ("billing_grants_no_more_projects", [], [], None, PLAN_PROJECT_LIMIT_MESSAGE),
+            ("at_organization_maximum", [UNLIMITED_PROJECTS_FEATURE], [], 1, ORGANIZATION_PROJECT_LIMIT_MESSAGE),
+        ]
+    )
+    def test_create_resource_checks_project_limit(
+        self,
+        _name: str,
+        stored_features: list[dict],
+        billing_features: list[dict],
+        organization_maximum: int | None,
+        refusal: str | None,
+    ) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123", plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=UTC)
+        )
+        self.organization.available_product_features = stored_features
+        self.organization.save()
+        Team.objects.create(organization=self.organization, name="Existing project")
+        resource_data = {
+            "productId": "posthog",
+            "name": "Second project",
+            "metadata": {},
+            "billingPlanId": "posthog-usage-based",
+        }
+
+        with (
+            patch("ee.vercel.integration.get_cached_instance_license", return_value=license),
+            patch("ee.billing.billing_manager.http_session.get") as billing_get,
+            patch("posthog.project_creation_limits.MAX_ALLOWED_PROJECTS_PER_ORG", organization_maximum or 2000),
+        ):
+            billing_get.return_value.status_code = 200
+            billing_get.return_value.json.return_value = {"available_product_features": billing_features}
+            if refusal is None:
+                VercelIntegration.create_resource(self.installation_id, resource_data)
+            else:
+                with self.assertRaises(exceptions.PermissionDenied) as refused:
+                    VercelIntegration.create_resource(self.installation_id, resource_data)
+                assert refused.exception.detail == refusal
+
+        expected_project_count = 2 if refusal is None else 1
+        assert Team.objects.filter(organization=self.organization).count() == expected_project_count
+
+    def test_repeated_plan_limit_refusals_read_billing_once_per_cooldown(self) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123", plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=UTC)
+        )
+        self.organization.available_product_features = []
+        self.organization.save()
+        Team.objects.create(organization=self.organization, name="Existing project")
+        resource_data = {
+            "productId": "posthog",
+            "name": "Second project",
+            "metadata": {},
+            "billingPlanId": "posthog-usage-based",
+        }
+
+        with (
+            patch("ee.vercel.integration.get_cached_instance_license", return_value=license),
+            patch("ee.billing.billing_manager.http_session.get") as billing_get,
+        ):
+            billing_get.return_value.status_code = 200
+            billing_get.return_value.json.return_value = {"available_product_features": []}
+            for _ in range(3):
+                with self.assertRaises(exceptions.PermissionDenied):
+                    VercelIntegration.create_resource(self.installation_id, resource_data)
+
+        assert billing_get.call_count == 1
+        assert Team.objects.filter(organization=self.organization).count() == 1
+
     def test_get_resource(self):
         team, resource = self.make_team_with_vercel(self.organization, self.user)
         resource.config["metadata"] = {}
         resource.save()
 
-        result = VercelIntegration.get_resource(str(resource.pk))
+        result = VercelIntegration.get_resource(self.installation_id, str(resource.pk))
 
         assert result["id"] == str(resource.pk)
         assert result["productId"] == "posthog"
@@ -877,7 +1051,7 @@ class TestVercelIntegration(TestCase):
         resource.save()
 
         update_data = {"name": "Updated Name", "metadata": {"new": "value"}}
-        result = VercelIntegration.update_resource(str(resource.pk), update_data)
+        result = VercelIntegration.update_resource(self.installation_id, str(resource.pk), update_data)
 
         resource.refresh_from_db()
         assert resource.config["name"] == "Updated Name"
@@ -889,12 +1063,8 @@ class TestVercelIntegration(TestCase):
     def test_delete_resource(self):
         team, resource = self.make_team_with_vercel(self.organization, self.user)
         resource_id = str(resource.pk)
-        VercelIntegration.delete_resource(resource_id)
+        VercelIntegration.delete_resource(self.installation_id, resource_id)
         assert not Integration.objects.filter(pk=resource_id).exists()
-
-    def test_delete_resource_not_found(self):
-        with self.assertRaises(NotFound):
-            VercelIntegration.delete_resource("999999")
 
     def test_create_resource_missing_name(self):
         resource_data = {
@@ -957,26 +1127,6 @@ class TestVercelIntegration(TestCase):
         org = org_factory(self)
         result = VercelIntegration._get_installation_for_organization(org)
         assert (result == self.installation) if should_exist else (result is None)
-
-    @parameterized.expand(
-        [
-            ("success", {"access_token": "test_token"}, "test_token"),
-            ("missing", {}, None),
-        ]
-    )
-    def test_get_access_token(self, _, credentials, expected):
-        self.installation.sensitive_config["credentials"] = credentials
-        self.installation.save()
-        result = VercelIntegration._get_access_token(self.installation)
-        assert result == expected
-
-    def test_get_access_token_fallback_from_config(self):
-        """Pre-migration installations store credentials in config — fallback should find them."""
-        self.installation.config["credentials"] = {"access_token": "legacy_token", "token_type": "Bearer"}
-        self.installation.sensitive_config = {}
-        self.installation.save()
-        result = VercelIntegration._get_access_token(self.installation)
-        assert result == "legacy_token"
 
     @parameterized.expand(
         [
@@ -1198,9 +1348,11 @@ class TestVercelIntegration(TestCase):
             ("sync_autocreates", False, True, 1),
         ]
     )
+    @patch("ee.vercel.integration.VercelAPIClient")
     def test_safe_vercel_sync_only_autocreates_resource_on_sync(
-        self, _name, is_delete, should_create, expected_sync_calls
+        self, _name, is_delete, should_create, expected_sync_calls, _mock_client
     ):
+        fake_vercel_token_endpoint(self)
         team = Team.objects.create(organization=self.organization, name="No Resource Team")
         sync_func = Mock()
 
@@ -1501,6 +1653,7 @@ class TestPushSecretsToVercel(TestCase):
     """Tests for pushing secrets to Vercel when API token is rotated."""
 
     def setUp(self):
+        fake_vercel_token_endpoint(self)
         self.user = User.objects.create_user(email="secrets@example.com", password="test", first_name="Test")
         self.organization = Organization.objects.create(name="Secrets Test Org")
         self.user.join(organization=self.organization, level=OrganizationMembership.Level.OWNER)

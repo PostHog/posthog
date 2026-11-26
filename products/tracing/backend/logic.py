@@ -10,7 +10,7 @@ import base64
 import decimal
 import datetime as dt
 from functools import cached_property
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -42,12 +42,19 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.tracing.backend.facade.contracts import TRACING_QUERY_STATUS_LABEL
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+    from .aggregation_query_runner import TraceSpansAggregationQueryRunner
 
 
 # Day-range bound on time_bucket, pinned to UTC. With convertToProjectTimezone=False the date
@@ -76,6 +83,9 @@ _ROW_LIMIT = 5000
 # ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
 # callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
 DEFAULT_AGGREGATION_ROW_LIMIT = 100
+DEFAULT_SPAN_LIST_LIMIT = 100
+MAX_SPAN_LIST_LIMIT = 1000
+MAX_PREFETCH_SPANS = 100
 
 RECENT_TRACES_SPANS_PER_TRACE = 100
 
@@ -324,6 +334,71 @@ def with_attribute_set_guards(filters: list[SpanPropertyFilter]) -> list[SpanPro
     return [*filters, *guards.values()]
 
 
+@frozen
+class SpanFilters:
+    """A `filterGroup` split by the columns each filter reads."""
+
+    span: tuple[SpanPropertyFilter, ...]
+    span_attribute: tuple[SpanPropertyFilter, ...]
+    resource_attribute: tuple[SpanPropertyFilter, ...]
+
+
+def split_span_filters(filter_group: PropertyGroupFilter | None) -> SpanFilters:
+    span: list[SpanPropertyFilter] = []
+    span_attribute: list[SpanPropertyFilter] = []
+    resource_attribute: list[SpanPropertyFilter] = []
+    if filter_group and filter_group.values:
+        for property_group in filter_group.values:
+            for prop in property_group.values:
+                prop_type = getattr(prop, "type", None)
+                if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
+                    resource_attribute.append(cast(SpanPropertyFilter, prop))
+                elif prop_type == SpanPropertyFilterType.SPAN:
+                    span.append(cast(SpanPropertyFilter, prop))
+                elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
+                    if isinstance(prop, SpanPropertyFilter):
+                        prop = with_span_attribute_type_suffix(prop)
+                    span_attribute.append(cast(SpanPropertyFilter, prop))
+    return SpanFilters(
+        span=tuple(span), span_attribute=tuple(span_attribute), resource_attribute=tuple(resource_attribute)
+    )
+
+
+def span_filter_exprs(
+    team: "Team",
+    filters: SpanFilters,
+    *,
+    service_names: list[str] | None,
+    status_codes: list[int] | None = None,
+) -> list[ast.Expr]:
+    """The WHERE conditions for a span query's filters, without its date range."""
+    exprs: list[ast.Expr] = []
+    if service_names:
+        exprs.append(
+            parse_expr(
+                "service_name IN {serviceNames}",
+                placeholders={"serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in service_names])},
+            )
+        )
+    if status_codes:
+        exprs.append(
+            parse_expr(
+                "status_code IN {statusCodes}",
+                placeholders={"statusCodes": ast.Tuple(exprs=[ast.Constant(value=int(sc)) for sc in status_codes])},
+            )
+        )
+    for span_filter in filters.span:
+        # Translated on a copy, so the caller's filters stay as the request sent them.
+        translated = span_filter.model_copy()
+        translate_span_filter(translated)
+        exprs.append(property_to_expr(translated, team=team))
+    if filters.span_attribute:
+        exprs.append(property_to_expr(with_attribute_set_guards(list(filters.span_attribute)), team=team))
+    for resource_filter in with_attribute_set_guards(list(filters.resource_attribute)):
+        exprs.append(property_to_expr(resource_filter, team=team))
+    return exprs
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -339,21 +414,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
-        self.span_filters: list[SpanPropertyFilter] = []
-        self.span_attribute_filters: list[SpanPropertyFilter] = []
-        self.resource_attribute_filters: list[SpanPropertyFilter] = []
-        if self.query.filterGroup and self.query.filterGroup.values:
-            for property_group in self.query.filterGroup.values:
-                for prop in property_group.values:
-                    prop_type = getattr(prop, "type", None)
-                    if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
-                        self.resource_attribute_filters.append(prop)
-                    if prop_type == SpanPropertyFilterType.SPAN:
-                        self.span_filters.append(prop)
-                    elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
-                        if isinstance(prop, SpanPropertyFilter):
-                            prop = with_span_attribute_type_suffix(prop)
-                        self.span_attribute_filters.append(prop)
+        self.filters = split_span_filters(self.query.filterGroup)
 
     @property
     def _unbounded_trace_lookup(self) -> bool:
@@ -382,37 +443,11 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
             exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
-        if self.query.serviceNames:
-            exprs.append(
-                parse_expr(
-                    "service_name IN {serviceNames}",
-                    placeholders={
-                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
-                    },
-                )
+        exprs.extend(
+            span_filter_exprs(
+                self.team, self.filters, service_names=self.query.serviceNames, status_codes=self.query.statusCodes
             )
-
-        if self.query.statusCodes:
-            exprs.append(
-                parse_expr(
-                    "status_code IN {statusCodes}",
-                    placeholders={
-                        "statusCodes": ast.Tuple(exprs=[ast.Constant(value=int(sc)) for sc in self.query.statusCodes])
-                    },
-                )
-            )
-
-        if self.span_filters:
-            for span_filter in self.span_filters:
-                translate_span_filter(span_filter)
-                exprs.append(property_to_expr(span_filter, team=self.team))
-
-        if self.span_attribute_filters:
-            exprs.append(property_to_expr(with_attribute_set_guards(self.span_attribute_filters), team=self.team))
-
-        if self.resource_attribute_filters:
-            for f in with_attribute_set_guards(self.resource_attribute_filters):
-                exprs.append(property_to_expr(f, team=self.team))
+        )
 
         if self.query.traceId:
             exprs.append(
@@ -541,15 +576,58 @@ class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
         return response.results
 
 
+def assert_tracing_viewer(user: "User", team: "Team", user_access_control: "UserAccessControl | None" = None) -> bool:
+    """The check the tracing API's permission class makes, so `/query` and dashboard batches gate spans the same way.
+
+    Pass the runner's `user_access_control` so a batch of tiles reads the team's rules once, not once per tile.
+    """
+    from products.access_control.backend.facade.user_access_control import UserAccessControlError  # noqa: PLC0415
+    from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
+    from products.authorization.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
+    from products.authorization.backend.facade.enums import Action, ResourceType  # noqa: PLC0415
+
+    with authorization.authorization_session():
+        if user_access_control is not None:
+            authorization.reuse_current_rules(user_access_control)
+        allowed = authorization.check(
+            resource=Resource(type=ResourceType.TRACING, project_id=team.pk),
+            action=Action.VIEW,
+            subject=Subject(user_id=user.pk),
+        )
+    if not allowed:
+        raise UserAccessControlError("tracing", "viewer")
+    return True
+
+
+def span_list_query_runner(
+    query: TraceSpansQuery | dict[str, Any], *, team: "Team", **kwargs
+) -> "TraceSpansQueryRunner":
+    """The span list runner for `/query` and dashboard batches, held to the tracing API's page caps."""
+    query = TraceSpansQuery.model_validate(query)
+    if query.limit is not None:
+        query.limit = min(query.limit, MAX_SPAN_LIST_LIMIT)
+    if query.prefetchSpans is not None:
+        query.prefetchSpans = min(query.prefetchSpans, MAX_PREFETCH_SPANS)
+    return TraceSpansQueryRunner(query, team=team, **kwargs)
+
+
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     query: TraceSpansQuery
     cached_response: CachedTraceSpansQueryResponse
     paginator: HogQLHasMorePaginator
 
-    def validate_query_runner_access(self, user: "User") -> bool:
-        from products.access_control.backend.facade.user_access_control import UserAccessControlError
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # The tracing UI always pages, but a dashboard tile may not, and the query has no LIMIT without one.
+        if self.query.limit is None:
+            self.query.limit = DEFAULT_SPAN_LIST_LIMIT
 
-        raise UserAccessControlError("tracing", "viewer")
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return assert_tracing_viewer(user, self.team, self.user_access_control if self.user == user else None)
+
+    def query_status_labels(self) -> list[str] | None:
+        # Retrieving an async result skips validate_query_runner_access, so the status asks for the check again.
+        return [TRACING_QUERY_STATUS_LABEL]
 
     def _calculate(self) -> TraceSpansQueryResponse:
         flat = self._flat_spans
@@ -610,15 +688,10 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
 
         return TraceSpansQueryResponse(results=results, **self.paginator.response_params())
 
-    def run(self, *args, **kwargs) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
-        response = super().run(*args, **kwargs)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
-        return response
-
     @property
     def _include_events(self) -> bool:
-        """Only the single-trace view reads span events. The column is large, so list queries skip it."""
-        return bool(self.query.traceId) and not self.query.excludeAttributes
+        """The single-trace view reads span events. The column is large, so list queries skip it unless they ask."""
+        return bool(self.query.traceId or self.query.includeEvents) and not self.query.excludeAttributes
 
     def _events_column(self) -> ast.Expr:
         # Select an empty array when skipped, so the positional result mapping stays stable.
@@ -837,11 +910,10 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
                 # process.command_args etc. bulk up the resource map). When excluded we still
                 # SELECT a column so the positional result mapping stays stable — an empty map
-                # instead of the real one.
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
-                "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
-                ),
+                # instead of the real one. Unaliased: an `AS attributes` alias would shadow the
+                # table field and break span/resource attribute filters in the same query.
+                "attributes": parse_expr("map()" if self.query.excludeAttributes else "attributes"),
+                "resource_attributes": parse_expr("map()" if self.query.excludeAttributes else "resource_attributes"),
                 "events": self._events_column(),
             },
         )
@@ -1068,10 +1140,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         """,
             placeholders={
                 "where": where,
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
-                "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
-                ),
+                "attributes": parse_expr("map()" if self.query.excludeAttributes else "attributes"),
+                "resource_attributes": parse_expr("map()" if self.query.excludeAttributes else "resource_attributes"),
                 "events": self._events_column(),
             },
         )
@@ -1099,6 +1169,10 @@ def run_service_names_query(
         interval=IntervalType.MINUTE,
         interval_count=2,
         now=dt.datetime.now(),
+        # {date_from}/{date_to} print as naive wall-clock strings in this range's timezone, and
+        # TIME_BUCKET_DATE_RANGE_WHERE reads them as UTC. A team-timezone range west of UTC lands
+        # the bounds on the previous UTC day and drops the current day's spans.
+        timezone_info=ZoneInfo("UTC"),
     )
 
     exprs: list[ast.Expr] = [
@@ -1429,13 +1503,6 @@ def run_aggregation_query(
     include_health: bool = False,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
-    # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
-    from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
-
-    # Resolved here rather than in the runner: with `compareFilter` the runner builds each window
-    # on its own thread, where a Django read would open a second connection.
-    from .models import resolved_tracing_identity_attribute_keys  # noqa: PLC0415 — circular at module level
-
     query = TraceSpansAggregationQuery(
         dateRange=date_range,
         compareFilter=compare_filter,
@@ -1445,16 +1512,30 @@ def run_aggregation_query(
         groupByEndpoint=group_by_endpoint,
         includeHealth=include_health,
     )
-    runner = TraceSpansAggregationQueryRunner(
-        query,
-        team,
-        limit=limit,
-        offset=offset,
-        identity_keys=resolved_tracing_identity_attribute_keys(team) if include_impact else None,
-    )
+    runner = aggregation_query_runner(query, team=team, limit=limit, offset=offset)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
     return response
+
+
+def aggregation_query_runner(
+    query: TraceSpansAggregationQuery | dict[str, Any], *, team: "Team", **kwargs
+) -> "TraceSpansAggregationQueryRunner":
+    """The flat span aggregation runner, for the tracing API and for `get_query_runner`."""
+    # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
+    from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
+
+    # Resolved here rather than in the runner: with `compareFilter` the runner builds each window
+    # on its own thread, where a Django read would open a second connection.
+    from .models import resolved_tracing_identity_attribute_keys  # noqa: PLC0415 — circular at module level
+
+    query = TraceSpansAggregationQuery.model_validate(query)
+    return TraceSpansAggregationQueryRunner(
+        query,
+        team=team,
+        identity_keys=resolved_tracing_identity_attribute_keys(team) if query.includeImpact else None,
+        **kwargs,
+    )
 
 
 def run_tree_query(

@@ -145,14 +145,16 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_prefix: String::new(),
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
     ai_max_event_bytes: 8_388_608,         // 8MiB default
+    ai_max_event_bytes_overrides_csv: None,
     ai_gateway_signing_secret: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
     continuous_profiling: ContinuousProfilingConfig::default(),
-    capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
-    capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
+    capture_v1_max_compressed_body_bytes: None,
+    capture_v1_max_decompressed_body_bytes: None,
     capture_v1_scatter_gather_min_batch: 8,
+    capture_v1_legacy_property_splice: true,
     capture_ingestion_warnings_enabled: false,
     capture_ingestion_warnings_kafka_queue_mib: 16,
     capture_ingestion_warnings_kafka_message_max_bytes: 1048576,

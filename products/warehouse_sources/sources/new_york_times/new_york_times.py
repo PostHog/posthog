@@ -19,6 +19,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     interruptible_wait,
     make_tracked_session,
+    resolve_incremental_start,
     retry_with_deadline,
 )
 
@@ -251,10 +252,11 @@ def _resolve_archive_start(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> date:
-    if should_use_incremental_field and db_incremental_field_last_value:
-        start = _parse_datetime(db_incremental_field_last_value)
-    else:
-        start = datetime.now(UTC) - timedelta(days=config.default_lookback_days or 0)
+    start = resolve_incremental_start(
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        default=timedelta(days=config.default_lookback_days or 0),
+    )
     return date(start.year, start.month, 1)
 
 
@@ -302,9 +304,11 @@ def _resolve_times_wire_start(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> datetime:
-    if should_use_incremental_field and db_incremental_field_last_value:
-        return _parse_datetime(db_incremental_field_last_value)
-    return datetime.now(UTC) - timedelta(days=config.default_lookback_days or 1)
+    return resolve_incremental_start(
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        default=timedelta(days=config.default_lookback_days or 1),
+    )
 
 
 def _times_wire_hours_since(window_start: datetime) -> int:

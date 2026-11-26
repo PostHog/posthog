@@ -12,6 +12,7 @@ import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { runWhenIdle } from 'lib/utils/async'
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -23,9 +24,11 @@ import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNoticeSlot } from '~/layout/navigation/ImpersonationNotice/ImpersonationNoticeSlot'
+import { NewEventsTableBar } from '~/layout/navigation/NewEventsTableBar'
 
 import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
 
+import { mountRealtimeCohortsJoin } from './mountRealtimeCohortsJoin'
 import { sceneLogic } from './sceneLogic'
 
 const TerminalDock = lazyWithRetry(() =>
@@ -41,6 +44,9 @@ function preloadCommand(): void {
 }
 
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
+    // Mark during render because a layout effect here runs after the scene's own effects. The gap from this
+    // mark to `empty_state_gate_mounted` or `scene_rendered` then excludes the wait for this lazy chunk.
+    markBootPhase('authenticated_shell_rendered')
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(breadcrumbsLogic)
@@ -49,6 +55,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(billingLogic)
     // Resolves product setup statuses on idle, so gated scenes open without a spinner.
     useMountedLogic(productSetupPreloadLogic)
+    useEffect(() => mountRealtimeCohortsJoin(), [])
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
@@ -103,6 +110,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                     </ErrorBoundary>
                 )}
                 <ImpersonationNoticeSlot />
+                <NewEventsTableBar />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST] === 'test' && (
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}

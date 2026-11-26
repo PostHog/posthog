@@ -1,10 +1,6 @@
 import "reflect-metadata";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
-import {
-  getGatewayUsageUrl,
-  getLlmGatewayUrl,
-} from "@posthog/agent/posthog-api";
 import { archiveModule } from "@posthog/core/archive/archive.module";
 import {
   ARCHIVE_CLIENT,
@@ -83,7 +79,9 @@ import {
 import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
 import { selectModelFromOptions } from "@posthog/core/inbox/reportTaskCreation";
 import { githubConnectModule } from "@posthog/core/integrations/githubConnect.module";
+import { GitProviderService } from "@posthog/core/integrations/gitProviderService";
 import {
+  GIT_PROVIDER_SERVICE,
   GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
@@ -386,6 +384,7 @@ interface WebBindings {
   [ONBOARDING_GITHUB_CONNECT_CLIENT]: OnboardingGithubConnectContract;
   [REPOSITORIES_CLIENT]: RepositoriesClient;
   [REPOSITORIES_SERVICE]: RepositoriesService;
+  [GIT_PROVIDER_SERVICE]: GitProviderService;
   [HOST_CAPABILITIES]: HostCapabilities;
   [TASK_SERVICE]: TaskServiceType;
   [WORKSPACE_SETUP_SAGA]: WorkspaceSetupSaga;
@@ -622,6 +621,7 @@ container
   .toConstantValue(new OnboardingGithubConnectClient());
 container.bind(REPOSITORIES_CLIENT).toConstantValue(new UiRepositoriesClient());
 container.bind(REPOSITORIES_SERVICE).to(RepositoriesService).inSingletonScope();
+container.bind(GIT_PROVIDER_SERVICE).to(GitProviderService).inSingletonScope();
 
 // ── Task list + creation (TASK_SERVICE at the task views) ──
 // TaskService/WorkspaceSetupSaga are portable core (taskDetailModule). The
@@ -794,15 +794,12 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
         url,
         init,
       ),
-    messagesUrl: (apiHost: string) =>
-      `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: desktopUsageUrl,
-    legacyUsageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });
 // The Go gateway sends no CORS headers and the web host has no loopback
-// proxy, so helper prompts stay on the legacy gateway here.
+// proxy, so helper prompts are unavailable here.
 container
   .bind(GATEWAY_TOKEN_HOST)
   .toConstantValue({ goEnabled: false, override: null });
@@ -854,10 +851,10 @@ container
   .toConstantValue(createWebSpeechUserName(queryClient));
 container.bind(SPEECH_NOTIFY_SETTINGS).toConstantValue(webSpeechNotifySettings);
 
-// ── Inbox: resolve the default cloud-run model from the LLM gateway ──
+// ── Inbox: resolve the default cloud-run model from the model catalog ──
 // Host capability consumed by UI hooks (canvas/home/inbox) that create cloud
 // runs. Same logic as desktop-services.ts, over the web host router's
-// getPreviewConfigOptions (backed by the CORS-open gateway, web-agent-config.ts).
+// getPreviewConfigOptions (backed by Django's tasks/models, web-agent-config.ts).
 const reportModelResolverLog = scoped("report-model-resolver");
 container.bind(REPORT_MODEL_RESOLVER).toConstantValue({
   async resolveDefaultModel(

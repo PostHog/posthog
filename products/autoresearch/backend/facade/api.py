@@ -43,6 +43,7 @@ from ..dataset.labeling import (
 )
 from ..dataset.templates import TemplateKey as _TemplateKey
 from ..dataset.validation import (
+    AutoresearchValidationErrorCode as _AutoresearchValidationErrorCode,
     ValidationWarningCode as _ValidationWarningCode,
     validate_pipeline_definition as _validate_pipeline_definition,
 )
@@ -60,12 +61,15 @@ from ..evaluation.segment_thresholds import (
 from ..inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from ..limits import (
     LIVE_PIPELINE_STATUSES,
+    LimitSource,
     TeamLimits,
     check_live_pipeline_cap,
+    check_training_budget,
     check_training_run_cap,
     limits_for_team,
     live_pipeline_count,
     training_run_usage,
+    training_spend,
 )
 from ..models import (
     RESEARCH_INTERVAL_DAYS_CHOICES as _RESEARCH_INTERVAL_DAYS_CHOICES,
@@ -94,6 +98,7 @@ from ..training.recipe_validation import RecipeValidationError, feature_sql_hint
 from ..training.schedule import ScheduleRun, research_schedule, schedule_runs_for
 from ..training.shadow_set import shadow_set_ids
 from .contracts import (
+    ActionTarget,
     AgentModelOption,
     AgentModelOptions,
     AgentReasoningEffortOption,
@@ -130,6 +135,7 @@ from .contracts import (
     Suggestion,
     SuggestionNotFound as SuggestionNotFound,
     TemplateInfo,
+    TrainingBudgetReached,
     TrainingRun,
     TrainingRunCapReached,
     TrainingRunHistory,
@@ -229,11 +235,18 @@ def _best_so_far_trend(scores: Iterable[tuple[int, float | None]]) -> list[Train
     return trend
 
 
+def _task_url(task_id: UUID | None) -> str | None:
+    return f"/tasks/{task_id}" if task_id else None
+
+
 def _live_training_run(run: AutoresearchTrainingRun, iterations: list[AutoresearchIteration]) -> LiveTrainingRun:
     # The run's own counters land only at completion, so progress comes from the live iteration rows.
     trend = _best_so_far_trend((i.iteration_number, i.holdout_score) for i in iterations)
     return LiveTrainingRun(
         id=run.id,
+        task_id=run.task_id,
+        task_run_id=run.task_run_id,
+        task_url=_task_url(run.task_id),
         iteration_budget=run.iteration_budget,
         experiment_count=len(iterations),
         best_holdout_score=trend[-1].best_holdout_score if trend else None,
@@ -539,7 +552,7 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         pipeline=row.pipeline_id,
         task_id=row.task_id,
         task_run_id=row.task_run_id,
-        task_url=f"/tasks/{row.task_id}" if row.task_id else None,
+        task_url=_task_url(row.task_id),
         status=row.status,
         kickoff_reason=row.kickoff_reason,
         agent_runtime_adapter=row.agent_runtime_adapter,
@@ -879,6 +892,7 @@ def get_project_limits(team_id: int) -> ProjectLimits:
     """The project's limits and current usage, for display. Takes no lock, so it can be stale by one run."""
     limits = limits_for_team(team_id)
     training = training_run_usage(team_id, limits)
+    spend = training_spend(team_id, limits)
     return ProjectLimits(
         max_training_runs_per_day=limits.max_training_runs_per_day,
         training_runs_used=training.used,
@@ -886,6 +900,13 @@ def get_project_limits(team_id: int) -> ProjectLimits:
         max_iterations_per_run=limits.max_iterations_per_run,
         max_live_pipelines=limits.max_live_pipelines,
         live_pipelines=live_pipeline_count(team_id),
+        max_training_spend_usd_per_month=limits.max_training_spend_usd_per_month,
+        training_spend_usd=spend.spent_usd,
+        training_spend_resets_at=spend.resets_at,
+        max_training_runs_per_day_source=limits.sources.max_training_runs_per_day,
+        max_iterations_per_run_source=limits.sources.max_iterations_per_run,
+        max_live_pipelines_source=limits.sources.max_live_pipelines,
+        max_training_spend_usd_per_month_source=limits.sources.max_training_spend_usd_per_month,
     )
 
 
@@ -1024,8 +1045,8 @@ def output_person_property_taken(team_id: int, value: str, *, exclude_pipeline_i
     return qs.exists()
 
 
-def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
-    """Resolve an action target to ``(action_name, action_id)``, scoped to the project.
+def resolve_action_target(project_id: int, action_id: Any) -> ActionTarget:
+    """Resolve an action target, scoped to the project.
 
     Actions live on the project's root team, so the lookup matches the labeler's
     (``team__project_id``) rather than the pipeline's own team, which would miss them from
@@ -1047,7 +1068,9 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
             f"Action {action_id} has a step that can match '{PREDICTION_EVENT_NAME}'. "
             "Every step of a target action must name an event other than the prediction event."
         )
-    return action.name or "", int(action_id)
+    return ActionTarget(
+        id=action.id, name=action.name or "", team_id=action.team_id, created_by_id=action.created_by_id
+    )
 
 
 # ── Training agent model ───────────────────────────────────────────────────
@@ -1171,6 +1194,7 @@ def validate_definition(
         inference_population_size=result.inference_population_size,
         warnings=[ValidationWarning(code=w.code, message=w.message, severity=w.severity) for w in result.warnings],
         error=result.error,
+        error_code=result.error_code.value if result.error_code else None,
     )
 
 
@@ -1545,9 +1569,10 @@ def start_training(
     ``allow_action_target=False`` refuses an action target with ``InvalidTarget``. The check
     reads the locked row, so a concurrent edit of the target cannot slip past it.
 
-    Raises ``TrainingRunCapReached`` when the project has used its sandbox training runs for the
-    last 24 hours, across all its pipelines, and ``LivePipelineCapReached`` when a draft's first
-    run would take the project over its live pipeline limit.
+    Raises ``TrainingRunCapReached`` when the project has used its daily limit of sandbox training
+    runs, across all its pipelines, ``TrainingBudgetReached`` when it has used its monthly training
+    budget, and ``LivePipelineCapReached`` when a draft's first run would take the project over its
+    live pipeline limit.
     """
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
@@ -1568,6 +1593,8 @@ def start_training(
             _require_live_pipeline_slot(team_id, limits)
         if cap := check_training_run_cap(team_id, limits):
             raise TrainingRunCapReached(used=cap.used, limit=cap.limit, next_slot_at=cap.next_slot_at)
+        if spent := check_training_budget(team_id, limits):
+            raise TrainingBudgetReached(spent_usd=spent.spent_usd, limit_usd=spent.limit_usd, resets_at=spent.resets_at)
         budget = iteration_budget or pipeline.iterations_per_run
         try:
             training_run = run_training(
@@ -1751,6 +1778,23 @@ def complete_run(
         # its no-op and the run is failed, not completed.
         raise AutoresearchConflict("Training run failed before it could be completed.")
     return _training_run_to_contract(training_run)
+
+
+def stop_training_run(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None, user_id: int | None = None
+) -> TrainingRun:
+    """Stop an open run: fail it so nothing is promoted, then cancel its sandbox.
+
+    A pipeline whose first run this was goes back to draft, so its definition can change again.
+    Raises ``AutoresearchConflict`` when the run already finished.
+    """
+    # The stop path imports the ingestion safety net, and with it pandas and pyarrow.
+    from ..training.stop import stop_training_run as stop_run  # noqa: PLC0415
+
+    training_run = _training_run_row(team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False)
+    if not stop_run(training_run, user_id=user_id):
+        raise AutoresearchConflict("The training run already finished.")
+    return _training_run_to_contract(_training_run_row(team_id, training_run.pk))
 
 
 def training_run_history(team_id: int, pipeline_id: str | UUID, *, limit: int = 5) -> TrainingRunHistory:
@@ -2211,6 +2255,7 @@ PIPELINE_STATUS_CHOICES = AutoresearchPipeline.Status.choices
 TEMPLATE_KEY_CHOICES = _TemplateKey.choices
 # A plain list, not choices: the serializer explains why `code` is not an enum.
 VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]
+VALIDATION_ERROR_CODE_CHOICES = _AutoresearchValidationErrorCode.choices
 MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
 TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
 KICKOFF_REASON_CHOICES = AutoresearchTrainingRun.KickoffReason.choices
@@ -2222,6 +2267,7 @@ SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
 SUGGESTION_SOURCE_CHOICES = AutoresearchSuggestion.Source.choices
 RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
 BASE_RATE_SOURCE_CHOICES = BaseRateSource.choices
+LIMIT_SOURCE_CHOICES = LimitSource.choices
 RUN_STATUS_CHOICES = AutoresearchRun.Status.choices
 FEATURE_DIRECTION_CHOICES = _FeatureDirection.choices
 MAX_TOP_FEATURES = _MAX_TOP_FEATURES

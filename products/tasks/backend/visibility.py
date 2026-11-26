@@ -8,7 +8,7 @@ tasks API surface. Its module-scope imports reach jsonschema and the modal SDK.
 from collections.abc import Callable, Sequence
 from typing import cast
 
-from django.db.models import BooleanField, OuterRef, Q, Subquery, Value
+from django.db.models import BooleanField, Exists, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
 
 from posthog.models.team import Team
@@ -54,7 +54,7 @@ def _origins_by_profile(master_origins: Sequence[str], matches: Callable[[TaskPr
     return kept + [origin for origin, match in profiled.items() if match and origin not in master_origins]
 
 
-def _team_controlled_origins() -> list[str]:
+def team_controlled_origins() -> list[str]:
     return _origins_by_profile(TEAM_VISIBLE_ORIGIN_PRODUCTS, lambda profile: profile.drive == DrivePolicy.AUDIENCE)
 
 
@@ -94,7 +94,7 @@ def task_control_q(user_id: int | None, team_id: int | None = None) -> Q:
     """
     channeled_q = Q(channel_id__isnull=False) & _visible_channel_q(user_id, team_id) & _creator_q(user_id)
     legacy_q = Q(channel_id__isnull=True) & (
-        _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=_team_controlled_origins())
+        _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=team_controlled_origins())
     )
     return (
         (channeled_q | legacy_q) & scout_trial_visibility_q(user_id) & ~Q(origin_product__in=_product_private_origins())
@@ -128,3 +128,27 @@ def task_run_visibility_q(user_id: int | None, team_id: int | None = None) -> Q:
     if user_id is not None:
         trial_visibility |= Q(task__created_by_id=user_id)
     return (channeled_q | legacy_q) & trial_visibility & ~Q(task__origin_product__in=_product_private_origins())
+
+
+def public_slack_thread_q() -> Q:
+    """Slack tasks whose every thread is in a public Slack channel, which the whole team may read.
+
+    A Slack task is filed in its creator's personal space, so ``task_visibility_q`` alone hides it.
+    A public channel is open to every member of the workspace, so the agent's replies and links
+    there are too. A private channel, a group DM and a direct message have a closed membership, and
+    a thread nobody classified may be any of them, so one such thread keeps the task with its creator.
+
+    The ``origin_product`` test leads so the subqueries are only reached for Slack tasks.
+    """
+    from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES  # noqa: PLC0415
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the import path
+        SlackThreadTaskMapping,
+    )
+
+    public_types = sorted(PUBLIC_CHANNEL_CONVERSATION_TYPES)
+    threads = SlackThreadTaskMapping.objects.filter(task_id=OuterRef("pk"))
+    return (
+        Q(origin_product=Task.OriginProduct.SLACK)
+        & Q(Exists(threads.filter(conversation_type__in=public_types)))
+        & Q(~Exists(threads.exclude(conversation_type__in=public_types)))
+    )

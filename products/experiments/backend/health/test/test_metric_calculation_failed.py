@@ -7,8 +7,10 @@ from unittest import TestCase
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 
@@ -45,7 +47,10 @@ KEY = ExperimentHealthCheckKey.METRIC_CALCULATION_FAILED
 WARNING = ExperimentHealthFindingSeverity.WARNING
 INFO = ExperimentHealthFindingSeverity.INFO
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 FINISHED_AT = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
 OUT_OF_MEMORY = "This query ran out of memory before it could finish."
@@ -213,6 +218,15 @@ class TestMetricCalculationFailed(TestCase):
             (
                 "type_mismatch",
                 _failure("DB::Exception: There is no supertype for types String, Float64", error_type="server_error"),
+                {},
+                ("settings", WARNING, "type_mismatch", "compares values of different types"),
+            ),
+            (
+                "formatted_no_common_type",
+                _failure(
+                    str(wrap_clickhouse_query_error(ServerException("database detail", code=386))),
+                    error_type="server_error",
+                ),
                 {},
                 ("settings", WARNING, "type_mismatch", "compares values of different types"),
             ),

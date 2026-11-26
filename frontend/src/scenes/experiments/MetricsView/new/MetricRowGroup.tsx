@@ -15,6 +15,7 @@ import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { MetricBreakdownError } from 'scenes/experiments/MetricBreakdowns/MetricBreakdownError'
 import { MetricBreakdowns } from 'scenes/experiments/MetricBreakdowns/MetricBreakdowns'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     Breakdown,
@@ -45,6 +46,7 @@ import {
     formatPValue,
     getDelta,
     getMetricSubtitleValues,
+    metricSupportsTimeseries,
     getNiceTickValues,
     isBayesianResult,
     isDeltaPositive,
@@ -115,6 +117,7 @@ function CollapsibleBreakdownSection({
     handleTooltipMouseLeave,
     handleTooltipMouseMove,
 }: CollapsibleBreakdownSectionProps): JSX.Element {
+    const { baseCurrency } = useValues(teamLogic)
     const [isExpanded, setIsExpanded] = useState(false)
     const mainTableRef = useRef<HTMLTableRowElement>(null)
     const nestedTableRef = useRef<HTMLTableElement>(null)
@@ -278,7 +281,11 @@ function CollapsibleBreakdownSection({
                                                                 >
                                                                     <div className="metric-cell">
                                                                         <div>
-                                                                            {formatMetricValue(baselineResult, metric)}
+                                                                            {formatMetricValue(
+                                                                                baselineResult,
+                                                                                metric,
+                                                                                baseCurrency
+                                                                            )}
                                                                         </div>
                                                                         {ratioMetricLabel(baselineResult, metric)}
                                                                     </div>
@@ -400,7 +407,8 @@ function CollapsibleBreakdownSection({
                                                                                     <div>
                                                                                         {formatMetricValue(
                                                                                             variant,
-                                                                                            metric
+                                                                                            metric,
+                                                                                            baseCurrency
                                                                                         )}
                                                                                     </div>
                                                                                     {ratioMetricLabel(variant, metric)}
@@ -655,6 +663,7 @@ export function MetricRowGroup({
 
     const { reportExperimentTimeseriesViewed, refreshExperimentResults } = useActions(experimentLogic)
     const { variants } = useValues(experimentLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const { isRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
 
@@ -980,12 +989,12 @@ export function MetricRowGroup({
                             }
                         }}
                         onClick={
-                            tooltipState.variantResult
+                            tooltipState.variantResult && metricSupportsTimeseries(metric)
                                 ? () => handleTimeseriesClick(tooltipState.variantResult!)
                                 : undefined
                         }
                     >
-                        {renderTooltipContent(tooltipState.variantResult, metric, baselineResult.key)}
+                        {renderTooltipContent(tooltipState.variantResult, metric, baselineResult.key, baseCurrency)}
                     </div>,
                     document.body
                 )}
@@ -1035,7 +1044,7 @@ export function MetricRowGroup({
                     style={FIXED_HEIGHT_STYLE}
                 >
                     <div className="metric-cell">
-                        <div>{formatMetricValue(baselineResult, metric)}</div>
+                        <div>{formatMetricValue(baselineResult, metric, baseCurrency)}</div>
                         {ratioMetricLabel(baselineResult, metric)}
                     </div>
                 </td>
@@ -1165,7 +1174,7 @@ export function MetricRowGroup({
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
                             <div className="metric-cell">
-                                <div>{formatMetricValue(variant, metric)}</div>
+                                <div>{formatMetricValue(variant, metric, baseCurrency)}</div>
                                 {ratioMetricLabel(variant, metric)}
                             </div>
                         </td>
@@ -1238,7 +1247,9 @@ export function MetricRowGroup({
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}
-                            onTimeseriesClick={() => handleTimeseriesClick(variant)}
+                            onTimeseriesClick={
+                                metricSupportsTimeseries(metric) ? () => handleTimeseriesClick(variant) : undefined
+                            }
                             highlightBackgroundColor={rowBackgroundColor}
                         />
                     </tr>

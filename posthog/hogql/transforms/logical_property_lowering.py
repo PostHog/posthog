@@ -23,16 +23,18 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField
+from posthog.hogql.resolver_utils import projecting_select_type
 from posthog.hogql.visitor import CloningVisitor
 
 
 class LogicalPropertyLowering(CloningVisitor):
     """Replaces JSON-blob `properties.X` Field reads with `PropertyAccess`. Descends every position (CloningVisitor)."""
 
-    def __init__(self, context: HogQLContext) -> None:
+    def __init__(self, context: HogQLContext, *, follow_subquery_columns: bool = False) -> None:
         # The lowered AST is printed directly after this pass, so keep resolved types rather than clearing them.
         super().__init__(clear_types=False)
         self.context = context
+        self.follow_subquery_columns = follow_subquery_columns
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         lowered = self._lower_property_field(node)
@@ -54,7 +56,7 @@ class LogicalPropertyLowering(CloningVisitor):
         base_field_type = property_type.field_type
         # Only lower reads off a JSON blob column (`properties` / `person_properties`). Struct/array warehouse columns
         # resolve to a non-JSON database field and keep their existing printer handling.
-        if not isinstance(base_field_type.resolve_database_field(self.context), StringJSONDatabaseField):
+        if not self._reads_json_blob(base_field_type):
             return None
 
         # chain[0] is always the top-level property name (a string). Deeper elements keep their Python type: an integer
@@ -72,9 +74,35 @@ class LogicalPropertyLowering(CloningVisitor):
             expr=ast.Field(chain=[base_field_type.name], type=base_field_type),
             keys=keys,
             type=ast.StringType(nullable=True),
+            as_json=property_type.as_json,
+        )
+
+    def _reads_json_blob(self, field_type: ast.FieldType) -> bool:
+        if isinstance(field_type.resolve_database_field(self.context), StringJSONDatabaseField):
+            return True
+        return self.follow_subquery_columns and self._subquery_passes_json_blob_through(field_type)
+
+    def _subquery_passes_json_blob_through(self, field_type: ast.FieldType) -> bool:
+        select_type = projecting_select_type(field_type.table_type)
+        if not isinstance(select_type, ast.SelectQueryType):
+            return False
+        column_type = select_type.columns.get(field_type.name)
+        while isinstance(column_type, ast.FieldAliasType):
+            column_type = column_type.type
+        if not isinstance(column_type, ast.FieldType):
+            return False
+        return self._is_table_json_column(column_type) or self._subquery_passes_json_blob_through(column_type)
+
+    def _is_table_json_column(self, field_type: ast.FieldType) -> bool:
+        table_type = field_type.table_type
+        if isinstance(table_type, ast.TableAliasType):
+            table_type = table_type.table_type
+        return isinstance(table_type, ast.TableType) and isinstance(
+            field_type.resolve_database_field(self.context), StringJSONDatabaseField
         )
 
 
-def lower_property_access(node: _T_AST, context: HogQLContext) -> _T_AST:
+def lower_property_access(node: _T_AST, context: HogQLContext, *, follow_subquery_columns: bool = False) -> _T_AST:
     """Lower JSON-blob property reads to `PropertyAccess`, including the within-non-HogQL (lightweight-DELETE) path."""
-    return cast(_T_AST, LogicalPropertyLowering(context).visit(node))
+    lowering = LogicalPropertyLowering(context, follow_subquery_columns=follow_subquery_columns)
+    return cast(_T_AST, lowering.visit(node))

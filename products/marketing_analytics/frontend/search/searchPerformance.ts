@@ -307,6 +307,7 @@ export function searchPerformanceSourceNotice(
 }
 
 export const SEARCH_SOURCE_TYPES = ['GoogleAds', 'BingAds', 'GoogleSearchConsole']
+export const RECOMMENDED_SEARCH_PLATFORMS: SearchPlatform[] = ['GoogleAds', 'GoogleSearchConsole']
 
 export function selectedSearchSources(
     sources: ExternalDataSource[],

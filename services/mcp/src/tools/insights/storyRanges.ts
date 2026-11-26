@@ -109,6 +109,24 @@ export function findStoryRange(days: string[], interval: string, start: string, 
     return [first, last]
 }
 
+function stepIndex(names: string[], value: string): number | null {
+    const text = value.trim()
+    const numbered = /^(?:step\s*)?(\d+)$/i.exec(text)
+    if (numbered) {
+        const index = Number(numbered[1]) - 1
+        return index >= 0 && index < names.length ? index : null
+    }
+    const named = names.findIndex((name) => name.toLowerCase() === text.toLowerCase())
+    return named === -1 ? null : named
+}
+
+/** The inclusive range of funnel steps a chapter covers, by step number from 1 or by step name. */
+export function findStepRange(names: string[], start: string, end?: string): [number, number] | null {
+    const first = stepIndex(names, start)
+    const last = stepIndex(names, end ?? start)
+    return first === null || last === null || last < first ? null : [first, last]
+}
+
 function zoneOffsetMs(timezone: string, utcMs: number): number {
     try {
         const name = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'longOffset' })

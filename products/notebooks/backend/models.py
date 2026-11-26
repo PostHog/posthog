@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import JSONField, QuerySet
 from django.utils import timezone
 
@@ -7,6 +7,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team import Team
 from posthog.models.utils import (
     RootTeamMixin,
@@ -19,7 +20,8 @@ from posthog.utils import generate_short_id
 from posthog.uuidt import uuid7
 
 
-class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
+class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Visibility(models.TextChoices):
         INTERNAL = "internal", "internal"
         DEFAULT = "default", "default"
@@ -51,10 +53,17 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # placeholder and a Python cell as a global. A property of the notebook rather than a block
     # in `content`, so editing prose can never delete it. Null until the notebook declares one.
     variables: JSONField = JSONField(default=None, null=True, blank=True)
+    app_draft: JSONField = JSONField(default=None, null=True, blank=True)
+    app_published: JSONField = JSONField(default=None, null=True, blank=True)
+    app_revision = models.PositiveIntegerField(default=0, db_default=0)
 
     class Meta:
         unique_together = ("team", "short_id")
         db_table = "posthog_notebook"
+
+    def sync_file_system(self) -> None:
+        with transaction.atomic():
+            super().sync_file_system()
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Notebook"]:
@@ -71,6 +80,22 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
             should_delete=self.deleted or self.visibility != self.Visibility.DEFAULT,
         )
+
+
+class NotebookAppRelease(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    notebook = models.ForeignKey(Notebook, on_delete=models.CASCADE, related_name="+")
+    revision = models.PositiveIntegerField()
+    published_at = models.DateTimeField(auto_now_add=True)
+    results_as_of = models.DateTimeField(null=True, blank=True)
+    sql_rows: JSONField = JSONField(null=True, blank=True)
+    title = models.CharField(max_length=256, blank=True)
+    layout = models.JSONField()
+    markdown = models.TextField(blank=True)
+    variables = models.JSONField(default=list)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["notebook", "revision"], name="notebook_app_release_revision")]
 
 
 RELATED_OBJECTS = ("group", "account")
@@ -338,6 +363,8 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Whether `code` went to the connection verbatim instead of being compiled from HogQL. Set,
     # it means `code` is the engine's own dialect and the HogQL parser can't read it.
     send_raw_query = models.BooleanField(default=False, db_default=False)
+    # Null for a kernel run whose inputs predate snapshots; an empty object means it bound no variables.
+    bound_variables: JSONField = JSONField(null=True, blank=True)
     status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
     envelope: JSONField = JSONField(default=None, null=True, blank=True)
     result_id = models.UUIDField(null=True, blank=True)

@@ -36,9 +36,8 @@ from products.logs.backend.alert_event_properties import (
     incident_closed_event_properties,
     threshold_event_properties,
 )
-from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.alert_state_machine import IncidentCloseReason
-from products.logs.backend.platform_alert_wording import check_window_end, in_utc
+from products.logs.backend.platform_alert_wording import check_lookback_minutes, check_window_end, in_utc
 from products.logs.backend.platform_source_config import filters_of
 
 # Below the delivery activity's own timeout, which a flush must not use up.
@@ -120,13 +119,7 @@ def _incident_event(transition: AnnouncedTransition, action: IncidentAction, ale
 def _threshold_properties(transition: AnnouncedTransition, alert: _Alert) -> dict[str, Any]:
     condition = transition.condition
     date_to = check_window_end(transition)
-    # The logs stack links every window a check read, not only the latest. A row recorded before
-    # the snapshot held the interval falls back to one window.
-    lookback = rolling_check_lookback_minutes(
-        condition["window_minutes"],
-        condition.get("check_interval_minutes") or 0,
-        condition.get("evaluation_periods") or 1,
-    )
+    lookback = check_lookback_minutes(condition)
     return threshold_event_properties(
         alert_id=alert.alert_id,
         alert_name=alert.alert_name,

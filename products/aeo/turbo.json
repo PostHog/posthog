@@ -9,7 +9,10 @@
                 "backend/models.py",
                 "backend/migrations/**",
                 "backend/routes.py",
-                "backend/presentation/**"
+                "backend/presentation/**",
+                "backend/apps.py",
+                "backend/signals.py",
+                "backend/test/factories.py"
             ],
             "outputs": [],
             "cache": true

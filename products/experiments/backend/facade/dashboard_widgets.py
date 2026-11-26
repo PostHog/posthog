@@ -88,6 +88,8 @@ def experiment_results_widget(
         metrics=(
             None
             if experiment.start_date is None
-            else dashboard_widgets.compute_metrics(team, experiment, max_metrics_per_section=max_metrics_per_section)
+            else dashboard_widgets.compute_metrics(
+                team, experiment, access, max_metrics_per_section=max_metrics_per_section
+            )
         ),
     )

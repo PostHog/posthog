@@ -1,0 +1,42 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "created_after": {
+            "description": "ISO 8601 datetime. Keeps reports created at or after this time.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "include_unlisted": {
+            "default": false,
+            "description": "Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false.",
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 10,
+            "description": "The most results to return, best match first.",
+            "maximum": 25,
+            "minimum": 1,
+            "type": "number"
+        },
+        "query": {
+            "description": "What to look for: natural language, such as a description of the issue, or an exact string, such as an error message or an entity name.",
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+        },
+        "search_mode": {
+            "default": "hybrid",
+            "description": "`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the semantic search fails. `keyword` requires every query word in the title or the summary. Words such as `a` or `is` are too short to look up, so the keyword search leaves them out.\n\n* `hybrid` - Hybrid\n* `semantic` - Semantic\n* `keyword` - Keyword",
+            "enum": ["hybrid", "semantic", "keyword"],
+            "type": "string"
+        },
+        "status": {
+            "description": "Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

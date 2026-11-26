@@ -19,7 +19,6 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { listenForGoldRingsKeys } from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -195,6 +194,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     // /stamphog/install/callback — GitHub App install round-trip carrying a one-time OAuth code;
     // if /onboarding swallows it the installation completes on GitHub but no repos ever connect.
     '/stamphog/install/callback',
+    // The toolbar sign-in error page, where the app shows why the server refused to open the toolbar.
+    '/toolbar_oauth',
     // /verify_email/<uuid>/<token> — email verification/change confirmation must run its
     // urlToAction (POST /api/users/verify_email/) even when onboarding is incomplete, else
     // /onboarding swallows the click and the email is never updated.
@@ -224,6 +225,12 @@ function isProjectAccessDenied(sceneId: string, pathname: string, isCurrentProje
         return true
     }
     return isCurrentProjectAccessDenied && !isAccountSettingsPath(pathname)
+}
+
+// `isHobby` is true until preflight loads, so a cloud user must not be redirected before it loads
+function isCloudOnlySceneOnSelfHosted(sceneId: string | null): boolean {
+    const { preflight, isHobby } = preflightLogic.values
+    return !!sceneId && !!sceneConfigurations[sceneId]?.cloudOnly && !!preflight && isHobby
 }
 
 function isFirstProjectWithoutData(user: UserType): boolean {
@@ -505,11 +512,6 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
         cache.homepageSave = Promise.resolve()
         cache.homepageRequest = 0
-        cache.disposables.add(() =>
-            listenForGoldRingsKeys(
-                () => featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
-            )
-        )
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -822,6 +824,11 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        [preflightLogic.actionTypes.loadPreflightSuccess]: () => {
+            if (isCloudOnlySceneOnSelfHosted(values.loadingScene ?? values.sceneId)) {
+                router.actions.replace(urls.moveToPostHogCloud())
+            }
+        },
         [teamLogic.actionTypes.currentProjectAccessDenied]: () => {
             if (values.activeSceneId === Scene.ErrorProjectAccessDenied) {
                 unmountSceneLogic(cache)
@@ -990,6 +997,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(urls.projectRoot())
                 return
             }
+            if (isCloudOnlySceneOnSelfHosted(sceneId)) {
+                router.actions.replace(urls.moveToPostHogCloud())
+                return
+            }
 
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
@@ -1092,7 +1103,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         return
                     } else if (
                         isFirstProjectWithoutData(user) &&
-                        user.onboarding_skipped_reason === 'connector' &&
+                        (user.onboarding_skipped_reason === 'connector' ||
+                            user.onboarding_skipped_reason === 'device_login') &&
                         user.onboarding_skipped_organization_id === user.organization?.id &&
                         // Only the homepage redirects, so a deep link the connecting assistant hands out still opens.
                         removeProjectIdIfPresent(router.values.location.pathname) === urls.projectHomepage()

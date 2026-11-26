@@ -42,18 +42,27 @@ class TestConvertFiltersToRecordingsQuery(SimpleTestCase):
         assert query.experiment_exposure.experiment_id == 42
         assert query.experiment_exposure.variant == "test"
 
-    @parameterized.expand(
-        [
-            ("session_ids", ["0190abc", "0191def"]),
-            ("recommended_only", True),
-        ]
-    )
-    def test_query_only_filters_survive_conversion(self, field, value):
-        # These fields sit outside filter_group, so dropping them silently widens saved playlist counts.
+    @parameterized.expand([("session_ids", ["0190abc", "0191def"]), ("event_match_scope", "recording")])
+    def test_fields_outside_the_filter_group_survive_conversion(self, key, value):
+        # These sit outside filter_group, so dropping one silently changes what a saved playlist matches.
         filters = _filters("AND", "AND", [])
-        filters[field] = value
+        filters[key] = value
         query = convert_filters_to_recordings_query(filters)
-        assert getattr(query, field) == value
+        assert getattr(query, key) == value
+
+    def test_every_duration_bound_survives_conversion(self):
+        filters = _filters("AND", "AND", [])
+        filters["duration"] = [
+            {"type": "recording", "key": "duration", "value": 0, "operator": "gt"},
+            {"type": "recording", "key": "duration", "value": 60, "operator": "lt"},
+        ]
+        query = convert_filters_to_recordings_query(filters)
+        predicates = query.having_predicates or []
+        assert all(isinstance(p, RecordingPropertyFilter) for p in predicates)
+        assert [(p.value, p.operator) for p in predicates if isinstance(p, RecordingPropertyFilter)] == [
+            (0, "gt"),
+            (60, "lt"),
+        ]
 
     def test_visited_page_becomes_recording_property_not_event(self):
         filters = _filters("OR", "OR", [_visited_page("/cart"), _visited_page("/orders")])

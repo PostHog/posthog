@@ -13,15 +13,14 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 /** "t" from the reports list or an open report starts triage. */
-export function useInboxTriageHotkey(options: {
-  enabled: boolean;
-  triageReportCount?: number;
-}): void {
-  const { enabled, triageReportCount } = options;
+export function useInboxTriageHotkey(
+  options: { triageReportCount?: number } = {},
+): void {
+  const { triageReportCount } = options;
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!enabled || triageReportCount === 0) return;
+    if (triageReportCount === 0) return;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (isTypingTarget(event.target)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -31,5 +30,5 @@ export function useInboxTriageHotkey(options: {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [enabled, navigate, triageReportCount]);
+  }, [navigate, triageReportCount]);
 }

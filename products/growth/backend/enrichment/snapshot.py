@@ -73,7 +73,7 @@ def capture_signup_enrichment_snapshot(
     pha_client.capture(
         distinct_id=distinct_id,
         event=SNAPSHOT_EVENT_NAME,
-        properties=snapshot.to_event_properties(),
+        properties={**snapshot.to_event_properties(), "$update_person_last_seen_at": False},
         groups={"organization": str(organization_id)},
     )
     return True

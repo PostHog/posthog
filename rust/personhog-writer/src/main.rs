@@ -9,6 +9,7 @@ use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics::counter;
+use personhog_common::metrics::FLUSH_LATENCY_BUCKETS_MS;
 use personhog_coordination::changelog::{load_changelog_config, CHANGELOG_BOOT_POLL_INTERVAL};
 use personhog_coordination::follow::{follow_changelog, FollowTarget, Follower, Reporter};
 use personhog_coordination::store::PersonhogStore;
@@ -147,13 +148,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // collapse every lag excursion into +Inf.
         let metrics_router = setup_metrics_routes_with_overrides(
             health_router,
-            &[(
-                Matcher::Full("personhog_writer_e2e_latency_ms".into()),
-                &[
-                    250.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
-                    600000.0,
-                ],
-            )],
+            &[
+                (
+                    Matcher::Full("personhog_writer_e2e_latency_ms".into()),
+                    &[
+                        250.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
+                        300000.0, 600000.0,
+                    ],
+                ),
+                (
+                    Matcher::Full("personhog_writer_flush_duration_ms".into()),
+                    FLUSH_LATENCY_BUCKETS_MS,
+                ),
+            ],
         );
 
         let bind = format!("0.0.0.0:{metrics_port}");

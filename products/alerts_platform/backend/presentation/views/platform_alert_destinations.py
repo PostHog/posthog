@@ -12,6 +12,8 @@ from django.db import models
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+
 from products.alerts_platform.backend.facade.api import redact_destination_data
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -54,6 +56,7 @@ _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.TEAMS: _WEBHOOK_FIELDS,
     DestinationType.DISCORD: _WEBHOOK_FIELDS,
     DestinationType.PAGERDUTY: ("pagerduty_routing_key",),
+    DestinationType.INCIDENT_IO: ("incident_io_alert_source_config_id", "incident_io_secret"),
 }
 # The fields each type stores. Redaction knows only its own type's credential, so a field of another
 # type would be stored and then shown in full.
@@ -63,6 +66,7 @@ _FIELDS_BY_TYPE: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.TEAMS: _WEBHOOK_FIELDS,
     DestinationType.DISCORD: _WEBHOOK_FIELDS,
     DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
+    DestinationType.INCIDENT_IO: ("incident_io_alert_source_config_id", "incident_io_secret"),
 }
 # Choices classes for the serializers below. TextChoices supports this functional API at runtime, but
 # its type stubs only describe member construction. The destination types carry their display labels,
@@ -161,23 +165,8 @@ class PlatformAlertCreateDestinationSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        destination_type = DestinationType(attrs["type"])
-        # The PagerDuty fields have defaults, so they arrive for every type. Each type keeps only its own.
-        data = cast(
-            AlertDestinationData,
-            {key: attrs[key] for key in _FIELDS_BY_TYPE[destination_type] if key in attrs},
-        )
-        data["type"] = destination_type
-        # Checked before the view reads them, so a missing field answers 400 with its name.
-        if missing := [key for key in _REQUIRED_FIELDS[destination_type] if not data.get(key)]:
-            raise ValidationError(dict.fromkeys(missing, f"Required for {destination_type.label} destinations."))
-        routing_key = data.get("pagerduty_routing_key")
-        if routing_key is not None and not _PAGERDUTY_ROUTING_KEY_RE.fullmatch(routing_key):
-            raise ValidationError(
-                {
-                    "pagerduty_routing_key": "Enter the 32-character integration key of a PagerDuty Events API v2 integration."
-                }
-            )
+        data = destination_data(attrs)
+        check_pagerduty_routing_key(data)
         # The platform's write path checks the rest. Refusing here names the field at fault.
         if refusal := refused_destination(data):
             raise ValidationError({"webhook_url": refusal} if data.get("webhook_url") is not None else refusal)
@@ -192,6 +181,41 @@ class PlatformAlertDeleteDestinationSerializer(serializers.Serializer):
         max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
         help_text="IDs of the destinations to delete, as the list endpoint returns them.",
     )
+
+
+def destination_data(attrs: dict[str, Any]) -> AlertDestinationData:
+    """The fields of the chosen type from a validated request. Fields of other types are dropped."""
+    destination_type = DestinationType(attrs["type"])
+    # The PagerDuty fields have defaults, so they arrive for every type. Each type keeps only its own.
+    data = cast(
+        AlertDestinationData,
+        {key: attrs[key] for key in _FIELDS_BY_TYPE[destination_type] if key in attrs},
+    )
+    data["type"] = destination_type
+    # Checked before the view reads them, so a missing field answers 400 with its name.
+    if missing := [key for key in _REQUIRED_FIELDS[destination_type] if not data.get(key)]:
+        raise ValidationError(dict.fromkeys(missing, f"Required for {destination_type.label} destinations."))
+    return data
+
+
+def check_pagerduty_routing_key(data: AlertDestinationData) -> None:
+    routing_key = data.get("pagerduty_routing_key")
+    if routing_key is not None and not _PAGERDUTY_ROUTING_KEY_RE.fullmatch(routing_key):
+        raise ValidationError(
+            {
+                "pagerduty_routing_key": "Enter the 32-character integration key of a PagerDuty Events API v2 integration."
+            }
+        )
+
+
+def check_slack_workspace(team_id: int, data: AlertDestinationData) -> None:
+    if data["type"] != DestinationType.SLACK:
+        return
+    # The accessor native delivery sends through, so a destination it would refuse is never saved.
+    try:
+        IntegrationManager.slack.oauth.get(team_id, data["slack_workspace_id"])
+    except IntegrationNotFound:
+        raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
 
 
 def serialized_destination(destination: StoredAlertDestination) -> dict[str, Any]:

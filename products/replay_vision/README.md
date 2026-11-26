@@ -5,7 +5,7 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 ## Concepts
 
 **Scanner** — a configured probe scoped to a team.
-Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer`), a `RecordingsQuery` that selects matching sessions, a Gemini model (which sets the per-observation credit price), and two volume levers: `sampling_mode` (a quality pre-filter over the matched sessions) and `sampling_rate` (a random downsample applied after it).
+Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer`), a `RecordingsQuery` that selects matching sessions, a Gemini model (which sets the per-observation credit price), and a volume lever: `sampling_rate` (a random downsample of the matched sessions).
 Each enabled scanner has a Temporal schedule that fires every 5 minutes and sweeps for newly settled recordings past the scanner's watermark (`last_swept_at`); disabling a scanner removes its schedule, and re-enabling restarts the sweep from now rather than backfilling the gap (see **Backfill** for the explicit way to cover history).
 Every succeeded observation is embedded (the summary, or the reasoning) for downstream free-text search.
 The Search tab ranks observations by embedding distance, then a decision model rereads the query and each of the top 20 together and reorders them by how well they match. The reorder has a two-second budget, and search falls back to the embedding order when the model is slow, failing, or not configured.
@@ -59,6 +59,10 @@ The experiment creation wizard offers an opt-in experiment scanner when the `exp
 
 The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experiments-with-replay-vision` skill) scan an experiment: its experiment lives in `scanner_config`, each session's variant comes from the exposure data, variants are sampled evenly, and `GET scanners/{id}/variants/` reads the results per variant.
 
+## Cloud only
+
+Replay vision runs only on PostHog Cloud and in local development. A scan needs the AI gateway and the recording rasterizer worker, and self-hosted installs run neither. On a self-hosted install every vision endpoint returns 403 (`backend/api/cloud_only.py`), the scenes redirect to the Move to PostHog Cloud page (`cloudOnly` in `manifest.tsx`), and the player and replay list hide their vision surfaces.
+
 ## Layout
 
 - `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, `ReplayObservationRequest` (one handle over a programmatic batch of scans, served at `vision/requests/` and open to project secret API keys), observation labels (ratings), usage receipts, and `TeamReplayVisionConfig` (the team's learned rules state).
@@ -80,6 +84,19 @@ The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experim
 - `backend/facade/` — the cross-product entry point (session observations, formatted for Max reports).
 - `backend/admin.py` — Django admin registrations.
 - `frontend/` — kea-first scenes and logics for the scanner management UI; `frontend/generated/` carries the generated API types.
+
+## Credit limit and free credits
+
+Billing is the only source of an organization's credit limit and free credits.
+It syncs both into `organization.usage["replay_vision_credits"]` as `limit` and `free_tier_units`, and Replay Vision reads them from there.
+
+Until billing has synced both, the organization has no credits:
+nothing scans, sweeps skip their tick without turning scanners off or skipping sessions, and the API answers 503 `billing_sync_pending`.
+The first read for such an organization asks billing to sync it, at most once every ten minutes, so it usually unblocks within seconds.
+
+Instances with no billing service (local dev, self-hosted) set `REPLAY_VISION_MONTHLY_CREDIT_QUOTA` instead.
+An organization billing never synced then gets that many credits per period, all of them free.
+`.env.development` sets it for local dev; cloud leaves it unset.
 
 ## Per-org credit limit override
 

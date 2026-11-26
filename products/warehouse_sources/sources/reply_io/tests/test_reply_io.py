@@ -62,7 +62,13 @@ class TestPagination:
         assert result.params("skip") == ["200"]
 
     @parameterized.expand(
-        [("custom_fields",), ("email_template_folders",), ("linkedin_accounts",), ("sequence_folders",)]
+        [
+            ("custom_fields",),
+            ("email_template_folders",),
+            ("linkedin_accounts",),
+            ("sequence_folders",),
+            ("inbox_categories",),
+        ]
     )
     def test_unpaginated_endpoint_fetches_bare_array_once_without_state(self, endpoint: str) -> None:
         result = _driver().run(endpoint, [_bare([{"id": 1}, {"id": 2}])])
@@ -91,6 +97,30 @@ class TestPagination:
                 "/v3/reporting/team-performance/meetings",
                 {"userId": 1, "source": "call", "contactFullName": "Ada Example", "bookedAt": "2026-01-01T10:00:00"},
                 {"userId": 2, "source": "linkedIn", "contactFullName": "Bo Example", "bookedAt": "2026-01-02T10:00:00"},
+            ),
+            (
+                "call_activity",
+                "/v3/reporting/calls",
+                {"id": "call-1", "userId": 1, "startDate": "2026-01-01T10:00:00Z", "durationSeconds": 42},
+                {"id": "call-2", "userId": 1, "startDate": "2026-01-02T10:00:00Z", "durationSeconds": 0},
+            ),
+            (
+                "linkedin_activity",
+                "/v3/reporting/linkedin",
+                {
+                    "contactId": None,
+                    "contactLinkedInUrl": "https://www.linkedin.com/in/ada-example",
+                    "senderLinkedInAccountName": "Sender Example",
+                    "actionDate": "2026-01-01T10:00:00Z",
+                    "actionType": "sentAutoConnection",
+                },
+                {
+                    "contactId": 2,
+                    "contactLinkedInUrl": "https://www.linkedin.com/in/bo-example",
+                    "senderLinkedInAccountName": "Sender Example",
+                    "actionDate": "2026-01-02T10:00:00Z",
+                    "actionType": "repliedAutoMessage",
+                },
             ),
         ]
     )
@@ -147,32 +177,69 @@ class TestPagination:
         assert [(r["sequenceId"], r["id"]) for r in result.rows] == [(7, 50), (7, 51)]
         assert all("_sequences_id" not in r for r in result.rows)
 
-    def test_sequence_folder_sequences_page_each_folder_and_carry_folder_id(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "sequence_folder_sequences",
+                "/sequence-folders",
+                _bare([{"id": "folder-a", "name": "Sales"}, {"id": "folder-b", "name": "Old"}]),
+                "/sequence-folders/{}/sequences",
+                ("folder-a", "folder-b"),
+                "folderId",
+                "_sequence_folders_id",
+                str(PAGE_SIZE),
+            ),
+            (
+                # Reply rejects `top` above 100 on thread messages.
+                "inbox_messages",
+                "/inbox/threads",
+                _paged([{"id": 31, "channel": "email"}, {"id": 32, "channel": "linkedIn"}], has_more=False),
+                "/inbox/threads/{}/messages",
+                (31, 32),
+                "threadId",
+                "_inbox_threads_id",
+                "100",
+            ),
+        ]
+    )
+    def test_fanout_pages_each_parent_and_carries_parent_id(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_page: ScriptedResponse,
+        child_path: str,
+        parent_ids: tuple[Any, Any],
+        parent_key: str,
+        injected_key: str,
+        expected_top: str,
+    ) -> None:
+        first, deleted = parent_ids
         result = _driver().run(
-            "sequence_folder_sequences",
+            endpoint,
             route(
                 {
-                    "/sequence-folders": [
-                        _bare([{"id": "folder-a", "name": "Sales"}, {"id": "folder-b", "name": "Old"}])
+                    parent_path: [parent_page],
+                    child_path.format(first): [
+                        _paged([{"messageId": None, "date": "2026-01-01T10:00:00Z"}], has_more=True),
+                        _paged([{"messageId": None, "date": "2026-01-02T10:00:00Z"}], has_more=False),
                     ],
-                    "/sequence-folders/folder-a/sequences": [
-                        _paged([{"id": 7, "name": "Intro"}], has_more=True),
-                        _paged([{"id": 8, "name": "Follow up"}], has_more=False),
-                    ],
-                    # A folder deleted between the listing and its sequence fetch.
-                    "/sequence-folders/folder-b/sequences": [ScriptedResponse(status=404, json={})],
+                    # A parent deleted between the listing and its child fetch.
+                    child_path.format(deleted): [ScriptedResponse(status=404, json={})],
                 }
             ),
         )
 
         assert result.raised is None
-        assert [(r["folderId"], r["id"]) for r in result.rows] == [("folder-a", 7), ("folder-a", 8)]
-        assert all("_sequence_folders_id" not in r for r in result.rows)
-        child_requests = [r for r in result.requests if r.path.endswith("/sequences")]
-        assert [(r.path, r.param("skip")) for r in child_requests] == [
-            ("/v3/sequence-folders/folder-a/sequences", "0"),
-            ("/v3/sequence-folders/folder-a/sequences", "1"),
-            ("/v3/sequence-folders/folder-b/sequences", "0"),
+        assert [(r[parent_key], r["date"]) for r in result.rows] == [
+            (first, "2026-01-01T10:00:00Z"),
+            (first, "2026-01-02T10:00:00Z"),
+        ]
+        assert all(injected_key not in r for r in result.rows)
+        child_requests = [r for r in result.requests if r.path != f"/v3{parent_path}"]
+        assert [(r.path, r.param("top"), r.param("skip")) for r in child_requests] == [
+            (f"/v3{child_path.format(first)}", expected_top, "0"),
+            (f"/v3{child_path.format(first)}", expected_top, "1"),
+            (f"/v3{child_path.format(deleted)}", expected_top, "0"),
         ]
 
     def test_fanout_resumes_after_finished_sequences(self) -> None:

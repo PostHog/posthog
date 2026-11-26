@@ -1,18 +1,26 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { router } from 'kea-router'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { decodeParams, router } from 'kea-router'
+import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type {
+    BlastRadiusApi,
+    HogFlowApi,
+    HogFlowEmailSendingRateLimitApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
@@ -23,6 +31,8 @@ import {
     DELETED_SENDER_ERROR,
     broadcastWizardLogic,
     getBroadcastTemplatingErrors,
+    rateLimitNeededForAudience,
+    remainingSendDuration,
 } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -39,6 +49,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         created_by: { id: 1, uuid: 'user-1', email: 'user@example.com', hedgehog_config: null },
         updated_at: overrides.updatedAt,
         last_run: null,
+        warnings: [],
         trigger: { type: 'batch', filters: { properties: [] } },
         conversion: null,
         email_sending_rate_limit: null,
@@ -72,6 +83,8 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
     }
 }
 
+const { ToastContainer, toast } = jest.requireActual('react-toastify')
+
 describe('broadcastWizardLogic', () => {
     let logic: ReturnType<typeof broadcastWizardLogic.build>
     let latest: HogFlowApi
@@ -79,6 +92,7 @@ describe('broadcastWizardLogic', () => {
     let patchedSubjects: string[]
     let patchedTracking: unknown[]
     let patchedNames: string[]
+    let patchedSenders: unknown[]
     let holdPatch: Promise<void> | null
     let onPatchStarted: (() => void) | null
     let failPatches: number
@@ -87,6 +101,7 @@ describe('broadcastWizardLogic', () => {
         patchedSubjects = []
         patchedTracking = []
         patchedNames = []
+        patchedSenders = []
         holdPatch = null
         onPatchStarted = null
         failPatches = 0
@@ -129,6 +144,7 @@ describe('broadcastWizardLogic', () => {
                         return [500, { detail: 'Simulated outage' }]
                     }
                     patchedSubjects.push(subject)
+                    patchedSenders.push(emailConfig.inputs.email.value.from)
                     patchedTracking.push(emailConfig.tracking_enabled)
                     onPatchStarted?.()
                     if (holdPatch) {
@@ -213,33 +229,82 @@ describe('broadcastWizardLogic', () => {
             step: 'content',
         },
         { link: 'no email', email: undefined, verified: true, step: 'content' },
-    ])('opens a link with $link on the $step step without creating a draft', async ({ email, verified, step }) => {
-        const createDraft = jest.fn()
-        useMocks({
-            get: {
-                '/api/projects/:team_id/integrations/': {
-                    results: [{ id: 1, kind: 'email', config: { verified } }],
-                    count: 1,
+        {
+            link: 'an AI draft that arrives and one verified sender',
+            email: undefined,
+            verified: true,
+            step: 'review',
+            aiDraftBy: 'ai',
+        },
+        {
+            link: 'an AI draft that falls back to an empty template',
+            email: undefined,
+            verified: true,
+            step: 'content',
+            aiDraftBy: 'template',
+        },
+        {
+            link: 'an AI draft that arrives after the person edits the audience',
+            email: undefined,
+            verified: true,
+            step: 'recipients',
+            aiDraftBy: 'ai',
+            editsAudience: true,
+        },
+    ])(
+        'opens a link with $link on the $step step without creating a draft',
+        async ({ email, verified, step, aiDraftBy, editsAudience }) => {
+            const createDraft = jest.fn()
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': {
+                        results: [{ id: 1, kind: 'email', config: { verified } }],
+                        count: 1,
+                    },
                 },
-            },
-            post: { '/api/projects/:team_id/hog_flows/': () => createDraft() },
-        })
-        logic.unmount()
-        router.actions.push(
-            urlForNewBroadcastWithAudience({ properties: LOCAL_AUDIENCE, source: 'error_tracking', email })
-        )
-        logic = broadcastWizardLogic({ id: 'new' })
-        logic.mount()
-        integrationsLogic.mount()
+                post: {
+                    '/api/projects/:team_id/hog_flows/': () => createDraft(),
+                    '/api/projects/:team_id/workflow_email_drafts/': {
+                        subject: aiDraftBy === 'ai' ? 'Written by the model' : '',
+                        preheader: '',
+                        html: aiDraftBy === 'ai' ? '<p>Hi there,</p>\n<p>Second paragraph.</p>' : '',
+                        text: aiDraftBy === 'ai' ? 'Hi there,\n\nSecond paragraph.' : '',
+                        generated_by: aiDraftBy ?? 'ai',
+                        template_reason: aiDraftBy === 'template' ? 'model_error' : null,
+                    },
+                },
+            })
+            logic.unmount()
+            router.actions.push(
+                urlForNewBroadcastWithAudience({
+                    properties: LOCAL_AUDIENCE,
+                    source: 'error_tracking',
+                    email,
+                    draftSource: aiDraftBy ? { source: 'cohort', source_id: '7' } : undefined,
+                })
+            )
+            logic = broadcastWizardLogic({ id: 'new' })
+            logic.mount()
+            integrationsLogic.mount()
+            if (editsAudience) {
+                logic.actions.stayOnRecipients()
+            }
 
-        await expectLogic(logic, () => {
-            integrationsLogic.actions.loadIntegrations()
-        }).toDispatchActions(['landOnStep'])
+            await expectLogic(logic, () => {
+                integrationsLogic.actions.loadIntegrations()
+            }).toDispatchActions([editsAudience ? 'loadAiEmailDraftSuccess' : 'landOnStep'])
+            if (aiDraftBy === 'ai') {
+                // The applied draft starts a brand lookup, which must not outlive this test.
+                await expectLogic(logic).toDispatchActions(['loadEmailBrandSuccess'])
+            }
 
-        expect(logic.values.currentStep).toEqual(step)
-        expect(logic.values.email.subject).toEqual(email?.subject ?? '')
-        expect(createDraft).not.toHaveBeenCalled()
-    })
+            expect(logic.values.currentStep).toEqual(step)
+            expect(logic.values.email.subject).toEqual(
+                aiDraftBy === 'ai' ? 'Written by the model' : (email?.subject ?? '')
+            )
+            expect(createDraft).not.toHaveBeenCalled()
+        }
+    )
 
     it.each([
         { case: 'untouched', edit: null, fallback: null, subject: 'Written by the model', status: 'applied' },
@@ -504,6 +569,134 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.searchParams).toEqual({ step: 'content' })
     })
 
+    it('opens the email editor on the content step when the review preview asks to modify content', async () => {
+        latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
+        router.actions.push('/broadcasts/broadcast-1', { utm_source: 'test' })
+        const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+        draftLogic.mount()
+        await expectLogic(draftLogic).toFinishAllListeners()
+        draftLogic.actions.setStep('review')
+
+        draftLogic.actions.editEmailContent()
+
+        expect(draftLogic.values.currentStep).toBe('content')
+        expect(router.values.searchParams).toEqual({ utm_source: 'test', editor: 'email' })
+        draftLogic.unmount()
+    })
+
+    it('opens the email editor on the draft URL when an unsaved broadcast asks to modify content from review', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('review')
+
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'content', editor: 'email' })
+    })
+
+    it('closes the email editor on back after an unsaved broadcast opened it from review', async () => {
+        router.actions.push('/broadcasts/new')
+        const browserHistory = [router.values.location.pathname]
+        const { history } = getRouterContext()
+        if (!history) {
+            throw new Error('The router has no history in this test')
+        }
+        history.pushState = (_state: unknown, _title: string, url: string): void => {
+            browserHistory.push(url)
+        }
+        history.replaceState = (_state: unknown, _title: string, url: string): void => {
+            browserHistory[browserHistory.length - 1] = url
+        }
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+        const editor = emailTemplaterLogic({
+            value: { design: null, html: '<p>Hi</p>', subject: 'Spring sale', text: 'Hi', from: '', to: '' },
+            onChange: jest.fn(),
+            type: 'native_email',
+        })
+        editor.mount()
+        expect(editor.values.isModalOpen).toBe(true)
+
+        browserHistory.pop()
+        const { pathname, search } = new URL(browserHistory[browserHistory.length - 1], 'https://example.com')
+        router.actions.locationChanged({
+            method: 'POP',
+            pathname,
+            search,
+            searchParams: decodeParams(search, '?'),
+            hash: '',
+            hashParams: {},
+            url: pathname + search,
+        })
+        await expectLogic(editor).toFinishAllListeners()
+
+        expect(editor.values.isModalOpen).toBe(false)
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        editor.unmount()
+    })
+
+    it('saves the draft and its send time before modify content retries after a failed schedule save', async () => {
+        const createdSchedules: Record<string, any>[] = []
+        const savedDrafts: string[] = []
+        let failSchedules = 1
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                    savedDrafts.push(JSON.stringify(await request.json()))
+                    return [200, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:05Z' })]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/hog_flows/:id/schedules/': async ({ request }) => {
+                    if (failSchedules > 0) {
+                        failSchedules -= 1
+                        return [500, { detail: 'Simulated outage' }]
+                    }
+                    const body = (await request.json()) as Record<string, any>
+                    createdSchedules.push(body)
+                    return [201, { id: 'schedule-1', ...body }]
+                },
+            },
+        })
+        const sendAt = dayjs().add(1, 'day').startOf('minute').toISOString()
+        router.actions.push('/broadcasts/new')
+        logic.actions.setScheduleMode('later')
+        logic.actions.setSendAt(sendAt)
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.location.pathname).toContain('/broadcasts/new')
+        expect(logic.values.savingForEmailEditor).toBe(false)
+        logic.actions.setAudienceProperties(LOCAL_AUDIENCE)
+
+        logic.actions.editEmailContent()
+        logic.actions.editEmailContent()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(savedDrafts).toEqual([expect.stringContaining('"plan"')])
+        expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt })])
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'content', editor: 'email' })
+    })
+
+    it('keeps the step a person picks while the draft that modify content asked for still saves', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+
+        logic.actions.setStep('schedule')
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'schedule' })
+    })
+
     it.each([
         {
             edit: 'an email edit',
@@ -701,11 +894,30 @@ describe('broadcastWizardLogic', () => {
     })
 
     it.each([
-        { stop: 'the audience is over the batch limit', affected: 60000, editedElsewhere: false, step: 'recipients' },
-        { stop: 'the draft was edited elsewhere', affected: 10, editedElsewhere: true, step: 'review' },
+        {
+            stop: 'the audience is over the batch limit',
+            affected: 60000,
+            rateLimited: null,
+            editedElsewhere: false,
+            step: 'recipients',
+        },
+        {
+            stop: 'the audience needs a sending rate limit',
+            affected: 60000,
+            rateLimited: { max_emails_per_hour: 1000, max_days: 7, limit: 168000 },
+            editedElsewhere: false,
+            step: 'schedule',
+        },
+        {
+            stop: 'the draft was edited elsewhere',
+            affected: 10,
+            rateLimited: null,
+            editedElsewhere: true,
+            step: 'review',
+        },
     ])(
         'moves to the draft URL when a launch from /broadcasts/new stops because $stop',
-        async ({ affected, editedElsewhere, step }) => {
+        async ({ affected, rateLimited, editedElsewhere, step }) => {
             latest = savedBroadcast({
                 name: '',
                 subject: 'Edited by the assistant',
@@ -715,7 +927,14 @@ describe('broadcastWizardLogic', () => {
                 post: {
                     '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
                         200,
-                        { affected, total: affected, limit: 50000, dedupe_key: 'email', confirm_token: 'token' },
+                        {
+                            affected,
+                            total: affected,
+                            limit: 50000,
+                            dedupe_key: 'email',
+                            confirm_token: 'token',
+                            rate_limited: rateLimited,
+                        },
                     ],
                 },
             })
@@ -853,6 +1072,154 @@ describe('broadcastWizardLogic', () => {
         }
     })
 
+    it.each([
+        {
+            answer: 'the rejection of an unfinished filter',
+            response: [
+                400,
+                { type: 'validation_error', code: 'invalid_input', detail: 'An audience filter is incomplete.' },
+            ],
+            settledBy: 'loadBlastRadiusSuccess',
+            blastRadiusError: 'An audience filter is incomplete.',
+            toasts: [],
+            reportedStatuses: [],
+        },
+        {
+            answer: 'a query over its size limit',
+            response: [400, { type: 'validation_error', code: 'too_many_bytes', detail: 'Simulated query size limit' }],
+            settledBy: 'loadBlastRadiusFailure',
+            blastRadiusError: null,
+            toasts: [expect.stringContaining('Simulated query size limit')],
+            reportedStatuses: [400],
+        },
+        {
+            answer: 'a server error',
+            response: [500, { detail: 'Simulated outage' }],
+            settledBy: 'loadBlastRadiusFailure',
+            blastRadiusError: null,
+            toasts: [expect.stringContaining('Simulated outage')],
+            reportedStatuses: [500],
+        },
+    ])(
+        'settles the audience size without a count on $answer',
+        async ({ response, settledBy, blastRadiusError, toasts, reportedStatuses }) => {
+            const reportedExceptions: { status?: number }[] = []
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation((error) => {
+                reportedExceptions.push(error as { status?: number })
+                return undefined as any
+            })
+            toast.dismiss()
+            render(createElement(ToastContainer))
+            try {
+                await expectLogic(logic).toFinishAllListeners().clearHistory()
+                useMocks({ post: { '/api/projects/:team_id/hog_flows/user_blast_radius/': () => response } })
+                logic.actions.setAudienceProperties([
+                    {
+                        type: PropertyFilterType.Person,
+                        key: 'plan',
+                        operator: PropertyOperator.Exact,
+                    } as AnyPropertyFilter,
+                ])
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadBlastRadius()
+                })
+                    .toDispatchActions([settledBy])
+                    .toMatchValues({ blastRadius: null, blastRadiusError })
+                await act(async () => {})
+                expect({
+                    toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),
+                    reportedStatuses: [...new Set(reportedExceptions.map((error) => error.status))],
+                }).toEqual({ toasts, reportedStatuses })
+            } finally {
+                cleanup()
+                toast.dismiss()
+                captureException.mockRestore()
+            }
+        }
+    )
+
+    it.each([
+        {
+            answer: 'a broadcast that does not exist',
+            response: [404, { detail: 'Not found.' }],
+            toasts: [],
+            reportedStatuses: [],
+        },
+        {
+            answer: 'a server error',
+            response: [500, { detail: 'Simulated outage' }],
+            toasts: [expect.stringContaining("Couldn't load the broadcast.")],
+            reportedStatuses: [500],
+        },
+    ])(
+        'loading $answer toasts at most once and reports only an unexpected failure',
+        async ({ response, toasts, reportedStatuses }) => {
+            const reportedExceptions: { status?: number }[] = []
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation((error) => {
+                reportedExceptions.push(error as { status?: number })
+                return undefined as any
+            })
+            useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => response } })
+            toast.dismiss()
+            render(createElement(ToastContainer))
+            const opened = broadcastWizardLogic({ id: '01a1f39d-0000-7000-8000-000000000001' })
+            try {
+                await expectLogic(opened, () => {
+                    opened.mount()
+                })
+                    .toDispatchActions(['loadBroadcastFailure'])
+                    .toMatchValues({ broadcast: null })
+                await act(async () => {})
+                expect({
+                    toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),
+                    reportedStatuses: [...new Set(reportedExceptions.map((error) => error.status))],
+                }).toEqual({ toasts, reportedStatuses })
+            } finally {
+                opened.unmount()
+                cleanup()
+                toast.dismiss()
+                captureException.mockRestore()
+            }
+        }
+    )
+
+    it('drops the rejection of an audience size check that a newer check replaced', async () => {
+        await expectLogic(logic).toFinishAllListeners().clearHistory()
+        let releaseFirst = (): void => {}
+        const firstHeld = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+        })
+        let calls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': async () => {
+                    if (calls++ === 0) {
+                        await firstHeld
+                        return [
+                            400,
+                            {
+                                type: 'validation_error',
+                                code: 'invalid_input',
+                                detail: 'An audience filter is incomplete.',
+                            },
+                        ]
+                    }
+                    return [500, { detail: 'Simulated outage' }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadBlastRadius()
+            logic.actions.loadBlastRadius()
+        }).toDispatchActions(['loadBlastRadiusFailure'])
+        releaseFirst()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ blastRadius: null, blastRadiusError: null })
+        toast.dismiss()
+    })
+
     const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }
     it.each([
         [
@@ -964,6 +1331,62 @@ describe('broadcastWizardLogic', () => {
         })
     })
 
+    it.each([
+        { case: 'an audience under the limit', affected: 3000, rateLimit: null, expected: null },
+        {
+            case: 'an audience a sending rate limit can reach',
+            affected: 10000,
+            rateLimit: null,
+            expected: { affected: 10000, minPerHour: 60, maxPerHour: 62, days: 7 },
+        },
+        {
+            case: 'an audience a rate limit that is too fast cannot reach',
+            affected: 10000,
+            rateLimit: { count: 100, period: 'hour' as const },
+            expected: { affected: 10000, minPerHour: 60, maxPerHour: 62, days: 7 },
+        },
+        {
+            case: 'an audience the chosen rate limit reaches',
+            affected: 10000,
+            rateLimit: { count: 1, period: 'minute' as const },
+            expected: null,
+        },
+        { case: 'an audience too large for any sending rate', affected: 10417, rateLimit: null, expected: null },
+    ])('asks for a sending rate limit for $case', ({ affected, rateLimit, expected }) => {
+        // The slowest rate has to reach everyone in max_days, or the server keeps the normal limit.
+        const blastRadius: BlastRadiusApi = {
+            affected,
+            total: affected,
+            limit: 3000,
+            dedupe_key: 'email',
+            confirm_token: 'token',
+            rate_limited: { max_emails_per_hour: 62, max_days: 7, limit: 62 * 24 * 7 },
+        }
+        expect(rateLimitNeededForAudience(blastRadius, rateLimit)).toEqual(expected)
+    })
+
+    it('asks for a rate limit on the schedule step only once one is set, and applies the suggested rate', () => {
+        logic.actions.loadBlastRadiusSuccess({
+            affected: 10000,
+            total: 10000,
+            limit: 3000,
+            dedupe_key: 'email',
+            confirm_token: 'token',
+            rate_limited: { max_emails_per_hour: 62, max_days: 7, limit: 62 * 24 * 7 },
+        })
+        expect(logic.values.stepValidationErrors.schedule).toEqual([])
+        expect(logic.values.stepValidationErrors.review).toContain(logic.values.rateLimitMessage)
+
+        logic.actions.setEmailRateLimit({ count: 100, period: 'hour' })
+        expect(logic.values.stepValidationErrors.schedule).toEqual([logic.values.rateLimitMessage])
+
+        logic.actions.applySuggestedRateLimit()
+        expect(logic.values.emailRateLimit).toEqual({ count: 62, period: 'hour' })
+        expect(logic.values.stepValidationErrors.schedule).toEqual([])
+        expect(logic.values.rateLimitNeeded).toBeNull()
+        expect(logic.values.audienceLimit).toEqual(62 * 24 * 7)
+    })
+
     it('leaves push text saved as Hog unparsed', () => {
         const broadcast = {
             actions: [
@@ -1040,6 +1463,48 @@ describe('broadcastWizardLogic', () => {
         expect(createDraft).not.toHaveBeenCalled()
     })
 
+    it('saves the next draft edit with the sender that can send when the project default stopped', async () => {
+        logic.unmount()
+        let createdDrafts = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/': () => {
+                    createdDrafts += 1
+                    return [201, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:00Z' })]
+                },
+            },
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [
+                        { id: 1, kind: 'email', config: { verified: true, ses_sending_status: 'failed' } },
+                        { id: 2, kind: 'email', config: { verified: true } },
+                    ],
+                    count: 2,
+                },
+            },
+        })
+        initKeaTests()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { default_email_integration_id: 1 },
+        } as any)
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        await waitFor(() => expect(createdDrafts).toBe(1))
+        await expectLogic(logic).toFinishAllListeners()
+
+        jest.useFakeTimers()
+        try {
+            logic.actions.setEmail({ ...logic.values.email, subject: 'Spring sale' })
+            await jest.advanceTimersByTimeAsync(1000)
+            await waitFor(() => expect(patchedSenders).toEqual([{ integrationId: 2 }]))
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {
         latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
         router.actions.push('/broadcasts/broadcast-1', { step: 'content', other: 'kept' })
@@ -1052,5 +1517,48 @@ describe('broadcastWizardLogic', () => {
             .toMatchValues({ currentStep: 'content' })
         expect(router.values.searchParams).toEqual({ other: 'kept' })
         draftLogic.unmount()
+    })
+
+    it.each([true, undefined])(
+        'previews a saved broadcast with the test account setting it sends with: %s',
+        async (filterTestAccounts) => {
+            const filters = { properties: LOCAL_AUDIENCE, filter_test_accounts: filterTestAccounts }
+            const saved = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
+            latest = {
+                ...saved,
+                actions: saved.actions.map((action) =>
+                    action.type === 'trigger' ? { ...action, config: { type: 'batch', filters } } : action
+                ),
+            } as HogFlowApi
+            const previewed: Record<string, unknown>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                        previewed.push(((await request.json()) as { filters: Record<string, unknown> }).filters)
+                        return [200, { affected: 9, total: 1000 }]
+                    },
+                },
+            })
+            const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+            await expectLogic(draftLogic, () => {
+                draftLogic.mount()
+            }).toDispatchActions(['hydrateFromBroadcast'])
+
+            draftLogic.actions.setStep('recipients')
+            await expectLogic(draftLogic).toFinishAllListeners()
+
+            expect(previewed.length).toBeGreaterThan(0)
+            expect(previewed.every((sent) => sent.filter_test_accounts === filterTestAccounts)).toBe(true)
+            draftLogic.unmount()
+        }
+    )
+
+    it.each([
+        { remaining: 6000, limit: { count: 100, period: 'minute' }, expected: '1h' },
+        { remaining: 500, limit: { count: 1000, period: 'hour' }, expected: '30m' },
+        { remaining: 0, limit: { count: 100, period: 'minute' }, expected: '' },
+        { remaining: 500, limit: null, expected: '' },
+    ])('estimates the time to send %o', ({ remaining, limit, expected }) => {
+        expect(remainingSendDuration(remaining, limit as HogFlowEmailSendingRateLimitApi | null)).toBe(expected)
     })
 })

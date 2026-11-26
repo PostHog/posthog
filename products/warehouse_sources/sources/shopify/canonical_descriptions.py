@@ -113,6 +113,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             email="Email address associated with the order.",
             phone="Phone number associated with the order.",
             customer="The customer who placed the order.",
+            customer_journey_summary="Marketing attribution for the order: the customer's first and last store visits (landing page, referrer, source, UTM parameters) and whether attribution is complete.",
             display_financial_status="Financial status of the order (e.g. PAID, PENDING, REFUNDED, VOIDED).",
             display_fulfillment_status="Fulfillment status of the order (e.g. FULFILLED, UNFULFILLED, PARTIALLY_FULFILLED).",
             current_total_price_set="Current total price of the order, in shop and presentment currencies.",

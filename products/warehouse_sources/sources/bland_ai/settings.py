@@ -93,6 +93,47 @@ class BlandAIEndpointConfig:
 #   One row per scored call per run, with the normalized scores. Same cursor pagination as
 #   `eval_runs`; rows carry their own `eval_run_id`, which goes in the composite key. Off by
 #   default for the same reason as `eval_runs`.
+#
+# - `agent_test_runs` — GET /v1/agent-testing/runs. The regression test runs of pathways and
+#   personas, with their status, score and assertion results. Offset pagination (`offset` +
+#   `limit`, max 100) with `total_count` in the response, and no timestamp filters, so full refresh.
+#
+# - `agent_test_scenarios` — GET /v1/agent-testing/scenarios. The test scenarios and their
+#   assertions. Single unpaginated page, no timestamp filters, so full refresh.
+#
+# - `widget_threads` — GET /v1/widget/{id}/threads, fanned out over GET /v1/widgets. One row per
+#   web widget conversation, with its messages inline. Page-number pagination (`page` + `limit`,
+#   max 100) and no timestamp filters, so full refresh. Thread ids aren't documented as globally
+#   unique, so rows carry the parent `widget_id` in a composite key.
+#
+# - `audit_logs` — GET /v1/audit-logs. Account change events (logins, pathway and knowledge base
+#   edits). Page-number pagination (`page` + `page_size`, max 100) with `data.total_pages`. The
+#   `created_after` filter gives a server-side incremental cursor on `created_at`, but the events
+#   always arrive newest first. Off by default: the endpoint needs an admin or owner role.
+#
+# - `knowledge_bases` — GET /v1/knowledge. The knowledge base items that agents answer from.
+#   Page-number pagination (`page` + `limit`, max 100) and no timestamp filters, so full refresh.
+#
+# - `contacts` — GET /v1/contacts. The people behind calls and SMS threads, with their identifiers
+#   and per-persona memories inline. Offset pagination (`offset` + `limit`, max 200) with
+#   `pagination.total`, and no timestamp filters, so full refresh.
+#
+# - `triage_issues` — GET /v1/triage/issues. Problems flagged on calls by the Triage monitor or by
+#   hand. Keyset pagination (`cursor` + `data.next_cursor`, max 100), sorted by `created_at` with a
+#   stable secondary sort on `id`. The only date filter is a relative window (`date_range=7d`), so
+#   full refresh.
+#
+# - `alarms` — GET /v1/alarms. The alarm configurations of the organization. Single unpaginated
+#   page, no timestamp filters, so full refresh.
+#
+# - `alarm_events` — GET /v1/alarms/history. The state changes of those alarms. The endpoint returns
+#   only the most recent events (`limit` max 200), with no pagination or timestamp filters, so each
+#   full refresh holds the latest 200 events.
+#
+# - `outcomes` — GET /v1/dispositions. The org-level outcome scripts that classify finished calls
+#   and SMS conversations (the API calls them dispositions). Page-number pagination (`page` +
+#   `limit`, max 100) with `data.pagination.total_pages`, and no timestamp filters, so full
+#   refresh. Off by default: outcomes are an Enterprise feature.
 BLAND_AI_ENDPOINTS: dict[str, BlandAIEndpointConfig] = {
     "calls": BlandAIEndpointConfig(
         name="calls",
@@ -260,6 +301,105 @@ BLAND_AI_ENDPOINTS: dict[str, BlandAIEndpointConfig] = {
             "One row per call scored in an eval run, with its overall, text and audio scores "
             "normalized to 0-100. Requires Evals to be enabled on your Bland organization. "
             "Full refresh only."
+        ),
+    ),
+    "agent_test_runs": BlandAIEndpointConfig(
+        name="agent_test_runs",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "Your agent test runs — one simulated conversation per test scenario — with their status, "
+            "score, duration and assertion results. Full refresh only."
+        ),
+    ),
+    "agent_test_scenarios": BlandAIEndpointConfig(
+        name="agent_test_scenarios",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "Your agent test scenarios: the simulated caller, the pathway or persona under test, the "
+            "assertions and the most recent run. Full refresh only."
+        ),
+    ),
+    "widget_threads": BlandAIEndpointConfig(
+        name="widget_threads",
+        primary_keys=["widget_id", "id"],
+        partition_key="created_at",
+        description=(
+            "One row per conversation thread on your web chat widgets, with the messages of the thread. "
+            "Full refresh only."
+        ),
+    ),
+    "audit_logs": BlandAIEndpointConfig(
+        name="audit_logs",
+        primary_keys=["id"],
+        partition_key="created_at",
+        supports_incremental=True,
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        should_sync_default=False,
+        description=(
+            "The audit events of your organization: logins, logouts, and pathway and knowledge base "
+            "changes. Requires an API key with an admin or owner role."
+        ),
+    ),
+    "knowledge_bases": BlandAIEndpointConfig(
+        name="knowledge_bases",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "Your knowledge base items — the files, web pages and text that agents answer from — with "
+            "their processing status. Full refresh only."
+        ),
+    ),
+    "contacts": BlandAIEndpointConfig(
+        name="contacts",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "The contacts of your organization — the people behind your calls and SMS conversations — with "
+            "their phone numbers, emails and the memories each persona keeps about them. Full refresh only."
+        ),
+    ),
+    "triage_issues": BlandAIEndpointConfig(
+        name="triage_issues",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "The issues flagged on your calls in Triage, with their status, severity, category, assignee "
+            "and the count of attached calls and flags. Full refresh only."
+        ),
+    ),
+    "alarms": BlandAIEndpointConfig(
+        name="alarms",
+        primary_keys=["id"],
+        description=(
+            "Your alarm configurations: the metric each alarm watches, its threshold, whether it is enabled "
+            "and where it sends notifications. Full refresh only."
+        ),
+    ),
+    "alarm_events": BlandAIEndpointConfig(
+        name="alarm_events",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "The state changes of your alarms, such as a detected or recovered deviation. Bland returns only "
+            "the 200 most recent events, so each sync replaces the table with those. Full refresh only."
+        ),
+    ),
+    "outcomes": BlandAIEndpointConfig(
+        name="outcomes",
+        primary_keys=["id"],
+        should_sync_default=False,
+        description=(
+            "Your outcomes — the scripts that classify finished calls and SMS conversations (dispositions "
+            "in the API). Outcomes are an Enterprise feature. Full refresh only."
         ),
     ),
 }

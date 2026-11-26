@@ -33,7 +33,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError, TransientQueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -74,7 +74,7 @@ class TestSavedViewBounds(SimpleTestCase):
         ]
     )
     def test_rejects_cycles(self, _name: str, views: dict[str, str]) -> None:
-        with self.assertRaisesRegex(QueryError, "Circular dependency"):
+        with self.assertRaisesRegex(ResolutionCycleError, "Circular dependency"):
             resolve_types(parse_select("select * from first"), self._context(views), "hogql")
 
     @parameterized.expand(
@@ -109,7 +109,7 @@ class TestSavedViewBounds(SimpleTestCase):
     def test_nested_depth_is_bounded(self) -> None:
         context = self._context({"first": "select * from second", "second": "select 1"})
         with patch("posthog.hogql.resolver.MAX_VIEW_DEPTH", 1):
-            with self.assertRaisesRegex(QueryError, "1 nested saved views"):
+            with self.assertRaisesRegex(ResolutionDepthExceededError, "1 nested saved views"):
                 resolve_types(parse_select("select * from first"), context, "hogql")
 
     def test_repeated_views_share_sql_size_budget(self) -> None:
@@ -144,7 +144,7 @@ class TestSavedViewBounds(SimpleTestCase):
                 clock.return_value = COMPILATION_TIMEOUT_SECONDS + 1
                 return node
 
-            with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+            with self.assertRaisesRegex(TransientQueryError, "compilation exceeded its time limit"):
                 prepare_and_print_ast(parse_select("select 1"), context, "hogql", prepared_ast_transform=advance_clock)
             sql, _ = prepare_and_print_ast(parse_select("select 1"), context, "hogql")
             self.assertIn("SELECT 1", sql)
@@ -159,7 +159,7 @@ class TestSavedViewBounds(SimpleTestCase):
                 return parsed
 
             with patch("posthog.hogql.resolver.parse_select", side_effect=parse_slow_view):
-                with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+                with self.assertRaisesRegex(TransientQueryError, "compilation exceeded its time limit"):
                     resolve_types(parse_select("select * from leaf"), context, "hogql")
 
 
@@ -181,6 +181,19 @@ class TestInheritedCtes(SimpleTestCase):
         else:
             with self.assertRaises(QueryError):
                 resolve_types(query, context, "clickhouse", scopes=[parent.type])
+
+    @parameterized.expand(
+        [
+            ("SELECT team_id, event FROM events", ["team_id", "event"]),
+            ("SELECT team_id, id FROM system.batch_exports", ["team_id", "id"]),
+        ]
+    )
+    def test_asterisk_over_cte_keeps_every_selected_column(self, cte_body: str, expected: list[str]) -> None:
+        context = HogQLContext(database=Database(), enable_select_queries=True)
+        query = resolve_types(parse_select(f"WITH c AS ({cte_body}) SELECT * FROM c"), context, "clickhouse")
+
+        assert isinstance(query.type, ast.SelectQueryType)
+        assert list(query.type.columns) == expected
 
 
 class TestResolver(BaseTest):
@@ -655,22 +668,29 @@ class TestResolver(BaseTest):
         self.assertIn("Did you mean:", message)
         self.assertIn("events", message)
 
-    def test_unresolved_field_suggests_close_matches(self):
-        # user_id isn't on events, but distinct_id and person_id are close enough to suggest
+    @parameterized.expand(
+        [
+            # user_id isn't on events, but distinct_id and person_id are close enough to suggest
+            (
+                "close_field_name",
+                "SELECT user_id FROM events",
+                "Unable to resolve field: user_id. Did you mean: ",
+                "()",
+            ),
+            ("zero_argument_function", "SELECT today FROM events", "Did you mean: today()?", None),
+            ("function_with_optional_argument", "SELECT now FROM events", "Did you mean: now()", None),
+            ("function_that_requires_arguments", "SELECT toDate FROM events", "Available fields: ", "toDate()"),
+        ]
+    )
+    def test_unresolved_field_suggests_close_matches(
+        self, _name: str, query: str, expected: str, not_expected: str | None
+    ) -> None:
         with self.assertRaises(QueryError) as ctx:
-            resolve_types(
-                self._select("SELECT user_id FROM events"),
-                self.context,
-                dialect="clickhouse",
-            )
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
         message = str(ctx.exception)
-        self.assertIn("Unable to resolve field: user_id", message)
-        self.assertIn("Did you mean:", message)
-        # At least one of the obvious suggestions should show up
-        self.assertTrue(
-            "distinct_id" in message or "person_id" in message,
-            f"expected a plausible suggestion in: {message}",
-        )
+        self.assertIn(expected, message)
+        if not_expected is not None:
+            self.assertNotIn(not_expected, message)
 
     @parameterized.expand(
         [
@@ -862,7 +882,7 @@ class TestResolver(BaseTest):
     ):
         scope = ast.SelectQueryType(tables=tables)
 
-        with self.assertRaises(ResolutionError) as context:
+        with self.assertRaises(QueryError) as context:
             lookup_field_by_name(scope, "properties", self.context)
 
         self.assertEqual(
@@ -1472,7 +1492,9 @@ class TestResolver(BaseTest):
             name="person_properties", nullable=False
         )
 
-        node = self._select("SELECT event, person.id, person.properties, person.created_at FROM events")
+        node = self._select(
+            "SELECT event, person.id, person.properties, person.created_at, poe.id, poe.created_at FROM events"
+        )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # all columns resolve to a type in the end
@@ -1497,6 +1519,24 @@ class TestResolver(BaseTest):
             nullable=False,
             description="When the person was first seen by PostHog.",
         )
+        for person_index, poe_index in ((1, 4), (3, 5)):
+            assert cast(ast.FieldType, node.select[poe_index].type).resolve_database_field(self.context) == cast(
+                ast.FieldType, node.select[person_index].type
+            ).resolve_database_field(self.context)
+
+        with self.assertRaises(QueryError):
+            resolve_types(self._select("SELECT event.`..`.uuid FROM events"), self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            ("direct_virtual", "SELECT poe.`..` FROM events"),
+            ("qualified_virtual", "SELECT events.poe.`..` FROM events"),
+            ("traverser", "SELECT person.`..` FROM events"),
+        ]
+    )
+    def test_field_traverser_trailing_double_dot(self, _name, query):
+        with self.assertRaisesRegex(QueryError, "Expected a field after '\\.\\.'"):
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
 
     def test_visit_hogqlx_tag(self):
         node = self._select("select event from <HogQLQuery query='select event from events' />")
@@ -1536,7 +1576,8 @@ class TestResolver(BaseTest):
             "(SELECT id, properties.email AS email FROM "
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
-            "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
+            "persons ON and(equals(persons.id, source.person_id), globalIn(persons.id, "
+            "(SELECT source.person_id FROM (SELECT DISTINCT person_id FROM events) AS source))) ORDER BY id ASC) "
             f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 

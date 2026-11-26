@@ -4,15 +4,21 @@ import { IconLetter } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ChannelSetupModal } from '../../Channels/ChannelSetupModal'
+import { EmailIntegrationsList } from '../../Channels/EmailIntegrationsList'
+import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
 export function WizardChannelStep(): JSX.Element {
     const { integrations, setupModalOpen, setupModalType, selectedIntegration } = useValues(integrationsLogic)
     const { openSetupModal, closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
+    const { journeyFirst, wizardPath } = useValues(workflowsOnboardingWizardLogic)
     const hasEmailChannel = !!integrations?.some((integration) => integration.kind === 'email')
+    const domainNeed =
+        journeyFirst && wizardPath === 'broadcast'
+            ? 'To send your broadcast, you need a domain you control'
+            : 'You need a domain you control'
 
     return (
         <>
@@ -39,8 +45,7 @@ export function WizardChannelStep(): JSX.Element {
                         <IconLetter className="size-6" />
                     </div>
                     <p className="mb-0 max-w-md text-secondary">
-                        You need a domain you control, such as mail.example.com. You can add more channels later in
-                        Messaging.
+                        {domainNeed}, such as mail.example.com. You can add more channels later in Messaging.
                     </p>
                     <LemonButton
                         type="primary"

@@ -113,7 +113,7 @@ export function MetricLineagePanel({
         )
     }
 
-    if (lineageProblem === 'not_ready') {
+    if (lineageProblem === 'not_ready' || lineageProblem === 'missing') {
         return (
             <LineageMessage
                 title="Lineage is being prepared"

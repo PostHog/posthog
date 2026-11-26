@@ -9,13 +9,31 @@ from django.utils import timezone
 import posthoganalytics
 from dateutil import parser
 from simple_salesforce.format import format_soql
+from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
-from .account_fields import fill_only_account_fields, overwritten_account_fields, unoccupied_fields
+from products.growth.backend.enrichment.fit_score import (
+    STATUS_DISQUALIFIED,
+    STATUS_NOT_FOUND,
+    STATUS_SCORED,
+    IcpFitResult,
+    score_company,
+)
+from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
+from products.growth.backend.enrichment.icp_lists import CuratedLists, load_active_lists
+
+from .account_fields import (
+    DESCRIPTION_MIRROR_FIELD,
+    account_description,
+    fill_only_account_fields,
+    overwritten_account_fields,
+    unoccupied_fields,
+)
 from .constants import (
     ACCOUNT_FILL_FIELDS,
     DEFAULT_CHUNK_SIZE,
@@ -28,7 +46,7 @@ from .constants import (
     YC_INVESTOR_NAME,
 )
 from .harmonic_client import AsyncHarmonicClient
-from .harmonic_company import is_sub_entity
+from .harmonic_company import is_sub_entity, website_path_is_root
 from .redis_cache import get_accounts_from_redis, store_accounts_in_redis
 from .salesforce_client import get_salesforce_client
 
@@ -48,7 +66,7 @@ def _extract_domain(url: str | None) -> str | None:
         return None
 
     try:
-        parsed = urlparse(url if url.startswith(("http://", "https://")) else f"https://{url}")
+        parsed = urlparse(url if url.lower().startswith(("http://", "https://")) else f"https://{url}")
         # Use hostname to get domain without port, fallback to netloc if hostname is None
         domain = parsed.hostname or parsed.netloc or url
     except Exception:
@@ -265,6 +283,7 @@ def _harmonic_mirror_fields(harmonic_data: dict[str, Any]) -> dict[str, Any]:
         # Company Info
         "harmonic_company_name__c": company_info.get("name"),
         "harmonic_company_type__c": company_info.get("type"),
+        DESCRIPTION_MIRROR_FIELD: account_description(company_info.get("description")),
         "harmonic_industry__c": _extract_primary_tag(tags, tags_v2),
         "harmonic_last_update__c": timezone.now().strftime("%Y-%m-%d"),
         # Funding Info
@@ -352,17 +371,123 @@ def prepare_account_update(account_id: str, company: dict[str, Any]) -> dict[str
     return {**update_data, **overwritten_account_fields(company)}
 
 
-def _read_fill_field_values(sf: "Salesforce", account_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """Read the current values of ACCOUNT_FILL_FIELDS from Salesforce, keyed by Account Id.
+_ICP_FIT_COMPONENT_FIELDS = {
+    "traction": "icp_fit_traction__c",
+    "capital": "icp_fit_capital__c",
+    "ai_pilled": "icp_fit_ai_pilled__c",
+    "headcount_growth": "icp_fit_headcount_growth__c",
+    "software_relevance": "icp_fit_software_relevance__c",
+}
+# Growth does not bound these values by the Salesforce field sizes, and a value that does not fit makes Salesforce
+# reject the Account's whole update, the Harmonic mirrors included.
+_ICP_FIT_VERSION_MAX_LENGTH = 20
+_ICP_FIT_DQ_REASON_MAX_LENGTH = 255
+_ICP_FIT_DATA_COVERAGE_DIGITS = 18
 
+
+def _salesforce_integer(value: Any, *, digits: int) -> int | None:
+    """The value when it is an integer that a Number(digits, 0) field holds, otherwise None."""
+    if isinstance(value, bool) or not isinstance(value, int) or abs(value) >= 10**digits:
+        return None
+    return value
+
+
+def _icp_fit_result_fields(fit: IcpFitResult, *, evaluated_at: datetime) -> dict[str, Any]:
+    """Every Account field that holds the ICP fit evaluation, with None where the evaluation has no value.
+
+    The None values are sent, so that an Account that stops being scored loses its earlier score.
+    """
+    components = fit.components if fit.status == STATUS_SCORED and fit.components else {}
+    # An edited formula can name other components, and an Account must never show components that do not sum to its
+    # score, so such a result writes none.
+    if components.keys() != _ICP_FIT_COMPONENT_FIELDS.keys():
+        components = {}
+    dq_reason = fit.dq_reason if fit.status == STATUS_DISQUALIFIED else None
+    return {
+        "icp_fit_status__c": fit.status,
+        "icp_fit_score__c": fit.score,
+        "icp_fit_dq_reason__c": dq_reason[:_ICP_FIT_DQ_REASON_MAX_LENGTH] if dq_reason else None,
+        "icp_fit_version__c": fit.version[:_ICP_FIT_VERSION_MAX_LENGTH],
+        "icp_fit_lists_version__c": fit.lists_version,
+        "icp_fit_evaluated_at__c": evaluated_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "icp_fit_data_coverage__c": _salesforce_integer(
+            fit.flags.get("data_coverage"), digits=_ICP_FIT_DATA_COVERAGE_DIGITS
+        ),
+        **{field: components.get(component) for component, field in _ICP_FIT_COMPONENT_FIELDS.items()},
+    }
+
+
+def _icp_fit_fields(
+    company: dict[str, Any], *, domain: str, lists: CuratedLists, evaluated_at: datetime
+) -> dict[str, Any]:
+    """The ICP fit fields for an Account whose domain Harmonic answered with this company.
+
+    Growth's scorer rates the Account from Harmonic's profile of the company, without the signup inputs that an
+    organization's score also uses. The Account's domain stands in for the signup domain.
+    """
+    if is_sub_entity(company):
+        # The field names come from the mapping that stamps them, so that a field added there is also cleared here.
+        return dict.fromkeys(_icp_fit_result_fields(IcpFitResult(status=STATUS_NOT_FOUND), evaluated_at=evaluated_at))
+
+    fit = score_company(normalize_graphql_company(company), lists=lists, domain=domain)
+    return _icp_fit_result_fields(fit, evaluated_at=evaluated_at)
+
+
+def _icp_fit_fields_for_batch(
+    companies: list[dict[str, Any] | None], domains: list[str], lists: CuratedLists
+) -> list[dict[str, Any]]:
+    """The fit fields for each company, empty where Harmonic gave no company or the scorer failed.
+
+    An empty entry leaves the Account's fit fields as they are.
+    """
+    evaluated_at = timezone.now()
+    batch_fields: list[dict[str, Any]] = []
+    errors: list[Exception] = []
+    for company, domain in zip(companies, domains, strict=True):
+        try:
+            fields = (
+                _icp_fit_fields(company, domain=domain, lists=lists, evaluated_at=evaluated_at)
+                if isinstance(company, dict)
+                else {}
+            )
+        except Exception as e:
+            errors.append(e)
+            fields = {}
+        batch_fields.append(fields)
+
+    # One capture per batch, so that a formula that fails for every company does not report each Account.
+    if errors:
+        capture_exception(errors[0], {"icp_fit_failures": len(errors), "batch_size": len(companies)})
+    return batch_fields
+
+
+async def _load_icp_lists() -> CuratedLists | None:
+    """Growth's active list configuration, or None when the fit fields must not be written."""
+    try:
+        lists = await database_sync_to_async(load_active_lists)()
+    except Exception as e:
+        capture_exception(e)
+        return None
+
+    # Scores computed against empty lists would look like real evaluations, so no lists means no scores.
+    if lists is None:
+        capture_exception(RuntimeError("IcpScoringConfig has no active row, so no ICP fit fields are written"))
+    return lists
+
+
+def _read_fill_field_values(sf: "Salesforce", account_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Read the current values of ACCOUNT_FILL_FIELDS, DESCRIPTION_MIRROR_FIELD and Website, keyed by Account Id.
+
+    unoccupied_fields() compares Description with the mirror, and add_unoccupied_fill_fields() checks the Website.
     An Account whose read fails is left out of the result.
     """
     logger = LOGGER.bind(function="_read_fill_field_values")
     current_values: dict[str, dict[str, Any]] = {}
+    fields = ", ".join((*ACCOUNT_FILL_FIELDS, DESCRIPTION_MIRROR_FIELD, "Website"))
 
     for start in range(0, len(account_ids), SALESFORCE_UPDATE_BATCH_SIZE):
         query = format_soql(
-            f"SELECT Id, {', '.join(ACCOUNT_FILL_FIELDS)} FROM Account WHERE Id IN {{}}",
+            f"SELECT Id, {fields} FROM Account WHERE Id IN {{}}",
             account_ids[start : start + SALESFORCE_UPDATE_BATCH_SIZE],
         )
         try:
@@ -374,28 +499,52 @@ def _read_fill_field_values(sf: "Salesforce", account_ids: list[str]) -> dict[st
     return current_values
 
 
+def _is_root_website_on(website: str | None, domain: str | None) -> bool:
+    if not website or not domain:
+        return False
+    return _extract_domain(website) == domain and website_path_is_root(website)
+
+
 def add_unoccupied_fill_fields(
-    sf: "Salesforce", update_records: list[dict[str, Any]], fill_fields_by_account: dict[str, dict[str, Any]]
+    sf: "Salesforce",
+    update_records: list[dict[str, Any]],
+    fill_fields_by_account: dict[str, dict[str, Any]],
+    queried_domains: dict[str, str],
 ) -> None:
-    """Add each Account's fill-only fields to its update record, for the fields that hold no value in Salesforce.
+    """Add each Account's fill-only fields to its update record, for the fields that unoccupied_fields() allows.
 
     The current values are read here, immediately before the write. The cached Account records can be hours old,
     and a value that another writer set in that time must not be replaced. Salesforce has no conditional update,
     so a value set between this read and the write can still be replaced.
 
+    Description also needs the Account's current Website to be a site root on the domain that the job queried. A
+    Website below the root is one page of a shared host, and the record for that domain describes the host.
+
+    An Account that the read does not return gets no fill fields, and its record also loses DESCRIPTION_MIRROR_FIELD.
+    If the mirror took Harmonic's new text while Description kept the job's earlier copy, the two would no longer
+    match, and no later run would refresh that Description.
+
     Args:
         sf: simple_salesforce.Salesforce client
         update_records: List of dicts with Id + field updates, changed in place
         fill_fields_by_account: Output from fill_only_account_fields(), keyed by Account Id
+        queried_domains: The domain that each Account's fill-only fields were built for, keyed by Account Id
     """
     current_values = _read_fill_field_values(
-        sf, [account_id for account_id, fill_fields in fill_fields_by_account.items() if fill_fields]
+        sf, [record["Id"] for record in update_records if fill_fields_by_account.get(record["Id"])]
     )
 
     for record in update_records:
         fill_fields = fill_fields_by_account.get(record["Id"])
-        if fill_fields:
-            record.update(unoccupied_fields(fill_fields, current_values.get(record["Id"], {})))
+        if not fill_fields:
+            continue
+        current = current_values.get(record["Id"])
+        if current is None:
+            record.pop(DESCRIPTION_MIRROR_FIELD, None)
+            continue
+        if not _is_root_website_on(current.get("Website"), queried_domains.get(record["Id"])):
+            fill_fields = {field: value for field, value in fill_fields.items() if field != "Description"}
+        record.update(unoccupied_fields(fill_fields, current))
 
 
 @frozen
@@ -487,6 +636,23 @@ def bulk_update_salesforce_accounts(
     return BulkUpdateResult(succeeded=total_success, failed=total_errors)
 
 
+def write_account_updates(
+    sf: "Salesforce",
+    update_records: list[dict[str, Any]],
+    fill_fields_by_account: dict[str, dict[str, Any]],
+    queried_domains: dict[str, str],
+) -> None:
+    """Write the update records one batch at a time, each batch directly after its own read of the current values.
+
+    Each Account's read comes one Salesforce round trip before its write, so an edit that a person makes while an
+    earlier batch is written is not replaced.
+    """
+    for start in range(0, len(update_records), SALESFORCE_UPDATE_BATCH_SIZE):
+        batch = update_records[start : start + SALESFORCE_UPDATE_BATCH_SIZE]
+        add_unoccupied_fill_fields(sf, batch, fill_fields_by_account, queried_domains)
+        bulk_update_salesforce_accounts(sf, batch)
+
+
 def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
     """Query Salesforce for all accounts matching the given domain.
 
@@ -515,7 +681,7 @@ def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
     # Matches: "example.com", "www.example.com", "api.example.com"
     # Does NOT match: "notexample.com", "example.com.evil.com"
     query = format_soql(
-        """SELECT Id, Name, Domain__c, CreatedDate
+        """SELECT Id, Name, Domain__c, Website, CreatedDate
            FROM Account
            WHERE Domain__c = {} OR Domain__c LIKE '%{:like}'
            ORDER BY CreatedDate DESC""",
@@ -572,7 +738,7 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
     except Exception as e:
         logger.exception("Salesforce query failed", error=str(e))
         capture_exception(e)
-        return []
+        raise
 
     if cache_missing:
         try:
@@ -591,6 +757,7 @@ def _build_result(
     records_enriched: int = 0,
     records_updated: int = 0,
     records_rejected_sub_entity: int = 0,
+    records_icp_fit_evaluated: int = 0,
     total_accounts_in_chunk: int = 0,
     errors: list[str] | None = None,
     error: str | None = None,
@@ -606,6 +773,7 @@ def _build_result(
         "records_enriched": records_enriched,
         "records_updated": records_updated,
         "records_rejected_sub_entity": records_rejected_sub_entity,
+        "records_icp_fit_evaluated": records_icp_fit_evaluated,
         "success_rate": success_rate,
         "total_time": round(time.time() - start_time, 2),
         "total_accounts_in_chunk": total_accounts_in_chunk,
@@ -636,14 +804,10 @@ def _fetch_updated_account_fields(
 
     account_ids = [acc["Id"] for acc in accounts]
 
-    # Collect all unique fields from update_records (excluding Id and attributes)
-    fields_to_fetch = {"Id", "Name", "Domain__c"}  # Always include these base fields
-    for record in update_records:
-        for field in record.keys():
-            if field not in ("Id", "attributes"):
-                fields_to_fetch.add(field)
-
-    fields_list = ", ".join(sorted(fields_to_fetch))
+    base_fields = {"Id", "Name", "Domain__c"}
+    # An Account's unsent fields stay out of the workflow result, because they can hold another writer's text.
+    fields_by_account = {record["Id"]: base_fields | (record.keys() - {"attributes"}) for record in update_records}
+    fields_list = ", ".join(sorted(base_fields.union(*fields_by_account.values())))
 
     try:
         query = format_soql(
@@ -652,8 +816,10 @@ def _fetch_updated_account_fields(
         )
         result = sf.query_all(query)
 
-        # Return records with only the fields we queried
-        return [{field: record.get(field) for field in fields_to_fetch} for record in result["records"]]
+        return [
+            {field: record.get(field) for field in fields_by_account.get(record["Id"], base_fields)}
+            for record in result["records"]
+        ]
     except Exception as e:
         logger.warning(
             "Failed to fetch updated account data",
@@ -814,6 +980,8 @@ async def _enrich_specific_domain_debug(
     domain: str,
     chunk_number: int,
     start_time: float,
+    *,
+    score_icp_fit: bool,
 ) -> dict[str, Any]:
     """Debug mode: Enrich a specific domain and update all matching SF accounts.
 
@@ -821,6 +989,7 @@ async def _enrich_specific_domain_debug(
         domain: Already normalized domain to enrich
         chunk_number: For result building
         start_time: For result building
+        score_icp_fit: Whether the updates carry Growth's ICP fit score
 
     Returns:
         Dict with enrichment results, summary, and Harmonic data
@@ -853,6 +1022,12 @@ async def _enrich_specific_domain_debug(
             if (update_data := prepare_account_update(account["Id"], harmonic_result))
         ]
 
+        icp_lists = await _load_icp_lists() if score_icp_fit and update_records else None
+        if icp_lists is not None:
+            (fit_fields,) = await asyncio.to_thread(_icp_fit_fields_for_batch, [harmonic_result], [domain], icp_lists)
+            for record in update_records:
+                record.update(fit_fields)
+
         salesforce_updated = False
         update_error = None
         records_updated = 0
@@ -862,11 +1037,21 @@ async def _enrich_specific_domain_debug(
         try:
             if update_records:
                 sf = get_salesforce_client()
-                if not rejected_sub_entity:
-                    fill_fields = fill_only_account_fields(harmonic_result, queried_domain=domain)
-                    fill_fields_by_account = {record["Id"]: fill_fields for record in update_records}
-                    await asyncio.to_thread(add_unoccupied_fill_fields, sf, update_records, fill_fields_by_account)
-                bulk_update_salesforce_accounts(sf, update_records)
+                queried_domains = {
+                    account["Id"]: _extract_domain(account.get("Website") or account["Domain__c"]) or ""
+                    for account in accounts
+                }
+                fill_fields_by_account = (
+                    {}
+                    if rejected_sub_entity
+                    else {
+                        account_id: fill_only_account_fields(harmonic_result, queried_domain=queried_domain)
+                        for account_id, queried_domain in queried_domains.items()
+                    }
+                )
+                await asyncio.to_thread(
+                    write_account_updates, sf, update_records, fill_fields_by_account, queried_domains
+                )
                 salesforce_updated = True
                 records_updated = len(update_records)
                 logger.info("Successfully updated Salesforce accounts", accounts_updated=records_updated)
@@ -901,6 +1086,7 @@ async def _enrich_specific_domain_debug(
                 records_enriched=0 if rejected_sub_entity else 1,
                 records_updated=records_updated,
                 records_rejected_sub_entity=len(accounts) if rejected_sub_entity else 0,
+                records_icp_fit_evaluated=sum(1 for record in update_records if record.get("icp_fit_status__c")),
             ),
             "summary": summary,
             "enriched_data": harmonic_data,
@@ -916,6 +1102,8 @@ async def enrich_accounts_chunked_async(
     chunk_size: int,
     estimated_total_chunks: int | None,
     start_time: float,
+    *,
+    score_icp_fit: bool,
 ) -> dict[str, Any]:
     """Production mode: Enrich a chunk of Salesforce accounts with Harmonic data.
 
@@ -929,6 +1117,7 @@ async def enrich_accounts_chunked_async(
         chunk_size: Accounts per chunk (default: 5000)
         estimated_total_chunks: For progress logging
         start_time: For timing calculations
+        score_icp_fit: Whether the updates carry Growth's ICP fit score
 
     Returns:
         Dict with total_accounts_in_chunk, records_processed, records_enriched, etc.
@@ -940,23 +1129,25 @@ async def enrich_accounts_chunked_async(
     if estimated_total_chunks:
         log_context["estimated_total_chunks"] = estimated_total_chunks
 
-    # Initialize Salesforce client
+    # The workflow ends the run at the first chunk that reports fewer accounts than chunk_size.
+    # A failed read must raise, so that Temporal retries the chunk and then fails the run.
+    # A result with zero accounts would end the run early and report it as complete.
     try:
         sf = get_salesforce_client()
     except Exception as e:
         logger.exception("Failed to connect to Salesforce", error=str(e))
         capture_exception(e)
-        return _build_result(chunk_number, start_time, error=str(e))
+        raise
 
-    # Query accounts from Redis cache
     try:
         accounts = await query_salesforce_accounts_chunk_async(sf, offset, chunk_size)
-        if not accounts:
-            return _build_result(chunk_number, start_time)
     except Exception as e:
         logger.exception("Failed to query accounts", error=str(e))
         capture_exception(e)
-        return _build_result(chunk_number, start_time, error=str(e))
+        raise
+
+    if not accounts:
+        return _build_result(chunk_number, start_time)
 
     # Extract domains and prepare account info
     account_data = []
@@ -976,8 +1167,10 @@ async def enrich_accounts_chunked_async(
     total_enriched = 0
     total_failed = 0
     total_rejected = 0
+    total_icp_fit_evaluated = 0
     update_records = []
     fill_fields_by_account: dict[str, dict[str, Any]] = {}
+    icp_lists = await _load_icp_lists() if score_icp_fit else None
 
     async with AsyncHarmonicClient(
         priority=Priority.BATCH, source="salesforce_enrichment_bulk", query=HARMONIC_ACCOUNT_ENRICHMENT_QUERY
@@ -991,8 +1184,13 @@ async def enrich_accounts_chunked_async(
 
             # Make concurrent Harmonic API calls
             harmonic_results = await harmonic_client.enrich_companies_batch(batch_domains)
+            batch_fit_fields = (
+                await asyncio.to_thread(_icp_fit_fields_for_batch, harmonic_results, batch_domains, icp_lists)
+                if icp_lists is not None
+                else [{} for _ in batch]
+            )
 
-            for account_info, harmonic_result in zip(batch, harmonic_results):
+            for account_info, harmonic_result, fit_fields in zip(batch, harmonic_results, batch_fit_fields):
                 account_id = account_info["account_id"]
 
                 # A response that is not a company record counts as a failed lookup and must not stop the chunk.
@@ -1005,7 +1203,9 @@ async def enrich_accounts_chunked_async(
                     total_failed += 1
                     continue
 
-                update_records.append(update_data)
+                update_records.append({**update_data, **fit_fields})
+                if fit_fields.get("icp_fit_status__c"):
+                    total_icp_fit_evaluated += 1
                 if is_sub_entity(harmonic_result):
                     total_rejected += 1
                     logger.info(
@@ -1022,9 +1222,9 @@ async def enrich_accounts_chunked_async(
 
     # Update Salesforce accounts
     if update_records:
-        # The read runs in a thread, so that it does not hold the event loop in addition to the write below.
-        await asyncio.to_thread(add_unoccupied_fill_fields, sf, update_records, fill_fields_by_account)
-        bulk_update_salesforce_accounts(sf, update_records)
+        # The reads and writes run in a thread, so that they do not hold the event loop.
+        queried_domains = {item["account_id"]: item["domain"] for item in account_data}
+        await asyncio.to_thread(write_account_updates, sf, update_records, fill_fields_by_account, queried_domains)
 
     result = _build_result(
         chunk_number=chunk_number,
@@ -1033,6 +1233,7 @@ async def enrich_accounts_chunked_async(
         records_enriched=total_enriched,
         records_updated=len(update_records),
         records_rejected_sub_entity=total_rejected,
+        records_icp_fit_evaluated=total_icp_fit_evaluated,
         total_accounts_in_chunk=len(accounts),
     )
 
@@ -1047,6 +1248,7 @@ async def enrich_accounts_chunked_async(
                     **log_context,
                     **result,
                     "errors_count": len(result.get("errors", [])),
+                    "workflow_run_id": activity.info().workflow_run_id if activity.in_activity() else None,
                 },
             )
         except Exception:
@@ -1060,6 +1262,7 @@ async def enrich_accounts_async(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     estimated_total_chunks: int | None = None,
     specific_domain: str | None = None,
+    score_icp_fit: bool = False,
 ) -> dict[str, Any]:
     """Entry point for Salesforce account enrichment.
 
@@ -1072,6 +1275,7 @@ async def enrich_accounts_async(
         chunk_size: Accounts per chunk (production mode)
         estimated_total_chunks: For progress logging (production mode)
         specific_domain: Domain to enrich directly (debug mode)
+        score_icp_fit: Whether the updates carry Growth's ICP fit score, in both modes
 
     Returns:
         Dict with enrichment results. Structure varies by mode.
@@ -1094,7 +1298,9 @@ async def enrich_accounts_async(
                 "error": f"Domain '{domain}' is excluded (personal email domain)",
             }
 
-        return await _enrich_specific_domain_debug(domain, chunk_number, start_time)
+        return await _enrich_specific_domain_debug(domain, chunk_number, start_time, score_icp_fit=score_icp_fit)
 
     # Production mode: process chunk of accounts
-    return await enrich_accounts_chunked_async(chunk_number, chunk_size, estimated_total_chunks, start_time)
+    return await enrich_accounts_chunked_async(
+        chunk_number, chunk_size, estimated_total_chunks, start_time, score_icp_fit=score_icp_fit
+    )

@@ -12,7 +12,14 @@
                 "backend/dashboard_import/receivers.py",
                 "backend/models.py",
                 "backend/migrations/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/alerts/registration.py",
+                "backend/alerts/slack.py",
+                "backend/alerts/wording.py",
+                "backend/apps.py",
+                "backend/task_profiles.py",
+                "backend/metric_query_runner.py",
+                "backend/tests/_seeder.py"
             ],
             "outputs": [],
             "cache": true

@@ -15,14 +15,16 @@ import time
 import shlex
 import base64
 import shutil
+import signal
 import socket
 import functools
 import itertools
 import threading
+import contextlib
 import subprocess
 import webbrowser
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
@@ -259,6 +261,59 @@ def _run_or_exit(args: list[str]) -> None:
     sys.exit(_run(args).returncode)
 
 
+_BUILD_CANCEL_TIMEOUT = 60
+
+
+class _BuildTerminated(Exception):
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
+
+
+_STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+@contextlib.contextmanager
+def _signal_handlers(
+    handler: Callable[[int, Any], object] | signal.Handlers, signums: tuple[signal.Signals, ...]
+) -> Iterator[None]:
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    previous = {signum: signal.signal(signum, handler) for signum in signums}
+    try:
+        yield
+    finally:
+        for signum, previous_handler in previous.items():
+            signal.signal(signum, previous_handler)
+
+
+def _raise_build_terminated(signum: int, _frame: object) -> NoReturn:
+    raise _BuildTerminated(signum)
+
+
+def _echo_best_effort(message: str) -> None:
+    with contextlib.suppress(OSError):
+        click.echo(message, err=True)
+
+
+def _cancel_build(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    with _signal_handlers(signal.SIG_IGN, _STOP_SIGNALS):
+        proc.send_signal(signal.SIGINT)
+        _echo_best_effort("\nCanceling the Coder build...")
+        try:
+            proc.communicate(timeout=_BUILD_CANCEL_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            _echo_best_effort(
+                "The Coder build did not stop. Check `coder provisioner jobs list` for a job that is still pending."
+            )
+
+
 def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a Coder build command with a spinner.
 
@@ -266,40 +321,62 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
     build step. In verbose mode, streams all output including Terraform
     internals. On failure the full captured output is always printed.
     """
-    proc = subprocess.Popen(_resolve_coder(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(
+        _resolve_coder(args),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
     captured: list[str] = []
     if proc.stdout is None:
         raise RuntimeError("Popen stdout pipe was not opened")
 
-    if verbose:
-        for line in proc.stdout:
-            captured.append(line)
-            click.echo(line, nl=False)
-    else:
-        is_tty = sys.stderr.isatty()
-        status = "Starting"
-        stop_event = threading.Event()
-        frames = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+    stop_event = threading.Event()
+    spinner: threading.Thread | None = None
 
-        def _spin() -> None:
-            while not stop_event.is_set():
-                if is_tty:
-                    click.echo(f"\r  {next(frames)} {status}...\033[K", nl=False, err=True)
-                stop_event.wait(0.08)
-            if is_tty:
-                click.echo(f"\r  {status}\033[K", err=True)
-
-        spinner = threading.Thread(target=_spin, daemon=True)
-        spinner.start()
-
-        for line in proc.stdout:
-            captured.append(line)
-            m = _STEP_RE.match(line)
-            if m:
-                status = m.group(1).strip()
-
+    def _stop_spinner() -> None:
         stop_event.set()
-        spinner.join()
+        if spinner is not None:
+            spinner.join()
+
+    try:
+        with _signal_handlers(_raise_build_terminated, (signal.SIGTERM, signal.SIGHUP)):
+            if verbose:
+                for line in proc.stdout:
+                    captured.append(line)
+                    click.echo(line, nl=False)
+            else:
+                is_tty = sys.stderr.isatty()
+                status = "Starting"
+                frames = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+
+                def _spin() -> None:
+                    while not stop_event.is_set():
+                        if is_tty:
+                            click.echo(f"\r  {next(frames)} {status}...\033[K", nl=False, err=True)
+                        stop_event.wait(0.08)
+                    if is_tty:
+                        click.echo(f"\r  {status}\033[K", err=True)
+
+                spinner = threading.Thread(target=_spin, daemon=True)
+                spinner.start()
+
+                for line in proc.stdout:
+                    captured.append(line)
+                    m = _STEP_RE.match(line)
+                    if m:
+                        status = m.group(1).strip()
+    except _BuildTerminated as terminated:
+        _stop_spinner()
+        _cancel_build(proc)
+        raise SystemExit(128 + terminated.signum)
+    except BaseException:
+        _stop_spinner()
+        _cancel_build(proc)
+        raise
+    finally:
+        _stop_spinner()
 
     returncode = proc.wait()
 
@@ -823,6 +900,7 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
+    args += ["--disable-autostart"]
     args += ["--ssh-option", _encode_ssh_option("ForwardAgent yes")]
     if identity_agent_socket:
         args += ["--ssh-option", _encode_ssh_option(f'IdentityAgent "{identity_agent_socket}"')]
@@ -1148,6 +1226,10 @@ def print_setup_summary() -> None:
     click.echo("Show saved configuration: hogli devbox:config:show")
     click.echo("Clear saved settings:     hogli devbox:config:rm --help")
     click.echo()
+    click.echo("GitHub CLI on a running box:  hogli devbox:gh:login")
+    click.echo("Trunk CLI on a running box:   hogli devbox:trunk:login")
+    click.echo("Missing box setup:            hogli devbox:check")
+    click.echo()
     click.echo("Other workspace secrets (GH_TOKEN, AWS creds, etc):")
     click.echo("  hogli devbox:secret:list / hogli devbox:secret:set NAME / hogli devbox:secret:rm NAME")
 
@@ -1290,6 +1372,11 @@ def get_workspace_name(label: str | None = None, *, region: str = DEFAULT_REGION
 def get_default_workspace_prefix() -> str:
     """Return the ``devbox-{username}`` prefix used to identify this user's workspaces."""
     return f"{_WORKSPACE_PREFIX}-{get_username()}"
+
+
+def app_url(workspace_name: str) -> str:
+    host = urllib.parse.urlparse(get_coder_url()).hostname or ""
+    return f"https://app--{workspace_name}--{get_username()}.{host}"
 
 
 def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
@@ -1821,6 +1908,10 @@ class _CoderApi:
         parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
         return next((p["value"] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), None)
 
+    def dotfiles_uri(self, build_id: str) -> str | None:
+        parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
+        return next((p["value"] for p in parameters if p["name"] == DOTFILES_URI_PARAMETER), None) or None
+
     def instance_type_options(self, template_version_id: str) -> list[str]:
         parameters = self.request("GET", f"/templateversions/{template_version_id}/rich-parameters")
         return next(
@@ -1969,7 +2060,7 @@ def ssh_replace(name: str) -> None:
     _execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
-def exec_replace(name: str, command: list[str], *, in_flox: bool = False) -> None:
+def exec_replace(name: str, command: list[str], *, in_flox: bool = False, tty: bool = False) -> None:
     """Run a single command in the workspace over the ssh host alias, replacing the process.
 
     Goes through ``ssh coder.<name>`` rather than ``coder ssh <name> -- cmd``
@@ -1988,11 +2079,15 @@ def exec_replace(name: str, command: list[str], *, in_flox: bool = False) -> Non
 
     ``in_flox`` runs the command from the box's checkout inside PostHog's flox
     environment, the only place project tools such as ``pnpm`` are on ``PATH``.
+
+    ``tty`` allocates a terminal for commands that prompt, which ssh does not
+    do by default when it runs a remote command.
     """
     remote_command = shlex.join(command)
     if in_flox:
         remote_command = f"cd {REMOTE_REPO_PATH} && exec flox activate -- {remote_command}"
-    _execvp("ssh", ["ssh", _ssh_host_alias(name), remote_command])
+    tty_flags = ["-t"] if tty else []
+    _execvp("ssh", ["ssh", *tty_flags, _ssh_host_alias(name), remote_command])
 
 
 def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
@@ -2007,6 +2102,18 @@ def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subpro
         text=True,
         timeout=timeout,
     )
+
+
+def workspace_dotfiles_uri(name: str) -> str | None:
+    """Return the dotfiles repo the box was built with, or ``None`` when it has none.
+
+    The laptop's saved repo can change after the box is built, and applying dotfiles runs the
+    repo's install script, so a retry uses the repo the box itself was given.
+    """
+    workspace = get_workspace(name)
+    if workspace is None:
+        return None
+    return _CoderApi().dotfiles_uri(workspace["latest_build"]["id"])
 
 
 def coder_ssh_alias_configured(name: str) -> bool:
@@ -2179,6 +2286,19 @@ def unshare_workspace(name: str, users: list[str]) -> None:
 def get_sharing_status(name: str) -> subprocess.CompletedProcess[str]:
     """Return the output of ``coder sharing status`` for a workspace."""
     return _run(["coder", "sharing", "status", name], capture_output=True)
+
+
+def get_workspace_shares(name: str) -> list[str] | None:
+    """Return every user and group a workspace is shared with, or ``None`` when Coder doesn't answer.
+
+    Unlike :func:`get_shared_users`, a failed lookup is ``None``, so callers that guard credentials can fail closed.
+    """
+    result = get_sharing_status(name)
+    if result.returncode != 0:
+        return None
+    # The first line is the table header. A group share has "-" in the user column.
+    rows = [line.split() for line in result.stdout.strip().splitlines()[1:] if line.strip()]
+    return [row[0] if row[0] != "-" else f"group {row[1]}" for row in rows]
 
 
 def get_shared_users(name: str) -> list[str]:

@@ -177,8 +177,8 @@ def generate_survey_headline(
         logger.info("[survey_headline_summary] starting LLM call", survey_id=str(survey.id))
         try:
             completion = _headline_client(survey, team, user).chat.completions.create(
-                model="gpt-4.1-mini",
-                temperature=0.3,
+                model="gpt-6-luna",
+                reasoning_effort="low",
                 messages=[
                     {"role": "system", "content": HEADLINE_SYSTEM_PROMPT},
                     {
@@ -212,7 +212,6 @@ def _headline_client(survey: Survey, team: Team, user: User) -> OpenAI:
     if resolve_ai_gateway_config() is None:
         return OpenAI()
     client = build_openai_client(
-        product="django",
         ai_product="surveys",
         distinct_id=user.distinct_id,
         properties={"ai_feature": "survey_headline", "survey_id": str(survey.id), "team_id": str(team.id)},

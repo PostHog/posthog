@@ -6,6 +6,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.metrics.backend.facade.enums import PrecomputedMetricKind
+
 # Define your models here
 # Important:
 # - Keep models thin, no business logic, use logic.py instead
@@ -93,6 +95,11 @@ class MetricsDashboardSuggestion(TeamScopedRootMixin, UUIDModel):
     dashboard_id = models.BigIntegerField(
         null=True, blank=True, help_text="The dashboard that a user of the team created from the suggestion."
     )
+    dismissed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a user of the team dismissed the suggestion. The row stays, so that an analysis does not suggest the template to the team again.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -148,3 +155,99 @@ class MetricDailyQueryCount(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(fields=["team", "metric_name", "date"], name="metrics_daily_query_count_unique")
         ]
         indexes = [models.Index(fields=["team", "date"], name="metrics_dqc_team_date_idx")]
+
+
+class MetricRecordingRule(TeamScopedRootMixin, UUIDModel):
+    """A PromQL query evaluated every minute, whose result is written back into the team's metrics
+    under `metric_name`, like a Prometheus recording rule."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    # Immutable after create, because a new name starts a new series and orphans the old one.
+    metric_name = models.CharField(max_length=200)
+    query = models.TextField()
+    description = models.TextField(blank=True, default="")
+    enabled = models.BooleanField(default=True)
+    last_evaluated_at = models.DateTimeField(null=True, blank=True)
+    # When an evaluation last ran, whether or not it wrote. Scheduling goes by this, so a rule that keeps failing
+    # does not hold the front of the queue.
+    last_attempted_at = models.DateTimeField(null=True, blank=True)
+    last_series_count = models.IntegerField(null=True, blank=True)
+    last_error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "metric_name"], name="metrics_recording_rule_unique_name")
+        ]
+
+
+class MetricPrecomputedMetric(TeamScopedRootMixin, UUIDModel):
+    """Per-bucket aggregates of one metric, summed by a few kept labels, that answer long-range dashboard tiles.
+
+    A dashboard-v2 tile creates one the first time it needs it. The fill loop stores one chunk per bucket,
+    newest first, and the query planner reads the covered buckets instead of the raw samples.
+    """
+
+    class State(models.TextChoices):
+        ACTIVE = "active", "active"
+        PAUSED = "paused", "paused"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # One of MAX_PRECOMPUTED_METRICS_PER_TEAM slots. The unique slot makes the cap hold under concurrent creates.
+    slot = models.PositiveSmallIntegerField()
+    metric_name = models.CharField(max_length=400)
+    # Empty when the clause reads every type of the metric.
+    metric_type = models.CharField(max_length=32, blank=True, default="")
+    kind = models.CharField(max_length=16, choices=PrecomputedMetricKind.choices)
+    labels = models.JSONField(default=list, help_text="The kept labels, each {key, scope}, sorted.")
+    labels_key = models.CharField(max_length=64, help_text="A digest of `labels`, for the uniqueness constraint.")
+    bucket_seconds = models.PositiveIntegerField(default=3600)
+    # The stored hours are [covered_from, covered_to). Both are null until the first fill.
+    covered_from = models.DateTimeField(null=True, blank=True)
+    covered_to = models.DateTimeField(null=True, blank=True)
+    # An hour is stored once it ended this long ago. It widens when a re-read finds late data.
+    settle_seconds = models.PositiveIntegerField(default=900)
+    # The last re-read of the past day, which rewrites the buckets that late data changed and marks them final.
+    refilled_at = models.DateTimeField(null=True, blank=True)
+    state = models.CharField(max_length=16, choices=State.choices, default=State.ACTIVE)
+    consecutive_failures = models.PositiveSmallIntegerField(default=0)
+    last_error = models.TextField(null=True, blank=True)
+    last_used_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "slot"], name="metrics_precomputed_unique_slot"),
+            models.UniqueConstraint(
+                fields=["team", "metric_name", "metric_type", "kind", "labels_key", "bucket_seconds"],
+                name="metrics_precomputed_unique_definition",
+            ),
+        ]
+
+
+class MetricPrecomputedChunk(TeamScopedRootMixin, UUIDModel):
+    """One bucket of a precomputed metric. A fill rewrites a bucket only when its values changed."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    precomputed_metric = models.ForeignKey(MetricPrecomputedMetric, on_delete=models.CASCADE, related_name="+")
+    start = models.DateTimeField(help_text="The bucket's start, in UTC. It is `bucket_seconds` of its metric long.")
+    series = models.JSONField(
+        default=list,
+        help_text="One entry per kept label set (and histogram layout): its label values, fingerprints and value.",
+    )
+    # Capture drops samples more than 24 hours late, so a bucket re-read after that can no longer change.
+    final = models.BooleanField(default=False)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["precomputed_metric", "start"], name="metrics_precomputed_chunk_unique_start"
+            )
+        ]
+        indexes = [models.Index(fields=["team", "start"], name="metrics_pc_chunk_start")]

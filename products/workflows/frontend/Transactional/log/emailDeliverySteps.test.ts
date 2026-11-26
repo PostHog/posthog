@@ -5,10 +5,16 @@ import type {
 
 import { buildDeliverySteps } from './emailDeliverySteps'
 
+function fromOlderApi(detail: TransactionalEmailLogDetailApi): TransactionalEmailLogDetailApi {
+    const { tracking: _tracking, ...older } = detail
+    return older as TransactionalEmailLogDetailApi
+}
+
 function email(
     status: TransactionalEmailLogDetailApi['status'],
     kinds: TransactionalEmailLogEventApi['kind'][],
-    sensitive = false
+    sensitive = false,
+    tracking = { opens: true, clicks: true }
 ): TransactionalEmailLogDetailApi {
     return {
         message_id: '01977a3c-9a00-7000-8000-000000000001',
@@ -20,6 +26,7 @@ function email(
         workflow_id: 'workflow',
         template_id: 'template',
         template_name: 'Welcome email',
+        code_email_id: null,
         sending_domain: 'example.com',
         opened: kinds.includes('opened'),
         clicked: kinds.includes('clicked'),
@@ -32,6 +39,7 @@ function email(
         distinct_id: 'user_1',
         action_id: 'action_1',
         sensitive,
+        tracking,
     }
 }
 
@@ -66,19 +74,24 @@ describe('buildDeliverySteps', () => {
             ['sent:done', 'delivered:done', 'opened:pending', 'clicked:pending'],
         ],
         [
-            'sensitive, so a click can never be recorded',
-            email('delivered', ['queued', 'sent', 'delivered', 'opened'], true),
+            'tracking off, so it can never record an open or a click',
+            email('delivered', ['queued', 'sent', 'delivered'], false, { opens: false, clicks: false }),
+            ['sent:done', 'delivered:done', 'opened:untracked', 'clicked:untracked'],
+        ],
+        [
+            'click tracking off, so it can never record a click',
+            email('delivered', ['queued', 'sent', 'delivered', 'opened'], false, { opens: true, clicks: false }),
             ['sent:done', 'delivered:done', 'opened:done', 'clicked:untracked'],
         ],
         [
-            'sensitive with a click recorded anyway',
-            email('delivered', ['queued', 'sent', 'delivered', 'clicked'], true),
-            ['sent:done', 'delivered:done', 'opened:pending', 'clicked:done'],
+            'response from an API without the tracking field',
+            fromOlderApi(email('delivered', ['queued', 'sent', 'delivered'])),
+            ['sent:done', 'delivered:done', 'opened:pending', 'clicked:pending'],
         ],
         [
-            'sensitive and bounced',
-            email('bounced', ['queued', 'sent', 'bounced'], true),
-            ['sent:done', 'bounced:failed'],
+            'sensitive, still waiting for a click',
+            email('delivered', ['queued', 'sent', 'delivered', 'opened'], true),
+            ['sent:done', 'delivered:done', 'opened:done', 'clicked:pending'],
         ],
     ])('%s', (_, input, expected) => {
         expect(buildDeliverySteps(input).map((step) => `${step.key}:${step.state}`)).toEqual(expected)

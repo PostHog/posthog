@@ -2,6 +2,7 @@ import json
 import uuid
 import hashlib
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
@@ -222,7 +223,7 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
             schema_id,
             team_id,
             updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()},
-            extra_model_fields={"last_synced_at": job.created_at},
+            extra_model_fields={"last_synced_at": job.created_at, "last_checked_at": job.created_at},
         )
 
     await _update()
@@ -661,6 +662,7 @@ async def register_cdc_companion_table(
     set_as_schema_table: bool = False,
     live_row_count: Optional[int] = None,
     live_size_mib: Optional[float] = None,
+    project_columns: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None,
 ) -> None:
     """Create or update a standalone DataWarehouseTable for a CDC companion resource (e.g. `{schema_name}_cdc`).
 
@@ -786,6 +788,8 @@ async def register_cdc_companion_table(
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
             existing_columns = companion_table.columns or {}
             columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+            if project_columns is not None:
+                columns = project_columns(columns)
 
             def _persist_columns() -> None:
                 with transaction.atomic():

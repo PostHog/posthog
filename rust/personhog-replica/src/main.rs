@@ -19,7 +19,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_common::{spawn_pool_monitor, MonitoredPool};
+use personhog_common::{query_tag, spawn_pool_monitor, MonitoredPool};
 use personhog_replica::config::Config;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
@@ -119,6 +119,13 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 config.bulk_max_concurrent_chunks,
                 config.bulk_max_pg_connections
             );
+            assert!(
+                config.team_delete_max_concurrent_chunks >= 1,
+                "TEAM_DELETE_MAX_CONCURRENT_CHUNKS must be at least 1"
+            );
+            let team_delete_max_concurrent_chunks = config
+                .team_delete_max_concurrent_chunks
+                .min(config.bulk_max_pg_connections as usize);
 
             Arc::new(PostgresStorage::new(
                 primary_pool,
@@ -127,6 +134,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 bulk_replica_pool,
                 config.bulk_chunk_size,
                 config.bulk_max_concurrent_chunks,
+                team_delete_max_concurrent_chunks,
                 config.tombstoned_delete_max_rows,
                 config.hash_key_override_statement_timeout_ms,
             ))
@@ -266,7 +274,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // first real query.
             let mut server_warmed = 0u32;
             for conn in conns.iter_mut().take(server_warmup_count) {
-                match sqlx::query("SELECT 1").execute(&mut **conn).await {
+                match sqlx::query(&query_tag!("warm_pool", "SELECT 1"))
+                    .execute(&mut **conn)
+                    .await
+                {
                     Ok(_) => server_warmed += 1,
                     Err(e) => {
                         tracing::warn!(pool = label, error = %e, "Failed to warm server-side connection");

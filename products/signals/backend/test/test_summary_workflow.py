@@ -19,10 +19,10 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport
-from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, ResearchStartupFailure
@@ -85,7 +85,7 @@ async def aorganization():
         name=f"SummaryWorkflowOrg-{random.randint(1, 99999)}",
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -95,7 +95,7 @@ async def ateam(aorganization):
         name=f"SummaryWorkflowTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ async def ateam(aorganization):
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_quota_gate_payload_requires_admission() -> None:
+def test_legacy_quota_gate_payload_remains_decodable() -> None:
     payloads = pydantic_data_converter.payload_converter.to_payloads(
         [{"team_id": 1, "report_id": str(uuid.uuid4()), "stage": "summary_entry"}]
     )
@@ -112,89 +112,23 @@ def test_legacy_quota_gate_payload_requires_admission() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.parametrize("enforced", [True, False])
-async def test_check_activity_returns_enforced(ateam, enforced):
-    with (
-        patch(
-            f"{SUMMARY_MODULE_PATH}.self_driving_quota_gate",
-            return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
-        ),
-        patch("products.signals.backend.quota.posthoganalytics.capture"),
-    ):
-        result = await check_report_quota_gate_activity(
-            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="summary_entry")
-        )
-    assert result is enforced
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_check_activity_pauses_on_daily_limit_with_billing_clear(ateam):
-    # The daily report limit must pause the run on its own: it has no enforcement flag, so
-    # `limited` alone blocks even while the billing quota gate stays clear.
-    with (
-        patch(
-            f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
-            return_value=DailyReportLimitGate(limited=True, limit=3, reports_today=3),
-        ),
-        patch("products.signals.backend.daily_limit.posthoganalytics.capture") as capture,
-    ):
-        result = await check_report_quota_gate_activity(
-            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="summary_entry")
-        )
-    assert result is True
-    assert capture.call_args.kwargs["event"] == "signal_report_daily_limit_paused"
-    properties = capture.call_args.kwargs["properties"]
-    assert properties["stage"] == "summary_entry"
-    assert properties["limit"] == 3
-    assert properties["reports_today"] == 3
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
 @pytest.mark.parametrize(
-    "stage,admitted,paused",
-    [
-        ("summary_entry", False, True),
-        ("pre_repo_selection", False, False),
-        ("pre_research", False, False),
-        ("summary_entry", True, False),
-    ],
+    "stage,admitted",
+    [("summary_entry", False), ("pre_repo_selection", False), ("pre_research", False), ("summary_entry", True)],
 )
-async def test_limits_only_block_admission_not_later_stages(ateam, stage, admitted, paused):
+async def test_summary_does_not_recheck_limits(stage, admitted):
     with (
+        patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True) as billing,
         patch(
-            f"{SUMMARY_MODULE_PATH}.self_driving_quota_gate",
-            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
-        ),
-        patch(
-            f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
+            "products.signals.backend.daily_limit.daily_report_limit_gate",
             return_value=DailyReportLimitGate(limited=True, limit=3, reports_today=3),
-        ),
+        ) as daily,
     ):
-        assert (
-            await check_report_quota_gate_activity(
-                CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage=stage, admitted=admitted)
-            )
-            is paused
+        assert not await check_report_quota_gate_activity(
+            CheckReportQuotaGateInput(team_id=1, report_id=str(uuid.uuid4()), stage=stage, admitted=admitted)
         )
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_check_activity_fails_open_when_team_lookup_errors():
-    # The never-raises contract: a failure inside the gate check must resolve to "proceed", not
-    # bubble into the workflow's except handler and mark the report failed.
-    result = await check_report_quota_gate_activity(
-        CheckReportQuotaGateInput(team_id=99_999_999, report_id=str(uuid.uuid4()), stage="summary_entry")
-    )
-    assert result is False
-
-
-# ---------------------------------------------------------------------------
-# revert_report_to_candidate_activity
-# ---------------------------------------------------------------------------
+    billing.assert_not_called()
+    daily.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -267,6 +201,7 @@ class _Recorder:
         self.checks_snapshot = checks_snapshot
         self.checks_summary: str | None = None
         self.checks_error: str | None = None
+        self.unsafe_prose_explanation: str | None = None
         self.checks_monitoring_enabled = False
         self.selected_repository = selected_repository
         self.research_errors = list(research_errors or [])
@@ -396,6 +331,7 @@ async def _run_summary_workflow(recorder: _Recorder, *, operator_rerun: bool = F
             checks_monitoring_enabled=recorder.checks_monitoring_enabled,
             checks_summary=recorder.checks_summary,
             checks_error=recorder.checks_error,
+            unsafe_prose_explanation=recorder.unsafe_prose_explanation,
         )
 
     @activity.defn(name="mark_report_pending_input_activity")
@@ -523,6 +459,17 @@ async def test_open_gates_let_the_run_flow_through(spend_failures: int) -> None:
     assert recorder.spend_publications == spend_failures + 1
     assert recorder.reverts == 0
     assert recorder.failures == 0
+
+
+@pytest.mark.asyncio
+async def test_research_text_that_fails_the_safety_judge_fails_the_report() -> None:
+    recorder = _Recorder()
+    recorder.unsafe_prose_explanation = "Remote code execution in the summary."
+    await _run_summary_workflow(recorder)
+    assert recorder.researches == 1
+    assert recorder.failure_reasons == ["research_safety_judge_rejected"]
+    assert recorder.ready_inputs == []
+    assert recorder.pending_inputs == []
 
 
 def _sandbox_unavailable() -> ApplicationError:

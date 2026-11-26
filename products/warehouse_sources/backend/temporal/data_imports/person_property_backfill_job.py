@@ -18,7 +18,7 @@ import json
 import time
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -34,6 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertyBackfillActivityInputs,
     PersonPropertyFailedRunInputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log import (
+    PersonPropertyRunLog,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
     is_worker_interruption,
@@ -43,6 +46,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     record_started_runs,
     run_person_property_backfill,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -103,6 +109,7 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
         # running row. Record here only when the workflow will not.
         if not inputs.workflow_records_failure:
             PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+            PersonPropertyRunLog(inputs.team_id, binding).failed(str(e))
             await record_failed_runs(
                 team_id=inputs.team_id,
                 binding=binding,
@@ -149,6 +156,7 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
 
 @activity.defn
 async def record_failed_person_property_backfill_runs_activity(inputs: PersonPropertyFailedRunInputs) -> None:
+    PersonPropertyRunLog(inputs.team_id, inputs.binding).failed(inputs.error)
     await record_failed_runs(
         team_id=inputs.team_id,
         binding=inputs.binding,
@@ -256,7 +264,7 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
 
 PERSON_PROPERTY_BACKFILL_WORKFLOWS: list[type[PostHogWorkflow]] = [BackfillWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_BACKFILL_ACTIVITIES = [
+PERSON_PROPERTY_BACKFILL_ACTIVITIES: list[ActivityDefinition] = [
     backfill_warehouse_person_properties_activity,
     record_failed_person_property_backfill_runs_activity,
 ]

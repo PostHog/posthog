@@ -16,6 +16,8 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 from .enums import (
     ChannelResolutionSource,
     DigestRunStatus,
@@ -49,6 +51,7 @@ class RepoConfigDTO:
     trigger_label: str = ""
     routing_mode: str = ""
     routing_fork_labels: dict[str, str] = Field(default_factory=dict)
+    review_on_clean_external_review: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -206,6 +209,26 @@ class RoutingRunOwnerDTO:
     files: list[RoutingFileDTO] = Field(default_factory=list)
     lines: int = 0
     file_count: int = 0
+    # The reviewer's clause about this owner's part, when its change summary has one.
+    summary: str | None = None
+
+
+@dataclass(frozen=True)
+class RoutingPullRequestDTO:
+    """The pull request a routing run routed, as stamphog last saw it rather than as it was at the run."""
+
+    title: str
+    author: str
+    url: str
+    merged_at: datetime | None = None
+    # Stamphog stores the size only when it records the merge, so these are None until the pull request merges.
+    additions: int | None = None
+    deletions: int | None = None
+    changed_files: int | None = None
+    # The reviewer's sentence about the whole change, from the newest completed review that wrote one.
+    summary: str | None = None
+    # Whether a standing stamphog approval covers the head that routing last decided on.
+    auto_approved: bool = False
 
 
 @dataclass(frozen=True)
@@ -216,6 +239,7 @@ class RoutingRunDTO:
     team_id: int
     repository: str
     pr_number: int
+    pull_request: RoutingPullRequestDTO
     head_sha: str
     mode: RoutingMode
     trigger: str
@@ -228,6 +252,15 @@ class RoutingRunDTO:
     owners_sha: str = ""
     owners: list[RoutingRunOwnerDTO] = Field(default_factory=list)
     created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class RoutingOwnerCountDTO:
+    """An owner that routing runs decided about, with how many pull requests they touched."""
+
+    owner: str
+    kind: OwnerKind
+    pr_count: int
 
 
 @dataclass(frozen=True)
@@ -247,6 +280,17 @@ class ReviewReasoningDTO:
     showstoppers: list[str] | None = None
     review_body: str | None = None
     change_summary: str | None = None
+
+
+@frozen
+class ApprovalGateCheck:
+    """What stamphog's deterministic gates decide for one PR head, outside any review run."""
+
+    # A size, restricted-path (deny-list) or tier gate refuses this head, and the engine pre-check is final.
+    needs_human: bool
+    # The engine gate names that failed among "size", "deny-list" and "tier", in engine order.
+    # Empty when needs_human is False.
+    failed_gates: tuple[str, ...]
 
 
 class ReviewRequestRefusedError(Exception):

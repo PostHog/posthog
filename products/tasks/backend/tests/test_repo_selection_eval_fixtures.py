@@ -3,6 +3,8 @@ import re
 import pytest
 
 from products.tasks.evals.repo_selection.fixtures import (
+    CHAT_WIDGET,
+    CHAT_WIDGET_INTERNAL,
     METRICS_DASHBOARD_RULE,
     REPOSITORIES,
     REPOSITORY_NAMES,
@@ -42,6 +44,16 @@ def test_cases_cover_the_preserved_scenarios_once():
         for case in ROUTING_CASES
     )
     assert {repo for case in SELECTOR_CASES for repo in case.expected.accepted} <= set(REPOSITORY_NAMES)
+
+
+def test_private_copy_fills_a_shared_path_limit_before_its_public_source():
+    names = [repo.full_name for repo in REPOSITORIES]
+    copy, source = (
+        next(repo for repo in REPOSITORIES if repo.full_name == name) for name in (CHAT_WIDGET_INTERNAL, CHAT_WIDGET)
+    )
+    assert names.index(CHAT_WIDGET_INTERNAL) < names.index(CHAT_WIDGET)
+    assert copy.tree_paths == source.tree_paths
+    assert len([path for path in copy.tree_paths if "/locales/" in path]) > 20
 
 
 def test_expectation_names_a_repository_or_an_abstention():

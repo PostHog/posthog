@@ -730,6 +730,13 @@ tools:
             flag configuration is invalid.
 
 
+            The result can start with `pre_launch_health`: the findings of the draft's configuration checks, read just
+            before the launch. A finding does not stop the launch. When it lists findings, tell the user each finding
+            and its fix. A fix that says what to do before the launch is now a step to take on the running experiment.
+            If that step changes the feature flag, tell the user to also move the experiment's start date to after the
+            change, because users exposed before it can switch variants.
+
+
             No request body needed.
         param_overrides:
             id:
@@ -738,6 +745,7 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        hooks: experiments/launchExperimentHooks
         response:
             include:
                 - id
@@ -1149,8 +1157,8 @@ tools:
         title: Create shared experiment metric
         description: >
             Create a reusable shared metric. Requires name (unique per project, case-insensitive) and query
-            (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention'). Optional: description,
-            tags.
+            (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention', 'quantile'). Optional:
+            description, tags.
 
 
             Load the configuring-experiment-analytics skill before constructing the query, and use read-data-schema to
@@ -1593,21 +1601,11 @@ tools:
                     - experimentId
                     - experiment_id
             feature_flag:
-                description: >
-                    Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in
-                    the flag's own filters shape. This is the canonical input for flag config. Set
-                    filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100;
-                    the analysis baseline defaults to the variant keyed 'control' when present, else the first variant —
-                    except web experiments, which must keep a variant keyed 'control') to change the variant split. Set
-                    filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to change the
-                    overall rollout. Config this object omits is preserved from the flag's current state. On a running
-                    experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).
+                description:
+                    Flag variants, rollout, and payloads. Omitted settings are preserved. Running experiments require
+                    confirmation and update_feature_flag_params=true.
             running_time_calculation:
-                description: >
-                    Persist a running-time / sample-size plan onto the experiment (the planning target shown in the
-                    experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage,
-                    e.g. 20 for a 20% lift), recommended_sample_size (total across all variants),
-                    recommended_running_time (days), and exposure_estimate_config.
+                description: Persist the experiment's sample size, detectable effect, and planned running time.
             saved_metrics_ids:
                 input_schema: SavedMetricsAttachSchema
             variant_notes:

@@ -1,16 +1,5 @@
-"""Curated deployments and deployment-statuses query builders.
-
-Maps the raw GitHub deploy snapshots (the ``deployments`` webhook feed and its
-``deployment_statuses`` fan-out) into query-able columns. A deployment row is the
-*request* to deploy a SHA to an environment; its outcome lives entirely in the
-status rows (one per transition: pending → in_progress → success/failure/error,
-plus the ``inactive`` a later deploy or rollback marks it with). The DORA reads
-therefore always join the two — a deployment with no status rows has no outcome.
-
-Same source discipline as every builder here: table names are resolved per team
-(``logic.sources``), timestamps land as strings and parse via
-``parseDateTimeBestEffort``, Nullable columns are ``ifNull``-guarded before use
-(see ``source_schema``).
+"""A deployment row is only the request to deploy a SHA to an environment. Its outcome is in the
+status rows, one per transition, so a deployment with no status rows has no outcome.
 """
 
 

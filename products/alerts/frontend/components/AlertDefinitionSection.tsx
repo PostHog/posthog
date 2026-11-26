@@ -64,6 +64,8 @@ export interface AlertDefinitionSectionProps {
     showAnomalyGuidance?: boolean
     /** Show the AI detector in the detector picker. Off until the alerts-llm-detector flag is on. */
     llmDetectorEnabled?: boolean
+    /** Show the forecast detector in the detector picker. Off until the alerts-forecast-detector flag is on. */
+    forecastDetectorEnabled?: boolean
     twoColumnLayout?: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
@@ -89,6 +91,7 @@ export function AlertDefinitionSection({
     supportsAnomalyDetection,
     showAnomalyGuidance = false,
     llmDetectorEnabled = false,
+    forecastDetectorEnabled = false,
     twoColumnLayout = false,
     simulationResult,
     simulationResultLoading,
@@ -218,6 +221,7 @@ export function AlertDefinitionSection({
                             }}
                             calculationInterval={alertForm.calculation_interval}
                             llmDetectorEnabled={llmDetectorEnabled}
+                            forecastDetectorEnabled={forecastDetectorEnabled}
                             hasBreakdown={trends.isBreakdownValid}
                         />
                     )}

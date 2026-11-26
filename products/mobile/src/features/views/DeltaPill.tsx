@@ -27,17 +27,29 @@ export function deltaSpoken(delta: NumberDelta, formatValue: (value: number) => 
  * The change next to a big number. It stays neutral gray: the app does not know whether up is good for this metric.
  */
 export function DeltaPill({ delta, formatValue, basis, testID }: DeltaPillProps): ReactElement {
-    const colors = useColors()
-    const styles = useStyles()
-    const text = deltaText(delta, formatValue)
-    const direction = delta.change > 0 ? 'up' : delta.change < 0 ? 'down' : null
     return (
-        <View
-            style={styles.pill}
-            accessible
+        <ChangePill
+            direction={delta.change > 0 ? 'up' : delta.change < 0 ? 'down' : null}
+            text={deltaText(delta, formatValue)}
             accessibilityLabel={deltaSpoken(delta, formatValue, basis)}
             testID={testID}
-        >
+        />
+    )
+}
+
+interface ChangePillProps {
+    direction: 'up' | 'down' | null
+    text: string
+    accessibilityLabel: string
+    testID?: string
+}
+
+/** The `DeltaPill` look for a change that arrives already in words, such as an issue's trend. */
+export function ChangePill({ direction, text, accessibilityLabel, testID }: ChangePillProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
+    return (
+        <View style={styles.pill} accessible accessibilityLabel={accessibilityLabel} testID={testID}>
             {direction ? (
                 <View style={direction === 'down' ? styles.down : undefined}>
                     <ArrowUpIcon size={10} color={colors.muted} strokeWidth={3.6} />

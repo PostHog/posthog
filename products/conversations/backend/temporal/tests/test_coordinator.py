@@ -244,11 +244,13 @@ class TestCollectEligible:
 
     @parameterized.expand(
         [
-            # (name, ticket_created_min_ago, latest_customer_msg_min_ago | None, expected_eligible)
-            ("fresh_ticket_no_comments_still_settling", 0, None, False),
-            ("old_ticket_no_comments_settled", 30, None, True),
-            ("recent_customer_followup_still_settling", 30, 0, False),
-            ("old_customer_followup_settled", 30, 30, True),
+            # (name, channel_source, ticket_created_min_ago, latest_customer_msg_min_ago | None, expected_eligible)
+            ("fresh_ticket_no_comments_still_settling", "widget", 0, None, False),
+            ("old_ticket_no_comments_settled", "widget", 30, None, True),
+            ("recent_customer_followup_still_settling", "widget", 30, 0, False),
+            ("old_customer_followup_settled", "widget", 30, 30, True),
+            ("fresh_email_ticket_skips_settle", "email", 0, None, True),
+            ("recent_email_followup_skips_settle", "email", 30, 0, True),
         ]
     )
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
@@ -258,6 +260,7 @@ class TestCollectEligible:
     def test_settle_window_gates_until_customer_goes_quiet(
         self,
         _name,
+        channel_source,
         created_min_ago,
         last_msg_min_ago,
         expected_eligible,
@@ -269,8 +272,9 @@ class TestCollectEligible:
         # Guards the debounce: a ticket whose customer just sent a message (or was just created)
         # must not be drafted until they've gone quiet for TICKET_SETTLE_MINUTES, so follow-up
         # messages get folded into the same draft. Drop the settle gate and the two "still_settling"
-        # cases start returning the ticket immediately.
-        ticket, ticket_id, team = _make_ticket(created_minutes_ago=created_min_ago)
+        # cases start returning the ticket immediately. Channels in SETTLE_EXEMPT_CHANNELS skip the
+        # wait, so the email cases are eligible at once.
+        ticket, ticket_id, team = _make_ticket(channel_source=channel_source, created_minutes_ago=created_min_ago)
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
 
         rows: list[tuple[str, str, bool, object]] = []
@@ -564,6 +568,34 @@ class TestCollectEligibleAwaitingClarification:
         assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
         ticket.refresh_from_db()
         assert ticket.ai_triage.get("result") == expected_result
+
+    @parameterized.expand(
+        [
+            ("forward_note_only", [("support", 4, True)], False),
+            ("internal_mail_after_forward", [("support", 4, True), ("customer", 3, True)], False),
+            ("customer_reply_after_forward", [("support", 4, True), ("customer", 3)], True),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_forwarded_ticket_waits_for_the_customer(self, _name, comments, expected_eligible, mock_master_flag):
+        team, ticket = self._team_and_ticket(status="new", awaiting=False)
+        ticket.anonymous_traits = {"email_relayed": True, "email_forwarded": True}
+        ticket.save(update_fields=["anonymous_traits"])
+        self._comments(team, ticket, comments)
+
+        result = _collect_eligible()
+        assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_malformed_traits_do_not_stop_the_scan(self, mock_master_flag):
+        team, ticket = self._team_and_ticket(status="new", awaiting=False)
+        ticket.anonymous_traits = ["x"]
+        ticket.save(update_fields=["anonymous_traits"])
+        self._comments(team, ticket, [("customer", 3)])
+
+        assert [t.ticket_id for t in _collect_eligible()] == [str(ticket.id)]
 
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)

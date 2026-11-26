@@ -45,17 +45,16 @@ function repeated(count: number, verb: string): string | null {
     return count > 1 ? `${verb} ${count} times` : null
 }
 
-function clickedStep(email: TransactionalEmailLogDetailApi, previousAt: string | null): DeliveryStep {
-    const clicked = firstOf(email.timeline, 'clicked')
-    const clickStep = step(
-        'clicked',
-        'Clicked',
-        clicked,
-        previousAt,
-        repeated(countOf(email.timeline, 'clicked'), 'Clicked')
-    )
-    // A send from before an email was marked sensitive can still have a recorded click.
-    return email.sensitive && !clicked ? { ...clickStep, state: 'untracked' } : clickStep
+function engagementStep(
+    email: TransactionalEmailLogDetailApi,
+    kind: 'opened' | 'clicked',
+    label: string,
+    previousAt: string | null
+): DeliveryStep {
+    const event = firstOf(email.timeline, kind)
+    const engagement = step(kind, label, event, previousAt, repeated(countOf(email.timeline, kind), label))
+    const tracked = email.tracking?.[kind === 'opened' ? 'opens' : 'clicks'] !== false
+    return tracked || event ? engagement : { ...engagement, state: 'untracked' }
 }
 
 /** The steps an email went through, ending where it stopped. */
@@ -108,8 +107,8 @@ export function buildDeliverySteps(email: TransactionalEmailLogDetailApi): Deliv
         ...lead,
         sentStep,
         deliveredStep,
-        step('opened', 'Opened', opened, delivered?.at ?? null, repeated(countOf(timeline, 'opened'), 'Opened')),
-        clickedStep(email, opened?.at ?? delivered?.at ?? null),
+        engagementStep(email, 'opened', 'Opened', delivered?.at ?? null),
+        engagementStep(email, 'clicked', 'Clicked', opened?.at ?? delivered?.at ?? null),
     ]
 }
 

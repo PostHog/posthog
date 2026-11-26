@@ -16,7 +16,7 @@ export const EXPLORE_ITEMS: TodayExploreItem[] = [
     {
         product: 'product_analytics',
         name: 'Product analytics',
-        description: 'Charts from your events',
+        description: 'Trends and funnels',
         icon: 'product_analytics',
         sceneKey: Scene.SavedInsights,
         to: () => urls.savedInsights(),
@@ -24,7 +24,7 @@ export const EXPLORE_ITEMS: TodayExploreItem[] = [
     {
         product: 'session_replay',
         name: 'Session replay',
-        description: 'Watch real user sessions',
+        description: 'Watch sessions',
         icon: 'session_replay',
         sceneKey: Scene.Replay,
         to: () => urls.replay(),
@@ -32,7 +32,7 @@ export const EXPLORE_ITEMS: TodayExploreItem[] = [
     {
         product: 'feature_flags',
         name: 'Feature flags',
-        description: 'Roll out changes safely',
+        description: 'Roll out safely',
         icon: 'feature_flag',
         sceneKey: Scene.FeatureFlags,
         to: () => urls.featureFlags(),
@@ -40,7 +40,7 @@ export const EXPLORE_ITEMS: TodayExploreItem[] = [
     {
         product: 'ai_observability',
         name: 'AI observability',
-        description: 'Trace LLM calls and cost',
+        description: 'Trace LLM calls',
         icon: 'llm_analytics',
         sceneKey: Scene.AIObservability,
         to: () => urls.aiObservabilityDashboard(),
@@ -56,7 +56,7 @@ export const EXPLORE_ITEMS: TodayExploreItem[] = [
     {
         product: 'error_tracking',
         name: 'Error tracking',
-        description: 'Catch and fix exceptions',
+        description: 'Catch exceptions',
         icon: 'error_tracking',
         sceneKey: Scene.ErrorTracking,
         to: () => urls.errorTracking(),
@@ -64,7 +64,7 @@ export const EXPLORE_ITEMS: TodayExploreItem[] = [
     {
         product: 'experiments',
         name: 'Experiments',
-        description: 'Test what a change does',
+        description: 'Test your changes',
         icon: 'experiment',
         sceneKey: Scene.Experiments,
         to: () => urls.experiments(),

@@ -35,7 +35,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, TaggedItem, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
@@ -48,8 +48,10 @@ from products.access_control.backend.models.role import Role
 from products.conversations.backend import reply_dedupe
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import (
+    MAX_TAGS_ADDED_PER_UPDATE,
     ComposeTicketSerializer,
     TicketReplyRequestSerializer,
+    TicketUpdateRequestSerializer,
     TicketViewSet,
 )
 from products.conversations.backend.models import (
@@ -95,6 +97,32 @@ class TestComposeTicketSerializer(SimpleTestCase):
     def test_accepts_up_to_100_tags(self):
         serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(100)]))
         assert serializer.is_valid(), serializer.errors
+
+
+class TestTicketUpdateRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_the_cap", MAX_TAGS_ADDED_PER_UPDATE, True),
+            ("over_the_cap", MAX_TAGS_ADDED_PER_UPDATE + 1, False),
+        ]
+    )
+    def test_caps_new_tags_and_not_the_list_length(self, _name: str, new_tag_count: int, expected_valid: bool) -> None:
+        current = [f"current-{i}" for i in range(MAX_TAGS_ADDED_PER_UPDATE + 50)]
+        ticket = Ticket()
+        ticket.prefetched_tags = [TaggedItem(tag=Tag(name=name)) for name in current]  # type: ignore[attr-defined]
+        resent = [f" {name.upper()} " for name in current]
+        tags = [*resent, *(f"new-{i}" for i in range(new_tag_count))]
+
+        serializer = TicketUpdateRequestSerializer(ticket, data={"tags": tags}, partial=True)
+
+        assert serializer.is_valid() is expected_valid, serializer.errors
+
+    @parameterized.expand([("list", []), ("text", "Jane")])
+    def test_rejects_customer_details_that_are_not_an_object(self, _name: str, traits: object) -> None:
+        serializer = TicketUpdateRequestSerializer(Ticket(), data={"anonymous_traits": traits}, partial=True)
+
+        assert not serializer.is_valid()
+        assert serializer.errors["anonymous_traits"][0].code == "invalid"
 
 
 # Patch on_commit to execute immediately in tests
@@ -315,6 +343,27 @@ class TestTicketAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "resolved")
+
+    @parameterized.expand(
+        [
+            ("inbound_markers", {"name": "Jane", "email_relayed": True, "email_forwarded": True}),
+            ("malformed_stored_traits", ["x"]),
+        ]
+    )
+    def test_editing_customer_details_keeps_inbound_email_traits(self, mock_on_commit, _name: str, stored: object):
+        inbound = {"email_relayed": True, "email_forwarded": True} if isinstance(stored, dict) else {}
+        self.ticket.anonymous_traits = stored
+        self.ticket.save(update_fields=["anonymous_traits"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"anonymous_traits": {"name": "Jane Doe", "email": "jane@example.net"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.ticket.refresh_from_db()
+        assert self.ticket.anonymous_traits == {"name": "Jane Doe", "email": "jane@example.net", **inbound}
 
     def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
         self.ticket.unread_team_count = 5
@@ -3252,6 +3301,55 @@ class TestTicketReplyAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("own_team_upload", "personal_api_key", "own", status.HTTP_201_CREATED),
+            ("other_team_upload", "personal_api_key", "other_team", status.HTTP_400_BAD_REQUEST),
+            ("external_url", "personal_api_key", "https://attacker.example.com/pixel.png", status.HTTP_400_BAD_REQUEST),
+            ("relative_path", "personal_api_key", "own_relative", status.HTTP_400_BAD_REQUEST),
+            ("trailing_slash", "personal_api_key", "own_trailing_slash", status.HTTP_400_BAD_REQUEST),
+            ("malformed_url", "personal_api_key", "https://[invalid/image.png", status.HTTP_400_BAD_REQUEST),
+            ("in_app_external_url", "session", "https://example.com/pasted.png", status.HTTP_201_CREATED),
+            # Before the rollout, API callers keep sending any image, as they could before.
+            ("flag_off_external_url", "personal_api_key", "https://example.com/pasted.png", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_reply_rich_content_image_must_be_own_team_upload(
+        self, mock_on_commit, _name, auth, source, expected_status
+    ):
+        flag_patch = patch(
+            "posthog.api.uploaded_media.posthoganalytics.feature_enabled", return_value=not _name.startswith("flag_off")
+        )
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+        if auth == "personal_api_key":
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="ticket-write",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["ticket:write"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        own_media = UploadedMedia.objects.create(team=self.team, file_name="own.png", content_type="image/png")
+        other_media = UploadedMedia.objects.create(team=other_team, file_name="other.png", content_type="image/png")
+        src = {
+            "own": own_media.get_absolute_url(),
+            "other_team": other_media.get_absolute_url(),
+            "own_relative": f"/uploaded_media/{own_media.id}",
+            "own_trailing_slash": f"{own_media.get_absolute_url()}/",
+        }.get(source, source)
+        rich = {"type": "doc", "content": [{"type": "image", "attrs": {"src": src, "alt": "screenshot"}}]}
+
+        response = self.client.post(self.url, {"message": "See image", "rich_content": rich}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "rich_content"
+            assert not Comment.objects.filter(item_id=str(self.ticket.id)).exists()
+
+    @parameterized.expand(
+        [
             ("blank", {"message": "   "}),
             ("missing", {}),
             ("rich_content_too_large", {"message": "hi", "rich_content": {"x": "y" * 200_000}}),
@@ -3567,36 +3665,57 @@ class TestAiFeedbackAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", 0),
+            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", {"$ai_metric_value": 0}),
             (
                 "bad_with_text",
                 {"message_id": "msg-1", "rating": "bad", "feedback_text": "Wrong answer"},
                 "$ai_feedback",
-                None,
+                {"$ai_feedback_text": "Wrong answer", "feedback_reasons": []},
+            ),
+            (
+                "bad_with_reasons_only",
+                {"message_id": "msg-1", "rating": "bad", "reasons": ["wrong_tone", "wrong_facts"]},
+                "$ai_feedback",
+                {"$ai_feedback_text": "", "feedback_reasons": ["wrong_facts", "wrong_tone"]},
+            ),
+            (
+                "good_ignores_reasons",
+                {"message_id": "msg-1", "rating": "good", "reasons": ["wrong_facts"]},
+                "$ai_metric",
+                {"$ai_metric_value": 1},
             ),
         ]
     )
     @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
-    def test_ai_feedback_metric_vs_text_are_mutually_exclusive(
-        self, _name, payload, expected_event, expected_metric_value, mock_capture, mock_on_commit
+    def test_ai_feedback_metric_vs_details_are_mutually_exclusive(
+        self, _name, payload, expected_event, expected_properties, mock_capture, mock_on_commit
     ):
         response = self.client.post(self.url, payload, format="json")
         assert response.status_code == status.HTTP_202_ACCEPTED
         mock_capture.assert_called_once()
         _, kwargs = mock_capture.call_args
         assert kwargs["event"] == expected_event
+        assert kwargs["groups"]["project"] == str(self.team.uuid)
+        assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+        for key, value in expected_properties.items():
+            assert kwargs["properties"][key] == value
         if expected_event == "$ai_metric":
-            assert kwargs["properties"]["$ai_metric_value"] == expected_metric_value
             assert "$ai_feedback_text" not in kwargs["properties"]
         else:
-            assert kwargs["properties"]["$ai_feedback_text"] == "Wrong answer"
             assert "$ai_metric_name" not in kwargs["properties"]
-            assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
 
     def test_ai_feedback_rejects_invalid_rating(self, mock_on_commit):
         response = self.client.post(
             self.url,
             {"message_id": "msg-1", "rating": "meh"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_ai_feedback_rejects_unknown_reason(self, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "bad", "reasons": ["made_up"]},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST

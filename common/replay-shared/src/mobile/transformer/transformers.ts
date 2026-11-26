@@ -20,7 +20,6 @@ import {
     MobileNodeType,
     NodeType,
     attributes,
-    documentNode,
     elementNode,
     keyboardEvent,
     serializedNodeWithId,
@@ -91,6 +90,12 @@ const BODY_ID = 5
 const NAVIGATION_BAR_PARENT_ID = 7
 const KEYBOARD_PARENT_ID = 9
 export const STATUS_BAR_PARENT_ID = 11
+// the placeholder containers every transformed mobile body carries, empty unless that chrome is showing
+export const SCREEN_CHROME_PARENT_IDS: ReadonlySet<number> = new Set([
+    NAVIGATION_BAR_PARENT_ID,
+    KEYBOARD_PARENT_ID,
+    STATUS_BAR_PARENT_ID,
+])
 // icons are <img> too, so extractImgNodeFromMobileIncremental keys off this instead of tag or size
 export const SCREENSHOT_ATTRIBUTE = 'data-posthog-screenshot'
 
@@ -988,7 +993,7 @@ function isNode(x: unknown): x is serializedNodeWithId {
     return isObject(x) && 'type' in x && 'id' in x
 }
 
-function isNodeWithChildren(x: unknown): x is elementNode | documentNode {
+function isNodeWithChildren(x: unknown): x is Extract<addedNodeMutation['node'], { childNodes: unknown[] }> {
     return isNode(x) && 'childNodes' in x && Array.isArray(x.childNodes)
 }
 
@@ -998,7 +1003,7 @@ function isNodeWithChildren(x: unknown): x is elementNode | documentNode {
  */
 function cloneWithoutChildren(converted: addedNodeMutation): addedNodeMutation {
     const cloned = { ...converted }
-    const clonedNode: serializedNodeWithId = { ...converted.node }
+    const clonedNode = { ...converted.node }
     if (isNodeWithChildren(clonedNode)) {
         clonedNode.childNodes = []
     }
@@ -1279,53 +1284,79 @@ export const makeFullEvent = (
         type: EventType.FullSnapshot,
         timestamp: mobileEvent.timestamp,
         data: {
-            node: {
-                type: NodeType.Document,
-                childNodes: [
-                    {
-                        type: NodeType.DocumentType,
-                        name: 'html',
-                        publicId: '',
-                        systemId: '',
-                        id: HTML_DOC_TYPE_ID,
-                    },
-                    {
-                        type: NodeType.Element,
-                        tagName: 'html',
-                        attributes: { style: makeHTMLStyles(), 'data-rrweb-id': HTML_ELEMENT_ID },
-                        id: HTML_ELEMENT_ID,
-                        childNodes: [
-                            {
-                                type: NodeType.Element,
-                                tagName: 'head',
-                                attributes: { 'data-rrweb-id': HEAD_ID },
-                                id: HEAD_ID,
-                                childNodes: [makeCSSReset(conversionContext)],
-                            },
-                            {
-                                type: NodeType.Element,
-                                tagName: 'body',
-                                attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
-                                id: BODY_ID,
-                                childNodes: [
-                                    // in the order they should stack if they ever clash
-                                    // lower is higher in the stacking context
-                                    ...nodeGroups.appNodes,
-                                    makeKeyboardParent(),
-                                    nodeGroups.navBarNode,
-                                    nodeGroups.statusBarNode,
-                                ],
-                            },
-                        ],
-                    },
-                ],
-                id: DOCUMENT_ID,
-            },
+            node: makeDocumentNode(nodeGroups, conversionContext),
             initialOffset: {
                 top: 0,
                 left: 0,
             },
         },
+    }
+}
+
+export function makeScreenshotDocumentNode(
+    screenshotNode: serializedNodeWithId | undefined,
+    timestamp: number
+): serializedNodeWithId {
+    const context = { timestamp, idSequence: ids() }
+    return makeDocumentNode(
+        {
+            appNodes: screenshotNode ? [screenshotNode] : [],
+            statusBarNode: makeStatusBarNode(undefined, context),
+            navBarNode: makeNavBarNode(undefined, context),
+        },
+        context
+    )
+}
+
+function makeDocumentNode(
+    nodeGroups: {
+        appNodes: serializedNodeWithId[]
+        statusBarNode: serializedNodeWithId
+        navBarNode: serializedNodeWithId
+    },
+    context: ConversionContext
+): serializedNodeWithId {
+    return {
+        type: NodeType.Document,
+        childNodes: [
+            {
+                type: NodeType.DocumentType,
+                name: 'html',
+                publicId: '',
+                systemId: '',
+                id: HTML_DOC_TYPE_ID,
+            },
+            {
+                type: NodeType.Element,
+                tagName: 'html',
+                attributes: { style: makeHTMLStyles(), 'data-rrweb-id': HTML_ELEMENT_ID },
+                id: HTML_ELEMENT_ID,
+                childNodes: [
+                    {
+                        type: NodeType.Element,
+                        tagName: 'head',
+                        attributes: { 'data-rrweb-id': HEAD_ID },
+                        id: HEAD_ID,
+                        childNodes: [makeCSSReset(context)],
+                    },
+                    {
+                        type: NodeType.Element,
+                        tagName: 'body',
+                        attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
+                        id: BODY_ID,
+                        childNodes: [
+                            // in the order they should stack if they ever clash
+                            // lower is higher in the stacking context
+                            ...nodeGroups.appNodes,
+                            makeKeyboardParent(),
+                            nodeGroups.navBarNode,
+                            nodeGroups.statusBarNode,
+                        ],
+                    },
+                ],
+            },
+        ],
+        id: DOCUMENT_ID,
     }
 }
 

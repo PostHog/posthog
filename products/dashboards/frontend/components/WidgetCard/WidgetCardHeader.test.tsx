@@ -2,7 +2,8 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import { WidgetCardHeader, type DashboardWidgetTopHeadingProps } from './WidgetCardHeader'
+import { WidgetCardHeader } from './WidgetCardHeader'
+import type { DashboardWidgetTopHeadingProps } from './WidgetCardTopHeading'
 
 describe('WidgetCardHeader', () => {
     afterEach(() => {
@@ -101,21 +102,7 @@ describe('WidgetCardHeader', () => {
         expect(screen.getByText('Top issues').closest('a')).toHaveAttribute('href', '/error_tracking')
     })
 
-    it('does not link the title in dashboard edit mode even when titleHref is set', () => {
-        render(
-            <WidgetCardHeader
-                layout="dashboard_tile"
-                title="Top issues"
-                titleHref="/error_tracking"
-                showEditingControls
-                isDashboardEditMode
-            />
-        )
-
-        expect(screen.getByText('Top issues').closest('a')).toBeNull()
-    })
-
-    it('links the title in view mode when editing controls are shown', () => {
+    it('links the title when editing controls are shown', () => {
         render(
             <WidgetCardHeader
                 layout="dashboard_tile"

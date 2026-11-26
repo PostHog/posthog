@@ -45,6 +45,7 @@ import {
     matchEventToElementUsingSelectors,
     matchIsChainConsistent,
 } from '~/toolbar/shared/elements/domElementIndex'
+import { heatmapVariantFilterGateFromFlags } from '~/toolbar/shared/elements/heatmapVariantFilterGate'
 import { flagsToolbarLogic } from '~/toolbar/shared/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/shared/product-tours/productToursLogic'
 import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
@@ -212,11 +213,12 @@ export function buildElementStatsProperties(
     return properties
 }
 
-// The heatmap API drops the variant when this flag is off, so the clickmap drops it too.
-function clickmapVariantProperties(variantFilter: HeatmapVariantFilter | null): AnyPropertyFilter[] {
-    return variantFilter && toolbarPosthogJS.getFeatureFlag(FEATURE_FLAGS.HEATMAPS_EVENT_FILTER)
-        ? [variantToElementStatsProperty(variantFilter)]
-        : []
+// The heatmap API drops the variant when its flag is off, so the clickmap drops it too.
+function clickmapVariantProperties(
+    variantFilter: HeatmapVariantFilter | null,
+    variantFilterGate: boolean
+): AnyPropertyFilter[] {
+    return variantFilter && variantFilterGate ? [variantToElementStatsProperty(variantFilter)] : []
 }
 
 // mirrors how posthog-js decides target_fixed when recording heatmap points, so an area
@@ -398,6 +400,7 @@ export interface heatmapToolbarMenuLogicValues {
     } | null
     heatmapEnabled: boolean
     heatmapVariantFilter: HeatmapVariantFilter | null
+    heatmapVariantFilterGate: boolean
     heatmapVariantFlags: HeatmapVariantFlag[]
     highestClickCount: number
     isRefreshing: boolean
@@ -532,6 +535,9 @@ export interface heatmapToolbarMenuLogicActions {
     maybeLoadHeatmap: () => {
         value: true
     }
+    maybeLoadVariantFlags: () => {
+        value: true
+    }
     processElements: (trigger: ClickmapProcessingTrigger) => {
         trigger: ClickmapProcessingTrigger
     }
@@ -584,6 +590,9 @@ export interface heatmapToolbarMenuLogicActions {
     }
     setHeatmapVariantFilter: (variantFilter: HeatmapVariantFilter | null) => {
         variantFilter: HeatmapVariantFilter | null
+    }
+    setHeatmapVariantFilterGate: (enabled: boolean) => {
+        enabled: boolean
     }
     setIsRefreshing: (isRefreshing: boolean) => {
         isRefreshing: boolean
@@ -737,6 +746,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         loadAllEnabled: true,
         maybeLoadClickmap: true,
         maybeLoadHeatmap: true,
+        maybeLoadVariantFlags: true,
         updateElementMetrics: (observedElements: [HTMLElement, boolean][]) => ({ observedElements }),
         startElementObservation: true,
         stopElementObservation: true,
@@ -754,6 +764,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setAreaCandidates: (candidates: HTMLElement[]) => ({ candidates }),
         selectHeatmapAreaFilter: (element: HTMLElement | null) => ({ element }),
         setHeatmapVariantFilter: (variantFilter: HeatmapVariantFilter | null) => ({ variantFilter }),
+        setHeatmapVariantFilterGate: (enabled: boolean) => ({ enabled }),
         setHeatmapAreaFilter: (element: HTMLElement | null, selector: string | null) => ({ element, selector }),
         // swap the tracked node for a re-resolved one without refetching: the selector is
         // unchanged, so the server response would be byte-identical
@@ -766,6 +777,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
+        // State, not a flag read: the extension's content script never loads the toolbar's flags, so its panel sets this.
+        heatmapVariantFilterGate: [
+            false,
+            {
+                setHeatmapVariantFilterGate: (_, { enabled }) => enabled,
+            },
+        ],
         // exits picking mode only — an already-applied filter is cleared separately via
         // selectHeatmapAreaFilter(null) (the snack's close button)
         areaSelectionActive: [
@@ -958,7 +976,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                           wildcardHref,
                                           values.heatmapAreaFilter?.selector ?? null
                                       ),
-                                      ...clickmapVariantProperties(values.heatmapVariantFilter),
+                                      ...clickmapVariantProperties(
+                                          values.heatmapVariantFilter,
+                                          values.heatmapVariantFilterGate
+                                      ),
                                   ],
                                   date_from: values.commonFilters.date_from,
                                   date_to: values.commonFilters.date_to,
@@ -1116,7 +1137,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             windowHeight: updateAreaBoundsIfFiltered,
         }
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, selectors }) => ({
         processElements: async ({ trigger }, breakpoint) => {
             const startedAt = performance.now()
 
@@ -1274,6 +1295,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.setDataHref(urlFilter?.href ?? '')
             }
             actions.loadAllEnabled()
+            actions.maybeLoadVariantFlags()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
 
@@ -1323,6 +1345,22 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 events: variantFilter ? [variantToEventFilter(variantFilter)] : [],
             })
             toolbarPosthogJS.capture('toolbar heatmap variant filter changed', { enabled: !!variantFilter })
+        },
+
+        setHeatmapVariantFilterGate: ({ enabled }, _, __, previousState) => {
+            if (selectors.heatmapVariantFilterGate(previousState) === enabled) {
+                return
+            }
+            actions.maybeLoadVariantFlags()
+            if (values.heatmapVariantFilter) {
+                actions.maybeLoadClickmap()
+            }
+        },
+
+        maybeLoadVariantFlags: () => {
+            if (values.heatmapEnabled && values.heatmapVariantFilterGate) {
+                flagsToolbarLogic.actions.getUserFlags()
+            }
         },
 
         selectHeatmapAreaFilter: ({ element }) => {
@@ -1661,6 +1699,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             document.addEventListener('visibilitychange', handleVisibilityChange)
             return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
         }, 'visibilityChangeHandler')
+
+        cache.disposables.add(
+            () =>
+                toolbarPosthogJS.onFeatureFlags(() =>
+                    actions.setHeatmapVariantFilterGate(heatmapVariantFilterGateFromFlags())
+                ),
+            'heatmapVariantFilterGateFlags'
+        )
     }),
     beforeUnmount(({ cache }) => {
         // heatmapDataLogic outlives this logic, so reducer resets alone can't clear the bounds

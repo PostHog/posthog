@@ -425,8 +425,7 @@ def record_sticky_warm_shape(*, team: Team, runner: Any) -> None:
     shape still self-heals through the check-miss build, it just is not kept
     warm until the demand selection picks it up."""
     try:
-        field = compute_shape_cap_key(runner.query, team.timezone, getattr(runner, "_test_account_filters", None))[:24]
-        field = f"{team.id}:{field}"
+        field = f"{team.id}:{compute_shape_key(runner.query, team.timezone, runner._test_account_filters)}"
         client = redis.get_client()
         existing = client.hget(STICKY_WARM_SHAPES_KEY, field)
         if existing is not None:
@@ -1172,6 +1171,10 @@ def compute_shape_cap_key(query: Any, team_timezone: str, test_account_filters: 
     ]
     payload = {"query": dumped, "timezone": team_timezone, "test_account_filters": tafs}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def compute_shape_key(query: Any, team_timezone: str, test_account_filters: Optional[list] = None) -> str:
+    return compute_shape_cap_key(query, team_timezone, test_account_filters)[:24]
 
 
 def _hash_query_fields(query: Any, team_timezone: str, ignored_fields: frozenset[str]) -> str:

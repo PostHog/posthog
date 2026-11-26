@@ -14,6 +14,8 @@ MIN_RECALCULATION_GAP_HOURS = 6
 MIN_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.01")
 MAX_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.99")
 
+LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
+
 
 class ExposuresPath(StrEnum):
     """Where a metric query read the exposures. Tagged on the query as `experiment_exposures_path`, and stored with a
@@ -36,9 +38,38 @@ class PrecomputeSkipReason(StrEnum):
     COHORT_NOT_CALCULATED = "cohort_not_calculated"
     DATA_WAREHOUSE = "data_warehouse"
     GROUP_AGGREGATION = "group_aggregation"
+    FLAG_RULE = "flag_rule"
 
 
 class ExperimentResultConfigurationStatus(LabeledStrEnum):
     CURRENT = "current", "Current settings"
     PREVIOUS = "previous", "Earlier settings"
     UNKNOWN = "unknown", "Settings not recorded"
+
+
+class SharedMetricType(LabeledStrEnum):
+    """The type a shared metric shows in the list. `funnel` and `trend` also cover the legacy query kinds."""
+
+    MEAN = "mean", "Mean"
+    FUNNEL = "funnel", "Funnel"
+    RATIO = "ratio", "Ratio"
+    RETENTION = "retention", "Retention"
+    QUANTILE = "quantile", "Percentile"
+    TREND = "trend", "Trend"
+
+
+class RecalculationStartOutcome(StrEnum):
+    STARTED = "started"
+    # An active run already existed, so no new run was created.
+    REUSED = "reused"
+    NOT_CREATED = "not_created"
+    # The row was created, but the workflow did not start, so the row is marked failed.
+    WORKFLOW_NOT_STARTED = "workflow_not_started"
+
+
+class TerminalMarkOutcome(StrEnum):
+    MARKED = "marked"
+    NOT_FOUND = "not_found"
+    ALREADY_TERMINAL = "already_terminal"
+    # A run without a query window never started, so it can only be marked failed.
+    NEVER_STARTED = "never_started"

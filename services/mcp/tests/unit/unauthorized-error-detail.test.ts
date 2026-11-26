@@ -8,9 +8,6 @@ vi.mock('@/lib/posthog', () => ({
     getPostHogClient: () => ({ captureException: vi.fn() }),
 }))
 
-// PostHog answers 401 for account state as well as for a bad credential. The client used to
-// collapse every 401 to the bare `INVALID_API_KEY` sentinel, so a caller holding a valid,
-// freshly issued token was told to replace it, and the server's own reason never arrived.
 describe('401 handling', () => {
     beforeEach(() => {
         vi.clearAllMocks()
@@ -34,7 +31,7 @@ describe('401 handling', () => {
                 (error: unknown) => error
             )
 
-    it('carries the server reason and the status alongside the sentinel', async () => {
+    it('keeps the account-access hint and retains the server reason only in typed metadata', async () => {
         stub401(
             JSON.stringify({
                 type: 'authentication_error',
@@ -47,7 +44,9 @@ describe('401 handling', () => {
 
         expect(error).toBeInstanceOf(PostHogApiError)
         expect((error as PostHogApiError).status).toBe(401)
-        expect((error as Error).message).toContain('your account has none')
+        expect((error as PostHogApiError).body).toContain('your account has none')
+        expect((error as Error).message).not.toContain('your account has none')
+        expect((error as Error).message).toContain('account access')
     })
 
     it('still reads as an invalid credential, so the re-auth path keeps firing', async () => {

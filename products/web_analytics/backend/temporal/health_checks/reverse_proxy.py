@@ -8,39 +8,29 @@ from posthog.temporal.health_checks.framework import (
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
-from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
 from products.web_analytics.backend.models.health_rollups import EventsHealthDaily
 from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
 
-# A week-wide window, wider than the daily schedule. A project with intermittent browser
-# traffic keeps at least one browser event in the window across single zero-traffic days,
+# A week-wide window, wider than the daily schedule. A project with intermittent web
+# traffic keeps at least one pageview in the window across single zero-traffic days,
 # so its verdict stays stable instead of flapping resolved-then-firing day to day.
 REVERSE_PROXY_LOOKBACK_DAYS = 7
-# Judge a team only when the window holds this many browser events. Below it, the query
-# cannot tell "no reverse proxy" apart from "not enough browser traffic to know".
-REVERSE_PROXY_MIN_BROWSER_EVENTS = 50
-REVERSE_PROXY_SQL = """
-SELECT team_id
-FROM events
-WHERE team_id IN %(team_ids)s
-  AND event IN ('$pageview', '$screen')
-  AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
-GROUP BY team_id
-HAVING count() >= %(min_browser_events)s
-   AND countIf(JSONHas(properties, '$lib_custom_api_host')) = 0
-"""
+# Judge a team only when the window holds this many pageviews. Below it, the query
+# cannot tell "no reverse proxy" apart from "not enough web traffic to know".
+# The check reads only $pageview because the mobile SDKs that send $screen do not set
+# $lib_custom_api_host, so their events look unproxied even behind a reverse proxy.
+REVERSE_PROXY_MIN_PAGEVIEWS = 50
 
 
 class ReverseProxyCheck(RollupHealthCheck):
     name = "reverse_proxy"
     kind = "reverse_proxy"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     schedule = "30 6 * * *"
     active_since_days = 30
-    reads_rollup = False
     rollup_model = EventsHealthDaily
     window_days = REVERSE_PROXY_LOOKBACK_DAYS
     remediation = Remediation(
@@ -79,7 +69,7 @@ class ReverseProxyCheck(RollupHealthCheck):
             description=(
                 "PostHog isn't receiving events through a reverse proxy for this project. "
                 "Without one, ad blockers can silently drop a meaningful share of "
-                "`$pageview` / `$screen` events, undercounting traffic and skewing web analytics. "
+                "`$pageview` events, undercounting traffic and skewing web analytics. "
                 "Recommend serving capture from a first-party domain via a reverse proxy."
             ),
             weight=_SEVERITY_WEIGHT[issue.severity],
@@ -90,17 +80,8 @@ class ReverseProxyCheck(RollupHealthCheck):
         return {
             team_id: [_reverse_proxy_result()]
             for team_id, totals in events_health_totals(team_ids, window).items()
-            if totals.browser_events >= REVERSE_PROXY_MIN_BROWSER_EVENTS and totals.proxied_browser_events == 0
+            if totals.pageviews >= REVERSE_PROXY_MIN_PAGEVIEWS and totals.proxied_pageviews == 0
         }
-
-    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        rows = execute_clickhouse_health_team_query(
-            REVERSE_PROXY_SQL,
-            team_ids=team_ids,
-            lookback_days=REVERSE_PROXY_LOOKBACK_DAYS,
-            params={"min_browser_events": REVERSE_PROXY_MIN_BROWSER_EVENTS},
-        )
-        return {team_id: [_reverse_proxy_result()] for (team_id,) in rows}
 
 
 def _reverse_proxy_result() -> HealthCheckResult:

@@ -21,7 +21,7 @@ export const getDocusaurusInstallSteps = (ctx: OnboardingComponentsContext): Ste
                                 language: 'bash',
                                 file: 'Terminal',
                                 code: dedent`
-                                npm install --save posthog-docusaurus
+                                npm install --save posthog-docusaurus@2
                             `,
                             },
                         ]}

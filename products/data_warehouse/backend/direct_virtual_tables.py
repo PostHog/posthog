@@ -9,6 +9,8 @@ objects the pure-direct path derives from physical rows, but from each
 
 from typing import TYPE_CHECKING
 
+from django.db.models import Q
+
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -48,6 +50,7 @@ from products.data_warehouse.backend.snowflake_helpers import (
     snowflake_schema_metadata_to_dwh_columns,
 )
 from products.warehouse_sources.backend.facade.hogql import hogql_fields_and_structure_for_columns
+from products.warehouse_sources.backend.facade.live_queries import is_live_query_eligible
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
@@ -59,7 +62,8 @@ if TYPE_CHECKING:
 
 
 def eligible_direct_query_schemas(team_id: int, source_id: str) -> list[ExternalDataSchema]:
-    """The synced schema rows a dual-mode connection exposes as live virtual tables.
+    """The schema rows a dual-mode connection exposes as live virtual tables: every synced row, and
+    the unsynced rows the user turned live queries on for.
 
     Single source of truth for both the build path (``_fetch_sources``) and the serialize
     catalog, so the two selections can't drift. Excludes rows without usable ``schema_metadata``
@@ -71,16 +75,20 @@ def eligible_direct_query_schemas(team_id: int, source_id: str) -> list[External
     return [
         schema_row
         for schema_row in ExternalDataSchema.objects.filter(
+            Q(should_sync=True) | Q(live_query_enabled=True),
             team_id=team_id,
             source_id=source_id,
-            should_sync=True,
         )
         .exclude(deleted=True)
         # `table` is the synced S3 row backing the warehouse access-control check on the build path.
         .select_related("table")
         .order_by("name")
-        if schema_row.schema_metadata and not schema_row.row_filters and not schema_row.masked_columns
+        if is_live_query_eligible(schema_row)
     ]
+
+
+# Keep in sync with the engine branches in build_direct_table_for_schema.
+LIVE_TABLE_ENGINES = frozenset({"postgres", "mysql", "redshift", "snowflake", "clickhouse", "motherduck"})
 
 
 def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "ExternalDataSource") -> DirectSQLTable | None:
@@ -108,6 +116,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-postgres columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, postgres_schema, table_name = get_postgres_source_location(
@@ -122,6 +131,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             postgres_schema=postgres_schema,
             postgres_table_name=table_name,
             external_data_source_id=str(source.id),
+            column_restricted=schema.enabled_columns is not None,
             connection_metadata=source.connection_metadata,
         )
 
@@ -136,6 +146,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-mysql columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         mysql_schema, table_name = get_mysql_source_location(
@@ -149,6 +160,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             mysql_schema=mysql_schema,
             mysql_table_name=table_name,
             external_data_source_id=str(source.id),
+            column_restricted=schema.enabled_columns is not None,
             connection_metadata=source.connection_metadata,
         )
 
@@ -163,6 +175,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-redshift columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, redshift_schema, table_name = get_redshift_source_location(
@@ -178,6 +191,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             postgres_schema=redshift_schema,
             postgres_table_name=table_name,
             external_data_source_id=str(source.id),
+            column_restricted=schema.enabled_columns is not None,
             connection_metadata=source.connection_metadata,
         )
 
@@ -192,6 +206,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-snowflake columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, snowflake_schema, table_name = get_snowflake_source_location(
@@ -207,6 +222,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             snowflake_schema=snowflake_schema,
             snowflake_table_name=table_name,
             external_data_source_id=str(source.id),
+            column_restricted=schema.enabled_columns is not None,
             connection_metadata=source.connection_metadata,
         )
 
@@ -221,6 +237,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-ClickHouse columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         clickhouse_database, table_name = get_clickhouse_source_location(
@@ -234,6 +251,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             clickhouse_database=clickhouse_database,
             clickhouse_table_name=table_name,
             external_data_source_id=str(source.id),
+            column_restricted=schema.enabled_columns is not None,
             connection_metadata=source.connection_metadata,
             # No column-picker restriction → these fields are the complete physical schema, so a
             # `SELECT *` can pass through to the server literally.
@@ -251,6 +269,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-MotherDuck columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, motherduck_schema, table_name = get_motherduck_source_location(
@@ -267,6 +286,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             motherduck_schema=motherduck_schema,
             motherduck_table_name=table_name,
             external_data_source_id=str(source.id),
+            column_restricted=schema.enabled_columns is not None,
             connection_metadata=source.connection_metadata,
             # No column-picker restriction → these fields are the complete physical schema, so a
             # `SELECT *` can pass through to the server literally.

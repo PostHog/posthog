@@ -14,11 +14,13 @@ from posthog.temporal.health_checks.framework import (
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
 
+from products.web_analytics.backend.temporal.health_checks.web_projects import teams_expecting_web_events
+
 
 class AuthorizedUrlsCheck(HealthCheck):
     name = "authorized_urls"
     kind = "authorized_urls"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     policy = DEFAULT_EXECUTION_POLICY
     schedule = "15 8 * * *"
     active_since_days = 30
@@ -70,7 +72,7 @@ class AuthorizedUrlsCheck(HealthCheck):
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         teams_missing_urls = (
             Team.objects.filter(
-                id__in=team_ids,
+                id__in=teams_expecting_web_events(team_ids),
             )
             .filter(Q(app_urls=[]) | Q(app_urls__isnull=True))
             .values_list("id", flat=True)

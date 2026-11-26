@@ -23,7 +23,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.schema import IntervalType
+from posthog.schema import IntervalType, LLMDetectorModel
 
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
@@ -37,6 +37,8 @@ from posthog.exceptions import (
 from posthog.models import Organization, Team, User
 from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
 
+from products.alerts.backend.facade.lazy_judge import LazyAndEnsemble
+from products.alerts.backend.facade.testing import fake_judge_model
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -44,26 +46,35 @@ from products.product_analytics.backend.facade.api import record_insight_view
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.artifacts import clear_artifact_cache
 from products.signals.backend.anomaly_scores.config import (
+    AI_JUDGE_PROFILE,
     DEFAULT_LIMITS,
     DEFAULT_PROFILE,
     DISABLED,
+    NO_AI_JUDGE,
+    AIJudgeConfig,
     AnomalyScoringConfig,
     ScoringRun,
     covers_team,
+    in_rollout,
+    judges_team,
     parse_config,
     read_payload,
+    resolve_profile,
 )
-from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list
+from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list, refresh_team
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
+from products.signals.backend.anomaly_scores.judging import _daily_key, judge_flags, reserve_daily_checks
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
     SKIP_COOLDOWN,
     ActiveInsight,
     ActivityReason,
+    FirstTrainReport,
     InsightPick,
     QueryBudget,
     TeamCensus,
     _cooldown_key,
+    _empty_train_key,
     _fleet_budget_key,
     _project_budget_key,
     _take_turns,
@@ -71,7 +82,9 @@ from products.signals.backend.anomaly_scores.queue import (
     _too_expensive_key,
     active_insights,
     eligible_teams,
+    empty_train_counts,
     is_due,
+    load_due_list,
     remaining_budget,
     reserve_queries,
     scored_buckets,
@@ -80,12 +93,14 @@ from products.signals.backend.anomaly_scores.queue import (
     within_budget,
 )
 from products.signals.backend.anomaly_scores.scoring import (
+    FetchedSeries,
     InsightScores,
     ScoredPoint,
     ScoredSeries,
     StateIdentity,
     TrainedState,
     UnsupportedInsightError,
+    detector_version,
     interval_scoring,
     state_identity,
     trends_query_for,
@@ -101,12 +116,14 @@ from products.signals.backend.anomaly_scores.spend import (
 )
 from products.signals.backend.anomaly_scores.state import RunPlan, load_state, plan_run, save_state
 from products.signals.backend.anomaly_scores.tick import (
+    ANOMALY_SCOUT_SKILL,
     AnomalyScoringTickInput,
     AnomalyScoringTickPlan,
     AnomalyScoringTickResult,
     AnomalyScoringTickWorkflow,
     ScoreInsightInput,
     ScoreInsightResult,
+    _first_train_key,
     capture_census,
     plan_tick,
     run_insight,
@@ -116,6 +133,7 @@ from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import (
     AnomalyScoringDueInsight,
     AnomalyScoringState,
+    SignalScoutConfig,
     SignalSourceConfig,
     SignalTeamConfig,
 )
@@ -197,6 +215,15 @@ class TestTickConfig(SimpleTestCase):
                 "train_score_split": "true",
                 "train_every_buckets": {"hour": 100_000, "day": 0, "week": 2},
                 "active_window_days": "30",
+                "first_train_insights_per_tick": 0,
+                "first_train_insights_per_project": 0,
+                "ai_judge": {
+                    "team_ids": [2, "3", True],
+                    "organization_percentage": 101,
+                    "skip_team_ids": [3, "4"],
+                    "max_checks_per_insight_per_run": 100,
+                    "max_checks_per_project_per_day": 0,
+                },
             }
         )
 
@@ -215,6 +242,69 @@ class TestTickConfig(SimpleTestCase):
             IntervalType.MONTH: 3,
         }
         assert config.active_window_days == 90
+        assert (config.first_train_insights_per_tick, config.first_train_insights_per_project) == (0, 2)
+        assert config.ai_judge == AIJudgeConfig(
+            team_ids=(2,),
+            organization_percentage=0.0,
+            skip_team_ids=(3,),
+            max_checks_per_insight_per_run=10,
+            max_checks_per_project_per_day=50,
+        )
+
+    @parameterized.expand(
+        [
+            # name, listed, percentage, skipped, judged
+            ("not_listed", False, 0.0, False, False),
+            ("listed", True, 0.0, False, True),
+            ("every_organization", False, 100.0, False, True),
+            ("skip_list_wins_over_the_list", True, 0.0, True, False),
+            ("skip_list_wins_over_the_percentage", False, 100.0, True, False),
+        ]
+    )
+    def test_the_judge_profile_by_list_percentage_and_skip_list(
+        self, _name: str, listed: bool, percentage: float, skipped: bool, judged: bool
+    ) -> None:
+        team = Team(id=2, organization_id=uuid.UUID(ORGANIZATION_ID))
+        ai_judge = AIJudgeConfig(
+            team_ids=(2,) if listed else (),
+            organization_percentage=percentage,
+            skip_team_ids=(2,) if skipped else (),
+        )
+
+        assert resolve_profile(team, Insight(), ai_judge) == (AI_JUDGE_PROFILE if judged else DEFAULT_PROFILE)
+
+    @parameterized.expand([("ten_percent", 10.0), ("half", 50.0)])
+    def test_the_judge_percentage_uses_the_organization_buckets_of_scoring(self, _name: str, percentage: float) -> None:
+        organizations = [uuid.UUID(int=index) for index in range(200)]
+
+        scored = {
+            organization
+            for organization in organizations
+            if in_rollout(AnomalyScoringConfig(self_driving_organization_percentage=percentage), organization)
+        }
+        judged = {
+            organization
+            for organization in organizations
+            if judges_team(AIJudgeConfig(organization_percentage=percentage), Team(id=1, organization_id=organization))
+        }
+
+        assert judged == scored
+        assert 0 < len(judged) < len(organizations)
+
+    def test_a_deployment_override_replaces_the_whole_ai_judge_object(self) -> None:
+        payload = {
+            "enabled": True,
+            "ai_judge": {"team_ids": [2], "organization_percentage": 5},
+            "deployments": {"US": {"ai_judge": {"organization_percentage": 25}}},
+        }
+
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch("products.signals.backend.anomaly_scores.config.read_flag_payload", return_value=payload),
+        ):
+            config = parse_config(read_payload())
+
+        assert config.ai_judge == AIJudgeConfig(organization_percentage=25.0)
 
     @parameterized.expand([("missing", {}), ("empty", {"allow_team_ids": []})])
     def test_an_absent_or_empty_allowlist_enrolls_every_team_of_the_listed_organizations(
@@ -278,6 +368,8 @@ class TestTickConfig(SimpleTestCase):
             ("max_score_queries_per_project_per_hour", 1001, 1000),
             ("max_score_insights_per_tick", 201, 200),
             ("max_train_insights_per_tick", 51, 50),
+            ("first_train_insights_per_tick", 51, 50),
+            ("first_train_insights_per_project", 11, 10),
             ("active_window_days", 1000, 365),
         ]
     )
@@ -805,6 +897,71 @@ class TestRunInsight(SimpleTestCase):
         assert too_expensive_counts([7]) == {}
         assert capture.call_args.kwargs["properties"]["too_expensive_streak"] == 0
 
+    def _finish_pick(self, result: ScoreInsightResult, interval: IntervalType) -> tuple[list[Any], dict[str, Any]]:
+        tick = "products.signals.backend.anomaly_scores.tick"
+        capture = MagicMock()
+        mark_attempted = MagicMock()
+        with (
+            patch(f"{tick}.ph_background_capture", return_value=capture),
+            patch(f"{tick}._score_pick", return_value=result),
+            patch("products.signals.backend.anomaly_scores.queue.mark_attempted", mark_attempted),
+            patch(f"{tick}.record_failed") as record_failed,
+        ):
+            pick = InsightPick(
+                team_id=1,
+                insight_id=7,
+                scored_through={},
+                interval=interval,
+                empty_train=empty_train_counts([7]).get(7, 0),
+            )
+            run_insight(ScoreInsightInput(pick=pick), NOW)
+        row_cooldowns = [call.args[3] for call in record_failed.call_args_list]
+        assert row_cooldowns == [call.args[1] for call in mark_attempted.call_args_list]
+        return row_cooldowns, capture.call_args.kwargs["properties"]
+
+    @parameterized.expand(
+        [
+            (IntervalType.HOUR, [timedelta(days=1), timedelta(days=3), timedelta(days=7), timedelta(days=7)]),
+            (IntervalType.WEEK, [timedelta(days=7)] * 4),
+            (IntervalType.MONTH, [timedelta(days=31)] * 4),
+        ]
+    )
+    def test_consecutive_empty_train_picks_grow_the_cooldown_and_series_reset_it(
+        self, interval: IntervalType, expected: list[timedelta]
+    ) -> None:
+        cache.delete(_empty_train_key(7))
+        self.addCleanup(cache.delete, _empty_train_key(7))
+        empty = ScoreInsightResult(status="up_to_date", events=0, series=0, run=ScoringRun.TRAIN)
+
+        visits = [self._finish_pick(empty, interval) for _ in expected]
+
+        assert [cooldown for cooldowns, _event in visits for cooldown in cooldowns] == expected
+        assert [event["empty_train_streak"] for _cooldowns, event in visits] == [1, 2, 3, 4]
+
+        recovered = ScoreInsightResult(status="scored", events=3, series=1, run=ScoringRun.TRAIN)
+        cooldowns, event = self._finish_pick(recovered, interval)
+        assert cooldowns == []
+        assert event["empty_train_streak"] == 0
+        assert empty_train_counts([7]) == {}
+
+    @parameterized.expand(
+        [
+            ("train_with_series", ScoreInsightResult(status="up_to_date", events=0, series=2, run=ScoringRun.TRAIN)),
+            (
+                "score_with_no_new_bucket",
+                ScoreInsightResult(status="up_to_date", events=0, series=0, run=ScoringRun.SCORE),
+            ),
+        ]
+    )
+    def test_a_pick_with_no_new_events_is_not_an_empty_train_pick(self, _name: str, result: ScoreInsightResult) -> None:
+        cache.delete(_empty_train_key(7))
+        self.addCleanup(cache.delete, _empty_train_key(7))
+
+        cooldowns, event = self._finish_pick(result, IntervalType.DAY)
+
+        assert cooldowns == []
+        assert event["empty_train_streak"] == 0
+
     def test_a_full_cluster_returns_at_capacity_and_waits_an_hour(self) -> None:
         status, cooldowns, _metrics, _pick_event = self._run(ClickHouseAtCapacity())
 
@@ -872,26 +1029,46 @@ class TestTrainScoreSplit(BaseTest):
         self.addCleanup(clear_artifact_cache)
 
     def _run(
-        self, insight: Insight, pick: InsightPick, now: datetime, data: list[float]
+        self,
+        insight: Insight,
+        pick: InsightPick,
+        now: datetime,
+        data: list[float],
+        ai_judge: AIJudgeConfig = NO_AI_JUDGE,
+        history_error: Exception | None = None,
     ) -> tuple[ScoreInsightResult, list[dict[str, Any]]]:
         days = [(now - timedelta(days=len(data) - 1 - day)).strftime("%Y-%m-%d") for day in range(len(data))]
         results = [{"order": 0, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
+        capture = MagicMock()
         with (
             patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner,
             patch("products.signals.backend.anomaly_scores.tick.emit") as emit,
             patch("products.signals.backend.anomaly_scores.tick.mark_attempted"),
+            patch("products.signals.backend.anomaly_scores.tick.ph_background_capture", return_value=capture),
         ):
             runner.return_value.run.return_value = MagicMock(results=results)
-            result = run_insight(ScoreInsightInput(pick=pick), now)
+            if history_error is not None:
+                # The second fetch of a pick is the judge's history.
+                runner.return_value.run.side_effect = [MagicMock(results=results), history_error]
+            result = run_insight(ScoreInsightInput(pick=pick, ai_judge=ai_judge), now)
+        self.fetched_ranges = [call.kwargs["query"].dateRange.date_from for call in runner.call_args_list]
+        [self.pick_event] = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "anomaly scoring pick"
+        ]
         return result, emit.call_args.args[1] if emit.called else []
 
-    def _train(self, insight: Insight, trained_at: datetime) -> list[dict[str, Any]]:
+    def _train(
+        self, insight: Insight, trained_at: datetime, ai_judge: AIJudgeConfig = NO_AI_JUDGE
+    ) -> list[dict[str, Any]]:
         values = [float(value) for value in np.random.default_rng(4).normal(100, 5, size=100)]
         _result, events = self._run(
             insight,
             InsightPick(team_id=self.team.id, insight_id=insight.id, scored_through={}, run=ScoringRun.TRAIN),
             trained_at,
             values,
+            ai_judge,
         )
         self.values = values
         return events
@@ -935,6 +1112,88 @@ class TestTrainScoreSplit(BaseTest):
         # A retrain replaces the blob and deletes the previous one.
         assert list(self.blobs) == [state.artifact_key] != [first_key]
 
+    @parameterized.expand(
+        [
+            ("no_new_flag", 100.0, True, False, ["-6d"], 0),
+            ("flagged", 500.0, True, False, ["-6d", "-62d"], 1),
+            ("flagged_without_consent", 500.0, False, False, ["-6d"], 0),
+            ("flagged_past_the_daily_cap", 500.0, True, True, ["-6d"], 0),
+        ]
+    )
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+    def test_a_default_v2_score_pick_fetches_the_judge_history_only_for_a_flag_the_judge_is_asked_about(
+        self, _name: str, newest: float, consent: bool, daily_cap_spent: bool, fetched: list[str], calls: int
+    ) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.organization.is_ai_data_processing_approved = consent
+        self.organization.save()
+        ai_judge = AIJudgeConfig(team_ids=(self.team.id,), max_checks_per_project_per_day=1)
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        with fake_judge_model(is_anomaly=False, rationale="Normal."):
+            trained = self._train(insight, trained_at, ai_judge)
+        cache.clear()
+        scored_at = trained_at + timedelta(days=2)
+        if daily_cap_spent:
+            reserve_daily_checks(_daily_key(self.team.id, scored_at), 1, 1)
+
+        with (
+            time_machine.travel(scored_at, tick=False),
+            fake_judge_model(is_anomaly=False, rationale="Normal.") as requests,
+        ):
+            result, events = self._run(
+                insight, self._score_pick(insight, trained), scored_at, [*self.values[-4:], newest, 100.0], ai_judge
+            )
+            score_budget_spent = cache.get(_project_budget_key(self.team.id, scored_at, ScoringRun.SCORE), 0)
+
+        assert result.run == ScoringRun.SCORE
+        zscore_flagged = [
+            event["properties"]["$anomaly_bucket_start"]
+            for event in events
+            if json.loads(event["properties"]["$anomaly_details"])["members"][0]["state"] == "fired"
+        ]
+        assert zscore_flagged == ([] if newest == 100.0 else ["2026-10-21T00:00:00+00:00"])
+        assert self.fetched_ranges == fetched
+        assert len(requests) == calls
+        assert (self.pick_event["queries"], self.pick_event["ai_history_fetched"]) == (len(fetched), len(fetched) > 1)
+        assert score_budget_spent == len(fetched) - 1
+
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+    def test_a_judge_history_fetch_that_fails_still_charges_its_queries_and_keeps_the_daily_cap(self) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        ai_judge = AIJudgeConfig(team_ids=(self.team.id,), max_checks_per_project_per_day=1)
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        with fake_judge_model(is_anomaly=False, rationale="Normal."):
+            trained = self._train(insight, trained_at, ai_judge)
+        cache.clear()
+        scored_at = trained_at + timedelta(days=2)
+
+        with (
+            time_machine.travel(scored_at, tick=False),
+            fake_judge_model(is_anomaly=False, rationale="Normal.") as requests,
+        ):
+            result, _events = self._run(
+                insight,
+                self._score_pick(insight, trained),
+                scored_at,
+                [*self.values[-4:], 500.0, 100.0],
+                ai_judge,
+                history_error=ClickHouseQueryTimeOut(),
+            )
+            score_budget_spent = cache.get(_project_budget_key(self.team.id, scored_at, ScoringRun.SCORE), 0)
+            daily_cap_left = reserve_daily_checks(_daily_key(self.team.id, scored_at), 1, 1)
+
+        assert result.status == "too_expensive"
+        assert self.fetched_ranges == ["-6d", "-62d"]
+        assert len(requests) == 0
+        assert score_budget_spent == 1
+        assert daily_cap_left == 1
+
     @parameterized.expand([("corrupt",), ("missing",), ("older_schema",)])
     def test_an_artifact_blob_that_fails_its_check_makes_the_next_visit_train(self, case: str) -> None:
         insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
@@ -961,6 +1220,44 @@ class TestTrainScoreSplit(BaseTest):
         assert (result.status, events) == ("artifact_unavailable", [])
         plan = plan_run(insight, self.team, load_state(self.team, insight), parse_config(_SPLIT_PAYLOAD), scored_at)
         assert plan.run == ScoringRun.TRAIN
+
+    @parameterized.expand([("onto_the_judge", False, True), ("off_the_judge", True, False)])
+    def test_a_model_trained_under_one_profile_scores_under_the_other(
+        self, _name: str, judged_before: bool, judged_after: bool
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        judge = {True: AIJudgeConfig(team_ids=(self.team.id,)), False: NO_AI_JUDGE}
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        trained = self._train(insight, trained_at, judge[judged_before])
+        scored_at = trained_at + timedelta(days=2)
+        config = dataclasses.replace(parse_config(_SPLIT_PAYLOAD), ai_judge=judge[judged_after])
+
+        plan = plan_run(insight, self.team, load_state(self.team, insight, config.ai_judge), config, scored_at)
+        _result, scored = self._run(
+            insight, self._score_pick(insight, trained), scored_at, self.values[-6:], config.ai_judge
+        )
+
+        profile = AI_JUDGE_PROFILE if judged_after else DEFAULT_PROFILE
+        assert plan.run == ScoringRun.SCORE
+        assert {
+            (
+                event["properties"]["$anomaly_run"],
+                event["properties"]["$anomaly_profile"],
+                event["properties"]["$anomaly_detector_version"],
+                event["properties"]["$anomaly_model_id"],
+            )
+            for event in scored
+        } == {
+            (
+                "score",
+                profile.name,
+                detector_version(interval_scoring(profile, IntervalType.DAY), artifacts=True),
+                trained[-1]["properties"]["$anomaly_model_id"],
+            )
+        }
+        assert AnomalyScoringState.objects.for_team(self.team.id).filter(insight_id=insight.id).count() == 1
 
 
 _SPLIT_PAYLOAD = {"enabled": True, "organization_ids": [ORGANIZATION_ID], "train_score_split": True}
@@ -1228,6 +1525,171 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
         assert [(pick.insight_id, pick.scored_through) for pick in selection.picks] == [(due.id, watermarks)]
         assert (selection.active, selection.due_insights, selection.oldest_due_seconds) == (2, 1, 3600)
 
+    @time_machine.travel(NOW, tick=False)
+    def test_the_selection_counts_the_enrolled_teams_that_score_with_the_judge(self) -> None:
+        judged = Team.objects.create(organization=self.organization, name="judged")
+        skipped = Team.objects.create(organization=self.organization, name="skipped")
+        for team in (judged, skipped):
+            _enable_analytics_source(team)
+        config = dataclasses.replace(
+            self._config(self.team.id, judged.id, skipped.id),
+            ai_judge=AIJudgeConfig(team_ids=(judged.id, skipped.id), skip_team_ids=(skipped.id,)),
+        )
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
+
+        assert (selection.enrolled_teams, selection.ai_judge_teams) == (3, 1)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_a_train_backlog_larger_than_the_read_leaves_room_for_scored_rows(self) -> None:
+        today = NOW.replace(hour=0)
+        never_scored = [
+            Insight.objects.create(team=self.team, name=f"never_scored_{index}", query=_trends(interval="day"))
+            for index in range(3)
+        ]
+        for index, insight in enumerate(never_scored):
+            self._row(insight, NOW - timedelta(days=10 - index), {})
+        scored = Insight.objects.create(team=self.team, name="scored", query=_trends(interval="day"))
+        self._row(scored, NOW - timedelta(hours=1), {"a": today - timedelta(days=1)})
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue._MAX_DUE_ROWS", 3),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", 2),
+        ):
+            due_list = load_due_list([self.team.id], (IntervalType.DAY,), NOW)
+
+        assert [insight.insight_id for insight in due_list.insights] == [
+            never_scored[0].id,
+            never_scored[1].id,
+            scored.id,
+        ]
+        assert due_list.oldest_due_seconds == 10 * 24 * 3600
+
+    @parameterized.expand([("per_project_cap", 10, [1, 2], [0, 1]), ("fleet_cap", 2, [2], [0])])
+    @time_machine.travel(NOW, tick=False)
+    def test_one_project_backlog_cannot_fill_the_never_scored_read(
+        self, _name: str, fleet_cap: int, large_read: list[int], small_read: list[int]
+    ) -> None:
+        small_team = Team.objects.create(organization=self.organization, name="Small")
+
+        def rows(team: Team, due: datetime, viewers: list[int]) -> list[int]:
+            ids = []
+            for index, count in enumerate(viewers):
+                insight = Insight.objects.create(team=team, name=f"{team.name}_{index}", query=_trends(interval="day"))
+                AnomalyScoringDueInsight.all_teams.create(
+                    team_id=team.id,
+                    insight_id=insight.id,
+                    interval="day",
+                    next_due_at=due,
+                    refreshed_at=NOW,
+                    viewers=count,
+                )
+                ids.append(insight.id)
+            return ids
+
+        large = rows(self.team, NOW - timedelta(days=10), [0, 5, 9, 1])
+        small = rows(small_team, NOW - timedelta(days=1), [0, 0])
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", fleet_cap),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS_PER_TEAM", 2),
+        ):
+            due_list = load_due_list([self.team.id, small_team.id], (IntervalType.DAY,), NOW, first_train_lane=False)
+
+        read = [*(large[index] for index in large_read), *(small[index] for index in small_read)]
+        assert [insight.insight_id for insight in due_list.insights] == read
+        assert (due_list.never_scored_due, due_list.due_unread) == (6, 6 - len(read))
+
+    @parameterized.expand([("lane_on", 1, True), ("lane_off", 0, False)])
+    @time_machine.travel(NOW, tick=False)
+    def test_a_new_project_trains_before_the_never_scored_backlog_of_an_older_project(
+        self, _name: str, lane_slots: int, new_project_first: bool
+    ) -> None:
+        new_team = Team.objects.create(organization=self.organization, name="New")
+        _enable_analytics_source(new_team)
+        today = NOW.replace(hour=0)
+        trained = Insight.objects.create(team=self.team, name="trained", query=_trends(interval="day"))
+        self._row(trained, NOW + timedelta(hours=6), {"a": today - timedelta(days=1)})
+        backlog = [
+            Insight.objects.create(team=self.team, name=f"backlog_{index}", query=_trends(interval="day"))
+            for index in range(3)
+        ]
+        for index, insight in enumerate(backlog):
+            self._row(insight, NOW - timedelta(days=10 - index), {})
+        new_insight = Insight.objects.create(team=new_team, name="new", query=_trends(interval="day"))
+        self._row(new_insight, NOW, {})
+        insights = [trained, *backlog, new_insight]
+        cache.delete_many(
+            [
+                *(_cooldown_key(insight.id) for insight in insights),
+                _fleet_budget_key(NOW),
+                *(_project_budget_key(team_id, NOW) for team_id in (self.team.id, new_team.id)),
+            ]
+        )
+        config = dataclasses.replace(
+            self._config(self.team.id, new_team.id), max_insights_per_tick=1, first_train_insights_per_tick=lane_slots
+        )
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", 1),
+        ):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
+
+        [pick] = selection.picks
+        assert (pick.insight_id == new_insight.id, pick.first_train) == (new_project_first, new_project_first)
+        assert selection.first_train == FirstTrainReport(
+            waiting_teams=1, picked=int(new_project_first), never_scored_due=4
+        )
+
+    @time_machine.travel(NOW, tick=False)
+    def test_the_first_trained_daily_model_of_a_project_sends_one_first_train_event(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="first", query=_trends(interval="day"))
+        self._row(insight, NOW, {})
+        cache.delete_many([_cooldown_key(insight.id), _first_train_key(self.team.id)])
+        self.addCleanup(cache.delete, _first_train_key(self.team.id))
+        source_enabled_at = SignalSourceConfig.objects.get(team=self.team).created_at
+        # The first pre-check found no scores yet and skipped, and the coordinator stamped the anchor.
+        scout = SignalScoutConfig.all_teams.create(team=self.team, skill_name=ANOMALY_SCOUT_SKILL, last_run_at=NOW)
+        tick = "products.signals.backend.anomaly_scores.tick"
+        capture = MagicMock()
+        pick = InsightPick(
+            team_id=self.team.id, insight_id=insight.id, scored_through={}, interval=IntervalType.DAY, first_train=True
+        )
+
+        with (
+            patch(f"{tick}.ph_background_capture", return_value=capture),
+            patch(f"{tick}.emit"),
+            patch(
+                f"{tick}.score_insight", return_value=_scores(_series("a", [NOW.replace(hour=0) - timedelta(days=1)]))
+            ),
+        ):
+            for _ in range(2):
+                run_insight(ScoreInsightInput(pick=pick), NOW)
+
+        [event] = [
+            call.kwargs for call in capture.call_args_list if call.kwargs["event"] == "anomaly scoring first train"
+        ]
+        assert {
+            key: event["properties"][key]
+            for key in (
+                "team_id",
+                "insight_id",
+                "seconds_since_source_enabled",
+                "seconds_since_listed",
+                "scout_made_due",
+            )
+        } == {
+            "team_id": self.team.id,
+            "insight_id": insight.id,
+            "seconds_since_source_enabled": round((NOW - source_enabled_at).total_seconds()),
+            "seconds_since_listed": 0,
+            "scout_made_due": True,
+        }
+        scout.refresh_from_db()
+        assert scout.last_run_at is not None and scout.last_run_at < NOW
+
     @parameterized.expand([("one_shard", 1, 1), ("three_shards", 3, 3)])
     @time_machine.travel(NOW, tick=False)
     def test_the_pick_cap_applies_to_each_shard(self, _name: str, shards: int, picked: int) -> None:
@@ -1288,6 +1750,24 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
 
         row = AnomalyScoringDueInsight.all_teams.get(team_id=self.team.id, insight_id=insight.id)
         assert row.next_due_at == NOW + SKIP_COOLDOWN
+
+    @parameterized.expand(
+        [
+            ("waiting_since_days_ago", NOW - timedelta(days=4)),
+            ("backed_off_after_an_empty_train", NOW + timedelta(days=3)),
+        ]
+    )
+    @time_machine.travel(NOW, tick=False)
+    def test_the_refresh_keeps_the_due_time_of_a_never_scored_row(self, _name: str, next_due_at: datetime) -> None:
+        insight = Insight.objects.create(team=self.team, name="never scored", query=_trends(interval="day"))
+        self._row(insight, next_due_at, {})
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            refresh_team(self._config(), self.team, NOW)
+
+        row = AnomalyScoringDueInsight.all_teams.get(team_id=self.team.id, insight_id=insight.id)
+        assert row.next_due_at == next_due_at
+        assert row.refreshed_at == NOW
 
     @time_machine.travel(NOW, tick=False)
     def test_the_refresh_removes_inactive_insights_and_resumes_with_the_teams_that_waited(self) -> None:
@@ -1875,6 +2355,8 @@ async def test_the_tick_stops_starting_picks_when_clickhouse_is_at_capacity(
         max_concurrency=2,
         skipped_for_budget=3,
         self_driving_organization_percentage=5.0,
+        ai_judge_teams=2,
+        ai_judge=AIJudgeConfig(organization_percentage=1.0),
     )
 
     result, ran = await _run_tick(plan, statuses)
@@ -1886,7 +2368,9 @@ async def test_the_tick_stops_starting_picks_when_clickhouse_is_at_capacity(
         result.skipped_for_budget,
         result.stopped_at_capacity,
         result.self_driving_organization_percentage,
-    ) == (len(started), queries, 3, stopped, 5.0)
+        result.ai_judge_teams,
+        result.ai_judge_organization_percentage,
+    ) == (len(started), queries, 3, stopped, 5.0, 2, 1.0)
 
 
 @pytest.mark.asyncio
@@ -1919,3 +2403,140 @@ async def test_a_failed_plan_sends_a_tick_event_and_still_fails_the_workflow() -
     assert [(result.plan_failed, result.plan_error, result.picked) for result in captured] == [
         (True, "ClickHouseAtCapacity", 0)
     ]
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TestAIJudgeProfile(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.team.timezone = "UTC"
+        self.team.save()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self.requests: list[Any] = []
+
+    def _run(
+        self, insight: Insight, ai_judge: AIJudgeConfig, now: datetime = datetime(2026, 10, 22, 0, 30, tzinfo=UTC)
+    ) -> list[dict[str, Any]]:
+        data = [float(value) for value in np.random.default_rng(4).normal(100, 5, size=100)]
+        for day in (-2, -8, -14):
+            data[day] = 500.0
+        days = [(now - timedelta(days=len(data) - 1 - day)).strftime("%Y-%m-%d") for day in range(len(data))]
+        results = [{"order": 0, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
+        with (
+            patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner,
+            patch("products.signals.backend.anomaly_scores.tick.emit") as emit,
+            patch("products.signals.backend.anomaly_scores.tick.mark_attempted"),
+            fake_judge_model(is_anomaly=False, rationale="Back to normal the next day.") as requests,
+        ):
+            runner.return_value.run.return_value = MagicMock(results=results)
+            run_insight(
+                ScoreInsightInput(
+                    pick=InsightPick(team_id=self.team.id, insight_id=insight.id, scored_through={}),
+                    ai_judge=ai_judge,
+                ),
+                now,
+            )
+        self.requests.extend(requests)
+        return emit.call_args.args[1]
+
+    @staticmethod
+    def _members(event: dict[str, Any]) -> list[dict[str, Any]]:
+        return json.loads(event["properties"]["$anomaly_details"]).get("members", [])
+
+    def test_the_judge_is_asked_only_about_the_newest_zscore_flags_and_its_rejection_clears_the_flag(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, name="Daily pageviews", query=_trends())
+
+        events = self._run(insight, AIJudgeConfig(team_ids=(self.team.id,), max_checks_per_insight_per_run=2))
+
+        zscore_flagged = [event for event in events if self._members(event)[0]["state"] == "fired"]
+        judged = sorted(zscore_flagged, key=lambda event: event["properties"]["$anomaly_bucket_start"])[-2:]
+        assert len(zscore_flagged) > 2 and len(self.requests) == 2
+        assert {event["properties"]["$anomaly_profile"] for event in events} == {"default-v2"}
+        for event in events:
+            zscore, judge = self._members(event)
+            assert zscore["type"] == "zscore"
+            if event in judged:
+                assert event["properties"]["$anomaly_flag"] == 0
+                assert judge == {
+                    "type": "llm",
+                    "state": "not_fired",
+                    "rationale": "Back to normal the next day.",
+                    "kind": "none",
+                    "model": LLMDetectorModel.CLAUDE_HAIKU_5_5.value,
+                }
+            elif event in zscore_flagged:
+                assert (event["properties"]["$anomaly_flag"], judge["reason"]) == (1, "cap")
+            else:
+                assert (event["properties"]["$anomaly_flag"], judge["reason"]) == (0, "local_not_fired")
+        assert {request.ai_product for request in self.requests} == {"signals_anomaly_scoring"}
+        assert all(request.extra_headers["X-PostHog-Billable"] == "false" for request in self.requests)
+
+    @parameterized.expand(
+        [
+            ("no_consent", False, 50, 0, "paused", timedelta(0)),
+            ("daily_cap_spent_by_the_other_insight", True, 1, 1, "cap", timedelta(0)),
+            # The second pick started before UTC midnight, and its calls come after it.
+            ("daily_cap_of_the_call_day", True, 1, 1, "cap", timedelta(seconds=30)),
+        ]
+    )
+    def test_no_model_call_without_consent_or_past_the_daily_cap(
+        self, _name: str, consent: bool, daily_cap: int, calls: int, reason: str, started_before_call: timedelta
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = consent
+        self.organization.save()
+        ai_judge = AIJudgeConfig(
+            team_ids=(self.team.id,), max_checks_per_insight_per_run=10, max_checks_per_project_per_day=daily_cap
+        )
+        first, second = (Insight.objects.create(team=self.team, saved=True, query=_trends()) for _ in range(2))
+
+        call_time = datetime(2026, 10, 22, 0, 0, 20, tzinfo=UTC)
+        with time_machine.travel(call_time, tick=False):
+            self._run(first, ai_judge, call_time)
+            events = self._run(second, ai_judge, call_time - started_before_call)
+
+        assert len(self.requests) == calls
+        flagged = [event for event in events if self._members(event)[0]["state"] == "fired"]
+        assert flagged
+        assert {(event["properties"]["$anomaly_flag"], self._members(event)[1]["reason"]) for event in flagged} == {
+            (1, reason)
+        }
+
+    def test_a_bucket_returned_twice_makes_one_model_call(self) -> None:
+        # Trends returns the repeated hour of a DST fall-back as two buckets with the same start.
+        repeated = datetime(2026, 11, 1, 1, tzinfo=NEW_YORK)
+        buckets = [repeated - timedelta(hours=hours) for hours in range(10, 0, -1)] + [repeated, repeated]
+        point = ScoredPoint(bucket_start=repeated, value=90.0, score=0.99, flag=True, details={})
+        scores = InsightScores(
+            interval=IntervalType.HOUR,
+            profile="default-v2",
+            detector="ensemble",
+            detector_version="v2",
+            series=[ScoredSeries(series_key="s", label="pageview", breakdown_value=None, points=[point, point])],
+            ai_member=LazyAndEnsemble(local={"type": "zscore"}, judge={"type": "llm"}),
+            fetched=(
+                FetchedSeries(
+                    series_key="s",
+                    label="pageview",
+                    breakdown_value=None,
+                    values=[10.0] * 10 + [90.0] * 2,
+                    buckets=buckets,
+                ),
+            ),
+        )
+        ai_judge = AIJudgeConfig(
+            team_ids=(self.team.id,), max_checks_per_insight_per_run=1, max_checks_per_project_per_day=1
+        )
+
+        with fake_judge_model(is_anomaly=True, kind="spike", rationale="A spike.") as requests:
+            judged, counts = judge_flags(
+                scores,
+                team=self.team,
+                insight=Insight(team=self.team, query=_trends(interval="hour")),
+                ai_judge=ai_judge,
+            )
+
+        assert (len(requests), counts.made) == (1, 1)
+        assert [point.details["members"][1]["state"] for point in judged.series[0].points] == ["fired", "fired"]

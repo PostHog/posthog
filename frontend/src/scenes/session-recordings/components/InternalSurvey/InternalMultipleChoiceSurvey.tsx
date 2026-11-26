@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { aiShellLogic } from '~/layout/ai/aiShellLogic'
@@ -13,6 +14,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { internalMultipleChoiceSurveyLogic } from './internalMultipleChoiceSurveyLogic'
+import { QuillInternalMultipleChoiceSurvey } from './QuillInternalMultipleChoiceSurvey'
 
 interface InternalSurveyProps {
     surveyId: string
@@ -172,12 +174,44 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
     const { askSidePanelMax } = useActions(aiShellLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     //Because we want to run A/B test to see does it help users or not
     const isHelpEnabled = featureFlags[FEATURE_FLAGS.REPLAY_SETTINGS_HELP] === 'show'
 
+    const submitDisabledReason =
+        surveyResponse.length === 0 && openChoice === null ? 'Please select at least one option' : false
+    const askMaxDisabledReason = !openChoice || openChoice.length < 5 ? 'Message must be at least 5 characters' : false
+
+    const askMaxForHelp = (): void => {
+        askSidePanelMax(
+            `I am disabling session replay because of "${openChoice}". Go through PostHog documentation and find a solution to fix this.`
+        )
+    }
+
     if (!survey) {
         return <></>
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillInternalMultipleChoiceSurvey
+                survey={survey}
+                surveyResponse={surveyResponse}
+                showThankYouMessage={showThankYouMessage}
+                thankYouMessage={thankYouMessage}
+                openChoice={openChoice}
+                onChoiceChange={handleChoiceChange}
+                onOpenChoiceChange={setOpenChoice}
+                onSubmit={handleSurveyResponse}
+                submitDisabledReason={submitDisabledReason}
+                showAskMax={isHelpEnabled && !todayRailEnabled}
+                askMaxDisabledReason={askMaxDisabledReason}
+                onAskMax={askMaxForHelp}
+                isHelpEnabled={isHelpEnabled}
+                helpTitles={helpMessages.map((message) => message.title)}
+            />
+        )
     }
 
     return (
@@ -226,11 +260,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                         <LemonButton
                                             data-attr="replay-survey-submit"
                                             type="primary"
-                                            disabledReason={
-                                                surveyResponse.length === 0 && openChoice === null
-                                                    ? 'Please select at least one option'
-                                                    : false
-                                            }
+                                            disabledReason={submitDisabledReason}
                                             onClick={handleSurveyResponse}
                                         >
                                             {question.buttonText ?? 'Submit'}
@@ -238,17 +268,9 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                         {isHelpEnabled && !todayRailEnabled && (
                                             <LemonButton
                                                 data-attr="replay-survey-ask-max"
-                                                disabledReason={
-                                                    !openChoice || openChoice.length < 5
-                                                        ? 'Message must be at least 5 characters'
-                                                        : false
-                                                }
+                                                disabledReason={askMaxDisabledReason}
                                                 type="secondary"
-                                                onClick={() => {
-                                                    askSidePanelMax(
-                                                        `I am disabling session replay because of "${openChoice}". Go through PostHog documentation and find a solution to fix this.`
-                                                    )
-                                                }}
+                                                onClick={askMaxForHelp}
                                             >
                                                 Ask PostHog AI for help
                                             </LemonButton>

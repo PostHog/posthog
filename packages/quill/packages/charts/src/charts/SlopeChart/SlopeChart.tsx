@@ -80,7 +80,7 @@ export interface SlopeChartProps<Meta = SlopeSeriesMeta> {
 
 export function SlopeChart<Meta = SlopeSeriesMeta>(props: SlopeChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={props.onError}>
+        <ChartErrorBoundary onError={props.onError} resetKey={props.series}>
             <SlopeChartInner {...props} />
         </ChartErrorBoundary>
     )

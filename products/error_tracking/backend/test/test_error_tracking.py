@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import UUID
 
 import pytest
@@ -14,13 +14,18 @@ from django.db.utils import IntegrityError
 from parameterized import parameterized
 
 from posthog.models import Team, User
+from posthog.test.waiting import wait_until
 
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import latest_issue_state_watermark
+from products.error_tracking.backend.logic import team_flags
+from products.error_tracking.backend.logic.issue_tags import registry, writer
+from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueMergeResult,
+    ErrorTrackingIssueTag,
     ErrorTrackingSpikeEvent,
     ErrorTrackingSymbolSet,
 )
@@ -490,3 +495,94 @@ class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBa
         )
         assert len(source_fingerprint_issue_ids) == 2
         assert len(set(source_fingerprint_issue_ids)) == 1
+
+
+class TestErrorTrackingTagWriteDuringMerge(ErrorTrackingIssueTestMixin, NonAtomicBaseTest):
+    def _run_merge_once_tag_writer_waits(
+        self, *, merge_locked: Event, writer_pids: list[int], target_issue_id: UUID, source_issue_id: UUID
+    ) -> ErrorTrackingIssueMergeResult:
+        close_old_connections()
+        carry_issue_tags_on_merge = writer.carry_issue_tags_on_merge
+
+        def writer_waits_on_a_lock() -> bool:
+            if not writer_pids:
+                return False
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s", [writer_pids[0]])
+                return cursor.fetchone() == ("Lock",)
+
+        def carry_once_tag_writer_waits(target: ErrorTrackingIssue, source_issue_ids: list[UUID]) -> None:
+            merge_locked.set()
+            wait_until(writer_waits_on_a_lock, message="the tag writer never waited on a lock")
+            carry_issue_tags_on_merge(target=target, source_issue_ids=source_issue_ids)
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '10s'")
+                cursor.execute("SET statement_timeout = '15s'")
+            with patch.object(writer, "carry_issue_tags_on_merge", side_effect=carry_once_tag_writer_waits):
+                return ErrorTrackingIssue.objects.get(id=target_issue_id).merge(issue_ids=[source_issue_id]).result
+        finally:
+            close_old_connections()
+
+    def _run_tag_write_once_merge_locks(self, *, merge_locked: Event, writer_pids: list[int], issue_id: UUID) -> bool:
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '10s'")
+                cursor.execute("SET statement_timeout = '15s'")
+                cursor.execute("SELECT pg_backend_pid()")
+                writer_pids.append(cursor.fetchone()[0])
+            assert merge_locked.wait(timeout=5)
+            answer = TagAnswer(value=False, probability=None, model=None, question_version=1, set_by=self.user)
+            cause_in_trace = next(tag for tag in registry.ISSUE_TAG_DEFINITIONS if tag.key == "cause_in_trace")
+            return writer.set_issue_tag(
+                self.team.id, issue_id, cause_in_trace, answer, ErrorTrackingIssueTag.Source.MANUAL
+            )
+        finally:
+            close_old_connections()
+
+    @patch.object(team_flags, "feature_enabled_or_false", new=lambda *args, **kwargs: True)
+    def test_first_tag_write_on_the_target_during_a_merge_does_not_deadlock(self):
+        target_issue = self.create_issue(["target_fingerprint"])
+        source_issue = self.create_issue(["source_fingerprint"])
+        ErrorTrackingIssueTag.objects.for_team(self.team.id).create(
+            team=self.team,
+            issue=source_issue,
+            key="cause_in_trace",
+            value=True,
+            source=ErrorTrackingIssueTag.Source.JEV,
+            question_version=1,
+        )
+        merge_locked = Event()
+        writer_pids: list[int] = []
+
+        with (
+            patch("products.error_tracking.backend.models.update_error_tracking_issue_fingerprint_overrides"),
+            patch("products.error_tracking.backend.models.sync_issues_to_clickhouse"),
+            patch.object(writer, "sync_issue_tag_to_clickhouse"),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            tag_write = executor.submit(
+                self._run_tag_write_once_merge_locks,
+                merge_locked=merge_locked,
+                writer_pids=writer_pids,
+                issue_id=target_issue.id,
+            )
+            merge = executor.submit(
+                self._run_merge_once_tag_writer_waits,
+                merge_locked=merge_locked,
+                writer_pids=writer_pids,
+                target_issue_id=target_issue.id,
+                source_issue_id=source_issue.id,
+            )
+
+            assert merge.result(timeout=20) == ErrorTrackingIssueMergeResult.MERGED
+            assert tag_write.result(timeout=20) is True
+
+        # The person's removal waits for the merge, so it replaces the label the merge carried.
+        assert list(
+            ErrorTrackingIssueTag.objects.for_team(self.team.id)
+            .filter(issue=target_issue, key="cause_in_trace")
+            .values_list("source", "value")
+        ) == [(ErrorTrackingIssueTag.Source.MANUAL, False)]

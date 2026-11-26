@@ -20,6 +20,7 @@ from posthog.models.user import User
 from posthog.permissions import is_authenticated_via_project_secret_api_key, is_scout_sandbox_request
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.observations import ScannerResultSerializer
 from products.replay_vision.backend.api.scanners import (
@@ -216,6 +217,7 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
     # Reading a request returns what the scanner saw in each recording, so every action needs both scopes.
     required_scopes = ["replay_scanner:write", "session_recording:read"]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    permission_classes = [ReplayVisionCloudOnly]
     psak_allowed_actions = ["create", "retrieve"]
     serializer_class = ObservationRequestSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.

@@ -6,6 +6,8 @@ use envconfig::Envconfig;
 use sqlx::PgPool;
 use tracing::{info, warn};
 
+use crate::core::symbolication::symbol::miss_breaker::FrameMissBreakerMode;
+
 /// Configuration for the shared symbol-resolution stack. Both run modes parse
 /// this slice; processing mode nests it on [`crate::modes::processing::ProcessingConfig`], and
 /// resolution mode reads it alongside its own service config. Keeping it in
@@ -75,6 +77,29 @@ pub struct ResolverConfig {
     #[envconfig(default = "false")]
     pub skip_unchanged_frame_rewrites: bool,
 
+    // When true, frame saves skip the WAL flush wait. Frame rows are a cache rebuilt on the next miss.
+    #[envconfig(default = "true")]
+    pub frame_save_async_commit: bool,
+
+    // `off`, `log` or `enforce`. `FrameMissBreaker` documents what opens it and what it skips.
+    #[envconfig(default = "log")]
+    pub frame_miss_breaker_mode: FrameMissBreakerMode,
+
+    #[envconfig(default = "60")]
+    pub frame_miss_breaker_window_seconds: u64,
+
+    #[envconfig(default = "1000")]
+    pub frame_miss_breaker_min_lookups: u64,
+
+    #[envconfig(default = "0.9")]
+    pub frame_miss_breaker_miss_ratio: f64,
+
+    #[envconfig(default = "300")]
+    pub frame_miss_breaker_cooldown_seconds: u64,
+
+    #[envconfig(default = "100")]
+    pub frame_miss_breaker_probe_lookups: u64,
+
     // TTL for the in-memory negative cache of symbol-set lookup failures in the `Saving` layer.
     // Like `frame_unresolved_ttl_seconds`, this is kept short: a failure record can become
     // resolvable the moment a user uploads the missing symbols, so a cached negative result
@@ -122,15 +147,12 @@ pub struct ResolverConfig {
     #[envconfig(default = "8")]
     pub symbol_set_parse_memory_multiplier: NonZeroUsize,
 
-    // A small compressed symbol set can decompress to many gigabytes, and the size its container
-    // declares is written by the uploader. A parse fails instead of decompressing a container
-    // payload past this many bytes.
+    // A parse fails when the container payload decompresses past this many bytes.
     #[envconfig(default = "536870912")] // 512 MiB
     pub symbol_set_max_decompressed_bytes: NonZeroUsize,
 
-    // Native and Apple symbol sets are a ZIP of deflated entries inside the container, so they
-    // expand a second time. A parse reads at most this many bytes out of the ZIP, summed over
-    // every entry it reads.
+    // Native and Apple sets hold a deflated ZIP, so they expand a second time. A parse fails when
+    // it reads more than this many bytes out of the ZIP, summed over every entry.
     #[envconfig(default = "1610612736")] // 1.5 GiB
     pub symbol_set_max_extracted_bytes: NonZeroUsize,
 

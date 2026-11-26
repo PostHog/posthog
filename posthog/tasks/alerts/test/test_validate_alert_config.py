@@ -44,6 +44,10 @@ def _funnels_query() -> dict[str, Any]:
     }
 
 
+def _metrics_query(metric_name: str) -> dict[str, Any]:
+    return {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": metric_name, "aggregation": "sum"}]}
+
+
 def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None) -> dict[str, Any]:
     config: dict[str, Any] = {"type": type}
     if bounds is None:
@@ -55,6 +59,25 @@ def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None
 class TestValidateAlertConfig:
     @parameterized.expand(
         [
+            (
+                "valid_metrics_config",
+                _metrics_query("http_requests_total"),
+                _base_condition(),
+                {"type": "MetricsAlertConfig"},
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            # Stored alert results skip the source access checks, so derived series cannot carry an alert.
+            (
+                "derived_metrics_rejected",
+                _metrics_query("posthog.derived.spans.requests"),
+                _base_condition(),
+                {"type": "MetricsAlertConfig"},
+                _base_threshold(),
+                "daily",
+                "derived metrics",
+            ),
             (
                 "valid_absolute_config",
                 _base_query(),
@@ -236,6 +259,54 @@ class TestValidateAlertConfig:
                 None,
                 "daily",
                 r"series_index 2 is out of range \(query has 2 series\)",
+            ),
+            (
+                "series_index_out_of_range_with_legacy_formulas",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}] * 4,
+                    "trendsFilter": {"display": "ActionsLineGraph", "formulas": ["A+B+C", "D"]},
+                },
+                _base_condition(),
+                _base_config(series_index=3),
+                None,
+                "daily",
+                r"series_index 3 is out of range \(query has 2 series\)",
+            ),
+            (
+                "series_index_out_of_range_with_single_formula",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}] * 2,
+                    "trendsFilter": {"display": "ActionsLineGraph", "formula": "A+B"},
+                },
+                _base_condition(),
+                _base_config(series_index=1),
+                None,
+                "daily",
+                r"series_index 1 is out of range \(query has 1 series\)",
+            ),
+            (
+                "series_index_negative",
+                _base_query(series_count=2),
+                _base_condition(),
+                _base_config(series_index=-1),
+                None,
+                "daily",
+                r"series_index -1 is out of range \(query has 2 series\)",
+            ),
+            (
+                "series_index_out_of_range_on_calendar_heatmap",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}] * 2,
+                    "trendsFilter": {"display": "CalendarHeatmap"},
+                },
+                _base_condition(),
+                _base_config(series_index=1),
+                None,
+                "daily",
+                r"series_index 1 is out of range \(query has 1 series\)",
             ),
             (
                 "valid_calculation_interval",

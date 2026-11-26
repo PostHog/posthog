@@ -16,9 +16,8 @@ in the metrics below, also when the activity was timed out, cancelled or killed.
 import json
 import time
 import dataclasses
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -34,6 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertyFailedRunInputs,
     PersonPropertySyncActivityInputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log import (
+    PersonPropertyRunLog,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
     is_worker_interruption,
@@ -43,6 +45,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     record_started_runs,
     run_person_property_sync,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -95,6 +100,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
                 team_id=inputs.team_id,
                 binding=binding,
                 job_id=inputs.job_id,
+                complete_table_read=inputs.complete_table_read,
                 on_progress=progress_recorder(
                     team_id=inputs.team_id, binding=binding, job_id=inputs.job_id, trigger="scheduled"
                 ),
@@ -132,6 +138,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
         ("changed", result.changed),
         ("existing", result.existing),
         ("produced", result.produced),
+        ("removed", result.removed),
         ("skipped_missing_person", result.skipped_missing_person),
     ):
         if count:
@@ -144,6 +151,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
         changed=result.changed,
         existing=result.existing,
         produced=result.produced,
+        removed=result.removed,
         skipped_missing_person=result.skipped_missing_person,
     )
     return dataclasses.asdict(result)
@@ -151,6 +159,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
 
 @activity.defn
 async def record_failed_person_property_sync_runs_activity(inputs: PersonPropertyFailedRunInputs) -> None:
+    PersonPropertyRunLog(inputs.team_id, inputs.binding).failed(inputs.error)
     await record_failed_runs(
         team_id=inputs.team_id,
         binding=inputs.binding,
@@ -214,7 +223,7 @@ class SyncWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
 
 PERSON_PROPERTY_SYNC_WORKFLOWS = [SyncWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_SYNC_ACTIVITIES: list[Callable[..., Any]] = [
+PERSON_PROPERTY_SYNC_ACTIVITIES: list[ActivityDefinition] = [
     sync_warehouse_person_properties_activity,
     record_failed_person_property_sync_runs_activity,
 ]

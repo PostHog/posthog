@@ -25,8 +25,6 @@ import {
   type BedrockGatewayVariant,
   CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG,
   CLAUDE_OWN_SUBSCRIPTION_FLAG,
-  CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG,
-  CODEX_OWN_SUBSCRIPTION_FLAG,
   SPOKEN_NARRATION_FLAG,
 } from "@posthog/shared";
 import {
@@ -156,9 +154,6 @@ function buildSessionServiceDeps(): SessionServiceDeps {
     get settings() {
       const state = useSettingsStore.getState();
       const featureFlags = resolveService<FeatureFlags>(FEATURE_FLAGS);
-      const codexSubscriptionEnabled =
-        featureFlags.isEnabled(CODEX_OWN_SUBSCRIPTION_FLAG) ||
-        import.meta.env.DEV;
       const claudeSubscriptionEnabled =
         featureFlags.isEnabled(CLAUDE_OWN_SUBSCRIPTION_FLAG) ||
         import.meta.env.DEV;
@@ -167,9 +162,7 @@ function buildSessionServiceDeps(): SessionServiceDeps {
         claudeCloudSubscriptionEnabled: featureFlags.isEnabled(
           CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG,
         ),
-        codexCloudSubscriptionEnabled: featureFlags.isEnabled(
-          CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG,
-        ),
+        codexCloudSubscriptionEnabled: true,
         customInstructions: getEffectiveCustomInstructions(state),
         spokenNarrationEnabled: shouldEnableSpokenNarration(
           state.spokenNotifications,
@@ -179,9 +172,7 @@ function buildSessionServiceDeps(): SessionServiceDeps {
         bedrockGatewayVariant: resolveBedrockGatewayVariant(
           featureFlags.getVariant(BEDROCK_LLM_GATEWAY_FLAG),
         ),
-        codexModelAccess: codexSubscriptionEnabled
-          ? state.codexModelAccess
-          : undefined,
+        codexModelAccess: state.codexModelAccess,
         claudeModelAccess: claudeSubscriptionEnabled
           ? state.claudeModelAccess
           : undefined,

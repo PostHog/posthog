@@ -9,6 +9,7 @@ APIFY_BASE_URL = "https://api.apify.com/v2"
 # datasetId (or the `username~dataset-name` shorthand) and queried via GET /datasets/{id}/items. The
 # rows are arbitrary Actor output, so this table's columns are whatever the Actor stored.
 DATASET_ITEMS_ENDPOINT = "dataset_items"
+DATASET_STATISTICS_ENDPOINT = "dataset_statistics"
 
 # The rest of the tables are account-level: they are addressed by the API token alone and describe
 # the whole Apify account rather than the one configured dataset — the runs it has executed, the
@@ -17,13 +18,20 @@ ACTOR_RUNS_ENDPOINT = "actor_runs"
 ACTORS_ENDPOINT = "actors"
 DATASETS_ENDPOINT = "datasets"
 USAGE_MONTHLY_ENDPOINT = "usage_monthly"
+ACTOR_TASKS_ENDPOINT = "actor_tasks"
+ACTOR_BUILDS_ENDPOINT = "actor_builds"
+REQUEST_QUEUES_ENDPOINT = "request_queues"
 
 ENDPOINTS = (
     DATASET_ITEMS_ENDPOINT,
+    DATASET_STATISTICS_ENDPOINT,
     ACTOR_RUNS_ENDPOINT,
     ACTORS_ENDPOINT,
     DATASETS_ENDPOINT,
     USAGE_MONTHLY_ENDPOINT,
+    ACTOR_TASKS_ENDPOINT,
+    ACTOR_BUILDS_ENDPOINT,
+    REQUEST_QUEUES_ENDPOINT,
 )
 
 # Dataset rows have no field the API guarantees to be present or unique (the shape is defined by the
@@ -36,6 +44,11 @@ PRIMARY_KEYS: dict[str, list[str] | None] = {
     DATASETS_ENDPOINT: ["id"],
     # One row per day of a usage cycle, and a day belongs to exactly one cycle.
     USAGE_MONTHLY_ENDPOINT: ["date"],
+    # One row per field of the configured dataset's fields schema.
+    DATASET_STATISTICS_ENDPOINT: ["field"],
+    ACTOR_TASKS_ENDPOINT: ["id"],
+    ACTOR_BUILDS_ENDPOINT: ["id"],
+    REQUEST_QUEUES_ENDPOINT: ["id"],
 }
 
 # Only `/actor-runs` carries a server-side lower-bound filter (`startedAfter`), so it is the only
@@ -49,6 +62,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 
 @frozen
 class ApifyPlatformEndpointConfig:
+    # `{dataset_id}` is replaced with the configured dataset, encoded as one path segment.
     path: str
     # Every platform list endpoint answers `{"data": {"items": [...], "total": N, ...}}`.
     data_selector: str = "data.items"
@@ -88,5 +102,26 @@ PLATFORM_ENDPOINTS: dict[str, ApifyPlatformEndpointConfig] = {
         data_selector="data",
         total_path=None,
         paginated=False,
+    ),
+    DATASET_STATISTICS_ENDPOINT: ApifyPlatformEndpointConfig(
+        path="/datasets/{dataset_id}/statistics",
+        # A single object whose `fieldStatistics` map is keyed by field name, not a paginated list.
+        data_selector="data",
+        total_path=None,
+        paginated=False,
+    ),
+    ACTOR_TASKS_ENDPOINT: ApifyPlatformEndpointConfig(
+        path="/actor-tasks",
+        partition_key="createdAt",
+    ),
+    ACTOR_BUILDS_ENDPOINT: ApifyPlatformEndpointConfig(
+        path="/actor-builds",
+        partition_key="startedAt",
+    ),
+    REQUEST_QUEUES_ENDPOINT: ApifyPlatformEndpointConfig(
+        path="/request-queues",
+        # A run crawls from its unnamed default queue, which the endpoint lists only when asked.
+        params={"unnamed": "true"},
+        partition_key="createdAt",
     ),
 }

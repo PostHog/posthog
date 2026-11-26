@@ -14,7 +14,12 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightModel, UserBasicType } from '~/types'
 
-import type { AlertApi, AlertDeliveryApi, AlertSimulateResponseApi } from './generated/api.schemas'
+import type {
+    AlertApi,
+    AlertDeliveryApi,
+    AlertSimulateResponseApi,
+    ForecastSimulationApi,
+} from './generated/api.schemas'
 
 export type AlertCheckDelivery = AlertDeliveryApi
 
@@ -80,6 +85,7 @@ export interface BreakdownSimulationResult {
     total_points: number
     anomaly_count: number
     sub_detector_scores?: SubDetectorScores[]
+    forecast?: ForecastSimulationApi
 }
 
 export interface AlertSimulationResult extends Pick<
@@ -96,6 +102,8 @@ export interface AlertSimulationResult extends Pick<
     anomaly_count: number
     sub_detector_scores?: SubDetectorScores[]
     breakdown_results?: BreakdownSimulationResult[]
+    /** Forecast detector only: the one-step forecast of each point. */
+    forecast?: ForecastSimulationApi
     /** AI detector only: the model's reason for its verdict on the latest point. */
     rationale?: string
     /** AI detector only: the shape the model saw at the latest point. */
@@ -176,6 +184,10 @@ export interface AlertType extends AlertTypeBase {
     checks?: AlertCheck[]
     /** Whether the alert's creator can use the AI detector. Only set when a single alert was retrieved. */
     llm_detector_available?: boolean | null
+    /** Whether the alert can open PagerDuty incidents, which only the alerts platform sends. */
+    pagerduty_available?: boolean
+    /** How many active notification destinations the alert sends to, each counted once. Subscribers are not included. */
+    destination_count?: number
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
     last_value?: number

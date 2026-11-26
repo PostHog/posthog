@@ -68,6 +68,8 @@ class DockerhubSource(ResumableSource[DockerhubSourceConfig, DockerhubResumeConf
 You can create a personal access token with **Read** access under **Account settings → Personal access tokens** in [Docker Hub](https://app.docker.com/settings/personal-access-tokens). To import an organization's repositories instead of your own, set the namespace field to the organization name.
 
 The member, group and audit log tables read organization data, so they need the namespace to be an organization and the token to belong to one of its owners.
+
+The repository pulls table reads pull analytics, which Docker Hub provides only for namespaces in the Docker Verified Publisher program.
 """,
             iconPath="/static/services/dockerhub.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dockerhub",
@@ -114,6 +116,7 @@ The member, group and audit log tables read organization data, so they need the 
         return {
             "401 Client Error: Unauthorized for url: https://hub.docker.com": "Your Docker Hub username or personal access token is invalid or has been revoked. Generate a new token under Account settings → Personal access tokens, then reconnect.",
             "403 Client Error: Forbidden for url: https://hub.docker.com": "Your Docker Hub personal access token does not have access to this data. Check the token's access permissions and the configured namespace, then reconnect.",
+            "404 Client Error: Not Found for url: https://hub.docker.com/api/publisher/analytics": "Docker Hub has no pull analytics for this namespace. Pull analytics are only available for namespaces in the Docker Verified Publisher program, so turn off the repository pulls table if this namespace is not a verified publisher.",
         }
 
     def get_schemas(

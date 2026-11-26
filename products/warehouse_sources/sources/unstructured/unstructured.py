@@ -1,13 +1,16 @@
 """Transport for the Unstructured Platform API (https://docs.unstructured.io).
 
-The Platform API is plain REST/JSON authenticated with a single `unstructured-api-key` header. Four
-list endpoints are synced: `/api/v1/workflows/`, `/api/v1/jobs/`, `/api/v1/sources/`, and
-`/api/v1/destinations/`. Each returns a bare JSON array of objects (no envelope). Only `/workflows/`
-is paginated (page / page_size); the rest return their whole list in one response.
+The Platform API is plain REST/JSON authenticated with a single `unstructured-api-key` header. Five
+list endpoints are synced: `/api/v1/workflows/`, `/api/v1/jobs/`, `/api/v1/sources/`,
+`/api/v1/destinations/`, and `/api/v1/templates/`. Each returns a bare JSON array of objects (no
+envelope). Only `/workflows/` is paginated (page / page_size); the rest return their whole list in one
+response.
 
 Two per-job tables fan out over `/api/v1/jobs/`: `/jobs/{id}/details` (one object per job) and
 `/jobs/{id}/failed-files` (offset paging with `next_offset`). `/api/v1/notifications` is an event log
-wrapped in `{"events": [...], "next_cursor": ...}`, ordered newest first with cursor paging.
+wrapped in `{"events": [...], "next_cursor": ...}`, ordered newest first with cursor paging. Two
+per-connector tables fan out over `/sources/` and `/destinations/` to read the latest
+`/{id}/connection-check` of each connector (one object, no history).
 
 Incremental sync is offered only for notifications, through the server-side `since` filter. Only
 `/workflows/` also exposes a server-side timestamp filter (`created_since`), and there the resource is
@@ -241,6 +244,26 @@ def _get_job_failed_files(
             offset = next_offset
 
 
+def _get_connection_checks(
+    session: requests.Session,
+    origin: str,
+    path: str,
+    list_path: str,
+    id_field: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    for connector in _fetch(session, f"{origin}{list_path}", headers, None, logger):
+        connector_id = connector.get("id")
+        if not connector_id:
+            continue
+        url = f"{origin}{path.format(connector_id=connector_id)}"
+        # A connector that was deleted after the listing, or never checked, has no check to sync.
+        check = _fetch_json(session, url, headers, None, logger, allow_not_found=True)
+        if isinstance(check, dict):
+            yield [{**check, id_field: connector_id}]
+
+
 def _get_notifications(
     session: requests.Session,
     url: str,
@@ -306,13 +329,22 @@ def get_rows(
     # HTTP sample capture is disabled for endpoints with drop_fields (sources / destinations): the
     # adapter records the raw response body before `_drop_sensitive_fields` runs, so capturing it
     # would persist the connector `config` secrets into the sample bucket that stripping removes.
+    # The connection-check tables list the same connectors first, so they skip capture too.
     session = make_tracked_session(
-        redact_values=(api_key,), allow_redirects=False, capture=not bool(config.drop_fields)
+        redact_values=(api_key,),
+        allow_redirects=False,
+        capture=not (config.drop_fields or config.connector_list_path),
     )
 
     if config.fan_out_jobs:
         fan_out = _get_job_details if endpoint == "job_details" else _get_job_failed_files
         yield from fan_out(session, origin, config, headers, logger)
+        return
+
+    if config.connector_list_path and config.connector_id_field:
+        yield from _get_connection_checks(
+            session, origin, config.path, config.connector_list_path, config.connector_id_field, headers, logger
+        )
         return
 
     if endpoint == "notifications":
@@ -395,8 +427,8 @@ def unstructured_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # The per-job walks keep no job or offset checkpoint, so a handoff would repeat every request.
-        supports_resume=not config.fan_out_jobs,
+        # The per-job and per-connector walks keep no checkpoint, so a handoff would repeat every request.
+        supports_resume=not (config.fan_out_jobs or config.connector_list_path),
     )
 
 

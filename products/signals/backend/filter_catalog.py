@@ -6,9 +6,13 @@ from typing import TYPE_CHECKING, TypeVar
 from django.core.exceptions import ValidationError
 from django.db import models, router, transaction
 
+from pydantic import JsonValue
+
+from posthog.dataclasses import frozen
 from posthog.models.utils import UUIDModel
 
-from products.signals.backend.filter_catalog_schema import validate_catalog_bundle
+from products.signals.backend.filter_catalog_schema import CatalogBundle, validate_catalog_bundle
+from products.signals.backend.filter_expression import FilterExpression, FilterValidationError
 
 if TYPE_CHECKING:
     from django.db.models.base import ModelBase
@@ -45,6 +49,24 @@ class InternalCatalogModel(UUIDModel):
 
     def delete(self, using: str | None = None, keep_parents: bool = False) -> tuple[int, dict[str, int]]:
         raise ValidationError("Catalog history must be retained")
+
+
+@frozen
+class CatalogPublication:
+    source_created: bool
+    version: int
+    version_created: bool
+
+
+def _validate_executable(bundle: dict[str, JsonValue]) -> None:
+    catalog = CatalogBundle.model_validate(bundle)
+    field_types = {field.name: field.type for field in catalog.fields}
+    try:
+        FilterExpression("", field_types)
+        for starter in catalog.starter_expressions:
+            FilterExpression(starter, field_types)
+    except FilterValidationError as error:
+        raise ValidationError("Catalog cannot be filtered: %(reason)s", params={"reason": str(error)}) from error
 
 
 class SignalFilterSourceDefinition(InternalCatalogModel):
@@ -114,6 +136,52 @@ class SignalFilterSourceDefinition(InternalCatalogModel):
             raise ValidationError("Catalog version must be saved before activation")
         self.active_catalog_version_id = catalog_version.pk
         self.save(update_fields=["active_catalog_version"])
+
+    @classmethod
+    def publish(
+        cls,
+        *,
+        source_product: str,
+        source_type: str,
+        adapter_kind: SignalFilterSourceDefinition.AdapterKind,
+        initial_rollout_state: SignalFilterSourceDefinition.RolloutState,
+        bundle: dict[str, JsonValue],
+        initial_filter_query_eligible: bool = False,
+    ) -> CatalogPublication:
+        # Rollout state and eligibility apply only to a new source,
+        # so that a rerun cannot undo a rollout decision made after the first publish.
+        validate_catalog_bundle(bundle)
+        _validate_executable(bundle)
+        using = router.db_for_write(cls)
+        with transaction.atomic(using=using):
+            source = (
+                cls.objects.using(using)
+                .select_for_update()
+                .filter(source_product=source_product, source_type=source_type)
+                .first()
+            )
+            source_created = source is None
+            if source is None:
+                source = cls(
+                    source_product=source_product,
+                    source_type=source_type,
+                    adapter_kind=adapter_kind,
+                    rollout_state=initial_rollout_state,
+                )
+                source.save(using=using)
+            elif source.adapter_kind != adapter_kind:
+                raise ValidationError("Source identity and adapter are immutable")
+            active = source.active_catalog_version
+            if active is not None and active.bundle == bundle:
+                return CatalogPublication(source_created=False, version=active.version, version_created=False)
+            latest = source.catalog_versions.aggregate(latest=models.Max("version"))["latest"] or 0
+            catalog_version = SignalFilterCatalogVersion(source=source, version=latest + 1, bundle=bundle)
+            catalog_version.save(using=using)
+            source.activate(catalog_version)
+            if source_created and initial_filter_query_eligible:
+                source.filter_query_eligible = True
+                source.save(using=using, update_fields=["filter_query_eligible"])
+        return CatalogPublication(source_created=source_created, version=catalog_version.version, version_created=True)
 
 
 class SignalFilterCatalogVersion(InternalCatalogModel):

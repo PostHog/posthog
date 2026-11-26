@@ -92,9 +92,7 @@ function setup(
       .fn()
       .mockResolvedValue({ accessToken: "pha_x", apiHost: API_HOST }),
     authenticatedFetch,
-    messagesUrl: () => "",
     usageUrl: () => "",
-    legacyUsageUrl: () => "",
     defaultModel: "m",
   };
   const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };

@@ -104,13 +104,18 @@ CAPTURE_COLUMNS: frozenset[str] = frozenset(
 )
 
 
+# The metadata the history writer stamps on its staging table (`STAGED_*_COLUMN` in `history_upsert.py`).
+# Named here because the capture path does not import the writer.
+HISTORY_STAGING_COLUMNS: frozenset[str] = frozenset({"_ph_staged_batch", "_ph_staged_row"})
+
+
 def history_columns(naming: HistoryNaming) -> frozenset[str]:
-    """The columns a history table adds to the capture columns.
+    """The columns a history table adds to the capture columns, and the ones its staging table adds.
 
     `_ph_valid_*` stays reserved on a legacy history table too, because `history_naming_of` reads the
     naming from it.
     """
-    return HISTORY_NAMING.stamped_columns | naming.stamped_columns
+    return HISTORY_NAMING.stamped_columns | naming.stamped_columns | HISTORY_STAGING_COLUMNS
 
 
 def reserved_column_names(history: HistoryNaming | None) -> frozenset[str]:
@@ -150,6 +155,10 @@ def metadata_columns(history: HistoryNaming | None) -> frozenset[str]:
 # prevents unbounded memory growth when the WAL backlog is very large.
 CDC_FLUSH_MAX_EVENTS = 5_000
 CDC_FLUSH_MAX_BYTES = 128 * 1024 * 1024  # 128 MiB (estimated, pre-Arrow)
+# The byte estimate cannot see unchanged-TOAST values: the change stream omits them and the
+# loader fills each one from the Delta table, so a small batch can grow by orders of magnitude
+# at load and run the loader out of memory. Capping these rows bounds that growth.
+CDC_FLUSH_MAX_TOAST_OMITTED_EVENTS = 1_000
 
 
 class ChangeEventBatcher:
@@ -169,13 +178,17 @@ class ChangeEventBatcher:
         self,
         max_events: int = CDC_FLUSH_MAX_EVENTS,
         max_bytes: int = CDC_FLUSH_MAX_BYTES,
+        max_toast_omitted_events: int = CDC_FLUSH_MAX_TOAST_OMITTED_EVENTS,
         position_to_seq: Callable[[str], int] | None = None,
     ) -> None:
         self._events: defaultdict[str, list[ChangeEvent]] = defaultdict(list)
         self._table_bytes: defaultdict[str, int] = defaultdict(int)
         self._estimated_bytes: int = 0
+        self._table_toast_omitted: defaultdict[str, int] = defaultdict(int)
+        self._toast_omitted_events: int = 0
         self._max_events = max_events
         self._max_bytes = max_bytes
+        self._max_toast_omitted_events = max_toast_omitted_events
         # Engine adapter's position_serialized → int converter. When set, flushed
         # tables carry CDC_SEQ_COLUMN; when None the column is absent entirely.
         self._position_to_seq = position_to_seq
@@ -189,11 +202,18 @@ class ChangeEventBatcher:
         self._events[event.table_name].append(event)
         self._table_bytes[event.table_name] += size
         self._estimated_bytes += size
+        if event.omitted_columns:
+            self._table_toast_omitted[event.table_name] += 1
+            self._toast_omitted_events += 1
 
     @property
     def should_flush(self) -> bool:
         """Whether buffered events exceed the configured thresholds."""
-        return self.event_count >= self._max_events or self._estimated_bytes >= self._max_bytes
+        return (
+            self.event_count >= self._max_events
+            or self._estimated_bytes >= self._max_bytes
+            or self._toast_omitted_events >= self._max_toast_omitted_events
+        )
 
     def flush(self) -> dict[str, pa.Table]:
         """Convert buffered events into PyArrow tables, one per table name.
@@ -214,12 +234,15 @@ class ChangeEventBatcher:
         self._events.clear()
         self._table_bytes.clear()
         self._estimated_bytes = 0
+        self._table_toast_omitted.clear()
+        self._toast_omitted_events = 0
         return result
 
     def discard(self, table_name: str) -> None:
         """Drop a table's pending events so no later flush writes them."""
         self._events.pop(table_name, None)
         self._estimated_bytes -= self._table_bytes.pop(table_name, 0)
+        self._toast_omitted_events -= self._table_toast_omitted.pop(table_name, 0)
 
     @property
     def event_count(self) -> int:
@@ -568,6 +591,36 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str], naming: HistoryN
     )
 
 
+def _dedupe_case_colliding_field_names(column_names: list[str]) -> dict[str, str]:
+    """Map every column name to itself, except within a group of names that fold to the same
+    value case-insensitively — the check Delta's own column-name validation applies.
+
+    Postgres lets quoted identifiers differ only by case (e.g. "clickid" and "ClickID" as
+    distinct columns), which such a group reflects. Delta rejects the batch outright once two
+    of its field names collide that way, so one member of the group must be renamed before the
+    write. Every other column is returned unchanged: the rest of the CDC pipeline (TOAST
+    omission markers, primary-key enrichment, delete resolution) matches columns by their exact
+    source name, and renaming a column that was never involved in a collision would silently
+    break that matching for perfectly ordinary mixed-case columns that synced fine before.
+
+    The group is resolved by sorted order, not by which event mentions a name first, so the same
+    set of colliding source names always resolves to the same target names regardless of which
+    column a given micro-batch happens to see first.
+    """
+    groups: dict[str, list[str]] = defaultdict(list)
+    for name in column_names:
+        groups[name.casefold()].append(name)
+
+    renamed: dict[str, str] = {}
+    for names in groups.values():
+        if len(names) == 1:
+            renamed[names[0]] = names[0]
+            continue
+        for index, name in enumerate(sorted(names)):
+            renamed[name] = name if index == 0 else f"{name}_dup{index}"
+    return renamed
+
+
 def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str], int] | None = None) -> pa.Table:
     """Convert a list of ChangeEvents (same table) to a PyArrow table with CDC metadata."""
     # Collect all column names across all events (order-preserving). Omitted
@@ -618,6 +671,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
     # fall back to storing the column as strings.
     # Also upgrade pa.null() → pa.string() since DeltaLake rejects the Null type
     # (happens when a DELETE-only batch has all-None values for non-PK columns).
+    field_names = _dedupe_case_colliding_field_names(column_names)
     arrays: list[pa.Array] = []
     fields: list[pa.Field] = []
     for col_name in column_names:
@@ -634,7 +688,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
             if arr.type == pa.null():
                 arr = arr.cast(pa.string())
         arrays.append(arr)
-        fields.append(pa.field(col_name, arr.type))
+        fields.append(pa.field(field_names[col_name], arr.type))
 
     # Add CDC metadata columns
     arrays.append(pa.array(cdc_ops, type=pa.string()))

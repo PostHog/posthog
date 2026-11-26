@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 import numpy as np
+import pandas as pd
 import dagster
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -15,7 +16,12 @@ from sklearn.metrics import roc_auc_score
 
 from posthog import settings
 
-from products.signals.backend.ranking.features import PROJECT_VECTOR_KINDS, REPORT_EMBEDDINGS_FEATURE_SET
+from products.signals.backend.ranking.features import (
+    EMBEDDING_COLUMN,
+    EMBEDDING_INSERTED_AT_COLUMN,
+    PROJECT_VECTOR_KINDS,
+    REPORT_EMBEDDINGS_FEATURE_SET,
+)
 from products.signals.backend.ranking.model_contract import model_mismatch
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.overrides import NO_OVERRIDES
@@ -34,6 +40,7 @@ from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
 from products.signals.dags.inbox_ranking.nn import dag as nn_dag
 from products.signals.dags.inbox_ranking.nn.examples import (
+    BIRTH_HORIZONS,
     NN_HEAD_NAMES,
     build_examples,
     examples_arrow,
@@ -49,14 +56,17 @@ from products.signals.dags.inbox_ranking.nn.model import (
     network_recipe,
     onnx_probabilities,
 )
-from products.signals.dags.inbox_ranking.tests.test_multihead import D0, DAYS, HOLDOUT_DAYS, _SyntheticInbox
+from products.signals.dags.inbox_ranking.tests.test_multihead import D0, DAYS, HOLDOUT_DAYS, TEAMS, _SyntheticInbox
 from products.signals.dags.inbox_ranking.training import recipe as recipe_module
 from products.signals.dags.inbox_ranking.training.dag import (
     METADATA_FILE,
+    PROMOTION_FILE,
     check_recipe,
+    load_snapshots,
     model_object_key,
     served_object_key,
 )
+from products.signals.dags.inbox_ranking.training.examples import drop_without_training_consent
 from products.signals.dags.inbox_ranking.training.families import (
     AA_SEED_OFFSET,
     MODEL_FAMILIES,
@@ -232,7 +242,7 @@ def test_the_manifest_serves_an_nn_model_with_the_xgboost_champion_as_a_challeng
     assert sorted(served.heads) == sorted(NN_HEAD_NAMES)
 
 
-def test_the_nn_decision_is_graded_against_the_served_nn_model_and_writes_nothing(no_side_effects):
+def test_the_nn_decision_is_graded_against_the_served_nn_model_and_writes_only_its_record(no_side_effects):
     served = _nn_metadata("2026-08-16")
     client = _S3(
         {
@@ -252,6 +262,12 @@ def test_the_nn_decision_is_graded_against_the_served_nn_model_and_writes_nothin
 
     assert metadata is not None
     assert metadata[f"{NN_MODEL_NAME}_incumbent_champion_version"].value == "2026-08-16"
+    record_key = model_object_key(PREFIX, NN_MODEL_NAME, PARTITION, PROMOTION_FILE)
+    record = json.loads(client.objects.pop(record_key))
+    assert (record["incumbent_key"], record["would_promote"]) == (
+        f"{NN_MODEL_NAME}@2026-08-16",
+        metadata[f"{NN_MODEL_NAME}_would_promote"].value,
+    )
     assert client.objects == before
 
 
@@ -348,6 +364,35 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
         auc = roc_auc_score(holdout.labels[rows, index], probabilities[head["head"]][rows])
         assert auc == pytest.approx(head["holdout_auc"], abs=1e-4)
         assert auc > 0.75
+
+
+def test_the_examples_asset_builds_from_the_embeddings_snapshot_without_the_labels_snapshot(monkeypatch):
+    inbox = _SyntheticInbox()
+    snapshot = inbox.embeddings()
+    frame = snapshot.to_pandas()
+    positions = np.arange(len(frame))
+    # The step reads only each vector's length and landing time, so a late vector and a tombstone
+    # must drop the same reports as the vectors themselves do.
+    frame.loc[positions % 5 == 0, EMBEDDING_INSERTED_AT_COLUMN] += pd.Timedelta(days=3)
+    frame.loc[positions % 7 == 0, EMBEDDING_COLUMN] = None
+    embeddings = pa.Table.from_pandas(frame, schema=snapshot.schema, preserve_index=False)
+    day = (D0 + datetime.timedelta(days=DAYS - 1)).isoformat()
+    client = _S3({partition_object_key(PREFIX, EMBEDDINGS_TABLE, day): _parquet(embeddings)})
+    monkeypatch.setattr(nn_dag, "skip_unconfigured", lambda context: False)
+    monkeypatch.setattr(nn_dag, "s3_client", lambda: client)
+    monkeypatch.setattr(nn_dag, "load_snapshots", lambda *args, **kwargs: inbox.snapshots())
+    monkeypatch.setattr(nn_dag, "training_consent_team_ids", lambda: frozenset(TEAMS))
+    monkeypatch.setattr(settings, "INBOX_RANKING_TRAINING_HOLDOUT_DAYS", HOLDOUT_DAYS)
+
+    with dagster.build_asset_context(partition_key=day) as context:
+        nn_dag.inbox_ranking_nn_examples(context)
+
+    written = pq.read_table(io.BytesIO(client.objects[partition_object_key(PREFIX, nn_dag.NN_EXAMPLES_TABLE, day)]))
+    expected = build_examples(inbox.snapshots(), report_vectors(embeddings), holdout_days=HOLDOUT_DAYS)
+    assert written.equals(examples_arrow(expected), check_metadata=True)
+    dropped = set(inbox.reports.index[(positions % 5 == 0) | (positions % 7 == 0)])
+    assert len(expected.table.rows) > 0
+    assert dropped.isdisjoint(expected.table.rows["report_id"])
 
 
 def test_a_priority_family_skips_an_examples_object_written_before_the_priority_column(no_side_effects):
@@ -476,3 +521,36 @@ def test_examples_depend_on_the_whole_lookback_window():
         assert isinstance(mapping, dagster.TimeWindowPartitionMapping)
         assert mapping.start_offset == -settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS
         assert mapping.end_offset == 0
+
+
+def test_birth_grain_trim_keeps_the_examples_of_the_full_snapshots():
+    inbox = _SyntheticInbox()
+    dates = sorted(inbox.snapshots())
+    deleted = "r-5-0"
+    objects: dict[str, bytes] = {}
+    for date, snapshot in inbox.snapshots().items():
+        state = snapshot.state.assign(status="ready", pg_updated_at=snapshot.state["report_created_at"])
+        labels = snapshot.labels.assign(latest_status_event="ready", status_event_team_id=state["report_team_id"])
+        if date > D0 + datetime.timedelta(days=10):
+            state = state.drop(deleted)
+        for table, frame in ((STATE_TABLE, state), (LABELS_TABLE, labels)):
+            objects[partition_object_key(PREFIX, table, date.isoformat())] = _parquet(
+                pa.Table.from_pandas(frame.reset_index(), preserve_index=False)
+            )
+    embeddings = inbox.embeddings().to_pandas()
+    late = embeddings["report_id"] == "r-8-1"
+    embeddings.loc[late, "embedding_inserted_at"] += pd.Timedelta(days=3)
+    embeddings = embeddings[embeddings["report_id"] != "r-9-2"]
+    extras = report_vectors(pa.Table.from_pandas(embeddings, schema=inbox.embeddings().schema, preserve_index=False))
+
+    def examples(birth_horizons: tuple[int, ...] | None) -> tuple[pa.Table, int]:
+        snapshots = load_snapshots(_S3(objects), "bucket", PREFIX, dates, birth_horizons=birth_horizons)
+        consented, _ = drop_without_training_consent(snapshots, frozenset({2}))
+        built = build_examples(consented, extras, holdout_days=HOLDOUT_DAYS)
+        return examples_arrow(built), sum(len(snapshot.state) for snapshot in snapshots.values())
+
+    full, full_rows = examples(None)
+    trimmed, trimmed_rows = examples(BIRTH_HORIZONS)
+    assert trimmed_rows < full_rows / 2
+    assert np.nansum(full.column("fixed_label").to_numpy(zero_copy_only=False)) > 0
+    assert trimmed.equals(full, check_metadata=True)

@@ -1,19 +1,25 @@
 import type {
+    TraceApi,
+    TraceAttachmentPartApi,
     TraceEvaluationResultOutcomeEnumApi,
-    TraceFeedbackScoreApi,
-    TraceFeedbackTextApi,
+    TraceListItemApi,
+    TraceMessageApi,
     TraceNodeApi,
+    TraceNodeContentApi,
     TraceNodeDetailApi,
+    TraceNodeRawApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
+    TracePersonApi,
+    TracePreviewMissingReasonApi,
     TraceSummaryContentApi,
     TraceSurveyResponseApi,
-    TraceUnansweredSurveyApi,
 } from '../../generated/api.schemas'
+import type { TraceCellStatus } from '../shared/cellLoads'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
-export type TraceOpeningMode = 'summary' | null
+export type TraceOpeningMode = 'summary' | 'thread' | null
 
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
@@ -23,45 +29,52 @@ export type LoadFailure = 'not_found' | 'failed'
  * `selection` is a click on a step. `navigation` is a node the view selects without a click: on open, from a
  * link, as the default node, as the root while the trace loads, or from the browser history.
  */
-export type NodeLoadTrigger = 'selection' | 'navigation' | 'prefetch' | 'thread'
+export type NodeLoadTrigger = 'selection' | 'keyboard' | 'navigation' | 'prefetch' | 'thread'
 
 export type NodeLoad =
     | { status: 'loading' }
     | { status: 'ready'; node: TraceNodeDetailApi }
     | { status: 'error'; failure: LoadFailure }
 
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
+export type RawLoad =
+    | { status: 'loading' }
+    | { status: 'ready'; raw: TraceNodeRawApi }
+    | { status: 'error'; failure: LoadFailure }
+
+export type MessageRole = TraceMessageApi['role']
 
 /** Which messages of a step open first: from the last user message on, or all of them. */
 export type MessagesOpening = 'lastTurn' | 'everything'
 
-export type AttachmentMediaType = 'image' | 'audio' | 'video' | 'file'
+export type AttachmentMediaType = TraceAttachmentPartApi['mediaType']
 
-export type MessagePart =
-    | { kind: 'text'; text: string }
-    | { kind: 'thinking'; text: string }
-    | { kind: 'toolCall'; name: string; args: unknown; result?: unknown; isError?: boolean }
-    | {
-          kind: 'attachment'
-          mediaType: AttachmentMediaType
-          name: string | null
-          mimeType: string | null
-          url: string | null
-      }
+export type MessagePart = TraceMessageApi['parts'][number]
 
-export interface ThreadMessage {
-    id: string
-    role: MessageRole
-    parts: MessagePart[]
-    isInternal: boolean
-    sourceNodeId: string | null
-}
+export type ThreadMessage = TraceMessageApi
 
 export interface ConversationTurn {
     id: string
     timestamp: string
-    messages: ThreadMessage[]
+    /** How long the user waited for the answer, from the trace's latency; null when not shown. */
+    waitMs: number | null
+    /** Whether the wait counts as slow, as the read of the turn says. */
+    waitSlow?: boolean
+    /** How long the conversation was silent before the turn, when the read of the turn counts it as a silence. */
+    silenceBeforeMs?: number | null
+    input: NodeSideContent
+    output: NodeSideContent
     error: string | null
+    /** Why a side is empty or cut, when the read could not return all of it. */
+    missingReasons?: TurnMissingReasons
+    /** Whether the input and output have loaded, for a turn whose messages are read after the turn itself. */
+    sidesStatus?: TraceCellStatus
+    /** The turn's trace as a list of traces reads it, for a turn that is one of several. */
+    trace?: Pick<TraceListItemApi, 'name' | 'totals'>
+}
+
+export interface TurnMissingReasons {
+    input: TracePreviewMissingReasonApi | null
+    output: TracePreviewMissingReasonApi | null
 }
 
 export type ConversationState =
@@ -69,23 +82,7 @@ export type ConversationState =
     | { status: 'error'; message: string }
     | { status: 'ready'; turns: ConversationTurn[]; activeTurnId: string | null }
 
-export type NodeContent =
-    | { kind: 'messages'; input: ThreadMessage[]; output: ThreadMessage[] }
-    | { kind: 'io'; input: unknown; output: unknown }
-    | { kind: 'loading' }
-    | { kind: 'error'; message: string }
-
-export type LoadedNodeContent = Extract<NodeContent, { kind: 'messages' | 'io' }>
-
-export interface NodeProperties {
-    timestamp: string | null
-    provider: string | null
-    temperature: number | null
-    sessionId: string | null
-    promptName: string | null
-    promptVersion: number | null
-    person: string | null
-}
+export type NodeSideContent = TraceNodeContentApi['input']
 
 /**
  * `unrated` is a result with a value but no verdict, such as a numeric score without a passing rule.
@@ -96,45 +93,8 @@ export type EvalOutcome = TraceEvaluationResultOutcomeEnumApi
 /** A step's evaluations rolled up: `fail` if any fails, else `pass` if any passes, else `unrated`. */
 export type EvalRollupOutcome = TraceNodeEvaluationRollupOutcomeEnumApi
 
-export interface EvalsChipData {
-    passed: number
-    /** Results with a pass or a fail. */
-    graded: number
-    unrated: number
-}
-
-export interface EvalTarget {
-    label: string
-    nodeId: string
-}
-
-export interface EvalResult {
-    id: string
-    name: string
-    href: string | null
-    outcome: EvalOutcome
-    /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
-    label: string
-    reasoning: string | null
-    timestamp: string
-    isBackfill: boolean
-    /** Null when the result targets the node being viewed. */
-    target: EvalTarget | null
-}
-
-export type EvalsState =
-    | { status: 'loading' }
-    | { status: 'ready'; results: EvalResult[] }
-    | { status: 'error'; errorMessage: string }
-
 export interface LabeledLink {
     label: string
-    href: string
-}
-
-export interface GitPullRequestLink {
-    number: number
-    title: string | null
     href: string
 }
 
@@ -142,7 +102,14 @@ export type TraceSearchStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 export type TraceSearchFailure = 'too_slow' | 'failed'
 
-export type MatchDirection = 'next' | 'previous'
+export type StepDirection = 'next' | 'previous'
+
+export type MatchDirection = StepDirection
+
+/** A move within the step tree: to a neighbour in drawn order, to either end, or along the hierarchy. */
+export type TreeStep = StepDirection | 'first' | 'last' | 'parent' | 'child'
+
+export type StepKeySource = 'shortcut' | 'arrow'
 
 export type SummaryItemKind = 'bullet' | 'note'
 
@@ -162,45 +129,38 @@ export type SummaryModeState =
 /** Where a person opened the Feedback mode from, other than its tab. */
 export type FeedbackEntry = 'chip' | 'step'
 
-export interface FeedbackStep {
-    id: string
-    name: string
-}
-
-/**
- * `step` is null for feedback on the whole trace, and for a step the tree does not hold. `focused` marks the entries
- * of the step the Feedback mode was opened from.
- */
-export interface FeedbackPlacement {
-    step: FeedbackStep | null
-    focused: boolean
-}
-
-export type FeedbackScoreRow = TraceFeedbackScoreApi & FeedbackPlacement
-
-/** Survey responses link to the whole trace, so their `step` is always null. */
-export type FeedbackResponseItem = (TraceFeedbackTextApi | TraceSurveyResponseApi) & FeedbackPlacement
-
 export type SurveyAnswer = TraceSurveyResponseApi['answers'][number]
 
-export type FeedbackModeState =
-    | { status: 'loading' }
-    | { status: 'error' }
-    | {
-          status: 'ready'
-          scores: FeedbackScoreRow[]
-          responses: FeedbackResponseItem[]
-          unanswered: TraceUnansweredSurveyApi[]
-          surveysFailed: boolean
-      }
-
-export interface FeedbackChipData {
-    total: number
-    thumbsUp: number
-    thumbsDown: number
+/** What the Feedback mode needs to place an entry: on a step of the tree, or on the whole trace, and which step it was
+ * opened from. */
+export interface FeedbackStepContext {
+    traceId: string
+    stepLabels: ReadonlyMap<string, string>
+    focusNodeId: string | null
 }
 
-export interface StepFeedback {
-    scores: TraceFeedbackScoreApi[]
-    responseCount: number
+/** What a list row already knows about a trace, enough to paint the trace's header before the trace read answers. */
+export type TraceOverview = Pick<
+    TraceApi,
+    | 'id'
+    | 'name'
+    | 'createdAt'
+    | 'sessionId'
+    | 'totals'
+    | 'hasError'
+    | 'errorCount'
+    | 'totalsPartial'
+    | 'costAndLatencyPartial'
+>
+
+export interface TraceSeed {
+    overview: TraceOverview
+    defaultStepId: string | null
+    person?: TracePersonApi
+}
+
+export interface TraceViewKey {
+    hostId: string
+    traceId: string
+    timestampHint: string | null
 }

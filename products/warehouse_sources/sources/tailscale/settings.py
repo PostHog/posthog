@@ -1,36 +1,59 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
+DEVICES_ENDPOINT = "devices"
 AUDIT_LOGS_ENDPOINT = "configuration_audit_logs"
-
-# Tailscale keeps configuration audit logs for the most recent 90 days only.
-AUDIT_LOG_RETENTION_DAYS = 90
-# The audit log endpoint has no pagination, so we bound each request with a time window.
-# Windows keep single responses small and give the resumable manager a checkpoint boundary.
-AUDIT_LOG_WINDOW_DAYS = 7
+NETWORK_LOGS_ENDPOINT = "network_flow_logs"
+SERVICES_ENDPOINT = "services"
+SERVICE_DEVICES_ENDPOINT = "service_devices"
+USER_INVITES_ENDPOINT = "user_invites"
+DEVICE_INVITES_ENDPOINT = "device_invites"
+DEVICE_POSTURE_ATTRIBUTES_ENDPOINT = "device_posture_attributes"
 
 
 @dataclass(frozen=False)
 class TailscaleEndpointConfig:
     name: str
-    # Path relative to https://api.tailscale.com/api/v2, with a `{tailnet}` placeholder.
+    # Path relative to https://api.tailscale.com/api/v2, with `{tailnet}` or parent-id placeholders.
     path: str
-    # Key wrapping the row list in the JSON response (e.g. {"devices": [...]}).
-    data_key: str
-    primary_key: Optional[str] = "id"
+    # Key wrapping the row list in the JSON response (e.g. {"devices": [...]}), or None
+    # when the response is a bare list.
+    data_key: Optional[str]
+    primary_keys: Optional[list[str]] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable, immutable field to partition by. Only set where rows are immutable or the
     # field never changes after creation.
     partition_key: Optional[str] = None
     params: dict[str, str] = field(default_factory=dict)
+    # Log endpoints have no pagination and require inclusive `start`/`end` params, so each
+    # request is bounded by a time window. Windows keep single responses small and give the
+    # resumable manager a checkpoint boundary.
+    time_field: Optional[str] = None
+    log_window: Optional[timedelta] = None
+    # How far back Tailscale keeps the logs.
+    retention_days: Optional[int] = None
+    # Window used by the credential probe.
+    probe_window: timedelta = timedelta(hours=1)
+
+
+def _datetime_incremental_field(name: str) -> list[IncrementalField]:
+    return [
+        {
+            "label": name,
+            "type": IncrementalFieldType.DateTime,
+            "field": name,
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ]
 
 
 TAILSCALE_ENDPOINTS: dict[str, TailscaleEndpointConfig] = {
     # The Tailscale API does not paginate list endpoints — each returns the full result
-    # set in one response — and none of devices/users/keys accept a server-side time
-    # filter, so those tables are full refresh only.
+    # set in one response — and none of devices/users/keys/services accept a server-side
+    # time filter, so those tables are full refresh only.
     "devices": TailscaleEndpointConfig(
         name="devices",
         path="/tailnet/{tailnet}/devices",
@@ -49,27 +72,74 @@ TAILSCALE_ENDPOINTS: dict[str, TailscaleEndpointConfig] = {
         path="/tailnet/{tailnet}/keys",
         data_key="keys",
     ),
+    SERVICES_ENDPOINT: TailscaleEndpointConfig(
+        name=SERVICES_ENDPOINT,
+        path="/tailnet/{tailnet}/services",
+        data_key="vipServices",
+        # Service names are unique within a tailnet; services have no other id.
+        primary_keys=["name"],
+    ),
+    SERVICE_DEVICES_ENDPOINT: TailscaleEndpointConfig(
+        name=SERVICE_DEVICES_ENDPOINT,
+        path="/tailnet/{tailnet}/services/{serviceName}/devices",
+        data_key="hosts",
+        # Host rows are only unique within their service; the service name is added to each row.
+        primary_keys=["serviceName", "stableNodeID"],
+    ),
+    USER_INVITES_ENDPOINT: TailscaleEndpointConfig(
+        name=USER_INVITES_ENDPOINT,
+        path="/tailnet/{tailnet}/user-invites",
+        # The API only lists open invites; accepted ones drop out of the response.
+        data_key=None,
+    ),
+    DEVICE_INVITES_ENDPOINT: TailscaleEndpointConfig(
+        name=DEVICE_INVITES_ENDPOINT,
+        path="/device/{deviceId}/device-invites",
+        # Device invite ids are tailnet-wide (GET /device-invites/{deviceInviteId} needs no device).
+        data_key=None,
+    ),
+    DEVICE_POSTURE_ATTRIBUTES_ENDPOINT: TailscaleEndpointConfig(
+        name=DEVICE_POSTURE_ATTRIBUTES_ENDPOINT,
+        path="/device/{deviceId}/attributes",
+        # One object per device; the device ids are added to each row.
+        data_key=None,
+        primary_keys=["deviceId"],
+    ),
     AUDIT_LOGS_ENDPOINT: TailscaleEndpointConfig(
         name=AUDIT_LOGS_ENDPOINT,
         path="/tailnet/{tailnet}/logging/configuration",
         data_key="logs",
         # Audit log records carry no unique identifier (eventGroupID groups several
         # records of one event), so rows are appended rather than merged.
-        primary_key=None,
-        incremental_fields=[
-            {
-                "label": "eventTime",
-                "type": IncrementalFieldType.DateTime,
-                "field": "eventTime",
-                "field_type": IncrementalFieldType.DateTime,
-            }
-        ],
+        primary_keys=None,
+        incremental_fields=_datetime_incremental_field("eventTime"),
         # Log records are immutable, so eventTime is a stable partition key.
         partition_key="eventTime",
+        time_field="eventTime",
+        log_window=timedelta(days=7),
+        retention_days=90,
+    ),
+    NETWORK_LOGS_ENDPOINT: TailscaleEndpointConfig(
+        name=NETWORK_LOGS_ENDPOINT,
+        path="/tailnet/{tailnet}/logging/network",
+        data_key="logs",
+        # Flow log records carry no unique identifier, so rows are appended rather than merged.
+        primary_keys=None,
+        # `logged` is when the Tailscale logs service recorded the message, so it only moves forward.
+        incremental_fields=_datetime_incremental_field("logged"),
+        partition_key="logged",
+        time_field="logged",
+        # Every active node reports flow records every few seconds, so windows stay short
+        # to keep one response bounded on large tailnets.
+        log_window=timedelta(minutes=15),
+        retention_days=30,
+        probe_window=timedelta(minutes=1),
     ),
 }
 
 ENDPOINTS = tuple(TAILSCALE_ENDPOINTS.keys())
+
+DEVICE_FAN_OUT_ENDPOINTS = frozenset({DEVICE_INVITES_ENDPOINT, DEVICE_POSTURE_ATTRIBUTES_ENDPOINT})
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in TAILSCALE_ENDPOINTS.items()

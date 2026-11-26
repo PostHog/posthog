@@ -10,12 +10,22 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
+from temporalio.testing import ActivityEnvironment
+
+from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import NullThreadStore, ThreadClaim, ThreadKey
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
+    DeliveryError,
+    DestinationMisconfigured,
+    DestinationRefused,
+    MessageHandle,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -63,9 +73,16 @@ def _announcement(
 class FakeTransport:
     provider = "fake"
 
-    def __init__(self, handle: MessageHandle | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        handle: MessageHandle | None = None,
+        error: Exception | None = None,
+        errors: list[Exception | None] | None = None,
+    ) -> None:
         self.handle = handle or MessageHandle(external_ref={"ts": "1"})
         self.error = error
+        # One outcome per send in order, for a test where only some sends fail.
+        self.errors = errors
         self.sends: list[tuple[AlertMessage, MessageHandle | None]] = []
 
     def channel_target(self, target: AlertDestinationData) -> str:
@@ -75,8 +92,9 @@ class FakeTransport:
         self, *, team_id: int, target: AlertDestinationData, message: AlertMessage, in_reply_to: Any = None
     ) -> MessageHandle | None:
         self.sends.append((message, in_reply_to))
-        if self.error:
-            raise self.error
+        error = self.errors[len(self.sends) - 1] if self.errors is not None else self.error
+        if error:
+            raise error
         return self.handle
 
 
@@ -88,8 +106,9 @@ class EditingTransport(FakeTransport):
         handle: MessageHandle | None = None,
         edit_error: Exception | None = None,
         store: "RecordingThreadStore | None" = None,
+        errors: list[Exception | None] | None = None,
     ) -> None:
-        super().__init__(handle=handle)
+        super().__init__(handle=handle, errors=errors)
         self.edit_error = edit_error
         self.store = store
         self.edits: list[tuple[MessageHandle, str]] = []
@@ -113,6 +132,7 @@ class RecordingThreadStore(NullThreadStore):
     def __init__(self) -> None:
         self.threads: dict[ThreadKey, MessageHandle] = {}
         self.delivered_keys: dict[ThreadKey, list[str]] = {}
+        self.released: list[str] = []
         self._claimed: dict[str, ThreadKey] = {}
 
     def claim(self, key: ThreadKey, evaluation_key: str) -> ThreadClaim | None:
@@ -132,6 +152,9 @@ class RecordingThreadStore(NullThreadStore):
         self.delivered_keys.setdefault(key, []).append(claim.evaluation_key)
         if handle is not None and key not in self.threads:
             self.threads[key] = handle
+
+    def release(self, claim: ThreadClaim, *, root_content: dict[str, Any] | None = None) -> None:
+        self.released.append(claim.evaluation_key)
 
     @property
     def remembered(self) -> list[MessageHandle]:
@@ -196,9 +219,12 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert [handle for _, handle in resolve.sends] == [MessageHandle(external_ref={"ts": "morning"})]
         assert [handle for _, handle in second.sends] == [None]
 
-    def test_a_reply_brings_the_opening_message_up_to_the_current_state(self) -> None:
+    @parameterized.expand([("sent", None), ("answer_lost", DeliveryAmbiguous("Read timed out"))])
+    def test_a_reply_brings_the_opening_message_up_to_the_current_state(
+        self, _name: str, reply_error: Exception | None
+    ) -> None:
         store = RecordingThreadStore()
-        transport = EditingTransport(handle=OPENING, store=store)
+        transport = EditingTransport(handle=OPENING, store=store, errors=[None, reply_error])
 
         with (
             patch("products.alerts_platform.backend.delivery.dispatch.alert_snapshot", return_value=None),
@@ -336,12 +362,93 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert recorded.call_args.kwargs["error"] == logged
         assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [outcome]
 
+    def test_a_refusal_is_noticed_and_counted_as_the_destination_owners_fix(self) -> None:
+        refusal = DestinationRefused("The webhook destination refused the message with status 400.")
+
+        with (
+            patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"),
+            patch("products.alerts_platform.backend.delivery.dispatch.notify_refused") as notified,
+            recorded_metrics() as metrics,
+        ):
+            with pytest.raises(DestinationRefused):
+                deliver(
+                    transport=FakeTransport(error=refusal),
+                    thread_store=NullThreadStore(),
+                    team_id=2,
+                    configuration_id="cfg-1",
+                    evaluation_key="eval-1",
+                    target=TARGET,
+                    destination_id="destination-1",
+                    announcement=_announcement(),
+                )
+
+        assert notified.call_args.kwargs["refusal"] is refusal
+        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [
+            "misconfigured"
+        ]
+
+    def test_read_timeout_marks_delivered_ambiguous(self) -> None:
+        store = RecordingThreadStore()
+        retry = FakeTransport()
+
+        with recorded_metrics() as metrics:
+            self._deliver(FakeTransport(error=DeliveryAmbiguous("Read timed out")), store, evaluation_key="eval-1")
+            self._deliver(retry, store, evaluation_key="eval-1")
+
+        assert list(store.delivered_keys.values()) == [["eval-1"]]
+        assert store.released == []
+        assert retry.sends == []
+        outcomes = [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"]
+        assert outcomes == ["ambiguous", "already_delivered"]
+        assert "failed" not in outcomes
+        # No confirmed message, so nothing for a later reply to thread under.
+        assert store.remembered == []
+
+    def test_ambiguous_first_transition_still_sends_the_rest(self) -> None:
+        store = RecordingThreadStore()
+        transport = FakeTransport(errors=[DeliveryAmbiguous("Read timed out"), None, None])
+        announcement = EvaluationAnnouncement(
+            source=SourceKind.LOGS,
+            configuration_id="cfg-1",
+            alert_name="API errors",
+            consecutive_failures=0,
+            transitions=tuple(_transition(grouping_key=group) for group in ("checkout", "search", "billing")),
+        )
+
+        with recorded_metrics() as metrics:
+            self._deliver(transport, store, announcement)
+
+        assert len(transport.sends) == 3
+        assert list(store.delivered_keys.values()) == [["eval-1"], ["eval-1"], ["eval-1"]]
+        outcomes = [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"]
+        assert sorted(outcomes) == ["ambiguous", "sent", "sent"]
+
+    @parameterized.expand([("pagerduty",), ("incident_io",)])
+    def test_an_incident_manager_read_timeout_still_releases(self, provider: str) -> None:
+        store = RecordingThreadStore()
+        transport = FakeTransport(error=DeliveryAmbiguous("Read timed out"))
+        transport.provider = provider
+
+        with recorded_metrics() as metrics, pytest.raises(DeliveryAmbiguous):
+            self._deliver(transport, store)
+
+        # The deduplication key makes the retry idempotent, so the claim is freed for it.
+        assert store.released == ["eval-1"]
+        assert store.delivered_keys == {}
+        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == ["failed"]
+
     def test_a_store_that_remembers_nothing_still_delivers(self) -> None:
         transport = FakeTransport()
 
         self._deliver(transport, NullThreadStore())
 
         assert [handle for _, handle in transport.sends] == [None]
+
+
+SEND_OUTCOMES = [
+    ("sent", True, None, "INFO", "Sent"),
+    ("refused", False, "channel_not_found", "ERROR", "channel_not_found"),
+]
 
 
 class TestDeliveryTelemetry(SimpleTestCase):
@@ -355,22 +462,24 @@ class TestDeliveryTelemetry(SimpleTestCase):
         assert metrics["instance_id"] == "slack"
         assert (metrics["metric_kind"], metrics["metric_name"]) == ("success", "succeeded")
 
-    @parameterized.expand(
-        [("sent", True, None, "INFO", "Sent"), ("refused", False, "channel_not_found", "ERROR", "channel_not_found")]
-    )
+    @staticmethod
+    def _send_twice(succeeded: bool, error: str | None) -> None:
+        for _ in range(2):
+            record_delivery(
+                team_id=2,
+                configuration_id="cfg-1",
+                provider="slack",
+                destination_id="fn-1",
+                succeeded=succeeded,
+                error=error,
+            )
+
+    @parameterized.expand(SEND_OUTCOMES)
     def test_a_send_with_a_destination_is_counted_and_logged_under_it(
         self, _name: str, succeeded: bool, error: str | None, level: str, message: str
     ) -> None:
         with patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer:
-            for _ in range(2):
-                record_delivery(
-                    team_id=2,
-                    configuration_id="cfg-1",
-                    provider="slack",
-                    destination_id="fn-1",
-                    succeeded=succeeded,
-                    error=error,
-                )
+            self._send_twice(succeeded, error)
 
         metrics, log, _, second_log = [c.kwargs["data"] for c in producer.return_value.produce.call_args_list]
         assert metrics["instance_id"] == "fn-1"
@@ -378,6 +487,22 @@ class TestDeliveryTelemetry(SimpleTestCase):
         assert (log["level"], log["message"]) == (level, message)
         # Two sends in the same microsecond would otherwise share a sorting key and merge into one row.
         assert log["instance_id"] != second_log["instance_id"]
+
+    @parameterized.expand(SEND_OUTCOMES)
+    def test_a_send_inside_an_activity_is_logged_through_the_temporal_logger(
+        self, _name: str, succeeded: bool, error: str | None, level: str, message: str
+    ) -> None:
+        with (
+            patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer,
+            capture_logs() as logs,
+        ):
+            ActivityEnvironment().run(self._send_twice, succeeded, error)
+
+        assert [c.kwargs["topic"] for c in producer.return_value.produce.call_args_list] == [KAFKA_APP_METRICS2] * 2
+        assert [(log["log_source"], log["log_source_id"], log["log_level"], log["event"]) for log in logs] == [
+            ("alert_destination", "fn-1", level.lower(), message)
+        ] * 2
+        assert logs[0]["instance_id"] != logs[1]["instance_id"]
 
     def test_a_broken_producer_does_not_fail_a_send_that_already_happened(self) -> None:
         with patch(

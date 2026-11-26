@@ -84,7 +84,11 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
         ...group,
         widgets: group.widgets.filter(({ entry }) => !entry.featureFlag || !!featureFlags[entry.featureFlag]),
     })).filter((group) => group.widgets.length > 0)
-    const selectedTypes = new Set(addWidgetSelectedTypes)
+    // A stored selection can outlive its flag, so only count and submit types the picker still shows.
+    const pickerTypes = new Set<string>(
+        pickerGroups.flatMap((group) => group.widgets.map(({ widgetType }) => widgetType))
+    )
+    const selectedTypes = new Set(addWidgetSelectedTypes.filter((widgetType) => pickerTypes.has(widgetType)))
     const collapsedGroups = new Set(addWidgetCollapsedGroups)
     const filteredGroups = new Set(addWidgetFilteredGroups)
     const visibleGroups =

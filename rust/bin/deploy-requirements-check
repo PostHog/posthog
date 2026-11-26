@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# Deploy-time check: waits until every sqlx migration version that the app image needs is
+# applied, so new Rust code does not roll out against an older schema.
+#
+# Runs in the sqlx-migrate image (it has psql and jq) as an Argo CD Sync hook before the app pods
+# roll. It reads the deploy requirements manifest (tools/deploy-requirements, version 1) from the
+# app image and checks its "sqlx" requirements. A rollback to an older image needs only the
+# versions that the older image needs.
+#
+# Exit codes, the same as the Node schema check:
+#   0  every required version is applied (or shadow mode, or no manifest)
+#   1  required versions are still missing, or recorded as failed, when the wait ends
+#   2  the check cannot see the state: a database URL is not set, the manifest is malformed,
+#      or psql fails on the last attempt
+# In shadow mode the script logs the result that it would return, and exits 0.
+#
+# Environment:
+#   SCHEMA_CHECK_REQUIREMENTS      path of the manifest
+#   SCHEMA_CHECK_MODE              shadow (default) or enforce
+#   SCHEMA_CHECK_APP               app name for the log line
+#   SCHEMA_CHECK_WAIT_SECONDS      total wait, default 540 in enforce mode and 0 in shadow mode
+#   SCHEMA_CHECK_INTERVAL_SECONDS  pause between attempts, default 15
+#   <DATABASE>_DATABASE_URL        the URL of each database that the file names, for example
+#                                  PERSONS_DATABASE_URL for persons
+set -uo pipefail
+
+REQUIREMENTS="${SCHEMA_CHECK_REQUIREMENTS:-/shared/schema-requirements.json}"
+MODE="${SCHEMA_CHECK_MODE:-shadow}"
+APP="${SCHEMA_CHECK_APP:-unknown}"
+# Shadow mode checks once, so a pending migration cannot delay a rollout that it must not hold.
+if [ "$MODE" = "enforce" ]; then
+    WAIT_SECONDS="${SCHEMA_CHECK_WAIT_SECONDS:-540}"
+else
+    WAIT_SECONDS="${SCHEMA_CHECK_WAIT_SECONDS:-0}"
+fi
+INTERVAL_SECONDS="${SCHEMA_CHECK_INTERVAL_SECONDS:-15}"
+
+# Bound each psql call, so one slow database cannot use the whole wait. The connect timeout
+# covers the connection, timeout(1) covers a connection that goes silent later. The statement
+# timeout is set inside the transaction, because PgBouncer refuses it as a startup parameter.
+export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-5}"
+PSQL_TIMEOUT_SECONDS=20
+QUERY="begin; set local statement_timeout = 5000; select version, success from _sqlx_migrations; commit;"
+
+STARTED_AT=$(date +%s)
+
+# The same rule as rust/bin/migrate-entry and the charts hook: persons reads PERSONS_DATABASE_URL,
+# cyclotron-node reads CYCLOTRON_NODE_DATABASE_URL.
+url_variable() {
+    echo "$(echo "$1" | tr 'a-z-' 'A-Z_')_DATABASE_URL"
+}
+
+# libpq can print parts of a malformed URL, the password included, in its first error line.
+# The log keeps the message without quoted values and without the URL.
+redact() {
+    local message="$1" url="$2"
+    message="${message//"$url"/<url>}"
+    echo "$message" | sed -E 's/"[^"]*"/"<redacted>"/g; s#[a-z]+://[^ ]*#<url>#g'
+}
+
+# One JSON line per run, so the shadow evidence is one log query.
+finish() {
+    local result="$1" exit_code="$2"
+    local elapsed=$(($(date +%s) - STARTED_AT))
+    local final_exit="$exit_code"
+    if [ "$MODE" != "enforce" ]; then
+        final_exit=0
+    fi
+    jq -nc \
+        --arg app "$APP" --arg mode "$MODE" --arg result "$result" --arg digest "$DIGEST" \
+        --argjson would_exit "$exit_code" --argjson elapsed "$elapsed" \
+        --arg missing "$(printf '%s\n' "${MISSING[@]}")" --arg errors "$(printf '%s\n' "${ERRORS[@]}")" \
+        '{event: "deploy_requirements_check", app: $app, mode: $mode, result: $result,
+          would_exit: $would_exit, elapsed_seconds: $elapsed, digest: $digest,
+          missing: ($missing | split("\n") | map(select(. != ""))),
+          errors: ($errors | split("\n") | map(select(. != "")))}'
+    exit "$final_exit"
+}
+
+MISSING=()
+ERRORS=()
+DIGEST=""
+
+if [ ! -f "$REQUIREMENTS" ]; then
+    # An image built before the manifest existed. It rolls out as before.
+    finish "no_requirements_file" 0
+fi
+
+if [ "$MODE" != "shadow" ] && [ "$MODE" != "enforce" ]; then
+    ERRORS+=("SCHEMA_CHECK_MODE must be shadow or enforce, got '$MODE'")
+    MODE=enforce
+    finish "error" 2
+fi
+
+# An unknown kind is an error, like in the Node parser: skipping it would report a pass for a
+# requirement that nothing checked.
+if ! jq -e '
+    .schema_version == 1
+    and (.requirements | type == "array")
+    and all(.requirements[];
+        .kind == "sqlx"
+        and (.database | type == "string" and test("^[a-z][a-z0-9-]*$"))
+        and (.versions | type == "array" and length > 0 and all(.[]; type == "number" and . > 0 and . == floor)))
+    ' "$REQUIREMENTS" > /dev/null 2>&1; then
+    ERRORS+=("$REQUIREMENTS is not a schema_version 1 manifest with only sqlx requirements")
+    finish "error" 2
+fi
+DIGEST=$(jq -r '.digest // ""' "$REQUIREMENTS")
+# One "<database> <version>" line per required version.
+REQUIRED=$(jq -r '.requirements[] | .database as $database | .versions[] | "\($database) \(.)"' "$REQUIREMENTS" | sort -u)
+DATABASES=$(echo "$REQUIRED" | awk 'NF { print $1 }' | sort -u)
+
+for database in $DATABASES; do
+    variable=$(url_variable "$database")
+    if [ -z "${!variable:-}" ]; then
+        # Unlike a missing table, a missing URL never means "not used": the image declares it.
+        ERRORS+=("$variable is not set for database '$database'")
+    fi
+done
+if [ "${#ERRORS[@]}" -gt 0 ]; then
+    finish "error" 2
+fi
+
+check_once() {
+    MISSING=()
+    ERRORS=()
+    local database variable rows required
+    for database in $DATABASES; do
+        variable=$(url_variable "$database")
+        if ! rows=$(timeout "$PSQL_TIMEOUT_SECONDS" psql "${!variable}" -X -q -t -A -F ' ' -c "$QUERY" 2>&1); then
+            # A database that sqlx-migrate never ran on has no table yet: every version is missing.
+            if [[ "$rows" == *'relation "_sqlx_migrations" does not exist'* ]]; then
+                rows=""
+            elif [ -z "$rows" ]; then
+                ERRORS+=("$database: psql gave no answer within $PSQL_TIMEOUT_SECONDS s")
+                continue
+            else
+                ERRORS+=("$database: $(redact "$(echo "$rows" | head -1)" "${!variable}")")
+                continue
+            fi
+        fi
+        required=$(echo "$REQUIRED" | awk -v db="$database" '$1 == db { print $2 }')
+        while read -r version; do
+            [ -n "$version" ] || continue
+            if echo "$rows" | grep -qx "$version t"; then
+                continue
+            fi
+            if echo "$rows" | grep -qx "$version f"; then
+                # sqlx-migrate stops at a failed migration until someone repairs it.
+                MISSING+=("$database $version (recorded as failed)")
+            else
+                MISSING+=("$database $version")
+            fi
+        done <<< "$required"
+    done
+}
+
+deadline=$((STARTED_AT + WAIT_SECONDS))
+while true; do
+    check_once
+    if [ "${#ERRORS[@]}" -eq 0 ] && [ "${#MISSING[@]}" -eq 0 ]; then
+        finish "satisfied" 0
+    fi
+    remaining=$((deadline - $(date +%s)))
+    if [ "$remaining" -le 0 ]; then
+        break
+    fi
+    # The last pause ends at the deadline, so a migration that finishes inside the wait still counts.
+    if [ "$remaining" -lt "$INTERVAL_SECONDS" ]; then
+        sleep "$remaining"
+    else
+        sleep "$INTERVAL_SECONDS"
+    fi
+done
+
+# An error wins over missing versions, because the check could not see that database.
+if [ "${#ERRORS[@]}" -gt 0 ]; then
+    finish "error" 2
+fi
+finish "missing" 1

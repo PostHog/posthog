@@ -16,6 +16,7 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
@@ -51,7 +52,7 @@ if TYPE_CHECKING:
 
     from posthog.models.team import Team
 
-    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.facade.contracts import AppliedDashboard
 
 
 class InsightManager(RootTeamManager):
@@ -284,7 +285,7 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
         return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
 
     def dashboard_filters(
-        self, dashboard: Optional["Dashboard"] = None, dashboard_filters_override: Optional[dict] = None
+        self, dashboard: Optional["AppliedDashboard"] = None, dashboard_filters_override: Optional[dict] = None
     ):
         # query date range is set in a different function, see dashboard_query
         if (dashboard is not None or dashboard_filters_override is not None) and not self.query:
@@ -361,7 +362,7 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
     def get_effective_query(
         self,
         *,
-        dashboard: Optional["Dashboard"],
+        dashboard: Optional["AppliedDashboard"],
         dashboard_filters_override: Optional[dict] = None,
         dashboard_variables_override: Optional[dict[str, dict]] = None,
     ) -> Optional[dict]:
@@ -480,7 +481,7 @@ class InsightViewed(models.Model):
 
 
 @timed("generate_insight_cache_key")
-def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboard"]) -> str:
+def generate_insight_filters_hash(insight: Insight, dashboard: Optional["AppliedDashboard"]) -> str:
     # `dashboard_filters()` adds `date_from` and `date_to` whenever a dashboard is applied, so
     # dropping None values keeps a dashboard with no date range hashing as the bare insight.
     try:
@@ -500,3 +501,23 @@ def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboa
             exc_info=True,
         )
         raise
+
+
+class InsightAgentRead(TeamScopedRootMixin):
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    insight = models.ForeignKey(Insight, on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    day = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "insight", "day"], name="product_analytics_unique_agent_read_day"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "-day"], name="product_analytics_agent_recent"),
+            models.Index(fields=["day"], name="product_analytics_agent_day"),
+        ]

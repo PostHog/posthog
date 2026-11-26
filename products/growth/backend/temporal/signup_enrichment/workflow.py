@@ -44,11 +44,8 @@ ENRICH_ACTIVITY_TIMEOUT = dt.timedelta(seconds=90)
 MAX_ENRICH_ATTEMPTS = 3
 
 # Harmonic's enrich mutation seeds async enrichment for a company it doesn't yet index, so a
-# domain it can't match at signup often resolves a few hours later. The delay also gives Clay's
-# own bridge columns (icp_est_revenue, icp_company_type) time to land — Clay's write lands after
-# ours far more often than not, so scoring at signup alone would frequently undercount. One
-# delayed recheck, run unconditionally for every org, recovers late-indexed companies and
-# rescores against Clay's columns alike, without polling.
+# domain it can't match at signup often resolves a few hours later. One delayed recheck, run
+# unconditionally for every org, recovers late-indexed companies without polling.
 RECHECK_DELAY = dt.timedelta(hours=4)
 
 
@@ -162,6 +159,7 @@ async def enrich_signup_organization_activity(
                     distinct_id=inputs.distinct_id,
                     event=ENRICHMENT_RECHECK_EVENT,
                     properties={
+                        "$update_person_last_seen_at": False,
                         "upgraded": matched and not first_attempt_matched,
                         "fields_filled": len(filled),
                         "organization_id": inputs.organization_id,
@@ -177,6 +175,7 @@ async def enrich_signup_organization_activity(
                     distinct_id=inputs.distinct_id,
                     event=ENRICHMENT_SIGNAL_EVENT,
                     properties={
+                        "$update_person_last_seen_at": False,
                         "success": True,
                         "matched": matched,
                         "fields_filled": sorted(filled.keys()),
@@ -196,7 +195,7 @@ async def enrich_signup_organization_activity(
             pha_client.capture(
                 distinct_id=inputs.distinct_id,
                 event=ENRICHMENT_SIGNAL_EVENT,
-                properties={"success": False, "error": type(e).__name__},
+                properties={"$update_person_last_seen_at": False, "success": False, "error": type(e).__name__},
                 groups={"organization": inputs.organization_id},
             )
         raise

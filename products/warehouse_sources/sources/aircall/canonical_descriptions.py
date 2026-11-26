@@ -97,6 +97,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "description": "Description of what the tag is used for.",
         },
     },
+    "user_availabilities": {
+        "description": "The current availability of each Aircall user, as shown in the Activity Feed, one row per user.",
+        "docs_url": "https://developer.aircall.io/api-references/#retrieve-list-of-users-availability",
+        "columns": {
+            "id": "Unique identifier for the user.",
+            "availability": "Current detailed availability of the user (for example available, offline, do_not_disturb, or after_call_work).",
+        },
+    },
     "call_transcriptions": {
         "description": "The AI-generated transcription of a call, one row per call. Requires the AI Assist add-on.",
         "docs_url": "https://developer.aircall.io/api-references/#retrieve-a-transcription",
@@ -139,6 +147,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "reviewed_at": "Time the evaluation was reviewed, as an ISO 8601 timestamp.",
             "created_at": "Time the evaluation was created, as an ISO 8601 timestamp.",
             "updated_at": "Time the evaluation was last updated, as an ISO 8601 timestamp.",
+        },
+    },
+    "call_predicted_csats": {
+        "description": "AI-predicted customer satisfaction (CSAT) score for a call, with the drivers behind it, one row per call. Requires the AI Assist add-on.",
+        "docs_url": "https://developer.aircall.io/api-references/#retrieve-predicted-csat",
+        "columns": {
+            "call_id": "Identifier of the call this prediction belongs to.",
+            "call_uuid": "UUID of the call this prediction belongs to.",
+            "score": "Predicted CSAT score for the call.",
+            "drivers": "The factors behind the score, each with a polarity (POSITIVE or NEGATIVE) and a label.",
+        },
+    },
+    "call_summaries": {
+        "description": "AI-generated summary of a call, one row per call. Requires the AI Assist add-on.",
+        "docs_url": "https://developer.aircall.io/api-references/#retrieve-a-summary",
+        "columns": {
+            "call_id": "Identifier of the call this summary belongs to.",
+            "id": "Unique identifier for the summary.",
+            "content": "Text of the call summary.",
+            "created_at": "Time the summary was generated, as an ISO 8601 timestamp.",
+        },
+    },
+    "call_custom_summary_results": {
+        "description": "Result of a custom summary template applied to a call, one row per call. Requires the AI Assist Pro package.",
+        "docs_url": "https://developer.aircall.io/api-references/#retrieve-a-custom-summary-result",
+        "columns": {
+            "call_id": "Identifier of the call this custom summary result belongs to.",
+            "id": "Unique identifier for the custom summary result.",
+            "custom_summary": "The custom summary template that produced the result, with its name.",
+            "language": "Language of the custom summary result.",
+            "number_id": "Identifier of the Aircall number the call went through.",
+            "summary_template_results": "The filled-in template sections, each with its name, type, content, and whether AI generated it.",
         },
     },
     "campaigns": {

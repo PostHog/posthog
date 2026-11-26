@@ -34,6 +34,7 @@ import {
     ExcludedOperators,
     ExcludedProperties,
     InfiniteListLogicProps,
+    LeadingSearchItem,
     META_GROUP_TYPES,
     QuickFilterItem,
     SelectingKeyOnly,
@@ -48,6 +49,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import type { TaxonomicFilterGroupValueMap } from 'lib/components/TaxonomicFilter/types'
 import {
     buildUrlContainsShortcut,
     COLLAPSED_TO_CONTAINS_ROW,
@@ -74,9 +76,13 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition, GroupTypeIndex, PropertyType, TeamPublicType, TeamType } from '~/types'
 
+import type { DataWarehouseTableForInsight } from '../../../../../products/data_warehouse/frontend/types'
+import type { MaxContextTaxonomicFilterOption } from '../../../scenes/max/maxTypes'
 import { teamLogic } from '../../../scenes/teamLogic'
-import { getItemGroup } from './InfiniteList'
+import type { ActionType, PersonProperty, PropertyDefinition } from '../../../types'
+import { getItemGroup, getItemValue } from './InfiniteList'
 import type { SelectItemMeta, TopMatchItem } from './taxonomicFilterLogic'
+import type { HiddenEventStandIn } from './types'
 
 function pinnedItemMatchesSearch(
     item: TaxonomicDefinitionTypes,
@@ -276,6 +282,7 @@ export interface infiniteListLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     allowNonCapturedEvents: boolean
+    allowNonCapturedPersonProperties: boolean
     contextFilteredPinnedItems: TaxonomicDefinitionTypes[]
     contextFilteredRecentItems: TaxonomicDefinitionTypes[]
     dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[]
@@ -309,11 +316,22 @@ export interface infiniteListLogicValues {
         count: number
         first: boolean | undefined
         queryChanged: boolean | undefined
-        results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+        results: (
+            | ActionType
+            | CohortType
+            | DataWarehouseTableForInsight
+            | EventDefinition
+            | HiddenEventStandIn
+            | MaxContextTaxonomicFilterOption
+            | PersonProperty
+            | PropertyDefinition
+            | QuickFilterItem
+            | SkeletonItem
+        )[]
         searchQuery: string | undefined
         syntheticSelectedCount: number
     }
-    keywordShortcutItems: QuickFilterItem[]
+    leadingSearchItems: LeadingSearchItem[]
     limit: number
     listGroupType: TaxonomicFilterGroupType
     localItems: ListStorage
@@ -342,7 +360,7 @@ export interface infiniteListLogicValues {
     showEmptyState: boolean
     showErrorState: boolean
     showLoadingState: boolean
-    showNonCapturedEventOption: boolean
+    showNonCapturedOption: boolean
     showPopover: boolean
     showSuggestedFiltersEmptyState: boolean
     soleGroupHasGetValue: boolean
@@ -534,12 +552,12 @@ export interface infiniteListLogicActions {
     updateRemoteItemSuccess: (
         remoteItems: {
             count: number
-            expandedCount?: number | undefined
-            first?: boolean | undefined
-            loadDurationMs?: number | undefined
-            queryChanged?: boolean | undefined
+            expandedCount?: number
+            first?: boolean
+            loadDurationMs?: number
+            queryChanged?: boolean
             results: TaxonomicDefinitionTypes[]
-            searchQuery?: string | undefined
+            searchQuery?: string
         },
         payload?: {
             item: TaxonomicDefinitionTypes
@@ -547,12 +565,12 @@ export interface infiniteListLogicActions {
     ) => {
         remoteItems: {
             count: number
-            expandedCount?: number | undefined
-            first?: boolean | undefined
-            loadDurationMs?: number | undefined
-            queryChanged?: boolean | undefined
+            expandedCount?: number
+            first?: boolean
+            loadDurationMs?: number
+            queryChanged?: boolean
             results: TaxonomicDefinitionTypes[]
-            searchQuery?: string | undefined
+            searchQuery?: string
         }
         payload?: {
             item: TaxonomicDefinitionTypes
@@ -574,7 +592,7 @@ export interface infiniteListLogicMeta {
             listGroupType: TaxonomicFilterGroupType
         ) => boolean
         excludedPropertiesWithHiddenEvents: (
-            arg: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined,
+            arg: TaxonomicFilterGroupValueMap | undefined,
             currentTeam: TeamPublicType | TeamType | null,
             arg2: boolean | undefined
         ) => ExcludedProperties | undefined
@@ -583,16 +601,12 @@ export interface infiniteListLogicMeta {
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             excludedOperators: ExcludedOperators | undefined,
             arg: SelectingKeyOnly | undefined,
-            excludedPropertiesWithHiddenEvents:
-                | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
-                | undefined
+            excludedPropertiesWithHiddenEvents: TaxonomicFilterGroupValueMap | undefined
         ) => TaxonomicDefinitionTypes[]
         contextFilteredPinnedItems: (
             pinnedFilterItems: TaxonomicDefinitionTypes[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            excludedPropertiesWithHiddenEvents:
-                | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
-                | undefined
+            excludedPropertiesWithHiddenEvents: TaxonomicFilterGroupValueMap | undefined
         ) => TaxonomicDefinitionTypes[]
         isSoleSubstantiveGroup: (
             listGroupType: TaxonomicFilterGroupType,
@@ -604,6 +618,7 @@ export interface infiniteListLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[]
         ) => boolean
         allowNonCapturedEvents: (arg: any) => boolean
+        allowNonCapturedPersonProperties: (arg: any) => boolean
         isLocalDataLoading: (arg: any) => boolean
         isLoading: (remoteItemsLoading: boolean, isLocalDataLoading: boolean) => boolean
         group: (
@@ -634,8 +649,9 @@ export interface infiniteListLogicMeta {
             searchQuery: string,
             remoteFetchFailed: string | null
         ) => boolean
-        showNonCapturedEventOption: (
+        showNonCapturedOption: (
             allowNonCapturedEvents: boolean,
+            allowNonCapturedPersonProperties: boolean,
             listGroupType: TaxonomicFilterGroupType,
             searchQuery: string,
             isLoading: boolean,
@@ -661,7 +677,7 @@ export interface infiniteListLogicMeta {
             suggestedFiltersSettling: boolean,
             searchQuery: string,
             hasRemoteDataSource: boolean,
-            showNonCapturedEventOption: boolean,
+            showNonCapturedOption: boolean,
             needsMoreSearchCharacters: boolean,
             remoteResultsAreFresh: boolean,
             showErrorState: boolean
@@ -695,7 +711,7 @@ export interface infiniteListLogicMeta {
             remoteItems: ListStorage,
             searchQuery: string,
             hasRemoteDataSource: boolean,
-            keywordShortcutItems: QuickFilterItem[],
+            leadingSearchItems: LeadingSearchItem[],
             listGroupType: TaxonomicFilterGroupType,
             arg: boolean | undefined
         ) => TaxonomicDefinitionTypes[]
@@ -711,11 +727,11 @@ export interface infiniteListLogicMeta {
             listGroupType: TaxonomicFilterGroupType,
             taxonomicGroups: TaxonomicFilterGroup[]
         ) => TaxonomicDefinitionTypes[]
-        keywordShortcutItems: (
+        leadingSearchItems: (
             group: TaxonomicFilterGroup | undefined,
             searchQuery: string,
             arg: any
-        ) => QuickFilterItem[]
+        ) => LeadingSearchItem[]
         dedupedTopMatches: (
             topMatchItemsWithSkeletons: (SkeletonItem | TopMatchItem)[],
             listGroupType: TaxonomicFilterGroupType,
@@ -745,7 +761,7 @@ export interface infiniteListLogicMeta {
             contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
             suggestedPinnedMatches: TaxonomicDefinitionTypes[],
             suggestedRecentMatches: TaxonomicDefinitionTypes[],
-            keywordShortcutItems: QuickFilterItem[],
+            leadingSearchItems: LeadingSearchItem[],
             isSoleSubstantiveGroup: boolean,
             soleGroupHasGetValue: boolean,
             taxonomicGroups: TaxonomicFilterGroup[],
@@ -760,7 +776,18 @@ export interface infiniteListLogicMeta {
             count: number
             first: boolean | undefined
             queryChanged: boolean | undefined
-            results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+            results: (
+                | ActionType
+                | CohortType
+                | DataWarehouseTableForInsight
+                | EventDefinition
+                | HiddenEventStandIn
+                | MaxContextTaxonomicFilterOption
+                | PersonProperty
+                | PropertyDefinition
+                | QuickFilterItem
+                | SkeletonItem
+            )[]
             searchQuery: string | undefined
             syntheticSelectedCount: number
         }
@@ -768,7 +795,18 @@ export interface infiniteListLogicMeta {
             count: number
             first: boolean | undefined
             queryChanged: boolean | undefined
-            results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+            results: (
+                | ActionType
+                | CohortType
+                | DataWarehouseTableForInsight
+                | EventDefinition
+                | HiddenEventStandIn
+                | MaxContextTaxonomicFilterOption
+                | PersonProperty
+                | PropertyDefinition
+                | QuickFilterItem
+                | SkeletonItem
+            )[]
             searchQuery: string | undefined
             syntheticSelectedCount: number
         }) => number
@@ -786,7 +824,18 @@ export interface infiniteListLogicMeta {
             count: number
             first: boolean | undefined
             queryChanged: boolean | undefined
-            results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+            results: (
+                | ActionType
+                | CohortType
+                | DataWarehouseTableForInsight
+                | EventDefinition
+                | HiddenEventStandIn
+                | MaxContextTaxonomicFilterOption
+                | PersonProperty
+                | PropertyDefinition
+                | QuickFilterItem
+                | SkeletonItem
+            )[]
             searchQuery: string | undefined
             syntheticSelectedCount: number
         }) => QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
@@ -796,7 +845,7 @@ export interface infiniteListLogicMeta {
             results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
         ) => boolean
         rowCount: (
-            showNonCapturedEventOption: boolean,
+            showNonCapturedOption: boolean,
             results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
             isLoading: boolean,
             totalListCount: number,
@@ -817,7 +866,18 @@ export interface infiniteListLogicMeta {
                 count: number
                 first: boolean | undefined
                 queryChanged: boolean | undefined
-                results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                results: (
+                    | ActionType
+                    | CohortType
+                    | DataWarehouseTableForInsight
+                    | EventDefinition
+                    | HiddenEventStandIn
+                    | MaxContextTaxonomicFilterOption
+                    | PersonProperty
+                    | PropertyDefinition
+                    | QuickFilterItem
+                    | SkeletonItem
+                )[]
                 searchQuery: string | undefined
                 syntheticSelectedCount: number
             }
@@ -1284,6 +1344,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        allowNonCapturedPersonProperties: [
+            () => [(_, props) => props.allowNonCapturedPersonProperties],
+            (allowNonCapturedPersonProperties: boolean | undefined) => allowNonCapturedPersonProperties ?? false,
+        ],
         isLocalDataLoading: [
             (selectors) => [
                 (state, props: InfiniteListLogicProps) => {
@@ -1390,9 +1454,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return isLocalOnly || currentQueryFailed || currentQuerySettled
             },
         ],
-        showNonCapturedEventOption: [
+        showNonCapturedOption: [
             (s) => [
                 s.allowNonCapturedEvents,
+                s.allowNonCapturedPersonProperties,
                 s.listGroupType,
                 s.searchQuery,
                 s.isLoading,
@@ -1402,6 +1467,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ],
             (
                 allowNonCapturedEvents: boolean,
+                allowNonCapturedPersonProperties: boolean,
                 listGroupType: TaxonomicFilterGroupType,
                 searchQuery: string,
                 isLoading: boolean,
@@ -1409,20 +1475,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 excludedProperties: string[] | undefined,
                 remoteFetchFailed: string | null
             ): boolean => {
-                if (!allowNonCapturedEvents) {
-                    return false
-                }
-                if (
-                    listGroupType !== TaxonomicFilterGroupType.CustomEvents &&
-                    listGroupType !== TaxonomicFilterGroupType.Events
-                ) {
+                const allowedForGroup =
+                    (allowNonCapturedPersonProperties && listGroupType === TaxonomicFilterGroupType.PersonProperties) ||
+                    (allowNonCapturedEvents &&
+                        (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+                            listGroupType === TaxonomicFilterGroupType.Events))
+                if (!allowedForGroup) {
                     return false
                 }
                 const trimmedSearch = searchQuery.trim()
                 if (trimmedSearch.length === 0 || isLoading || remoteFetchFailed === searchQuery) {
                     return false
                 }
-                // Offering an excluded name would let it be selected as a non-captured event,
+                // Offering an excluded name would let it be selected as a non-captured name,
                 // committing the value the exclusion forbids. A hidden event is excluded by its
                 // label and case variants too, so match it the same way the empty state does —
                 // otherwise a label search offers a "not seen yet" row for a name no event carries
@@ -1476,7 +1541,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedFiltersSettling,
                 s.searchQuery,
                 s.hasRemoteDataSource,
-                s.showNonCapturedEventOption,
+                s.showNonCapturedOption,
                 s.needsMoreSearchCharacters,
                 s.remoteResultsAreFresh,
                 s.showErrorState,
@@ -1487,7 +1552,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 suggestedFiltersSettling: boolean,
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
-                showNonCapturedEventOption: boolean,
+                showNonCapturedOption: boolean,
                 needsMoreSearchCharacters: boolean,
                 remoteResultsAreFresh: boolean,
                 showErrorState: boolean
@@ -1502,7 +1567,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // `suggestedFiltersSettling`).
                     !suggestedFiltersSettling &&
                     (!!searchQuery || !hasRemoteDataSource) &&
-                    !showNonCapturedEventOption) ||
+                    !showNonCapturedOption) ||
                 needsMoreSearchCharacters,
         ],
         showLoadingState: [
@@ -1555,11 +1620,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                         return items
                     }
-                    if (group?.options) {
-                        return group.options
-                    }
+                    // A caller's options win over the group's defaults, so one group can serve several contexts.
                     if (props.optionsFromProp && Object.keys(props.optionsFromProp).includes(props.listGroupType)) {
                         return props.optionsFromProp[props.listGroupType]
+                    }
+                    if (group?.options) {
+                        return group.options
                     }
                     return null
                 },
@@ -1659,7 +1725,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.remoteItems,
                 s.searchQuery,
                 s.hasRemoteDataSource,
-                s.keywordShortcutItems,
+                s.leadingSearchItems,
                 s.listGroupType,
                 (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
@@ -1668,7 +1734,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 remoteItems: ListStorage,
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
-                keywordShortcutItems: QuickFilterItem[],
+                leadingSearchItems: LeadingSearchItem[],
                 listGroupType: TaxonomicFilterGroupType,
                 collapseUrlsToContainsRow: boolean | undefined
             ): TaxonomicDefinitionTypes[] => {
@@ -1692,7 +1758,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const realMatches = promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
                 // Shortcuts lead the group's top-match contribution so the aggregated SuggestedFilters
                 // tab surfaces them above real events with the same name.
-                return [...keywordShortcutItems, ...realMatches]
+                return [...leadingSearchItems, ...realMatches]
             },
         ],
         suggestedPinnedMatches: [
@@ -1729,14 +1795,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 )
             },
         ],
-        keywordShortcutItems: [
+        leadingSearchItems: [
             (s) => [s.group, s.searchQuery, (_, props) => props.enableKeywordShortcuts],
             (
                 group: TaxonomicFilterGroup | undefined,
                 searchQuery: string,
                 enableKeywordShortcuts: boolean | undefined
-            ): QuickFilterItem[] =>
-                enableKeywordShortcuts && searchQuery.trim() ? (group?.keywordShortcuts?.(searchQuery) ?? []) : [],
+            ): LeadingSearchItem[] =>
+                searchQuery.trim()
+                    ? [
+                          ...(group?.hiddenEventStandIns?.(searchQuery) ?? []),
+                          ...((enableKeywordShortcuts && group?.keywordShortcuts?.(searchQuery)) || []),
+                      ]
+                    : [],
         ],
         // Deduped per-group top matches for the SuggestedFilters tab: when a search surfaces the
         // same `{ groupType, value }` from a per-group top-match AND from a recent/pinned row,
@@ -1842,7 +1913,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.contextFilteredPinnedItems,
                 s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
-                s.keywordShortcutItems,
+                s.leadingSearchItems,
                 s.isSoleSubstantiveGroup,
                 s.soleGroupHasGetValue,
                 s.taxonomicGroups,
@@ -1860,7 +1931,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
                 suggestedPinnedMatches: TaxonomicDefinitionTypes[],
                 suggestedRecentMatches: TaxonomicDefinitionTypes[],
-                keywordShortcutItems: QuickFilterItem[],
+                leadingSearchItems: LeadingSearchItem[],
                 isSoleSubstantiveGroup: boolean,
                 soleGroupHasGetValue: boolean,
                 taxonomicGroups: TaxonomicFilterGroup[],
@@ -1911,7 +1982,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // so the user sees something useful while remote groups are still loading behind
                 // the reveal barrier.
                 const combinedResults = [
-                    ...keywordShortcutItems,
+                    ...leadingSearchItems,
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedRecentMatches,
@@ -2074,7 +2145,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     syntheticSelectedCount,
                     count:
                         syntheticSelectedCount +
-                        keywordShortcutItems.length +
+                        leadingSearchItems.length +
                         recentPrefix.length +
                         pinnedPrefix.length +
                         suggestedRecentMatches.length +
@@ -2155,20 +2226,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         rowCount: [
             (s) => [
-                s.showNonCapturedEventOption,
+                s.showNonCapturedOption,
                 s.results,
                 s.isLoading,
                 s.totalListCount,
                 s.showSuggestedFiltersEmptyState,
             ],
             (
-                showNonCapturedEventOption: boolean,
+                showNonCapturedOption: boolean,
                 results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
                 isLoading: boolean,
                 totalListCount: number,
                 showSuggestedFiltersEmptyState: boolean
             ): number =>
-                showNonCapturedEventOption
+                showNonCapturedOption
                     ? 1
                     : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0) +
                       (showSuggestedFiltersEmptyState ? 1 : 0),
@@ -2265,11 +2336,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                 }
                 if (loadFrom !== null) {
-                    // The synthetic selected row (when present) sits before the remote block,
-                    // so it shifts every remote row's display index by one — subtract it along
-                    // with the local rows to recover the true remote offset.
+                    // Leading search rows, local rows and the synthetic selected row all sit before the
+                    // remote block. Subtract each of them to recover the true remote offset.
                     const offset =
-                        (loadFrom || startIndex) - values.localItems.count - (values.items.syntheticSelectedCount ?? 0)
+                        (loadFrom || startIndex) -
+                        values.leadingSearchItems.length -
+                        values.localItems.count -
+                        (values.items.syntheticSelectedCount ?? 0)
                     actions.loadRemoteItems({ offset, limit: values.limit })
                 }
             }
@@ -2338,7 +2411,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         selectSelected: () => {
             if (values.isExpandableButtonSelected) {
                 actions.expand()
-            } else if (values.showNonCapturedEventOption && values.group) {
+            } else if (values.showNonCapturedOption && values.group) {
                 actions.selectItem(
                     values.group,
                     values.trimmedSearchQuery,
@@ -2351,7 +2424,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem && itemGroup) {
-                    const itemValue = selectedItem ? itemGroup.getValue?.(selectedItem) : null
+                    const itemValue = selectedItem ? getItemValue(selectedItem, itemGroup) : null
                     actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
                         position: values.index,
                     })
@@ -2406,7 +2479,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 values.isActiveTab &&
                 trimmedQuery.length > 0 &&
                 queryReachedBackend &&
-                remoteItems.results.length === 0
+                remoteItems.results.length === 0 &&
+                // A stand-in row is a result the user can pick, so the search did not come up empty.
+                !values.group?.hiddenEventStandIns?.(trimmedQuery).length
             ) {
                 const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
                 if (cache.lastEmptyResultDedupeKey !== dedupeKey) {

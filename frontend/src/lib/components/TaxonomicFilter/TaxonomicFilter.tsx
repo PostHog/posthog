@@ -39,6 +39,7 @@ export function TaxonomicFilter({
     width,
     excludedProperties,
     includeHiddenEvents,
+    offerHiddenEventStandIns,
     selectedProperties,
     popoverEnabled = true,
     selectFirstItem = true,
@@ -50,6 +51,7 @@ export function TaxonomicFilter({
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
     maxContextOptions,
     allowNonCapturedEvents = false,
+    allowNonCapturedPersonProperties = false,
     hogQLGlobals,
     hogQLExpressionShowBreakdownLabelHint,
     definitionPopoverRenderer,
@@ -87,6 +89,7 @@ export function TaxonomicFilter({
         promoteSelectedItemToFirstPosition,
         excludedProperties,
         includeHiddenEvents,
+        offerHiddenEventStandIns,
         selectedProperties,
         metadataSource,
         propertyAllowList,
@@ -96,6 +99,7 @@ export function TaxonomicFilter({
         dataWarehousePopoverFields,
         autoSelectItem: true,
         allowNonCapturedEvents,
+        allowNonCapturedPersonProperties,
         maxContextOptions,
         hogQLGlobals,
         hogQLExpressionShowBreakdownLabelHint,
@@ -183,12 +187,24 @@ export const TaxonomicFilterSearchInput = forwardRef<
         onClose: TaxonomicFilterProps['onClose']
         eventName?: string
         focusInput?: () => void
+        compactCategoryDropdown?: boolean
     } & Pick<
         LemonInputPropsText,
         'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus' | 'placeholder'
     >
 >(function UniversalSearchInput(
-    { searchInputRef, onClose, onChange, autoFocus = true, placeholder, eventName, focusInput, prefix, ...props },
+    {
+        searchInputRef,
+        onClose,
+        onChange,
+        autoFocus = true,
+        placeholder,
+        eventName,
+        focusInput,
+        prefix,
+        compactCategoryDropdown,
+        ...props
+    },
     ref
 ): JSX.Element {
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
@@ -211,7 +227,14 @@ export const TaxonomicFilterSearchInput = forwardRef<
         onChange?.(query)
     }
 
-    const categoryDropdown = <CategoryDropdown eventName={eventName} onAfterChange={focusInput} joinedToInput />
+    const categoryDropdown = (
+        <CategoryDropdown
+            eventName={eventName}
+            onAfterChange={focusInput}
+            joinedToInput
+            compact={compactCategoryDropdown}
+        />
+    )
 
     return (
         <LemonInput

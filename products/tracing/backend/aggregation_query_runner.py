@@ -17,7 +17,7 @@ windows in parallel when set.
 
 import datetime as dt
 from functools import cached_property
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -28,9 +28,8 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     PropertyGroupsMode,
+    ResolvedDateRangeResponse,
     SpanHealthStatus,
-    SpanPropertyFilter,
-    SpanPropertyFilterType,
     SpanTreeNode,
     TraceSpansAggregationQuery,
     TraceSpansAggregationQueryResponse,
@@ -42,7 +41,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -53,14 +51,16 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 
+from .facade.contracts import TRACING_QUERY_STATUS_LABEL
+
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
 from .logic import (
     _ROW_LIMIT,
     TIME_BUCKET_DATE_RANGE_WHERE,
-    translate_span_filter,
-    with_attribute_set_guards,
-    with_span_attribute_type_suffix,
+    assert_tracing_viewer,
+    span_filter_exprs,
+    split_span_filters,
 )
 from .models import TracingIdentityAttributeKeys
 from .service_health_query_runner import ServiceWindowStats, classify_service
@@ -68,6 +68,8 @@ from .span_identity import identity_value_expr, str_attr_field
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class _SpanAggregationMixin:
@@ -88,34 +90,20 @@ class _SpanAggregationMixin:
         modifiers: HogQLQueryModifiers
         timings: HogQLTimings
         limit_context: LimitContext
+        user: "User | None"
+
+        @property
+        def user_access_control(self) -> "UserAccessControl | None": ...
 
     def _extract_filters(self) -> None:
-        # Replicates the filter extraction the per-trace runner mixin does. We can't reuse
-        # that mixin directly: it validates against TraceSpansQuery and wires a paginator
-        # that does not apply here.
-        self.span_filters: list[SpanPropertyFilter] = []
-        self.span_attribute_filters: list[SpanPropertyFilter] = []
-        self.resource_attribute_filters: list[SpanPropertyFilter] = []
-        filter_group = self.query.filterGroup
-        if not filter_group or not filter_group.values:
-            return
-
-        for property_group in filter_group.values:
-            for prop in property_group.values:
-                prop_type = getattr(prop, "type", None)
-                if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
-                    self.resource_attribute_filters.append(cast(SpanPropertyFilter, prop))
-                elif prop_type == SpanPropertyFilterType.SPAN:
-                    self.span_filters.append(cast(SpanPropertyFilter, prop))
-                elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
-                    if isinstance(prop, SpanPropertyFilter):
-                        prop = with_span_attribute_type_suffix(prop)
-                    self.span_attribute_filters.append(cast(SpanPropertyFilter, prop))
+        self.filters = split_span_filters(self.query.filterGroup)
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        from products.access_control.backend.facade.user_access_control import UserAccessControlError
+        return assert_tracing_viewer(user, self.team, self.user_access_control if self.user == user else None)
 
-        raise UserAccessControlError("tracing", "viewer")
+    def query_status_labels(self) -> list[str] | None:
+        # Retrieving an async result skips validate_query_runner_access, so the status asks for the check again.
+        return [TRACING_QUERY_STATUS_LABEL]
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
@@ -208,26 +196,7 @@ class _SpanAggregationMixin:
         # different range. We rebuild a smaller clause here that just covers filters,
         # and let `_build_query` add the time clause inline using its parameter.
         exprs: list[ast.Expr] = [ast.Placeholder(expr=ast.Field(chain=["filters"]))]
-
-        if self.query.serviceNames:
-            exprs.append(
-                parse_expr(
-                    "service_name IN {serviceNames}",
-                    placeholders={
-                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
-                    },
-                )
-            )
-
-        if self.span_filters or self.span_attribute_filters or self.resource_attribute_filters:
-            for span_filter in self.span_filters:
-                translate_span_filter(span_filter)
-                exprs.append(property_to_expr(span_filter, team=self.team))
-            if self.span_attribute_filters:
-                exprs.append(property_to_expr(with_attribute_set_guards(self.span_attribute_filters), team=self.team))
-            for resource_filter in with_attribute_set_guards(self.resource_attribute_filters):
-                exprs.append(property_to_expr(resource_filter, team=self.team))
-
+        exprs.extend(span_filter_exprs(self.team, self.filters, service_names=self.query.serviceNames))
         return ast.And(exprs=exprs)
 
     # --- subclass hooks ---
@@ -295,7 +264,13 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             self._classify(current_rows, previous_rows or [])
             if not (self.query.compareFilter and self.query.compareFilter.compare):
                 previous_rows = None
-        return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
+        return TraceSpansAggregationQueryResponse(
+            results=current_rows,
+            compare=previous_rows,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(), date_to=self.query_date_range.date_to()
+            ),
+        )
 
     def _classify(self, current_rows: list[AggregatedSpanRow], baseline_rows: list[AggregatedSpanRow]) -> None:
         # shortcut: rows carry no last-seen time, so silent never fires. Add a last_seen column if per-endpoint
@@ -371,7 +346,9 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 sum(duration_nano) AS total_duration_nano,
                 avg(duration_nano) AS avg_duration_nano,
                 quantiles(0.5, 0.95, 0.99, 0.999)(duration_nano) AS duration_quantiles,
-                countIf(status_code = 2) AS error_count"""
+                countIf(status_code = 2) AS error_count,
+                -- The spans a traces alert measures, so the UI only offers alerts on rows that have them.
+                countIf(is_root_span = 1 OR kind IN (2, 5)) AS entry_span_count"""
             + impact_columns
             + """
             FROM posthog.trace_spans
@@ -405,16 +382,12 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             p99_duration_nano=float(p99 or 0),
             p999_duration_nano=float(p999 or 0),
             error_count=row[6] or 0,
-            sessions=row[7] if with_impact else None,
-            users=row[8] if with_impact else None,
-            spans_with_session_id=row[9] if with_impact else None,
-            spans_with_distinct_id=row[10] if with_impact else None,
+            entry_span_count=row[7] or 0,
+            sessions=row[8] if with_impact else None,
+            users=row[9] if with_impact else None,
+            spans_with_session_id=row[10] if with_impact else None,
+            spans_with_distinct_id=row[11] if with_impact else None,
         )
-
-    def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
-        response = super().run(*args, **kwargs)
-        assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
-        return response
 
 
 def _window_stats(row: AggregatedSpanRow, last_seen: dt.datetime) -> ServiceWindowStats:

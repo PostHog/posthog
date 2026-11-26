@@ -10,7 +10,12 @@
                 "backend/tasks/**",
                 "backend/models.py",
                 "backend/migrations/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/admin.py",
+                "backend/apps.py",
+                "backend/signals.py",
+                "backend/console.py",
+                "backend/logic/__init__.py"
             ],
             "outputs": [],
             "cache": true

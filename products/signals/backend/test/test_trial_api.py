@@ -14,10 +14,11 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalSpend
+from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalSpend, SignalTeamConfig
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
+from products.signals.backend.trial.experiment import TRIAL_REPORT_LIMIT_EXPERIMENT
 from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import TrialPolicy
+from products.signals.backend.trial.policy import PRICING_LAUNCHED_AT, TrialPolicy
 from products.signals.backend.usage import trial_usage
 from products.skills.backend.models.skills import LLMSkill
 
@@ -69,8 +70,8 @@ class TestTrialAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("trial", "member", 3, 403),
-            ("source", "member", 3, 403),
+            ("trial", "member", 3, 200),
+            ("source", "member", 3, 201),
             ("trial", "owner", 3, 200),
             ("source", "admin", 3, 201),
             ("trial", "member", 0, 200),
@@ -129,7 +130,7 @@ class TestTrialAPI(APIBaseTest):
         assert SignalTrialGrant.objects.for_team(self.team.id).exists() is allowed
         for scout in scouts:
             scout.refresh_from_db()
-        assert [scout.enabled for scout in scouts] == ([True, True, True, False] if allowed else [True] * 4)
+        assert [scout.enabled for scout in scouts] == [True] * 4
         if path == "source":
             assert SignalSourceConfig.objects.filter(team=self.team, enabled=True).exists() is allowed
 
@@ -140,8 +141,8 @@ class TestTrialAPI(APIBaseTest):
             for parent_access, scout_scope, count, allowed in (
                 (False, "signal_scout:write", 4, False),
                 (True, "signal_scout:write", 4, True),
-                (True, None, 4, False),
-                (True, "signal_scout:read", 4, False),
+                (True, None, 4, True),
+                (True, "signal_scout:read", 4, True),
                 (True, "*", 4, True),
                 (True, None, 3, True),
             )
@@ -183,7 +184,7 @@ class TestTrialAPI(APIBaseTest):
         assert SignalTrialGrant.objects.for_team(self.team.id).exists() is allowed
         for scout in scouts:
             scout.refresh_from_db()
-        assert sum(scout.enabled for scout in scouts) == (3 if allowed else count)
+        assert sum(scout.enabled for scout in scouts) == count
 
     @parameterized.expand([(False,), (True,)])
     def test_source_activation_enrolls_once_before_backfill(self, existing: bool) -> None:
@@ -255,9 +256,21 @@ class TestTrialAPI(APIBaseTest):
         assert not source.enabled
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
 
-    @parameterized.expand([(False, True), (True, False)])
-    def test_flag_off_and_disabled_sources_do_not_enroll(self, flag: bool, enabled: bool) -> None:
+    @parameterized.expand(
+        [
+            ("flag_off", False, True, False),
+            ("source_disabled", True, False, False),
+            ("billing_starts_later", True, True, True),
+        ]
+    )
+    def test_source_activation_outside_the_trial_does_not_enroll(
+        self, _name: str, flag: bool, enabled: bool, billing_starts_later: bool
+    ) -> None:
         self.flag_mock.return_value = flag
+        if billing_starts_later:
+            cutover = timezone.now().date() + timedelta(days=2)
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": cutover.isoformat()}}
+            self.organization.save(update_fields=["usage"])
         with patch("products.signals.backend.trial.billing.TrialBilling.status") as billing:
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/signals/source_configs/",
@@ -334,6 +347,8 @@ class TestTrialAPI(APIBaseTest):
                 return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
             ),
             patch("products.signals.backend.trial.service.report_user_action", new=capture),
+            patch("products.signals.backend.trial.experiment.posthoganalytics.get_feature_flag", return_value="test"),
+            patch("products.signals.backend.trial.experiment.ph_background_capture") as exposure,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
@@ -343,6 +358,7 @@ class TestTrialAPI(APIBaseTest):
             )
         assert response.status_code == 400, response.content
         self.enqueue_grant.assert_not_called()
+        exposure.assert_not_called()
         assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == ["attempted", "failed"]
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
         assert (
@@ -402,7 +418,7 @@ class TestTrialAPI(APIBaseTest):
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
             patch(
-                "products.signals.backend.trial.billing.BillingManager.get_billing",
+                "products.signals.backend.trial.billing.BillingManager.get_billing_read_only",
                 return_value=customer,
             ),
         ):
@@ -466,6 +482,64 @@ class TestTrialAPI(APIBaseTest):
         assert first.json()["legacy_pr_restricted"] is False
         assert SignalTrialGrant.objects.unscoped().filter(organization_id=self.organization.id).count() == 1
 
+    @parameterized.expand([("explicit", "control", 5), ("activation", "test", 10), ("explicit", "test", 10)])
+    def test_trial_limit_exposure_follows_committed_claim(self, source: str, variant: str, reports: int) -> None:
+        exposure = Mock()
+        with (
+            patch(
+                "products.signals.backend.trial.experiment.posthoganalytics.get_feature_flag", return_value=variant
+            ) as flag,
+            patch("products.signals.backend.trial.experiment.ph_background_capture", return_value=exposure),
+            patch("products.signals.backend.trial.service.report_user_action") as enrollment,
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                assert self.client.get(self.url).json()["report_limit"] == reports
+            exposure.assert_not_called()
+            with self.captureOnCommitCallbacks(execute=True):
+                if source == "explicit":
+                    response = self.client.post(self.url, {}, format="json")
+                else:
+                    response = self.client.post(
+                        f"/api/projects/{self.team.pk}/signals/source_configs/",
+                        {"source_product": "error_tracking", "source_type": "issue_created", "enabled": True},
+                        format="json",
+                    )
+                assert response.status_code in (200, 201), response.content
+                exposure.assert_not_called()
+            grant = SignalTrialGrant.objects.for_team(self.team.pk).get()
+            assert (grant.report_limit, grant.allowance_microusd) == (reports, 10_000_000)
+            activated = [
+                c.kwargs for c in enrollment.call_args_list if c.kwargs["properties"]["outcome"] == "activated"
+            ]
+            assert len(activated) == 1
+            assert activated[0]["organization"] == self.organization
+            props = activated[0]["properties"]
+            assert (props["grant_id"], props["experiment_variant"], props["report_limit"]) == (
+                str(grant.id),
+                variant,
+                reports,
+            )
+            flag.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                assert self.client.post(self.url, {}, format="json").json()["report_limit"] == reports
+            flag.assert_not_called()
+            org = str(self.organization.id)
+            exposure.assert_called_once_with(
+                distinct_id=org,
+                event="$experiment_exposure",
+                groups={"organization": org},
+                properties={
+                    "$feature_flag": TRIAL_REPORT_LIMIT_EXPERIMENT,
+                    "$feature_flag_response": variant,
+                    f"$feature/{TRIAL_REPORT_LIMIT_EXPERIMENT}": variant,
+                    "grant_id": str(grant.id),
+                },
+            )
+
     def test_member_activation_with_unready_billing_does_not_consume_grant(self) -> None:
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         membership.level = OrganizationMembership.Level.MEMBER
@@ -520,7 +594,46 @@ class TestTrialAPI(APIBaseTest):
         assert response.json()["grant_id"] == str(grant.id)
         assert response.json()["grant_status"] == "active"
 
+    @parameterized.expand(
+        [
+            ("source_before_launch", "source", -1, True),
+            ("scout_before_launch", "scout", -1, True),
+            ("onboarding_before_launch", "onboarding", -1, True),
+            ("source_after_launch", "source", 1, False),
+        ]
+    )
+    def test_pricing_flag_identity_depends_on_activation_before_launch(
+        self, _name: str, activation: str, days_from_launch: int, uses_member: bool
+    ) -> None:
+        activated_at = PRICING_LAUNCHED_AT + timedelta(days=days_from_launch)
+        if activation == "source":
+            source = SignalSourceConfig.objects.create(
+                team=self.team, source_product="github", source_type="issue", enabled=False
+            )
+            SignalSourceConfig.objects.filter(pk=source.pk).update(created_at=activated_at)
+        elif activation == "scout":
+            scout = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-activation")
+            SignalScoutConfig.objects.unscoped().filter(pk=scout.pk).update(created_at=activated_at)
+        else:
+            SignalTeamConfig.objects.update_or_create(
+                team=self.team, defaults={"onboarding": {"completed_at": activated_at.isoformat()}}
+            )
+        TrialPolicy(self.team).flag_decision()
+        expected = self.user.distinct_id if uses_member else str(self.organization.id)
+        assert self.flag_mock.call_args.args == ("self-driving-ubp", expected)
+
     def test_flag_off_hides_offer_and_prevents_activation_for_claimed_projects(self) -> None:
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"onboarding": {"completed_at": (PRICING_LAUNCHED_AT - timedelta(days=30)).isoformat()}},
+        )
+        User.objects.create_and_join(self.organization, "later-member@example.com", None)
+        deactivated = User.objects.create_and_join(self.organization, "deactivated-member@example.com", None)
+        deactivated.is_active = False
+        deactivated.save()
+        OrganizationMembership.objects.filter(user=deactivated).update(
+            joined_at=OrganizationMembership.objects.get(user=self.user).joined_at - timedelta(days=1)
+        )
         with patch(
             "products.signals.backend.trial.billing.TrialBilling.status",
             return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
@@ -530,10 +643,9 @@ class TestTrialAPI(APIBaseTest):
             grant_id = response.json()["grant_id"]
             self.flag_mock.assert_called_with(
                 "self-driving-ubp",
-                str(self.organization.id),
+                self.user.distinct_id,
                 groups={"organization": str(self.organization.id)},
                 group_properties={"organization": {"id": str(self.organization.id)}},
-                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
             self.flag_mock.return_value = False

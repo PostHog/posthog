@@ -1,5 +1,4 @@
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
@@ -13,13 +12,10 @@ export interface SessionBatchManagerConfig {
     maxBatchSizeBytes: number
     maxBatchAgeMs: number
     maxEventsPerSessionPerBatch: number
-    /** Rollout percentage (0-100) for the per-session ML feature recorder */
-    featuresRolloutPercentage?: number
     offsetManager: KafkaOffsetManager
     fileStorage: SessionBatchFileStorage
     metadataStore: SessionMetadataSink
     consoleLogStore: SessionConsoleLogStore
-    featureStore: SessionFeatureStore
     encryptor: RecordingEncryptor
     compression?: BlockCompression // default Snappy
 }
@@ -60,12 +56,10 @@ export class SessionBatchManager {
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly maxEventsPerSessionPerBatch: number
-    private readonly featuresRolloutPercentage: number
     private readonly offsetManager: KafkaOffsetManager
     private readonly fileStorage: SessionBatchFileStorage
     private readonly metadataStore: SessionMetadataSink
     private readonly consoleLogStore: SessionConsoleLogStore
-    private readonly featureStore: SessionFeatureStore
     private readonly encryptor: RecordingEncryptor
     private readonly compression?: BlockCompression
 
@@ -73,12 +67,10 @@ export class SessionBatchManager {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
         this.maxBatchAgeMs = config.maxBatchAgeMs
         this.maxEventsPerSessionPerBatch = config.maxEventsPerSessionPerBatch
-        this.featuresRolloutPercentage = config.featuresRolloutPercentage ?? 100
         this.offsetManager = config.offsetManager
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
-        this.featureStore = config.featureStore
         this.encryptor = config.encryptor
         this.compression = config.compression
     }
@@ -89,10 +81,8 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
-            this.featureStore,
             this.encryptor,
             this.maxEventsPerSessionPerBatch,
-            this.featuresRolloutPercentage,
             this.compression
         )
     }

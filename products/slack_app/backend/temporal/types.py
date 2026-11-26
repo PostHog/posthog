@@ -15,9 +15,11 @@ from pydantic import BaseModel
 from posthog.dataclasses import frozen
 
 
-@dataclass
+@dataclass(frozen=True)
 class PostHogSlackInboxOnboardingInputs:
     integration_id: int
+    # Absent in workflows started before the field existed.
+    team_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -30,10 +32,25 @@ class SlackAppOnboardingInputs:
 
 
 @dataclass(frozen=True)
+class SlackAppDailySummaryIndexInputs:
+    integration_id: int
+    slack_team_id: str
+    # The people in this workspace whose daily run the sweep is about to start. The index is built when one of them
+    # gets the daily summary.
+    slack_user_ids: list[str]
+
+
+@dataclass(frozen=True)
 class SlackAppWorkFocusInputs:
     integration_id: int
     slack_team_id: str
     slack_user_id: str
+    # Set on a daily run: the previous run time, as epoch seconds. The run reads the messages sent after it.
+    since: int | None = None
+    # Set on a daily run: the run time the sweep claimed, as epoch seconds. The run sends only while the row still
+    # names it, so a retry that a later sweep overtook sends nothing.
+    run_at: int | None = None
+    start_delay_seconds: int = 0
 
 
 @frozen
@@ -155,14 +172,17 @@ class SlackAppUnfurlChartsPostInput:
 
 @frozen
 class SlackAppForkThreadInputs:
-    """The Slack interactivity payload behind a "Fork to DM" click, verbatim.
+    """The Slack interactivity payload behind a fork menu click, verbatim.
 
     Passed through rather than parsed at the boundary: the webhook's only job is to ack
     inside Slack's three-second budget, so everything it could read from the payload is
-    read in the activity instead.
+    read in the activity instead. A fork into a channel rebuilds the payload from the
+    channel picker's metadata, and names the picked channel in ``target_channel``.
+    Without it the fork goes to the clicker's DM.
     """
 
     payload: dict[str, Any]
+    target_channel: str | None = None
 
 
 @frozen
@@ -215,6 +235,9 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # agent can pull that task's runs, logs and artifacts if the question needs more
     # than the messages.
     fork_source_task_id: str | None = None
+    # The first line of the forked thread's opening message. Another person wrote it, so
+    # task creation places it inside the attributed context block, never in the request.
+    fork_source_title: str | None = None
 
     @property
     def untagged_confirmed(self) -> bool:
@@ -374,14 +397,19 @@ class PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path repo resolution before the discovery agent runs.
 
     `auto` → use `repository` directly. `no_repo` → the mentioning user resolves no
-    repos, so the mention becomes a repo-less task and the agent decides whether the
-    ask needs code. `agent_needed` → there are multiple candidates and no explicit
+    repos, or the needs-repo check said the ask needs no code, so the mention becomes a
+    repo-less task. `agent_needed` → there are multiple candidates and no explicit
     mention.
+
+    `needs_repo_classified` marks an `agent_needed` outcome whose ask the cascade already
+    judged to need code, so the workflow skips its own needs-repo check. It defaults to
+    False, so histories recorded before it existed decode to that check.
     """
 
     mode: Literal["auto", "no_repo", "agent_needed"]
     repository: str | None
     reason: str
+    needs_repo_classified: bool = False
 
 
 @dataclass(frozen=True)

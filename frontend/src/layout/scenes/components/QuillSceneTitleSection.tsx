@@ -25,11 +25,13 @@ import { SceneTitleSettingsButton } from './SceneTitleSettingsButton'
 export function QuillSceneTitleSection({
     name,
     nameSuffix,
+    nameAction,
     description,
     resourceType,
     markdown = false,
     isLoading = false,
     onNameChange,
+    nameError,
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
@@ -121,12 +123,18 @@ export function QuillSceneTitleSection({
                 }
                 title={
                     <>
-                        {staticName && nameSuffixes}
+                        {staticName && (
+                            <>
+                                {nameAction}
+                                {nameSuffixes}
+                            </>
+                        )}
                         {name !== null && !titleInPhoneHeader && !staticName && (
                             <QuillSceneName
                                 name={name}
                                 isLoading={isLoading}
                                 onChange={onNameChange}
+                                error={nameError}
                                 canEdit={canEdit}
                                 forceEdit={forceEdit}
                                 renameDebounceMs={renameDebounceMs}
@@ -136,6 +144,7 @@ export function QuillSceneTitleSection({
                                 fieldSuffix={descriptionIgnoresForceEdit && descriptionToggle}
                                 suffix={
                                     <>
+                                        {nameAction}
                                         {nameSuffixes}
                                         {descriptionToggle}
                                     </>
@@ -158,7 +167,7 @@ export function QuillSceneTitleSection({
                 }
             />
             {descriptionShown && (
-                <div className={cn('[&_svg]:size-6', noPadding && cn('pl-4 pr-2', className))}>
+                <div className={cn(noPadding && cn('pl-4 pr-2', className))}>
                     <SceneDescription
                         description={description}
                         markdown={markdown}

@@ -112,19 +112,49 @@ class TestGetRows:
         assert result.raised is None
         assert result.params("page") == ["1", "2"]
 
-    @pytest.mark.parametrize("endpoint", ["contact_stages", "account_stages", "opportunity_stages"])
-    def test_lookup_endpoints_read_one_unpaginated_page(self, endpoint: str) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, body, expected_query",
+        [
+            ("contact_stages", {"contact_stages": [{"id": "s1"}]}, {}),
+            ("account_stages", {"account_stages": [{"id": "s1"}]}, {}),
+            ("opportunity_stages", {"opportunity_stages": [{"id": "s1"}]}, {}),
+            # /labels answers with a bare array rather than an object keyed by the resource.
+            ("lists", [{"id": "s1"}], {}),
+            # Without source=custom /fields also returns every system field.
+            ("custom_fields", {"fields": [{"id": "s1"}]}, {"source": ("custom",)}),
+        ],
+    )
+    def test_lookup_endpoints_read_one_unpaginated_page(
+        self, endpoint: str, body: Any, expected_query: dict[str, tuple[str, ...]]
+    ) -> None:
         # Without the single-page stop these would loop forever: the response carries no
         # total_pages to break on, so every pass re-yields the same rows.
-        # The stage lookups answer with just the rows: no page params echoed, no pagination object.
-        result = _driver().run(endpoint, [ScriptedResponse(json={endpoint: [{"id": "s1"}]})])
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
 
         assert [item["id"] for item in result.rows] == ["s1"]
         assert result.raised is None
         assert len(result.requests) == 1
         assert result.requests[0].method == "GET"
-        assert result.requests[0].query == {}
+        assert result.requests[0].query == expected_query
         assert result.saved_states == []
+
+    def test_conversations_sizes_pages_with_num_fetch_result(self) -> None:
+        # Conversation search names its page size num_fetch_result; per_page is not a field
+        # it documents, so the walk would fall back to 25-row pages and hit the page cap early.
+        result = _driver().run(
+            "conversations",
+            [
+                _page("conversations", [{"id": "v1"}], total_pages=2),
+                _page("conversations", [{"id": "v2"}], total_pages=2),
+            ],
+        )
+
+        assert [item["id"] for item in result.rows] == ["v1", "v2"]
+        assert result.raised is None
+        assert [request.json() for request in result.requests] == [
+            {"page": 1, "num_fetch_result": PAGE_SIZE},
+            {"page": 2, "num_fetch_result": PAGE_SIZE},
+        ]
 
     def test_users_paginates_with_query_params(self) -> None:
         # Page params have to ride the query string on this GET; sent as a body they are
@@ -194,7 +224,8 @@ class TestApolloSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = APOLLO_ENDPOINTS[endpoint]
-        result = _driver().run(endpoint, [ScriptedResponse(json={config.data_key: []})])
+        body: Any = [] if config.data_key is None else {config.data_key: []}
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
         response = result.response
 
         assert result.raised is None

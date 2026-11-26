@@ -1,10 +1,14 @@
 import { useActions, useValues } from 'kea'
 
+import { Text } from '@posthog/quill'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { QuillSettingSwitch } from 'scenes/settings/components/QuillSettingSwitch'
 
 import { AvailableFeature } from '~/types'
 
@@ -23,6 +27,7 @@ export function EnforceVerifiedDomains(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const hasVerifiedDomains = verifiedDomains.some((domain) => domain.is_verified)
 
@@ -36,6 +41,31 @@ export function EnforceVerifiedDomains(): JSX.Element {
         }
     }
 
+    const handleChange = (enforce_verified_domains: boolean): void =>
+        // Turning it on can remove members, so it goes through an impact check and confirmation first.
+        enforce_verified_domains ? promptEnforceVerifiedDomains() : updateOrganization({ enforce_verified_domains })
+
+    if (todayRailNav) {
+        return (
+            <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING} featureDetail="enforce-verified-domains">
+                <div className="flex flex-col gap-2">
+                    <Text size="xs" render={<p className="m-0" />}>
+                        Only allow people with an email address on a verified domain into this organization. Invites to
+                        other domains are blocked, and existing members on other domains lose access.
+                    </Text>
+                    <QuillSettingSwitch
+                        label="Restrict membership to verified email domains"
+                        checked={!!currentOrganization?.enforce_verified_domains}
+                        onCheckedChange={handleChange}
+                        disabled={currentOrganizationLoading || enforcementImpactLoading}
+                        disabledReason={restrictionReason ?? enableBlockedReason}
+                    />
+                </div>
+                <EnforceVerifiedDomainsModal />
+            </PayGateMini>
+        )
+    }
+
     return (
         <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING} featureDetail="enforce-verified-domains">
             <p>
@@ -46,12 +76,7 @@ export function EnforceVerifiedDomains(): JSX.Element {
                 label="Restrict membership to verified email domains"
                 bordered
                 checked={!!currentOrganization?.enforce_verified_domains}
-                onChange={(enforce_verified_domains) =>
-                    // Turning it on can remove members, so it goes through an impact check and confirmation first.
-                    enforce_verified_domains
-                        ? promptEnforceVerifiedDomains()
-                        : updateOrganization({ enforce_verified_domains })
-                }
+                onChange={handleChange}
                 loading={currentOrganizationLoading || enforcementImpactLoading}
                 disabledReason={restrictionReason ?? enableBlockedReason}
             />

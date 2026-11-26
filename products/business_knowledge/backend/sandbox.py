@@ -284,12 +284,15 @@ def resume_sandbox_run(
         # another one exists, or that turn starts showing the new answer.
         if before_create is not None:
             before_create(previous)
-        run = tasks_facade.create_run(
-            task_id,
-            mode="background",
-            acting_user_id=user_id,
-            extra_state=_resumed_run_state(question=question, previous=previous, user_id=user_id),
-        )
+        try:
+            run = tasks_facade.create_run(
+                task_id,
+                mode="background",
+                acting_user_id=user_id,
+                extra_state=_resumed_run_state(question=question, previous=previous, user_id=user_id),
+            )
+        except tasks_facade.TaskRunAlreadyLiveError as error:
+            raise SandboxRunInProgress() from error
         created = CreatedTaskDTO(task_id=run.task_id, team_id=run.team_id, latest_run=run)
         if on_admitted is not None:
             on_admitted(created)

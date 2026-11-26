@@ -11,6 +11,7 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
+    PROGRESS_MESSAGE_HEADERS,
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,
     SlackThreadHandler,
@@ -55,6 +56,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -73,7 +75,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         context = SlackThreadContext(
-            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+            team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
         )
 
         SlackThreadHandler(context).stop_status_stream(ts="1234.9999", final_markdown="Done, <@U123|Jane Doe>.")
@@ -99,7 +101,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         context = SlackThreadContext(
-            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+            team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
         )
 
         SlackThreadHandler(context, actor_slack_user_id=actor).start_status_stream(first_markdown_text=answer)
@@ -126,7 +128,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         context = SlackThreadContext(
-            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+            team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
         )
         handler = SlackThreadHandler(context, actor_slack_user_id=actor)
 
@@ -158,6 +160,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -167,7 +170,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         handler = SlackThreadHandler(context)
 
         handler.post_or_update_progress(
-            "In progress...", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
+            "Paws on the keyboard", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
         )
 
         mock_client.chat_postMessage.assert_called_once()
@@ -182,6 +185,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -198,6 +202,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -206,6 +211,93 @@ class TestSlackThreadHandler(SimpleTestCase):
         handler.delete_progress()
 
         mock_client.chat_delete.assert_not_called()
+
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_progress_header_stays_the_same_across_updates_of_one_run(self, mock_get_client, _mock_find_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+
+        headers = set()
+        for stage in ("Waking up the hedgehog", "Paws on the keyboard", "Cloning repository"):
+            handler = SlackThreadHandler(context)
+            handler.task_run_id = "run-abc"
+            handler.post_or_update_progress(stage, task_url=None)
+            headers.add(mock_client.chat_postMessage.call_args.kwargs["text"].split("\n")[0])
+
+        assert len(headers) == 1
+        assert headers <= set(PROGRESS_MESSAGE_HEADERS)
+
+    @parameterized.expand(
+        [(f"header_{i}", f"{header}\nPaws on the keyboard") for i, header in enumerate(PROGRESS_MESSAGE_HEADERS)]
+        + [("card_posted_before_copy_change", "*Working on task...* :hourglass_flowing_sand:\nStage: In progress...")]
+    )
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_delete_progress_finds_the_progress_card(self, _name, card_text, mock_get_client):
+        mock_client = MagicMock()
+        mock_client.auth_test.return_value = {"user_id": "UBOT"}
+        mock_client.conversations_replies.return_value = {
+            "messages": [
+                {"user": "U123", "ts": "1234.5678", "text": "<@UBOT> fix the login bug"},
+                {"user": "UBOT", "ts": "1234.9999", "text": card_text},
+            ]
+        }
+        mock_get_client.return_value = mock_client
+
+        context = SlackThreadContext(
+            team_id=1,
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+        )
+        SlackThreadHandler(context).delete_progress()
+
+        mock_client.chat_delete.assert_called_once_with(channel="C001", ts="1234.9999")
+
+    @patch("products.tasks.backend.facade.api.update_task_run_state")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_stored_progress_ts_is_deleted_without_searching_the_thread(self, mock_get_client, mock_update_state):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+
+        SlackThreadHandler(context, RunFooter(run_id="run-1", progress_message_ts="1234.9999")).delete_progress()
+
+        mock_client.conversations_replies.assert_not_called()
+        mock_client.chat_delete.assert_called_once_with(channel="C001", ts="1234.9999")
+        mock_update_state.assert_called_once_with("run-1", remove_keys=["slack_progress_message_ts"])
+
+    @parameterized.expand(
+        [
+            ("no_card_yet", None, None, 1),
+            (
+                "stored_card_was_deleted",
+                "1234.1111",
+                SlackApiError("gone", {"ok": False, "error": "message_not_found"}),
+                0,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.update_task_run_state")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_progress_card_ts_is_stored_and_reused(
+        self, _name, stored_ts, update_error, expected_searches, mock_get_client, mock_update_state
+    ):
+        mock_client = MagicMock()
+        mock_client.chat_postMessage.return_value = {"ok": True, "ts": "1234.9999"}
+        mock_client.chat_update.side_effect = [update_error, None] if update_error else None
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context, RunFooter(run_id="run-1", progress_message_ts=stored_ts))
+
+        handler.post_or_update_progress("Waking up the hedgehog", task_url=None)
+        handler.post_or_update_progress("Paws on the keyboard", task_url=None)
+
+        assert mock_client.conversations_replies.call_count == expected_searches
+        mock_client.chat_postMessage.assert_called_once()
+        assert mock_client.chat_update.call_args.kwargs["ts"] == "1234.9999"
+        mock_update_state.assert_called_once_with("run-1", updates={"slack_progress_message_ts": "1234.9999"})
 
     @parameterized.expand(
         [
@@ -220,6 +312,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -242,6 +335,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -255,14 +349,14 @@ class TestSlackThreadHandler(SimpleTestCase):
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["channel"] == "C001"
         assert kwargs["thread_ts"] == "1234.5678"
-        assert "Pull request opened" in kwargs["text"]
+        assert "Hedgehog shipped a PR" in kwargs["text"]
         assert [_button_texts(block) for block in _action_blocks(kwargs)] == [["View PR"]]
         assert _context_texts(kwargs) == ["<https://posthog.com/task/1|View session>"]
 
     @parameterized.expand(
         [
-            ("closed", False, "<@U456> *Pull request closed without merging*", True),
-            ("merged", True, "<@U456> *Pull request merged* :tada:", False),
+            ("closed", False, "<@U456> *PR closed, the hedgehog lets it go* :fallen_leaf:", True),
+            ("merged", True, "<@U456> *Merged! The hedgehog is proud* :tada:", False),
         ]
     )
     @patch.object(SlackThreadHandler, "_get_integration", return_value=Integration(config={}, integration_id="T1"))
@@ -272,7 +366,7 @@ class TestSlackThreadHandler(SimpleTestCase):
     ):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         handler = SlackThreadHandler(context)
 
         handler.post_pr_closed(
@@ -301,6 +395,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -314,7 +409,7 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         mock_client.chat_postMessage.assert_called_once()
         kwargs = mock_client.chat_postMessage.call_args.kwargs
-        assert kwargs["text"] == f"*Task Failed* :x:\n{UPSTREAM_PROVIDER_FAILURE_MESSAGE}"
+        assert kwargs["text"] == f"*The hedgehog hit a snag* :hedgehog: :boom:\n{UPSTREAM_PROVIDER_FAILURE_MESSAGE}"
         assert kwargs["blocks"][1]["text"]["text"] == UPSTREAM_PROVIDER_FAILURE_MESSAGE
         assert "retry" in kwargs["blocks"][2]["text"]["text"]
         assert _action_blocks(kwargs) == []
@@ -325,7 +420,9 @@ class TestSlackThreadHandler(SimpleTestCase):
     def test_post_error_includes_custom_recovery_hint(self, mock_get_client, _mock_find_progress):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678"))
+        handler = SlackThreadHandler(
+            SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+        )
 
         handler.post_error(
             "No connected GitHub account", task_url=None, recovery_hint="Connect GitHub, then reply here."
@@ -357,6 +454,7 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
 
     def _make_context(self) -> SlackThreadContext:
         return SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -449,12 +547,12 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
     """
 
     def _context(self) -> SlackThreadContext:
-        return SlackThreadContext(integration_id=1, channel="C001", thread_ts="1.0")
+        return SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1.0")
 
     @parameterized.expand(
         [
-            ("explicit_actor_tags_them", "ULATEST", "<@ULATEST> *Pull request opened* :rocket:"),
-            ("none_means_no_tag", None, "*Pull request opened* :rocket:"),
+            ("explicit_actor_tags_them", "ULATEST", "<@ULATEST> *Hedgehog shipped a PR* :hedgehog: :rocket:"),
+            ("none_means_no_tag", None, "*Hedgehog shipped a PR* :hedgehog: :rocket:"),
         ]
     )
     @patch.object(SlackThreadHandler, "delete_progress")
@@ -497,7 +595,7 @@ class TestPostPrOpenedPersonalGithubHint(SimpleTestCase):
     ):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(SlackThreadContext(integration_id=1, channel="C001", thread_ts="1.0"))
+        handler = SlackThreadHandler(SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1.0"))
 
         handler.post_pr_opened(
             "https://github.com/org/repo/pull/1",
@@ -516,6 +614,7 @@ class TestPostPrOpenedPersonalGithubHint(SimpleTestCase):
 class TestReplyFooterGate(SimpleTestCase):
     def _handler(self, footer: RunFooter | None = None) -> SlackThreadHandler:
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -551,7 +650,7 @@ class TestFooterNeverCostsTheAnswer(SimpleTestCase):
         ]
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(config={}, integration_id="T1")
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
 
         SlackThreadHandler(context, RunFooter(model="claude-opus-5")).post_thread_message(
             "the answer", with_footer=True
@@ -575,7 +674,7 @@ class TestStreamClosedBySlack(SimpleTestCase):
         )
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(id=1, config={}, integration_id="T1")
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         handler = SlackThreadHandler(context, RunFooter(model="claude-opus-5"), actor_slack_user_id="U123")
 
         assert (
@@ -686,7 +785,7 @@ class TestReplyPostedCapture(SimpleTestCase):
         mock_get_integration.return_value = integration
         reader = MagicMock()
         mock_resolve_user.return_value = reader
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         handler = SlackThreadHandler(
             context, RunFooter(run_id="run-1", task_id="task-1", chart_links=True), actor_slack_user_id="U123"
         )
@@ -714,7 +813,7 @@ class TestReplyPostedCapture(SimpleTestCase):
 
 class TestRelayedAnswerFooter(SimpleTestCase):
     def _handler(self, footer: RunFooter) -> SlackThreadHandler:
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         return SlackThreadHandler(context, footer)
 
     @parameterized.expand(
@@ -766,6 +865,7 @@ class TestDeletedTriggerMessage(SimpleTestCase):
     def _handler(self) -> SlackThreadHandler:
         return SlackThreadHandler(
             SlackThreadContext(
+                team_id=1,
                 integration_id=1,
                 channel="C_DELETED",
                 thread_ts="1700000000.000100",
@@ -810,6 +910,7 @@ class TestForkMenuOnReplies(SimpleTestCase):
 
     def _handler(self) -> SlackThreadHandler:
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -862,7 +963,7 @@ class TestMarkdownAnswerBlocks(SimpleTestCase):
     at a different length than the `section` it replaces."""
 
     def _handler(self) -> SlackThreadHandler:
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
 
     @parameterized.expand([("with_footer", True), ("without_footer", False)])
@@ -947,7 +1048,9 @@ class TestMobileTaskNotificationTargets(SimpleTestCase):
     @patch.object(SlackThreadHandler, "_get_client")
     def test_moved_recipient_does_not_start_a_targeted_stream(self, client: MagicMock, _muted: MagicMock) -> None:
         handler = SlackThreadHandler(
-            SlackThreadContext(integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"),
+            SlackThreadContext(
+                team_id=1, integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"
+            ),
             RunFooter(run_id="run-1"),
         )
         assert handler.start_status_stream(first_markdown_text="Finished") is None
@@ -959,7 +1062,9 @@ class TestMobileTaskNotificationTargets(SimpleTestCase):
         self, _name: str, text: str, _muted: MagicMock
     ) -> None:
         handler = SlackThreadHandler(
-            SlackThreadContext(integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"),
+            SlackThreadContext(
+                team_id=1, integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"
+            ),
             RunFooter(run_id="run-1"),
         )
         assert handler._with_leading_mention(text) == "Finished"
@@ -969,8 +1074,10 @@ class TestMobileTaskNotificationTargets(SimpleTestCase):
     @patch.object(SlackThreadHandler, "_delete_progress_and_post")
     def test_shared_pr_card_keeps_the_card_without_ping(self, post: MagicMock, _muted: MagicMock) -> None:
         handler = SlackThreadHandler(
-            SlackThreadContext(integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"),
+            SlackThreadContext(
+                team_id=1, integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"
+            ),
             RunFooter(run_id="run-1"),
         )
         handler.post_pr_opened("https://example.com/pr/1", None, reply_target_slack_user_id="U123")
-        assert post.call_args.args[0] == "*Pull request opened* :rocket:"
+        assert post.call_args.args[0] == "*Hedgehog shipped a PR* :hedgehog: :rocket:"

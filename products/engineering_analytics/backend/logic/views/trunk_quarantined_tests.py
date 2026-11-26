@@ -1,29 +1,16 @@
-"""Curated view over the Trunk quarantined-tests snapshot (``TRUNK_QUARANTINED_TESTS_COLUMNS``)."""
-
 # A QuarantinedTests table synced on the v2 API lands this column; a v1 table lands ``parent``.
 V2_SHAPE_COLUMN = "parent_name"
 
 
 def build_query(table: str, *, v2_shape: bool) -> str:
-    """Curated SELECT over a synced Trunk quarantined-tests table: the reconstructed runner-native
-    nodeid, a runner label, where the test lives, the parsed quarantine timestamp, the test's id,
-    and its Trunk page when the API returned one (always null on the v1 shape, which has no URL).
+    """One row per quarantined test, with ``nodeid`` rebuilt in the form the test's runner reports.
 
-    The table holds the v1 or the v2 shape, depending on the source's API version pin and whether it
-    resynced since the pin changed. Both shapes carry the same values under different names: v1
-    ``parent`` / ``classname`` / ``quarantined_at`` / ``test_case_id``, v2 ``parent_name`` /
-    ``class_name`` / ``quarantined_since`` / ``id`` plus ``url``.
+    ``trunk_url`` is NULL on the v1 shape. ``source_path`` is empty for Rust, which reports no file, and
+    ``crate`` is empty for every other runner. Drops rows that have no name or no quarantine time.
 
-    Trunk keys a test by (file, classname, name) and overloads the parent per uploader (verified
-    against a real connected source and the live v2 API): 'pytest' for pytest, the test file path
-    for jest and Playwright, the story file for Storybook, and the nextest 'crate::module' id for
-    Rust. Trimming the module prefix recovers the pytest class; jest and Playwright need no
-    reassembly; Rust and Storybook rows carry no file, so the nodeid falls back to classname::name.
-    Rows without a name or quarantine time carry nothing a consumer can attribute or age, so they
-    drop here.
-
-    The parent stays inside this view: the reading of it a consumer needs is ``source_path`` (where
-    the test file sits, as its suite reported it) and ``crate`` (Rust, which reports no file).
+    The runner is inferred from the parent, which each uploader fills differently: 'pytest' for pytest,
+    the test file path for jest and Playwright, the story file for Storybook, and the nextest
+    'crate::module' id for Rust.
     """
     if v2_shape:
         parent, classname, quarantined_at, test_id, url = (

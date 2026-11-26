@@ -30,6 +30,7 @@ import {
     signalsScoutConfigDestroy,
     signalsScoutConfigList,
     signalsScoutConfigRun,
+    signalsScoutConfigStop,
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutMetadataGet,
@@ -49,10 +50,12 @@ import type { CommunitySkillScoutConfigApi } from 'products/skills/frontend/gene
 
 import {
     captureScoutAction,
+    captureScoutChatStartFailed,
     captureScoutChatStarted,
     captureScoutConfigChanged,
     captureScoutToolsSaveResult,
     ScoutChatType,
+    ScoutDeleteEntryPoint,
     ScoutFleetSyncOutcome,
     ScoutSurface,
 } from '../inboxAnalytics'
@@ -65,6 +68,8 @@ export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
 import type { BreakPointFunction } from 'kea'
 
+import type { UserType } from '~/types'
+
 import { configMatchesScoutOwner, listScoutOwnerOptions } from '../utils/scoutOwners'
 import type { ScoutOwnerOption } from '../utils/scoutOwners'
 import {
@@ -72,8 +77,10 @@ import {
     computeScoutRollups,
     FleetSummary,
     isSettledRun,
+    normalizeRunStatus,
     runResponseCoversFleet,
     scoutDisplayName,
+    scoutNamesBySkill,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
@@ -96,17 +103,49 @@ const SCOUT_RECENCY_TIMESTAMPS: Record<
     last_run: (config) => config.last_run_at,
 }
 
-/** When a refused scout chat may start again, from the `Retry-After` of the server's daily-cap 429. */
-function scoutChatRetryAtFromError(error: unknown): number | null {
-    if (!(error instanceof ApiError) || error.status !== 429 || error.code !== 'throttled') {
-        return null
-    }
-    const seconds = Number(error.headers?.get('Retry-After'))
-    return Number.isSafeInteger(seconds) && seconds > 0 ? Date.now() + seconds * 1000 : null
+// `setTimeout` fires at once when the delay is longer than this. A reset further out sets no timer,
+// so the chats stay disabled until the page reloads.
+const MAX_TIMEOUT_MS = 2 ** 31 - 1
+
+export interface ScoutChatRefusal {
+    reason: string
+    retryAt: number | null
 }
 
-function scoutChatLimitReason(retryAt: number): string {
-    return `You've reached today's limit for scout chats. Try again after ${dayjs(retryAt).format('h:mm A')}.`
+/**
+ * Why the server refused a scout chat, and when it may start again. Covers the daily cap and the
+ * team's PostHog Desktop usage and billing limits, which refuse every scout chat until they lift.
+ */
+function scoutChatRefusalFromError(error: unknown): ScoutChatRefusal | null {
+    if (!(error instanceof ApiError) || error.status !== 429) {
+        return null
+    }
+    if (error.code === 'throttled') {
+        const seconds = Number(error.headers?.get('Retry-After'))
+        if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+            return null
+        }
+        const retryAt = Date.now() + seconds * 1000
+        return {
+            reason: `You've reached today's limit for scout chats. Try again after ${formatRetryAt(retryAt)}.`,
+            retryAt,
+        }
+    }
+    if (
+        error.code === 'usage_limit_exceeded' ||
+        error.code === 'posthog_code_billing_limit_exceeded' ||
+        error.data?.type === 'billing_limit'
+    ) {
+        const message = error.data?.error || error.detail || "You've reached your PostHog Desktop usage limit."
+        const resetAt = error.data?.reset_at ? dayjs(error.data.reset_at) : null
+        const retryAt = resetAt?.isValid() && resetAt.isAfter(dayjs()) ? resetAt.valueOf() : null
+        return { reason: retryAt ? `${message} Try again after ${formatRetryAt(retryAt)}.` : message, retryAt }
+    }
+    return null
+}
+
+function formatRetryAt(retryAt: number): string {
+    return dayjs(retryAt).format(dayjs(retryAt).isSame(dayjs(), 'day') ? 'h:mm A' : 'MMM D [at] h:mm A')
 }
 
 function compareByRecency(firstTimestamp: string | null, secondTimestamp: string | null): number {
@@ -182,6 +221,11 @@ export function mergeQueuedScoutConfigUpdates(
     }
     return merged
 }
+
+// A stop interrupts the agent and tears the sandbox down before the run turns terminal, so the page
+// polls that one scout's runs until it does. Past the bound, the 60s fleet poll takes over.
+const STOP_POLL_INTERVAL_MS = 5_000
+const STOP_POLL_TIMEOUT_MS = 5 * 60_000
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
@@ -364,7 +408,7 @@ export interface scoutFleetLogicValues {
     runsWindowLoading: boolean
     scoutBannerMessage: string | null
     scoutChatDisabledReason: string | null
-    scoutChatRetryAt: number | null
+    scoutChatRefusal: ScoutChatRefusal | null
     scoutConfigs: SignalScoutConfig[] | null
     scoutConfigsLoading: boolean
     scoutEnabledFilter: ScoutEnabledFilter
@@ -374,6 +418,7 @@ export interface scoutFleetLogicValues {
     scoutFleetSynced: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutNamesBySkill: Record<string, string>
     scoutOwnerOptions: ScoutOwnerOption[]
     scoutRosterSort: ScoutRosterSort
     scoutRuns: SignalScoutRunSummary[]
@@ -384,6 +429,7 @@ export interface scoutFleetLogicValues {
     scoutTagOptions: ScoutTagOption[]
     selectedScoutOwner: string | null
     selectedScoutTags: string[]
+    stoppingScoutRuns: Record<string, string | null>
     updatingScoutIds: string[]
 }
 
@@ -391,9 +437,11 @@ export interface scoutFleetLogicValues {
 export interface scoutFleetLogicActions {
     deleteScout: (
         configId: string,
-        surface?: ScoutSurface
+        surface?: ScoutSurface,
+        entryPoint?: ScoutDeleteEntryPoint | null
     ) => {
         configId: string
+        entryPoint: ScoutDeleteEntryPoint | null
         surface: ScoutSurface
     }
     deleteScoutFinished: (configId: string) => {
@@ -559,8 +607,8 @@ export interface scoutFleetLogicActions {
     setRunNotePopoverConfigId: (configId: string | null) => {
         configId: string | null
     }
-    setScoutChatRetryAt: (retryAt: number | null) => {
-        retryAt: number | null
+    setScoutChatRefusal: (refusal: ScoutChatRefusal | null) => {
+        refusal: ScoutChatRefusal | null
     }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
@@ -579,6 +627,9 @@ export interface scoutFleetLogicActions {
     }
     setScoutTagFilter: (tags: string[]) => {
         tags: string[]
+    }
+    settleStoppedRuns: () => {
+        value: true
     }
     startRunsPolling: () => {
         value: true
@@ -602,6 +653,19 @@ export interface scoutFleetLogicActions {
     }
     stopRunsPolling: () => {
         value: true
+    }
+    stopScoutRun: (configId: string) => {
+        configId: string
+    }
+    stopScoutRunAccepted: (
+        configId: string,
+        runId: string
+    ) => {
+        configId: string
+        runId: string
+    }
+    stopScoutRunFinished: (configId: string) => {
+        configId: string
     }
     syncScoutFleet: (_: void) => void
     syncScoutFleetFailure: (
@@ -650,11 +714,12 @@ export interface scoutFleetLogicMeta {
         ) => string | null
         scoutChatDisabledReason: (
             aiConsentDisabledReason: string | null,
-            scoutChatRetryAt: number | null
+            scoutChatRefusal: ScoutChatRefusal | null
         ) => string | null
+        scoutNamesBySkill: (scoutConfigs: SignalScoutConfigApi[] | null) => Record<string, string>
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         scoutRunsCoverFleet: (scoutConfigs: SignalScoutConfigApi[] | null) => boolean
-        isStaff: (user: null | import('~/types').UserType) => boolean
+        isStaff: (user: UserType | null) => boolean
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>
@@ -733,7 +798,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             configId,
             updates,
         }),
-        deleteScout: (configId: string, surface: ScoutSurface = 'fleet_list') => ({ configId, surface }),
+        deleteScout: (
+            configId: string,
+            surface: ScoutSurface = 'fleet_list',
+            entryPoint: ScoutDeleteEntryPoint | null = null
+        ) => ({ configId, surface, entryPoint }),
         deleteScoutFinished: (configId: string) => ({ configId }),
         removeScoutConfigLocally: (configId: string) => ({ configId }),
         setScoutTagFilter: (tags: string[]) => ({ tags }),
@@ -753,6 +822,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         runScoutNow: (configId: string, note?: string) => ({ configId, note }),
         runScoutNowFinished: (configId: string) => ({ configId }),
         runScoutNowSucceeded: (configId: string, hasNote: boolean) => ({ configId, hasNote }),
+        // Both runs reads land here, so a stop settles on whichever poll sees the run finish.
+        settleStoppedRuns: true,
+        stopScoutRun: (configId: string) => ({ configId }),
+        stopScoutRunAccepted: (configId: string, runId: string) => ({ configId, runId }),
+        stopScoutRunFinished: (configId: string) => ({ configId }),
         setRunNoteDraft: (configId: string, note: string) => ({ configId, note }),
         setRunNotePopoverConfigId: (configId: string | null) => ({ configId }),
         publishScoutToCommunity: (configId: string, options: PublishScoutOptions) => ({ configId, options }),
@@ -774,7 +848,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         }),
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
-        setScoutChatRetryAt: (retryAt: number | null) => ({ retryAt }),
+        setScoutChatRefusal: (refusal: ScoutChatRefusal | null) => ({ refusal }),
         setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => ({ outcome }),
     }),
 
@@ -1041,10 +1115,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 startScoutChatTaskFailure: () => null,
             },
         ],
-        scoutChatRetryAt: [
-            null as number | null,
+        scoutChatRefusal: [
+            null as ScoutChatRefusal | null,
             {
-                setScoutChatRetryAt: (_, { retryAt }) => retryAt,
+                setScoutChatRefusal: (_, { refusal }) => refusal,
             },
         ],
         // The enabled, tag, owner, and sort choices persist like the report list's filters, so a new
@@ -1164,6 +1238,18 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 runScoutNowFinished: (state, { configId }) => state.filter((id) => id !== configId),
             },
         ],
+        // Config id to the run being stopped. Null while the stop request is in flight.
+        stoppingScoutRuns: [
+            {} as Record<string, string | null>,
+            {
+                stopScoutRun: (state, { configId }) => ({ ...state, [configId]: state[configId] ?? null }),
+                stopScoutRunAccepted: (state, { configId, runId }) => ({ ...state, [configId]: runId }),
+                stopScoutRunFinished: (state, { configId }) => {
+                    const { [configId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
         // A failed run keeps its note, so the person can retry without typing it again.
         runNoteDrafts: [
             {} as Record<string, string>,
@@ -1230,11 +1316,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
         ],
-        // Every scout chat entry point shares one per-user daily cap, so one refusal disables them all.
+        // Every scout chat entry point shares the daily cap and the team's usage limits, so one
+        // refusal disables them all.
         scoutChatDisabledReason: [
-            (s) => [s.aiConsentDisabledReason, s.scoutChatRetryAt],
-            (aiConsentDisabledReason: string | null, scoutChatRetryAt: number | null): string | null =>
-                aiConsentDisabledReason ?? (scoutChatRetryAt !== null ? scoutChatLimitReason(scoutChatRetryAt) : null),
+            (s) => [s.aiConsentDisabledReason, s.scoutChatRefusal],
+            (aiConsentDisabledReason: string | null, scoutChatRefusal: ScoutChatRefusal | null): string | null =>
+                aiConsentDisabledReason ?? scoutChatRefusal?.reason ?? null,
+        ],
+        // For surfaces that hold only a skill name, such as a report's scout or a signal's source.
+        scoutNamesBySkill: [
+            (s) => [s.scoutConfigs],
+            (scoutConfigs: SignalScoutConfig[] | null): Record<string, string> => scoutNamesBySkill(scoutConfigs),
         ],
         rollups: [
             (s) => [s.scoutRuns],
@@ -1458,7 +1550,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     listeners(({ actions, values, cache, sharedListeners }) => ({
+        loadScoutRunsForSkillSuccess: () => {
+            actions.settleStoppedRuns()
+        },
         loadScoutRunsSuccess: () => {
+            actions.settleStoppedRuns()
             const spendLogic = selfDrivingSpendLogic({ teamId: teamLogic.values.currentTeamId ?? 0 })
             if (spendLogic.isMounted()) {
                 spendLogic.actions.loadOverview()
@@ -1579,6 +1675,75 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.runScoutNowFinished(configId)
             }
         },
+        stopScoutRun: async ({ configId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
+            if (!teamId || !config) {
+                actions.stopScoutRunFinished(configId)
+                return
+            }
+            const captureStop = (outcome: string): void =>
+                captureScoutAction({
+                    actionType: 'stop_run',
+                    surface: 'scout_detail',
+                    skillName: config.skill_name,
+                    extra: { outcome },
+                })
+            try {
+                const run = await signalsScoutConfigStop(String(teamId), configId)
+                const status = normalizeRunStatus(run.status)
+                if (status === 'running' || status === 'queued') {
+                    captureStop('stopping')
+                    actions.stopScoutRunAccepted(configId, run.run_id)
+                    cache.disposables.add(() => {
+                        const startedAt = Date.now()
+                        const interval = setInterval(() => {
+                            if (Date.now() - startedAt > STOP_POLL_TIMEOUT_MS) {
+                                actions.stopScoutRunFinished(configId)
+                                lemonToast.info('The run is still stopping. Check its status again in a few minutes.')
+                                return
+                            }
+                            actions.loadScoutRunsForSkill(config.skill_name)
+                        }, STOP_POLL_INTERVAL_MS)
+                        return () => clearInterval(interval)
+                    }, `stopPoll:${configId}`)
+                } else {
+                    // A run that had not started yet is cancelled before the response returns.
+                    const stopped = run.status === 'cancelled'
+                    captureStop(stopped ? 'stopped' : 'already_finished')
+                    actions.stopScoutRunFinished(configId)
+                    if (stopped) {
+                        lemonToast.success('Run stopped. You can start a new run now.')
+                    } else {
+                        lemonToast.info('This run already finished.')
+                    }
+                }
+                actions.loadScoutRunsForSkill(config.skill_name)
+            } catch (error: any) {
+                actions.stopScoutRunFinished(configId)
+                if (error?.status === 404) {
+                    // The run finished between the last poll and the click.
+                    captureStop('already_finished')
+                    lemonToast.info('This run already finished.')
+                    actions.loadScoutRunsForSkill(config.skill_name)
+                    return
+                }
+                captureStop('error')
+                lemonToast.error(error?.detail || error?.message || 'Could not stop the run. Try again.')
+            }
+        },
+        stopScoutRunFinished: ({ configId }) => {
+            cache.disposables.dispose(`stopPoll:${configId}`)
+        },
+        settleStoppedRuns: () => {
+            for (const [configId, runId] of Object.entries(values.stoppingScoutRuns)) {
+                const run = runId ? values.scoutRuns.find((candidate) => candidate.run_id === runId) : undefined
+                if (run && isSettledRun(run)) {
+                    actions.stopScoutRunFinished(configId)
+                    lemonToast.success('Run stopped. You can start a new run now.')
+                }
+            }
+        },
         // Publishing goes through the skills endpoint because that owns the community repo. It reads
         // the scout's cadence, emit posture and tags off its config, so the published scout carries
         // the settings the person publishing it can already see here.
@@ -1672,7 +1837,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 }
             }
         },
-        deleteScout: async ({ configId, surface }) => {
+        deleteScout: async ({ configId, surface, entryPoint }) => {
             // The reducer above already flags this id, but that value is reactive (for the button)
             // and can't tell a fresh submit from a duplicate. The cache Set is the non-reactive guard:
             // a second submit while the first is in flight bails before issuing another request.
@@ -1728,7 +1893,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         actionType: 'delete_scout',
                         surface,
                         skillName: config.skill_name,
-                        extra: { scout_origin: config.scout_origin, success: true },
+                        extra: { scout_origin: config.scout_origin, success: true, entry_point: entryPoint },
                     })
                     lemonToast.success(`Deleted ${displayName}`)
                     // The scout's own page (and any finding deep link under it) has nothing left to show
@@ -1743,7 +1908,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         actionType: 'delete_scout',
                         surface,
                         skillName: config.skill_name,
-                        extra: { scout_origin: config.scout_origin, success: false },
+                        extra: { scout_origin: config.scout_origin, success: false, entry_point: entryPoint },
                     })
                     lemonToast.error(error?.detail || error?.message || 'Failed to delete scout')
                     // A partial failure (skill archived but config delete failed) could desync the list
@@ -1796,14 +1961,24 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
-                const retryAt = scoutChatRetryAtFromError(error)
-                if (retryAt !== null) {
-                    lemonToast.error(scoutChatLimitReason(retryAt))
-                    actions.setScoutChatRetryAt(retryAt)
-                    cache.disposables.add(() => {
-                        const timeout = setTimeout(() => actions.setScoutChatRetryAt(null), retryAt - Date.now())
-                        return () => clearTimeout(timeout)
-                    }, 'scoutChatRetry')
+                const refusal = scoutChatRefusalFromError(error)
+                captureScoutChatStartFailed({
+                    chatType,
+                    surface: 'fleet_list',
+                    status: error?.status ?? null,
+                    code: error?.code ?? null,
+                    limited: refusal !== null,
+                })
+                if (refusal) {
+                    lemonToast.error(refusal.reason)
+                    actions.setScoutChatRefusal(refusal)
+                    const { retryAt } = refusal
+                    if (retryAt !== null && retryAt - Date.now() <= MAX_TIMEOUT_MS) {
+                        cache.disposables.add(() => {
+                            const timeout = setTimeout(() => actions.setScoutChatRefusal(null), retryAt - Date.now())
+                            return () => clearTimeout(timeout)
+                        }, 'scoutChatRetry')
+                    }
                 } else {
                     lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
                 }

@@ -1,10 +1,11 @@
 import json
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 import pytest
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -58,10 +59,11 @@ from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printin
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import json_dynamic_read_sql
+from posthog.hogql.test.utils import json_dynamic_read_sql, native_stored_document
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
+from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.instance_setting import override_instance_config
@@ -143,7 +145,10 @@ class TestPrinter(BaseTest):
         return self._json_dynamic_subcolumn_path_expr(root, [property_name.replace(".", "%2E")])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
-        return json_dynamic_read_sql(root, property_path)
+        text = json_dynamic_read_sql(root, property_path[:1])
+        if len(property_path) == 1:
+            return text
+        return json_extract_trim_quotes(text, *(f"%(hogql_val_{index})s" for index in range(len(property_path) - 1)))
 
     def _json_dynamic_property_expr(self, property_name: str, table_alias: str = "events") -> str:
         return self._json_dynamic_subcolumn_expr(f"{table_alias}.properties", property_name)
@@ -239,6 +244,28 @@ class TestPrinter(BaseTest):
             sql = self._select(f"select count() from {table}", context=context)
         assert f"toIntervalMonth({months})" in sql
         assert f"greater({floored_column}, minus(now" in sql
+
+    @parameterized.expand([("applied", True), ("deletion_path", False)])
+    def test_flag_evaluations_coverage_floor(self, _name: str, apply_events_retention_floor: bool):
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, apply_events_retention_floor=apply_events_retention_floor
+        )
+        with (
+            time_machine.travel(datetime(2026, 11, 24, 12, tzinfo=UTC), tick=False),
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
+        ):
+            sql = self._select("select count() from posthog.flag_evaluations", context=context)
+        floor = "greaterOrEquals(flag_evaluations.timestamp, toDateTime64('2026-08-25 00:00:00.000000', 6, 'UTC'))"
+        assert (floor in sql) == apply_events_retention_floor
+
+    def test_flag_calls_now_is_fixed_until_the_reads_are_cleared(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        with time_machine.travel(datetime(2026, 11, 24, 23, 59, tzinfo=UTC), tick=False) as traveller:
+            first = context.flag_calls_now()
+            traveller.shift(timedelta(minutes=2))
+            assert context.flag_calls_now() == first
+            context.clear_reads()
+            assert context.flag_calls_now() > first
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):
@@ -739,6 +766,11 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("event != null"), "isNotNull(events.event)")
         self.assertEqual(self._expr("1 == null"), "0")
         self.assertEqual(self._expr("1 != null"), "1")
+        printed = self._select(
+            "SELECT 1 FROM events AS a LEFT JOIN (SELECT event, distinct_id, uuid FROM events) AS b "
+            "ON a.event = b.event AND b.distinct_id IS NULL AND b.uuid IS NOT NULL"
+        )
+        self.assertIn("ON and(equals(a.event, b.event), isNull(b.distinct_id), isNotNull(b.uuid))", printed)
 
     def test_fields_and_properties(self):
         self.assertEqual(
@@ -929,7 +961,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             expected_sql = self._json_dynamic_subcolumn_path_expr("events.properties", ["nomat", "json", "yet"])
-            expected_values = {}
+            expected_values = {"hogql_val_0": "json", "hogql_val_1": "yet"}
         else:
             expected_sql = "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')"
             expected_values = {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"}
@@ -1046,10 +1078,7 @@ class TestPrinter(BaseTest):
             self._expr("properties.withmat.json.yet", context),
             expected_withmat_sql,
         )
-        self.assertEqual(
-            context.values,
-            {} if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"hogql_val_0": "json", "hogql_val_1": "yet"},
-        )
+        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
         context = HogQLContext(team_id=self.team.pk)
         materialize("events", "withmat_nullable", is_nullable=True)
@@ -1062,10 +1091,7 @@ class TestPrinter(BaseTest):
             self._expr("properties.withmat_nullable.json.yet", context),
             expected_nullable_withmat_sql,
         )
-        self.assertEqual(
-            context.values,
-            {} if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"hogql_val_0": "json", "hogql_val_1": "yet"},
-        )
+        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
     def test_materialized_fields_and_properties(self):
         try:
@@ -1407,7 +1433,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         printed = self._expr("JSONHas(properties, 'metadata', 'score')", context)
         self.assertIn("JSONHas(ifNull(", printed)
-        self.assertIn("events.properties.^metadata", printed)
+        self.assertIn("events.properties.metadata", printed)
         self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -1432,14 +1458,19 @@ class TestPrinter(BaseTest):
     @parameterized.expand(
         [
             (expression, properties, expected)
-            for expression in ["properties", "toJSONString(properties)"]
+            for expression in [
+                "properties",
+                "toJSONString(properties)",
+                "JSONExtractString(toJSONString(tuple(properties)), 1)",
+            ]
             for properties, expected in [
                 ({}, {}),
                 (
                     {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
                     {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
                 ),
-                ({"$exception_types": [], "custom_empty": []}, {"custom_empty": []}),
+                ({"$exception_types": [], "custom_empty": []}, {"$exception_types": [], "custom_empty": []}),
+                ({"$browser": "", "note": ""}, {"note": ""}),
             ]
         ]
     )
@@ -1453,7 +1484,7 @@ class TestPrinter(BaseTest):
             "CAST('{}', %(temporary_type)s) AS temporary_properties, CAST([], 'Array(String)') AS properties_null_keys, "
             "CAST([], 'Array(String)') AS temporary_properties_null_keys) AS events",
             {
-                "raw": json.dumps(properties),
+                "raw": native_stored_document(json.dumps(properties)),
                 "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
@@ -1482,7 +1513,11 @@ class TestPrinter(BaseTest):
         )
         [(result,)] = sync_execute(
             f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
-            {**context.values, "raw": json.dumps(properties), "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            {
+                **context.values,
+                "raw": native_stored_document(json.dumps(properties)),
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
+            },
         )
         self.assertEqual(json.loads(result[0]) if result[0] is not None else None, expected_groups)
         self.assertEqual(result[1:4], (has_groups, has_organization, int(expected_groups is None)))
@@ -1602,9 +1637,9 @@ class TestPrinter(BaseTest):
             self._expr("properties.a.b", nested_context),
             self._json_dynamic_subcolumn_path_expr("events.properties", ["a", "b"]),
         )
-        self.assertEqual(nested_context.values, {})
+        self.assertEqual(nested_context.values, {"hogql_val_0": "b"})
 
-        document = json.dumps({"a.b": "flat", "a": {"b": "nested"}})
+        document = native_stored_document(json.dumps({"a.b": "flat", "a": {"b": "nested"}}))
         for expression, expected in (("properties.`a.b`", "flat"), ("properties.a.b", "nested")):
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
             printed = self._expr(expression, context)
@@ -1901,7 +1936,7 @@ class TestPrinter(BaseTest):
             ("mysql", "sha1(CONVERT(%(hogql_val_0)s USING utf8mb4))"),
             ("snowflake", "sha1(%(hogql_val_0)s)"),
             ("redshift", "sha1(%(hogql_val_0)s)"),
-            ("trino", "lower(to_hex(sha1(to_utf8(CAST(%(hogql_val_0)s AS VARCHAR)))))"),
+            ("trino", "lower(to_hex(sha1(to_utf8(CAST('abc' AS VARCHAR)))))"),
         ]
     )
     def test_sha1_dialects(self, dialect: HogQLDialect, expected: str) -> None:
@@ -1982,6 +2017,8 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("abs(1)"), "abs(1)")
         self.assertEqual(self._expr("sha1(event)"), "lower(hex(SHA1(events.event)))")
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
+        self.assertEqual(self._expr("greatest(1, 2, 3)"), "greatest(1, 2, 3)")
+        self.assertEqual(self._expr("least(1, 2, 3)"), "least(1, 2, 3)")
         self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
         self.assertEqual(self._expr("toFloat('1.3')", context), "accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)")
         self.assertEqual(
@@ -1993,6 +2030,12 @@ class TestPrinter(BaseTest):
         )
         # Single-arg toFloatOrDefault is degenerate; rewritten to toFloatOrZero for ClickHouse.
         self.assertEqual(self._expr("toFloatOrDefault('1.5')", context), "toFloat64OrZero(%(hogql_val_8)s)")
+        self.assertEqual(
+            self._expr("toDecimal('3.14', 10)", context), "accurateCastOrNull(%(hogql_val_9)s, %(hogql_val_10)s)"
+        )
+        self.assertEqual(
+            [context.values["hogql_val_7"], context.values["hogql_val_10"]], ["Decimal64(2)", "Decimal64(10)"]
+        )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
         self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
@@ -2005,6 +2048,11 @@ class TestPrinter(BaseTest):
             self._expr("groupArraySampleIf(5, 123456)(event, event is not null)"),
             "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
         )
+        self.assertEqual(
+            self._expr("groupArraySortedIf(2)(tuple(negate(toUnixTimestamp64Milli(timestamp)), uuid), 1)"),
+            "groupArraySortedIf(2)(tuple(negate(toUnixTimestamp64Milli(toTimeZone(events.timestamp, %(hogql_val_0)s))), events.uuid), 1)",
+        )
+        self.assertEqual(self._expr("groupArraySorted(2)(event)"), "groupArraySorted(2)(events.event)")
 
     @parameterized.expand(
         [
@@ -2020,16 +2068,25 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("toFloat", "toFloat('1.3')"),
-            ("toFloatOrNull", "toFloatOrNull('1.3')"),
-            ("toFloat64OrNull", "toFloat64OrNull('1.3')"),
+            ("toFloatOrNull('1.3')", "toFloat('1.3')"),
+            ("toFloat64OrNull('1.3')", "toFloat('1.3')"),
+            ("toFloat64(event)", "toFloat(event)"),
+            ("toFloat64OrZero(event)", "toFloatOrZero(event)"),
+            ("toFloat64OrDefault(event, 1.5)", "toFloatOrDefault(event, 1.5)"),
+            ("toFloat64OrDefault(event)", "toFloatOrDefault(event)"),
+            ("toInt64(event)", "toInt(event)"),
+            ("toInt64OrNull(event)", "toInt(event)"),
+            ("toIntOrNull(event)", "toInt(event)"),
+            ("toInt64OrZero(event)", "toIntOrZero(event)"),
+            ("toInt64OrDefault(event, 3)", "toIntOrDefault(event, 3)"),
+            ("toInt64OrDefault(event)", "toIntOrDefault(event)"),
         ]
     )
-    def test_to_float_aliases(self, _name: str, expr: str) -> None:
-        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat,
-        # all routing through accurateCastOrNull so unparseable input becomes NULL.
-        context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+    def test_numeric_conversion_aliases_print_as_hogql_names(self, alias_expr: str, hogql_expr: str) -> None:
+        alias_context = HogQLContext(team_id=self.team.pk)
+        hogql_context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(alias_expr, alias_context), self._expr(hogql_expr, hogql_context))
+        self.assertEqual(alias_context.values, hogql_context.values)
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
@@ -2065,6 +2122,14 @@ class TestPrinter(BaseTest):
         self._assert_expr_error(
             "tostring(event)",
             "Unsupported function call 'tostring(...)'. Perhaps you meant 'toString(...)'?",
+        )
+        self._assert_expr_error(
+            "toInt8OrNull(event)",
+            "Unsupported function call 'toInt8OrNull(...)'. Perhaps you meant 'toIntOrNull(...)'?",
+        )
+        self._assert_expr_error(
+            "toUInt32(event)",
+            "Unsupported function call 'toUInt32(...)'. Perhaps you meant 'toInt(...)'?",
         )
         self._assert_expr_error(
             "int(event)",
@@ -3808,9 +3873,7 @@ class TestPrinter(BaseTest):
             context,
         )
         read_expr = (
-            self._json_dynamic_property_expr("$ai_trace_id")
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else expected_expr
+            "events.properties.`$ai_trace_id`" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else expected_expr
         )
         self.assertIn(f"countIf(isNotNull({read_expr}))", sql)
         self.assertIn(f"countIf(isNull({read_expr}))", sql)
@@ -3917,10 +3980,8 @@ class TestPrinter(BaseTest):
     @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
     def test_deep_key_materialized_read_prints_shared_json_extract_shape(self, mock_matcols_by_table):
         # Legacy materialized columns store the first key as a raw JSON string, so deeper reads must extract the tail
-        # keys with the same SQL shape as ingest and backfill. JSON subcolumns can address the full string-key path
-        # directly.
-        from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
-
+        # keys with the same SQL shape as ingest and backfill. The native table stores an object as a string of its
+        # JSON text, so it extracts the tail keys from the first key's text the same way.
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
         # The column is in the registry either way; JSON-backed event properties must ignore it.
@@ -3933,7 +3994,7 @@ class TestPrinter(BaseTest):
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             expected = self._json_dynamic_subcolumn_path_expr("events.properties", ["foo", "bar"])
-            expected_values = {}
+            expected_values = {"hogql_val_0": "bar"}
         else:
             head = "nullIf(nullIf(events.mat_foo, ''), 'null')"
             expected = json_extract_trim_quotes(head, "%(hogql_val_0)s")
@@ -4815,6 +4876,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
+        assert "in(persons.id, tuple(1, 2, 3))" not in printed
 
     def test_dont_inline_persons(self):
         printed = self._print(
@@ -4833,6 +4895,139 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
+        assert "in(p1.id, tuple(1, 2, 3))" not in printed
+
+    def test_inline_persons_filter_reads_an_unqualified_persons_field(self):
+        printed = self._print(
+            """
+            select count() from events as e
+                     join persons as p on e.person_id = p.id
+                         and p.id in JSONExtract(properties, 'allowed_ids', 'Array(UUID)')
+            where e.event = '$pageview'
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        persons_subselect = printed.split("FROM person WHERE")[-1].split(") AS p")[0]
+        assert "in(id, JSONExtract(person.properties" in persons_subselect
+
+    def test_inline_persons_filter_reads_an_unqualified_persons_property_chain(self):
+        printed = self._print(
+            """
+            select count() from events as e
+                     join persons as p on e.person_id = p.id and p.id in properties.ids
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert "in(id, " in printed.split("FROM person WHERE")[-1].split(") AS p")[0]
+
+    def test_inline_persons_moves_an_unqualified_filter_next_to_a_held_one(self):
+        printed = self._print(
+            """
+            select count() from events as e
+                     join persons as p on e.person_id = p.id
+                         and p.id in JSONExtract(properties, 'ids', 'Array(UUID)')
+                         and p.id in (1, 2)
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        persons_subselect = printed.split("FROM person WHERE")[-1].split(") AS p")[0]
+        assert "in(id, JSONExtract(person.properties" in persons_subselect
+        assert "in(id, tuple(1, 2))" in persons_subselect
+        assert "in(p.id" not in printed
+
+    def test_inline_persons_subquery_that_reads_an_outer_cte(self):
+        printed = self._print(
+            """
+            with fc as (select person_id from events where event = 'x')
+            select count() from events as e
+                     join persons as p on e.person_id = p.id and p.id in (select person_id from fc)
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert (
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), globalIn(id, (SELECT fc.person_id AS person_id FROM fc)))"
+            in printed
+        )
+
+    def test_inline_persons_in_a_persons_join_nested_in_another_persons_join_filter(self):
+        printed = self._print(
+            """
+            select count() from events as e
+                     join persons as p on p.id = e.person_id
+                         and p.id in (
+                             select pp.id from events as e2
+                             join persons as pp on pp.id = e2.person_id and pp.id in (7, 8)
+                         )
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(7, 8)))" in printed
+        assert "in(pp.id, tuple(7, 8))" not in printed
+
+    def test_inline_persons_subquery_that_reads_a_lazy_join(self):
+        printed = self._print(
+            """
+            select p1.id as p1_id
+            from events
+                     join persons as p1 on p1.id = events.person_id
+                         and p1.id in (select person_id from events where person.properties.email = 'a@example.com')
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), globalIn(id, (SELECT" in printed
+        assert "globalIn(p1.id" not in printed
+
+    @parameterized.expand([("right", "RIGHT JOIN"), ("full", "FULL OUTER JOIN")])
+    def test_keeps_the_persons_filter_in_the_join_when_the_join_keeps_unmatched_persons(self, _name, join):
+        printed = self._print(
+            f"""
+            select p1.id as p1_id
+            from events
+                     {join} persons as p1 on p1.id = events.person_id
+                         and p1.id in (select person_id from events where event = '$pageview')
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert "globalIn(p1.id, (SELECT" in printed
+        assert "AS id FROM person WHERE and(equals(person.team_id" not in printed
+
+    def test_inline_persons_when_the_join_constraint_reads_a_lazy_join_of_persons(self):
+        printed = self._print(
+            """
+            select count()
+            from events
+                     join persons as p1 on p1.pdi.distinct_id = events.distinct_id
+                         and p1.id in (select person_id from events where event = '$pageview')
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert f"FROM person WHERE and(equals(person.team_id, {self.team.pk}), globalIn(id, (SELECT" in printed
+        assert "p1.id, (SELECT" not in printed
+
+    def test_persons_join_filter_keeps_json_string_extraction(self):
+        printed = self._print(
+            """
+            select p1.id as p1_id
+            from events
+                     join persons as p1 on p1.id = events.person_id
+                         and p1.id in (select id from persons where JSONExtractString(properties, 'name') = 'a')
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert "JSONExtractString(" in printed.split("AS p1 ON")[0].split("FROM person WHERE")[-1]
+
+    def test_inline_persons_over_an_outer_cte_when_the_join_constraint_reads_a_lazy_join_of_persons(self):
+        printed = self._print(
+            """
+            with fc as (select person_id from events where event = 'x')
+            select count()
+            from events
+                     join persons as p1 on p1.pdi.distinct_id = events.distinct_id
+                         and p1.id in (select person_id from fc)
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert "globalIn(id, (SELECT" in printed or "in(id, (SELECT" in printed
 
     def test_two_joins(self):
         printed = self._print(
@@ -4846,6 +5041,8 @@ class TestPrinter(BaseTest):
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
+        assert "in(p1.id, tuple(1, 2, 3))" not in printed
+        assert "in(p2.id, tuple(4, 5, 6))" not in printed
 
     def test_two_clauses(self):
         printed = self._print(
@@ -4862,6 +5059,40 @@ class TestPrinter(BaseTest):
             in printed
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
+
+    @parameterized.expand(
+        [
+            ("cohort_first", "p.id in cohort {cohort} and p.id in (1, 2)", "in(id, tuple(1, 2)))", "in(p.id, (SELECT"),
+            ("cohort_last", "p.id in (1, 2) and p.id in cohort {cohort}", "in(id, tuple(1, 2)))", "in(p.id, (SELECT"),
+            (
+                "two_plain_in",
+                "p.id in (1, 2) and p.id in cohort {cohort} and p.id in (3, 4)",
+                "in(id, tuple(1, 2)), in(id, tuple(3, 4)))",
+                "in(p.id, (SELECT",
+            ),
+            (
+                "subquery_in",
+                "p.id in cohort {cohort} and p.id in (select person_id from events where event = 'x')",
+                "globalIn(id, (SELECT",
+                "in(p.id, (SELECT",
+            ),
+            (
+                "not_in_cohort",
+                "p.id not in cohort {cohort} and p.id in (1, 2)",
+                "in(id, tuple(1, 2)))",
+                "notIn(p.id, (SELECT",
+            ),
+        ]
+    )
+    def test_inline_persons_next_to_a_cohort_conjunct(self, _name, conjuncts, inlined, kept_in_join):
+        cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True, created_by=self.user)
+        printed = self._print(
+            f"select count() from events as e join persons as p on p.id = e.person_id and {conjuncts.format(cohort=cohort.pk)}",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), {inlined}" in printed
+        assert kept_in_join in printed
+        assert "in(p.id, tuple(" not in printed
 
     def test_print_hogql_aggregation_function_uses_hogql_function_names(self):
         query = parse_expr("avgArray([1, 2, 3])")
@@ -5326,12 +5557,23 @@ class TestPrinter(BaseTest):
                 "SELECT event FROM events WHERE event IN (SELECT instance_id FROM batch_export_log_entries WHERE level = 'ERROR')",
                 "globalIn(",
             ),
+            (
+                "in_flag_evaluations_subquery",
+                "SELECT event FROM events WHERE distinct_id IN (SELECT distinct_id FROM posthog.flag_evaluations WHERE flag_key = 'beta')",
+                "globalIn(",
+            ),
+            (
+                "not_in_flag_evaluations_subquery",
+                "SELECT distinct_id FROM posthog.flag_evaluations WHERE distinct_id NOT IN (SELECT distinct_id FROM posthog.flag_evaluations WHERE flag_key = 'beta')",
+                "globalNotIn(",
+            ),
         ]
     )
     def test_sharded_in_subqueries_promoted_to_global(self, _name, select, expected):
         # A per-shard re-executed IN-subquery over a sharded table costs shard-count times
         # the subquery; GLOBAL IN builds the set once and ships it.
-        printed = self._select(select)
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            printed = self._select(select)
         assert expected in printed, f"expected {expected} in:\n{printed}"
 
     @parameterized.expand(

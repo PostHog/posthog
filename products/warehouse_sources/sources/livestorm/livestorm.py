@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     build_dependent_resource,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -34,9 +35,10 @@ class LivestormResumeConfig:
 
 
 def flatten_json_api(item: dict[str, Any]) -> dict[str, Any]:
-    row = {key: value for key, value in item.items() if key not in _JSON_API_ENVELOPE_KEYS}
-    row.update(item.get("attributes") or {})
-    return row
+    envelope = {key: value for key, value in item.items() if key not in _JSON_API_ENVELOPE_KEYS}
+    return flatten_jsonapi(
+        {**envelope, "attributes": item.get("attributes")}, relationships_as_ids=False, on_clash="nested"
+    )
 
 
 def _client_config(api_token: str) -> ClientConfig:

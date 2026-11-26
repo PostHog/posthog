@@ -1,6 +1,6 @@
-"""Throttling consumer for warehouse -> person-property $set intents.
+"""Throttling consumer for warehouse -> person-property update intents.
 
-Drains ``KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES`` and sends each as a ``$set`` through
+Drains ``KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES`` and sends each as a ``$set`` or ``$unset`` through
 capture-internal, at a global rate (a constance setting ops can retune live). The rate is enforced
 by the shared, Redis-backed outbound egress limiter, so the budget holds across every replica at
 once — the consumer can run many pods without multiplying the send rate. Kafka lag is the
@@ -55,8 +55,8 @@ _IN_MEMORY_DIVIDER = 6
 
 SENT_TOTAL = Counter(
     "warehouse_person_property_sent_total",
-    "person-property update events sent to capture ($set for persons, $groupidentify for groups)",
-    labelnames=["kind"],
+    "person-property update events sent to capture ($set/$unset for persons, $groupidentify for groups)",
+    labelnames=["kind", "operation"],
 )
 DLQ_TOTAL = Counter(
     "warehouse_person_property_dlq_total",
@@ -79,6 +79,10 @@ _MIN_RATE_PER_SEC = 1.0
 # 4xx statuses that are transient despite being client errors: request timeout and rate limiting
 # (capture returns 408 with Retry-After for timeouts, 429 when throttled). These must retry, not DLQ.
 _RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
+
+# Capture's 402: the team is over its billing limit. Still a DLQ, but a reason of its own so the
+# alert can leave out a customer's billing state, which nothing in this pipeline can fix.
+_BILLING_LIMITED_STATUS = 402
 
 # How long to wait for a DLQ produce to be acknowledged before treating it as failed.
 _DLQ_DELIVERY_TIMEOUT_SECONDS = 30.0
@@ -119,16 +123,23 @@ register_policy(_RATE_DOMAIN, _rate_policy)
 
 
 def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
-    """Map a topic message to capture_internal kwargs. Person messages become a `$set`; group messages
+    """Map a topic message to capture_internal kwargs. Person messages become a `$set`/`$unset`; group messages
     (``kind == "group"``) become a `$groupidentify` carrying `$group_type`/`$group_key`/`$group_set`.
     Raises InvalidPersonPropertyMessage for a shape that can never succeed."""
     token = payload.get("token")
     distinct_id = payload.get("distinct_id")
     properties = payload.get("properties")
+    unset_properties = payload.get("unset_properties", [])
     if not token or not distinct_id:
         raise InvalidPersonPropertyMessage("message missing token or distinct_id")
-    if not isinstance(properties, dict) or not properties:
-        raise InvalidPersonPropertyMessage("message has no properties to set")
+    if not isinstance(properties, dict):
+        raise InvalidPersonPropertyMessage("message properties must be an object")
+    if not isinstance(unset_properties, list) or any(
+        not isinstance(property_name, str) or not property_name for property_name in unset_properties
+    ):
+        raise InvalidPersonPropertyMessage("message unset_properties must be a list of property names")
+    if not properties and not unset_properties:
+        raise InvalidPersonPropertyMessage("message has no properties to update")
     # Non-finite floats (NaN/Infinity) survive json.loads but serialize to non-compliant JSON that
     # the capture transport rejects as an unaccounted (non-terminal) failure, which would otherwise
     # retry forever and wedge the partition. They can never succeed, so treat them as poison -> DLQ.
@@ -139,6 +150,8 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
 
     event_source = payload.get("event_source") or EVENT_SOURCE
     if payload.get("kind") == "group":
+        if unset_properties:
+            raise InvalidPersonPropertyMessage("group messages cannot unset properties")
         group_type = payload.get("group_type")
         group_key = payload.get("group_key")
         if not group_type or not group_key:
@@ -161,12 +174,17 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
             },
             "process_person_profile": True,
         }
+    person_properties: dict[str, Any] = {"$geoip_disable": True}
+    if properties:
+        person_properties["$set"] = properties
+    if unset_properties:
+        person_properties["$unset"] = unset_properties
     return {
         "token": token,
         "event_name": "$set",
         "event_source": event_source,
         "distinct_id": str(distinct_id),
-        "properties": {"$set": properties, "$geoip_disable": True},
+        "properties": person_properties,
         "process_person_profile": True,
     }
 
@@ -189,6 +207,30 @@ def _is_permanent_client_error(status_code: object) -> bool:
     retryable 4xx (408 timeout, 429 throttled) are excluded so a client hammering capture into
     timeouts can't get queued updates dropped instead of retried."""
     return isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in _RETRYABLE_CLIENT_STATUSES
+
+
+def _client_error_reason(prefix: str, status_code: object) -> str:
+    if status_code == _BILLING_LIMITED_STATUS:
+        return "billing_limited"
+    return f"{prefix}:{status_code}"
+
+
+def _is_rebalance_commit_error(exc: Exception) -> bool:
+    """True when a commit failed because this message's partition moved to another group member
+    mid-commit (session/poll-interval expiry, rebalance). The new owner re-reads from the last
+    committed offset, so the loop can keep going instead of crash-looping the pod. Mirrors
+    REBALANCE_COMMIT_ERRORS in posthog/kafka_client/dlq_replay.py."""
+    from confluent_kafka import KafkaError  # noqa: PLC0415
+
+    if not exc.args or not isinstance(exc.args[0], KafkaError):
+        return False
+    return exc.args[0].code() in {
+        KafkaError.REBALANCE_IN_PROGRESS,
+        KafkaError.UNKNOWN_MEMBER_ID,
+        KafkaError.ILLEGAL_GENERATION,
+        KafkaError._STATE,
+        KafkaError._NO_OFFSET,
+    }
 
 
 # One worker, so a hung cache or database call blocks later lookups instead of piling up threads.
@@ -335,12 +377,14 @@ class PersonPropertyUpdateConsumer:
             # 0 (transport/client-side), retryable 4xx (408/429), and 5xx stay transient -> uncommitted.
             status_code = getattr(exc, "status_code", None)
             if _is_permanent_client_error(status_code):
-                return self._dlq(value, f"capture_client_error:{status_code}", kwargs["token"])
+                return self._dlq(value, _client_error_reason("capture_client_error", status_code), kwargs["token"])
             RETRY_TOTAL.inc()
             logger.exception("person_property_update.capture_error")
             return RETRY
         if result.succeeded():
-            SENT_TOTAL.labels(kind="group" if kwargs["event_name"] == "$groupidentify" else "person").inc()
+            kind = "group" if kwargs["event_name"] == "$groupidentify" else "person"
+            operation = "unset" if "$unset" in kwargs["properties"] else "set"
+            SENT_TOTAL.labels(kind=kind, operation=operation).inc()
             return SENT
         # A drop is terminal: capture rejected the event permanently (e.g. invalid/stale token,
         # validation failure), so it's poison. DLQ it rather than redelivering forever.
@@ -350,7 +394,7 @@ class PersonPropertyUpdateConsumer:
         # too. Everything else (exhausted retries, unaccounted, retryable 4xx, 5xx, transport) is
         # transient -> retry.
         if result.error and _is_permanent_client_error(result.status_code):
-            return self._dlq(value, f"capture_error:{result.status_code}", kwargs["token"])
+            return self._dlq(value, _client_error_reason("capture_error", result.status_code), kwargs["token"])
         RETRY_TOTAL.inc()
         return RETRY
 
@@ -366,6 +410,20 @@ class PersonPropertyUpdateConsumer:
             self._sleep(_RETRY_BACKOFF_SECONDS)
             outcome = self.process_record(value)
         return outcome
+
+    def _commit(self, consumer: Any, message: Any) -> None:
+        """Commit past this message, swallowing a commit failure caused by a rebalance that already
+        moved the partition elsewhere (the new owner re-reads from the last committed offset).
+        Any other commit failure still propagates: offsets held where they were is a real problem,
+        not something to paper over."""
+        from confluent_kafka import KafkaException  # noqa: PLC0415
+
+        try:
+            consumer.commit(message=message, asynchronous=False)
+        except KafkaException as exc:
+            if not _is_rebalance_commit_error(exc):
+                raise
+            logger.warning("person_property_update.commit_skipped_after_rebalance", error=str(exc))
 
     @staticmethod
     def _build_consumer_config() -> dict[str, str | int | float | bool | None]:
@@ -424,11 +482,11 @@ class PersonPropertyUpdateConsumer:
                 value = message.value()
                 if value is None:
                     # Tombstone / empty payload: nothing to $set. Commit past it so it doesn't replay.
-                    consumer.commit(message=message, asynchronous=False)
+                    self._commit(consumer, message)
                     continue
                 outcome = self._process_with_retries(value)
                 if outcome in (SENT, DLQ):
-                    consumer.commit(message=message, asynchronous=False)
+                    self._commit(consumer, message)
         finally:
             consumer.close()
             logger.info("person_property_update.consumer_stopped")

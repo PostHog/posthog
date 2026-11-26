@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { IconDocument } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,6 +27,7 @@ import { getSidebarPropertyDefinitionTarget } from 'products/data_warehouse/fron
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
+import { MaterializedViewIcon } from './MaterializedViewIcon'
 import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
@@ -53,6 +56,7 @@ const buildMetric = (id: string, name: string, definitionKind: string | null): D
     referenced_table_names: [],
     status: 'approved',
     is_drifted: false,
+    match_reason: null,
     approved_at: null,
     approved_by: null,
     last_run_at: null,
@@ -720,6 +724,35 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
+    it('marks only materialized saved views with the materialized view icon', async () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+        await expectLogic(viewsLogic).toFinishAllListeners()
+        viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
+            [
+                ['orders_plain', false],
+                ['orders_stored', true],
+            ].map(([name, isMaterialized]) => ({
+                id: name,
+                name,
+                status: 'Completed',
+                is_materialized: isMaterialized,
+                columns: [],
+                managed_viewset_kind: null,
+            })) as unknown as DataWarehouseSavedQuery[]
+        )
+
+        const iconTypeByView = Object.fromEntries(
+            logic.values.displayedTreeData
+                .find((item) => item.name === 'Views')!
+                .children!.map((item) => [item.name, (item.icon as JSX.Element).type])
+        )
+        expect(iconTypeByView).toEqual({ orders_plain: IconDocument, orders_stored: MaterializedViewIcon })
+        logic.unmount()
+    })
+
     it('combines status search tokens with names and clears them when locating a table', async () => {
         initKeaTests()
         const logic = queryDatabaseLogic()
@@ -796,7 +829,8 @@ describe('queryDatabaseLogic', () => {
         const logic = queryDatabaseLogic()
         logic.mount()
 
-        expect(logic.values.treeData.find((item) => item.id === 'metrics')).toBeUndefined()
+        const loadingMetrics = logic.values.treeData.find((item) => item.id === 'metrics')!
+        expect(loadingMetrics.children!.map((item) => item.type)).toEqual(Array(3).fill('loading-indicator'))
         await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsSuccess'])
 
         const metrics = logic.values.treeData.find((item) => item.id === 'metrics')!
@@ -1325,12 +1359,23 @@ describe('queryDatabaseLogic', () => {
 
         it.each([
             { scope: null, schemaFails: false, expectedViews: ['clickhouse_view'] },
-            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: false, expectedViews: ['trino_view'] },
-            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: true, expectedViews: ['trino_view'] },
+            {
+                scope: MANAGED_TRINO_SCHEMA_SCOPE,
+                schemaFails: false,
+                expectedViews: ['trino_hogql_view', 'trino_view'],
+            },
+            {
+                scope: MANAGED_TRINO_SCHEMA_SCOPE,
+                schemaFails: true,
+                expectedViews: ['trino_hogql_view', 'trino_view'],
+            },
+            { scope: 'source-id', schemaFails: false, expectedViews: ['connection_view'] },
+            { scope: 'source-id', schemaFails: true, expectedViews: ['connection_view'] },
+            { scope: 'another-source', schemaFails: false, expectedViews: [] },
             { scope: null, schemaFails: false, search: 'trino', expectedViews: [] },
             { scope: null, schemaFails: false, onlyTrino: true, expectedViews: [] },
         ])(
-            'lists raw Trino views only under hosted Trino (scope $scope, schema fails $schemaFails)',
+            'lists each view only under the engine that runs it (scope $scope, schema fails $schemaFails)',
             async ({ scope, schemaFails, search, onlyTrino, expectedViews }) => {
                 const viewsLogic = dataWarehouseViewsLogic.findMounted()!
                 await expectLogic(viewsLogic).toFinishAllListeners()
@@ -1349,12 +1394,21 @@ describe('queryDatabaseLogic', () => {
                             engine: { target: 'managed_trino', dialect: 'raw', capabilities: capabilities(false) },
                         },
                         {
+                            name: 'trino_hogql_view',
+                            engine: { target: 'managed_trino', dialect: 'hogql', capabilities: capabilities(true) },
+                        },
+                        {
                             name: 'clickhouse_view',
                             engine: { target: 'clickhouse', dialect: 'hogql', capabilities: capabilities(true) },
                         },
                         {
                             name: 'connection_view',
-                            engine: { target: 'connection', dialect: 'hogql', capabilities: capabilities(false) },
+                            engine: {
+                                target: 'connection',
+                                dialect: 'hogql',
+                                connection_id: 'source-id',
+                                capabilities: capabilities(false),
+                            },
                         },
                     ]
                         .filter((view) => !onlyTrino || view.name === 'trino_view')

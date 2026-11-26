@@ -16,17 +16,20 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             Install the PostHog Rust SDK. Error tracking is enabled by its default \`error-tracking\` feature.
                         `}
                     </Markdown>
-                    <CodeBlock language="bash" code="cargo add posthog-rs" />
+                    <CodeBlock
+                        language="bash"
+                        code="cargo add posthog@1 tokio --features tokio/rt-multi-thread,tokio/macros"
+                    />
                     <Markdown>
                         {dedent`
-                            If you disable default features, add \`error-tracking\` explicitly in your dependency configuration.
+                            If you disable default features, add \`error-tracking\` and \`tls\` explicitly in your dependency configuration. Without \`tls\`, the SDK can't send to an HTTPS host.
                         `}
                     </Markdown>
                     <CodeBlock
                         language="toml"
                         code={dedent`
                             [dependencies]
-                            posthog-rs = { version = "*", default-features = false, features = ["async-client", "error-tracking"] }
+                            posthog = { version = "1", default-features = false, features = ["async-client", "error-tracking", "tls"] }
                         `}
                     />
                 </>
@@ -39,10 +42,19 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                 <CodeBlock
                     language="rust"
                     code={dedent`
-                        let client = posthog_rs::client((
-                            "<ph_project_token>",
-                            "<ph_client_api_host>",
-                        )).await;
+                        #[tokio::main]
+                        async fn main() {
+                            let client = posthog::client((
+                                "<ph_project_token>",
+                                "<ph_client_api_host>",
+                            )).await;
+
+                            // Capture events and exceptions here
+
+                            // Shut down last, before the process exits. It flushes queued
+                            // events, and the client drops anything captured after it.
+                            client.shutdown().await;
+                        }
                     `}
                 />
             ),
@@ -84,7 +96,7 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                     <CodeBlock
                         language="rust"
                         code={dedent`
-                            use posthog_rs::{ClientOptionsBuilder, ErrorTrackingOptionsBuilder};
+                            use posthog::{ClientOptionsBuilder, ErrorTrackingOptionsBuilder};
 
                             let options = ClientOptionsBuilder::default()
                                 .api_key("<ph_project_token>".to_string())
@@ -98,7 +110,7 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                                 .build()
                                 .unwrap();
 
-                            posthog_rs::init_global(options).await.unwrap();
+                            posthog::init_global(options).await.unwrap();
                         `}
                     />
                 </>

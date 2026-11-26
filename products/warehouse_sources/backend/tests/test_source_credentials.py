@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     WarehouseSourceCredentialsStore,
 )
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.presentation.views.external_data_source.shared_credentials import (
     shared_credentials_conflict_response,
@@ -760,6 +761,23 @@ class TestWarehouseSourceUsageProvider(BaseTest):
         assert IntegrationManager.any.with_source_rows().usages(self.team.id, row.id) == [
             IntegrationUsage(type="warehouse_source", id=str(source.id), name=name)
         ]
+
+    @parameterized.expand([("live", False), ("deleted", True)])
+    def test_the_sdk_reports_a_destination_that_writes_through_the_row(self, _name: str, deleted: bool) -> None:
+        row = IntegrationManager.postgresql.credentials.create(self.team.id, external_id="pg", config={})
+        destination = ExternalDataDestination.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="Reporting",
+            integration_id=row.id,
+            deleted=deleted,
+        )
+
+        assert IntegrationManager.any.usages(self.team.id, row.id) == (
+            []
+            if deleted
+            else [IntegrationUsage(type="warehouse_destination", id=str(destination.id), name="Reporting")]
+        )
 
     def test_delete_of_a_used_row_raises_and_keeps_the_row(self) -> None:
         row = self._row()

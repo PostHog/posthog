@@ -680,15 +680,19 @@ export function makeToolExecutorState(
             trackEvent: vi.fn(),
         } as any,
         useSingleExec: false,
+        splitWrites: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
         oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
-            isCliModeEnabled: vi.fn(() => false),
+            prefersFormattedText: vi.fn(() => false),
             isInlineExecUiHost: vi.fn(() => false),
+            drawsTimeSeriesCharts: vi.fn(() => false),
+            isCursor: vi.fn(() => false),
             isClaudeChatHost: vi.fn(() => false),
             isAnthropicConnector: vi.fn(() => false),
+            isArtifactRuntime: vi.fn(() => false),
         } as any,
         requestContext: {
             authMethod: 'personal_api_key',
@@ -707,6 +711,7 @@ export function makeToolExecutorState(
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
+        stepSeconds: {},
         ...overrides,
     }
 }

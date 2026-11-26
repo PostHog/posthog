@@ -44,7 +44,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
-import { tagsModel } from '~/models/tagsModel'
 import { performQuery } from '~/queries/query'
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
@@ -74,6 +73,7 @@ import {
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { featureFlagCalledMetricNames } from 'products/experiments/frontend/featureFlagCalledMetrics'
 import { experimentsHealthRetrieve, experimentsMigrateCreate } from 'products/experiments/frontend/generated/api'
 import type { ExperimentHealthApi } from 'products/experiments/frontend/generated/api.schemas'
 import {
@@ -113,7 +113,7 @@ import {
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { ExperimentHoldoutType, ExperimentIdType } from '../../types'
-import { experimentMetricsLogic } from './experimentMetricsLogic'
+import { experimentMetricsLogic, resultsQueryToLoaded } from './experimentMetricsLogic'
 import { featureFlagVariantProperty, getExposureSource, resolvedExposureEvent } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
@@ -386,7 +386,10 @@ export interface experimentLogicValues {
     exposureCohortLoading: boolean
     exposureCriteria: ExperimentExposureCriteria | undefined
     exposures: any
+    exposuresAsOf: string | null
+    exposuresAsOfPending: boolean
     exposuresLoading: boolean
+    featureFlagCalledMetricNames: string[]
     formMode: FormModes
     freezeExposureLoading: boolean
     hasMetrics: boolean
@@ -524,9 +527,6 @@ export interface experimentLogicActions {
     openReleaseConditionsModal: () => {
         value: true
     } // modalsLogic
-    loadTags: () => {
-        value: true
-    } // tagsModel
     addSharedMetricsToExperiment: (
         sharedMetricIds: SharedMetric['id'][],
         metadata: {
@@ -761,12 +761,12 @@ export interface experimentLogicActions {
     ) => {
         context:
             | {
-                  auto_refresh_enabled?: boolean | undefined
-                  auto_refresh_interval?: number | undefined
-                  previous_refresh_age_ms?: number | null | undefined
-                  previous_refresh_id?: string | null | undefined
-                  previous_refresh_state?: string | null | undefined
-                  previous_refresh_triggered_by?: string | null | undefined
+                  auto_refresh_enabled?: boolean
+                  auto_refresh_interval?: number
+                  previous_refresh_age_ms?: number | null
+                  previous_refresh_id?: string | null
+                  previous_refresh_state?: string | null
+                  previous_refresh_triggered_by?: string | null
                   triggered_by: 'auto-refresh' | 'manual'
               }
             | undefined
@@ -819,6 +819,12 @@ export interface experimentLogicActions {
     }
     setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => {
         exposureCriteria: ExperimentExposureCriteria
+    }
+    setExposuresAsOf: (asOf: string | null) => {
+        asOf: string | null
+    }
+    setExposuresAsOfPending: () => {
+        value: true
     }
     setFreezeExposureLoading: (loading: boolean) => {
         loading: boolean
@@ -1022,6 +1028,7 @@ export interface experimentLogicMeta {
         exposureCriteria: (experiment: Experiment) => ExperimentExposureCriteria | undefined
         hasMetrics: (experiment: Experiment) => boolean
         browserNoMetricsWarning: (hasMetrics: boolean, isExperimentLaunched: boolean) => boolean
+        featureFlagCalledMetricNames: (experiment: Experiment) => string[]
         statsMethod: (experiment: Experiment) => ExperimentStatsMethod
     }
 }
@@ -1055,8 +1062,6 @@ export const experimentLogic = kea<experimentLogicType>([
         actions: [
             experimentsLogic,
             ['updateExperiments'],
-            tagsModel,
-            ['loadTags'],
             eventUsageLogic,
             [
                 'reportExperimentViewed',
@@ -1196,6 +1201,8 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         updateExperimentVariantNotes: (variantNotes: Record<string, string>) => ({ variantNotes }),
         setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
+        setExposuresAsOf: (asOf: string | null) => ({ asOf }),
+        setExposuresAsOfPending: true,
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
@@ -1272,6 +1279,25 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 toggleDebugPanel: (state) => !state,
+            },
+        ],
+        /**
+         * The as_of of the last exposure query, set when the request starts so a reload is not sent twice.
+         * A failed load clears it, so the next window change or mount sends the reload again.
+         */
+        exposuresAsOf: [
+            null as string | null,
+            {
+                setExposuresAsOf: (_, { asOf }) => asOf,
+                loadExposuresFailure: () => null,
+            },
+        ],
+        // True while a load waits for the latest run. The window logic must not replace that load with a reload.
+        exposuresAsOfPending: [
+            false,
+            {
+                setExposuresAsOfPending: () => true,
+                setExposuresAsOf: () => false,
             },
         ],
         // A health finding is reported at most once per load, the unit of `experiment viewed`. A load
@@ -2020,10 +2046,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (payload?.update_feature_flag_params && experimentUpdate.feature_flag) {
                     actions.updateFlagFromPartial(experimentUpdate.feature_flag)
                 }
-                if (payload?.tags) {
-                    // Newly created tags must reach tagsModel or the tag filters won't offer them.
-                    actions.loadTags()
-                }
             }
             // NOTE: No implicit metric reload here. Each action that calls updateExperiment
             // is responsible for triggering its own reload if needed. This prevents:
@@ -2361,6 +2383,11 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     for (const query of metrics) {
                         const insightQuery = queryBuilder(query)
+                        // Ratio, retention and percentile metrics have no insight equivalent, and the API
+                        // rejects an insight without a query
+                        if (!insightQuery) {
+                            continue
+                        }
 
                         await insightsApi.create({ name: query.name || undefined, query: insightQuery }, [dashboard.id])
                     }
@@ -2758,7 +2785,7 @@ export const experimentLogic = kea<experimentLogicType>([
         exposures: [
             null as any,
             {
-                loadExposures: async (refresh: boolean = false) => {
+                loadExposures: async (refresh: boolean = false, breakpoint) => {
                     const { experiment } = values
 
                     // The legacy page shows no exposures, but its variant exclusion toggle still dispatches this.
@@ -2767,6 +2794,26 @@ export const experimentLogic = kea<experimentLogicType>([
                         return values.exposures
                     }
 
+                    /**
+                     * End the exposures at the window of the metrics on screen. Without a recalculation run, the
+                     * backend evaluates the window at now.
+                     */
+                    const metricsLogic = experimentMetricsLogic({ experiment })
+                    // A page load gets here before any component mounts the metrics logic. Without the wait, the first
+                    // query ends at now and later ones at the run's window: two cache entries with different answers.
+                    const unmountMetricsLogic = metricsLogic.mount()
+                    let asOf: string | null
+                    try {
+                        if (metricsLogic.values.resultsQueryToLoading) {
+                            actions.setExposuresAsOfPending()
+                            await resultsQueryToLoaded(metricsLogic)
+                            breakpoint()
+                        }
+                        asOf = metricsLogic.values.resultsQueryTo
+                    } finally {
+                        unmountMetricsLogic()
+                    }
+                    actions.setExposuresAsOf(asOf)
                     const query = setLatestVersionsOnQuery({
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: values.experimentId,
@@ -2775,22 +2822,28 @@ export const experimentLogic = kea<experimentLogicType>([
                         feature_flag: experiment.feature_flag,
                         start_date: experiment.start_date,
                         end_date: experiment.end_date,
+                        as_of: asOf,
                         holdout: experiment.holdout,
                     })
                     // Show the cached exposures immediately when the backend is recomputing in the
                     // background, instead of hanging on the spinner until the recompute finishes.
-                    return await performQuery(
-                        query,
-                        undefined,
-                        getExperimentRefreshMode(values.featureFlags, refresh),
-                        undefined, // queryId
-                        undefined, // setPollResponse
-                        undefined, // filtersOverride
-                        undefined, // variablesOverride
-                        false, // pollOnly
-                        undefined, // limitContext
-                        true // acceptStaleCache
-                    )
+                    try {
+                        return await performQuery(
+                            query,
+                            undefined,
+                            getExperimentRefreshMode(values.featureFlags, refresh),
+                            undefined, // queryId
+                            undefined, // setPollResponse
+                            undefined, // filtersOverride
+                            undefined, // variablesOverride
+                            false, // pollOnly
+                            undefined, // limitContext
+                            true // acceptStaleCache
+                        )
+                    } finally {
+                        /** A newer load can target a later window, so an older response or error must not replace it. */
+                        breakpoint()
+                    }
                 },
             },
         ],
@@ -3015,6 +3068,10 @@ export const experimentLogic = kea<experimentLogicType>([
         browserNoMetricsWarning: [
             (s) => [s.hasMetrics, s.isExperimentLaunched],
             (hasMetrics: boolean, isExperimentLaunched: boolean): boolean => isExperimentLaunched && !hasMetrics,
+        ],
+        featureFlagCalledMetricNames: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string[] => featureFlagCalledMetricNames(experiment),
         ],
         statsMethod: [
             (s) => [s.experiment],

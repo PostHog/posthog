@@ -124,6 +124,7 @@ class TestBedrockSpecific:
             pytest.param("claude-opus-4-8", "bedrock/us.anthropic.claude-opus-4-8", id="opus_4_8_inference_profile"),
             pytest.param("claude-fable-5", "bedrock/us.anthropic.claude-fable-5", id="fable_5_inference_profile"),
             pytest.param("claude-fable-5-1", "bedrock/us.anthropic.claude-fable-5-1", id="fable_5_1_inference_profile"),
+            pytest.param("claude-fable-5-2", "bedrock/us.anthropic.claude-fable-5-2", id="fable_5_2_inference_profile"),
             pytest.param("claude-sonnet-5", "bedrock/us.anthropic.claude-sonnet-5", id="sonnet_5_inference_profile"),
             pytest.param(
                 "claude-sonnet-5-5", "bedrock/global.anthropic.claude-sonnet-5-5", id="sonnet_5_5_inference_profile"

@@ -12,7 +12,7 @@ import * as dwApi from 'products/data_warehouse/frontend/generated/api'
 import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { SettingsTab } from './SettingsTab'
-import { warehouseStatusFixture } from './warehouseStatusFixtures'
+import { trinoStatusFixture, warehouseStatusFixture } from './warehouseStatusFixtures'
 
 describe('SettingsTab', () => {
     const renderWithStatus = (status: WarehouseStatusResponseApi, flags: string[]): void => {
@@ -51,6 +51,7 @@ describe('SettingsTab', () => {
                 trino: {
                     state: 'ready',
                     ready_at: '2026-09-01T12:00:00Z',
+                    hoglake: false,
                     connection: {
                         host: 'my-warehouse.dw.example.com',
                         port: 443,
@@ -67,6 +68,46 @@ describe('SettingsTab', () => {
         const pageText = document.body.textContent ?? ''
         expect(pageText).toContain('--catalog org_my_warehouse --schema analytics')
         expect(pageText).not.toMatch(/psql|ducklake/i)
+    })
+
+    describe('hoglake credentials', () => {
+        const trinoOrg = (hoglake: boolean): WarehouseStatusResponseApi =>
+            warehouseStatusFixture({
+                state: 'ready',
+                connection: null,
+                trino: trinoStatusFixture({
+                    hoglake,
+                    connection: { host: 'my-warehouse.dw.example.com', port: 443, catalog: 'org_x', username: 'root' },
+                }),
+            })
+        const credentialLists = (): jest.SpyInstance[] => [
+            jest.spyOn(dwApi, 'dataWarehouseHoglakeCredentialsRetrieve').mockResolvedValue({
+                hoglake_credentials: [],
+            } as any),
+            jest.spyOn(dwApi, 'dataWarehouseMyHoglakeCredentialsRetrieve').mockResolvedValue({
+                hoglake_credentials: [],
+                projects: [],
+            } as any),
+        ]
+
+        it('shows them for a hoglake catalog', async () => {
+            const lists = credentialLists()
+            renderWithStatus(trinoOrg(true), [FEATURE_FLAGS.MANAGED_TRINO_QUERY])
+
+            expect(await screen.findByText('Hoglake credentials')).toBeInTheDocument()
+            expect(await screen.findByText('Your hoglake credentials')).toBeInTheDocument()
+            lists.forEach((list) => expect(list).toHaveBeenCalled())
+        })
+
+        it('leaves them out for a DuckLake catalog, where they would reach nothing', async () => {
+            const lists = credentialLists()
+            renderWithStatus(trinoOrg(false), [FEATURE_FLAGS.MANAGED_TRINO_QUERY])
+
+            expect(await screen.findByText('Catalog')).toBeInTheDocument()
+            expect(screen.queryByText('Hoglake credentials')).not.toBeInTheDocument()
+            expect(screen.queryByText('Your hoglake credentials')).not.toBeInTheDocument()
+            lists.forEach((list) => expect(list).not.toHaveBeenCalled())
+        })
     })
 
     it('keeps the Postgres connection for a DuckDB organization', async () => {

@@ -14,7 +14,6 @@ from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylistViewed,
 )
 
-from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade.api import query_new_error_issues as query_new_error_issues
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -74,14 +73,6 @@ def query_org_members(organization: Organization) -> QuerySet:
         .select_related("user")
         .only("id", "user__distinct_id", "user__first_name", "user__email", "user__uuid")
     ).order_by("id")
-
-
-def query_new_dashboards(period_start: datetime, period_end: datetime) -> QuerySet:
-    return (
-        Dashboard.objects.filter(created_at__gt=period_start, created_at__lte=period_end)
-        .exclude(name__contains="Generated Dashboard")
-        .values("team_id", "name", "id")
-    )
 
 
 def query_new_event_definitions(period_start: datetime, period_end: datetime) -> QuerySet:

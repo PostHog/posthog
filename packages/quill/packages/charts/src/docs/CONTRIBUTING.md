@@ -27,6 +27,7 @@ Read this before you add a hook, a memo or an overlay.
 - **Must be stable** (a module-level function, or a memo keyed on the real inputs): `series`, `labels`, `createScales`, `drawStatic`, and every object or function they read, such as `valueDomain`, `yAxes` and tick formatters.
 - **Need not be stable:** event callbacks (`onPointClick`, `onAreaSelect`, `resolveValue` and the other resolvers), which the interaction hooks read through refs; the `tooltip` render prop; and the `config` object itself, which `Chart` destructures.
 - **Memoize only when identity matters**, or when the work is expensive and runs per mousemove. A memo around cheap work, or around a value whose consumer ignores identity, adds lines and does nothing.
+- **Raster scale.** `useChartCanvas` puts the raster scale on `dimensions.pixelRatio`, and `clearAndPrepare` sizes the canvas at it. The scale is `devicePixelRatio`. While the page is pinch-zoomed, a chart in the viewport gets `devicePixelRatio × visualViewport.scale`, up to 2,000,000 backing pixels, so it stays as sharp as the text around it. Draw code reads the scale off the backing store (`canvas.width / dimensions.width`), never from `window.devicePixelRatio`.
 - **Scale target: 1,000 series × 100,000 points.** No quadratic work over the dataset. Hover costs O(1) or O(log n) per mousemove, allocates nothing per series, and never repaints the static canvas. Precompute on data change and index on hover.
 
 ## API conventions
@@ -41,7 +42,7 @@ New props and config keys use these names and shapes. Some older charts still di
 - **Animation:** `animationMs: number`, where `0` turns animation off.
 - **Selection:** a drag along x reports through `onRangeSelect`. A 2D brush reports through `onAreaSelect`.
 - **State:** a `default*` prop is read on mount only. State the parent controls is a pair, such as `focusedId` and `onFocusChange`.
-- **Errors:** every chart takes `onError`. A chart that wraps another chart passes `onError` to it.
+- **Errors:** every chart takes `onError`. A chart that wraps another chart passes `onError` to it. A chart passes its data prop to `ChartErrorBoundary` as `resetKey`, so new data clears a render error.
 - **Shared props:** a prop that every chart takes goes on a shared base props type. Do not add it to each chart by hand.
 - **Scope:** every new prop, option or mode has a caller in the PR or a named consumer. Do not add options for later.
 
@@ -106,4 +107,4 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
 - `applyChartDefaults` turns on the tick marks and crosshair, as on the built-in charts. The core reads them from `config` and treats a missing switch as off.
 - `drawStatic` draws the grid lines first and the axis lines last, as the built-in charts do. `valueTicks: scales.yTicks()` puts the grid lines on the y-axis labels, and `frame: false` leaves the plot edges to `drawAxes`. Code outside the library imports `drawGrid`, `drawAxes` and `resolveAxisLineColor` from the package.
 - Leave `tooltip` unset for the stock `DefaultTooltip`, configured through `config.tooltip`. For other content, return `DefaultTooltip` with a `labelRenderer` or `valueFormatter`, or compose `TooltipSurface` and `TooltipSwatch`, so the tooltip still matches the built-in charts.
-- A chart that composes `useChartCanvas` and `ChartShell` itself instead of the base `Chart` (as `SankeyChart` and `FlameGraph` do) must repaint whenever `dimensions` changes identity. `useChartCanvas` signals a resize, and a restored canvas context, only by publishing a new `dimensions` object; the `ctx` stays the same.
+- A chart that composes `useChartCanvas` and `ChartShell` itself instead of the base `Chart` (as `SankeyChart` and `FlameGraph` do) must repaint whenever `dimensions` changes identity. `useChartCanvas` signals a resize, a restored canvas context and a change of raster scale only by publishing a new `dimensions` object; the `ctx` stays the same.

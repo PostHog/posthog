@@ -22,6 +22,7 @@ __all__ = [
     "ExternalDataSchemaStatus",
     "ExternalDataSchemaSyncFrequency",
     "ExternalDataSchemaSyncType",
+    "SettableSyncFrequency",
     "ExternalDataSourceAccessMethod",
     "ExternalDataSourceCreatedVia",
     "ExternalDataSourceStatus",
@@ -59,6 +60,10 @@ class IncrementalField(typing.TypedDict, total=False):
     # Used to warn users picking an incremental field that would force a full scan
     # on every sync. Defaults to True when omitted so missing detection never warns.
     is_indexed: bool
+    recommended: bool
+    # Set when the decision model picked this field, so a caller can trust it over name rules.
+    picked_by_model: bool
+    notes: list[str]
 
 
 class PartitionSettings(typing.NamedTuple):
@@ -1618,6 +1623,14 @@ class ExternalDataSchemaStatus(LabeledStrEnum):
     BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
 
+class WebhookIssue(LabeledStrEnum):
+    """Why a webhook-sync table gets no webhook rows."""
+
+    NOT_REGISTERED = "not_registered", "The source has no enabled webhook"
+    MISSING_INPUTS = "missing_inputs", "The webhook is missing a required setting, so it drops every delivery"
+    NOT_ROUTED = "not_routed", "The webhook does not route this table's events, so it drops them"
+
+
 class ExternalDataSchemaSyncType(LabeledStrEnum):
     FULL_REFRESH = "full_refresh", "full_refresh"
     INCREMENTAL = "incremental", "incremental"
@@ -1644,6 +1657,23 @@ class ExternalDataSchemaSyncFrequency(LabeledStrEnum):
     WEEKLY = "week", "Weekly"
     MONTHLY = "month", "Monthly"
     # TODO provide flexible schedule definition
+
+
+class SettableSyncFrequency(LabeledStrEnum):
+    """The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor.
+
+    There is no "never": a table that should not sync sets should_sync to false instead.
+    """
+
+    FIVE_MINUTES = "5min", "5min"
+    FIFTEEN_MINUTES = "15min", "15min"
+    THIRTY_MINUTES = "30min", "30min"
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    ONE_DAY = "24hour", "24hour"
+    SEVEN_DAYS = "7day", "7day"
+    THIRTY_DAYS = "30day", "30day"
 
 
 class WarehouseColumnAnnotationDescriptionSource(LabeledStrEnum):

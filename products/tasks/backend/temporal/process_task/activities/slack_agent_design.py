@@ -178,7 +178,11 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         stream_pending_slack_attachments,
     )
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import is_explicit_slack_reply, turn_person_message
+    from products.tasks.backend.temporal.process_task.utils import (
+        is_explicit_slack_reply,
+        turn_person_message,
+        turn_person_message_ts,
+    )
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
@@ -189,6 +193,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             actor_slack_user_id=input.actor_slack_user_id,
             turn_trace_id=input.trace_id,
             turn_person_message=turn_person_message(input.run_id, input.message_id, mention=input.mention),
+            turn_person_message_ts=turn_person_message_ts(input.run_id, input.message_id),
         )
         if (
             task_run is not None
@@ -232,8 +237,10 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         if handler.stream_ended and task_run is not None:
             # A closed stream takes no cards, so whatever is still pending posts under the answer as its own message.
             deliveries.append(deliver_pending_slack_file_artifacts(task_run))
-        if any(delivery.delivered_count for delivery in deliveries):
-            record_slack_feature_used(context.integration_id, handler.actor_slack_user_id, SlackFeature.FILE_OUTPUTS)
+        if any(delivery.delivered_count for delivery in deliveries) and handler.team_id is not None:
+            record_slack_feature_used(
+                handler.team_id, context.integration_id, handler.actor_slack_user_id, SlackFeature.FILE_OUTPUTS
+            )
         # Last, so a file this answer delivered already counts as used when the tip is picked.
         if answer_delivered and input.answer_markdown is not None:
             handler.offer_feature_tip()

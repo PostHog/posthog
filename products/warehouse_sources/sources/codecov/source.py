@@ -38,6 +38,7 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "report_tree": "Current coverage rolled up per directory and file, following the repository's file tree",
     "test_results": "Individual test runs from Test Analytics, with outcome, duration and failure message",
     "users": "Members of the Codecov organization, resolving the author usernames on commits and pulls",
+    "owner": "The configured Codecov owner (organization or user) that every repository rolls up to",
     "flag_coverage_trend": "Daily min/max/avg coverage time series per flag, per repository (default branch)",
     "commit_uploads": "Coverage uploads received for each commit, with the CI job, flags and processing state",
     "pull_impacted_files": "Per-file coverage change of each pull request against its base commit",

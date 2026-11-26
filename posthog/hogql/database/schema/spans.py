@@ -8,6 +8,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.database.schema.logs import LogsKafkaMetricsTable
 
 from posthog.clickhouse.workload import Workload
 
@@ -91,6 +92,9 @@ class TraceSpansTable(Table):
             name="time_bucket", nullable=False, description="Coarse time bucket used for partitioning and filtering."
         ),
         # internal fields for query optimization
+        # Physical type-suffixed backing map of `attributes`. A bare arrayElement() on it reads only
+        # the serialization bucket holding the key, where `attributes` rebuilds the whole map.
+        "attributes_map_str": MapStringDatabaseField(name="attributes_map_str", nullable=False, hidden=True),
         "_part": StringDatabaseField(name="_part", nullable=True, hidden=True),
         "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
     }
@@ -142,3 +146,18 @@ class TraceAttributesTable(Table):
 
     def to_printed_hogql(self):
         return "trace_attributes"
+
+
+class TraceSpansKafkaMetricsTable(LogsKafkaMetricsTable):
+    """Kafka consumption per partition for the trace spans topic, with the logs table's columns.
+
+    Not scoped to teams. Traces alerts read it to hold a check back to what ingestion has written.
+    """
+
+    description: str = "Per-partition Kafka consumption metadata for the trace spans ingestion topic; not scoped to teams, used to track ingestion lag."
+
+    def to_printed_clickhouse(self, context):
+        return "trace_spans_kafka_metrics"
+
+    def to_printed_hogql(self):
+        return "trace_spans_kafka_metrics"

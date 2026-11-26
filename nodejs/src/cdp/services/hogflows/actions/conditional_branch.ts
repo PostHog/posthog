@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
@@ -6,6 +7,7 @@ import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-member
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, HogFunctionFilters } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
+import { loadMissingPersonProperties, personPropertiesInBytecode } from '../hogflow-person-property-usage'
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
@@ -38,6 +40,15 @@ export const counterHogflowWaitPersonRefreshFailed = new Counter({
 export const counterHogflowRekeyWake = new Counter({
     name: 'cdp_hogflow_matcher_rekey_wake_total',
     help: 'wait_until_condition re-checks triggered by a merge re-key wake, by outcome.',
+    labelNames: ['outcome'],
+})
+
+// Outcome of a wait re-check that ran because the matcher woke a job it could not decide itself.
+// 'advanced' = the worker's fuller globals made the condition match; 'reparked' = they did not, so
+// the wake was wasted. A high reparked:advanced ratio means this path costs more than it recovers.
+export const counterHogflowRecheckWake = new Counter({
+    name: 'cdp_hogflow_matcher_recheck_wake_total',
+    help: 'wait_until_condition re-checks triggered by a wake the matcher could not decide, by outcome.',
     labelNames: ['outcome'],
 })
 
@@ -86,6 +97,13 @@ export class ConditionalBranchHandler implements ActionHandler {
             invocation.state.currentAction.anchorWake = false
         }
 
+        // Same again for a wake the matcher could not decide: the evaluation below is the decision.
+        const recheckWoken =
+            action.type === 'wait_until_condition' && invocation.state?.currentAction?.recheckWake === true
+        if (recheckWoken && invocation.state.currentAction) {
+            invocation.state.currentAction.recheckWake = false
+        }
+
         // The subscription matcher sets eventMatched when an incoming event matched this
         // step's wait condition. Honor it as a forced match and advance immediately,
         // rather than re-evaluating the stored condition against the original event.
@@ -122,6 +140,14 @@ export class ConditionalBranchHandler implements ActionHandler {
                 result.invocation.person = refreshed.person
                 result.invocation.filterGlobals = refreshed.filterGlobals
             }
+        }
+
+        if (action.type === 'conditional_branch') {
+            await loadMissingPersonProperties(invocation, result, () =>
+                action.config.conditions.flatMap((condition) =>
+                    personPropertiesInBytecode((condition.filters as HogFunctionFilters | null | undefined)?.bytecode)
+                )
+            )
         }
 
         const conditionalAction: Extract<HogFlowAction, { type: 'conditional_branch' }> =
@@ -162,12 +188,18 @@ export class ConditionalBranchHandler implements ActionHandler {
         const isWait = action.type === 'wait_until_condition'
 
         if (conditionResult.scheduledAt) {
+            if (action.type === 'wait_until_condition' && invocation.state.currentAction) {
+                invocation.state.currentAction.parkedConditionHash = hashCondition(action.config.condition)
+            }
             if (rekeyWoken) {
                 counterHogflowRekeyWake.labels('reparked').inc()
             }
-            return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
+            if (recheckWoken) {
+                counterHogflowRecheckWake.labels('reparked').inc()
+            }
+            return { scheduledAt: conditionResult.scheduledAt, result: toStepResult(conditionResult) }
         } else if (conditionResult.nextAction) {
-            if (isWait && !rekeyWoken && !anchorWoken && matchedAtMaxWait(invocation, action)) {
+            if (isWait && !rekeyWoken && !anchorWoken && !recheckWoken && matchedAtMaxWait(invocation, action)) {
                 counterHogflowWaitAdvancedAtMaxWait
                     .labels({ team_id: invocation.hogFlow.team_id, hog_flow_id: invocation.hogFlow.id })
                     .inc()
@@ -175,10 +207,13 @@ export class ConditionalBranchHandler implements ActionHandler {
             if (rekeyWoken) {
                 counterHogflowRekeyWake.labels('advanced').inc()
             }
-            return { nextAction: conditionResult.nextAction, result: { conditionResult } }
+            if (recheckWoken) {
+                counterHogflowRecheckWake.labels('advanced').inc()
+            }
+            return { nextAction: conditionResult.nextAction, result: toStepResult(conditionResult) }
         }
 
-        return { nextAction: findContinueAction(invocation), result: { conditionResult } }
+        return { nextAction: findContinueAction(invocation), result: toStepResult(conditionResult) }
     }
 
     /**
@@ -254,20 +289,33 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     )
 }
 
+// Django can rewrite these without an edit, so they stay out of the condition hash.
+const DERIVED_FILTER_KEYS = new Set(['bytecode', 'bytecode_contract', 'bytecode_error', 'source'])
+
+function hashCondition(condition: { filters?: object | null } | undefined): string {
+    const authored = Object.entries(condition?.filters ?? {}).filter(([key]) => !DERIVED_FILTER_KEYS.has(key))
+    return createHash('sha256').update(JSON.stringify(authored)).digest('hex').slice(0, 16)
+}
+
 // True when this wait is being evaluated at or past the max_wait_duration it parked against.
 // calculatedScheduledAt returns null once that instant has passed, which is the same test the
-// timeout path uses. A wait that never parked, or that parked against a ceiling the flow has since
-// changed, reads false: neither is a wake the streams missed.
+// timeout path uses. A wait that never parked, or that parked against a ceiling or a condition the
+// flow has since changed, reads false: none of these is a wake the streams missed.
 function matchedAtMaxWait(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
 ): boolean {
     const startedAtTimestamp = invocation.state.currentAction?.startedAtTimestamp
-    const maxWait = action.type === 'wait_until_condition' ? action.config.max_wait_duration : undefined
-    if (!startedAtTimestamp || !maxWait) {
+    if (action.type !== 'wait_until_condition' || !startedAtTimestamp || !action.config.max_wait_duration) {
         return false
     }
+    const maxWait = action.config.max_wait_duration
     if (invocation.state.currentAction?.parkedMaxWaitDuration !== maxWait) {
+        return false
+    }
+    // A run parked before this hash existed has none, and still counts.
+    const parkedConditionHash = invocation.state.currentAction.parkedConditionHash
+    if (parkedConditionHash !== undefined && parkedConditionHash !== hashCondition(action.config.condition)) {
         return false
     }
     try {
@@ -275,6 +323,20 @@ function matchedAtMaxWait(
     } catch {
         // An unreadable duration is the timeout path's problem, not this counter's.
         return false
+    }
+}
+
+// The step result reaches the test run's `execResult` and output variables. The next action carries decrypted
+// secret inputs, so the result keeps only its id, at the path that existing output variable mappings read.
+function toStepResult(conditionResult: Awaited<ReturnType<typeof checkConditions>>): {
+    conditionResult: { nextAction?: { id: string }; scheduledAt?: DateTime }
+} {
+    const { nextAction, scheduledAt } = conditionResult
+    return {
+        conditionResult: {
+            nextAction: nextAction ? { id: nextAction.id } : undefined,
+            scheduledAt,
+        },
     }
 }
 

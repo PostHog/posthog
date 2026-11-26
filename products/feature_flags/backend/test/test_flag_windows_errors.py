@@ -1,4 +1,3 @@
-import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -13,8 +12,8 @@ from products.error_tracking.backend.facade.testing import (
     create_issue_fingerprint,
     sync_issue_to_clickhouse,
 )
-from products.feature_flags.backend.flag_windows.errors import ConditionErrors, ErrorCounts, errors_by_bucket
-from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedCondition, WatchedEdit
+from products.feature_flags.backend.flag_windows.errors import ErrorCounts, errors_by_bucket
+from products.feature_flags.backend.flag_windows.query import WatchedEdit
 
 EDITED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 WINDOW = timedelta(minutes=30)
@@ -30,23 +29,15 @@ MULTIVARIATE = WatchedEdit(
     variants=("control", "test"),
     enables=False,
 )
-ENABLED = WatchedEdit(
-    id="enabled", flag_key="new-checkout", edited_at=EDITED_AT, group_type_index=None, variants=(), enables=True
-)
 
 # (distinct id, event, minutes after the edit, event properties)
 Event = tuple[str, str, int, dict[str, Any]]
 
 
 class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
-    def _send(self, events: list[Event], plans: dict[str, str] | None = None) -> None:
-        plans = plans or {}
+    def _send(self, events: list[Event]) -> None:
         for distinct_id in dict.fromkeys(distinct_id for distinct_id, _, _, _ in events):
-            create_person(
-                team=self.team,
-                distinct_ids=[distinct_id],
-                properties={"plan": plans[distinct_id]} if distinct_id in plans else {},
-            )
+            create_person(team=self.team, distinct_ids=[distinct_id])
         for distinct_id, event, minutes, properties in events:
             _create_event(
                 team=self.team,
@@ -65,20 +56,21 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (
-                "error_events_split_by_the_flag_value_they_carry",
+                "errors_count_whether_or_not_their_event_carries_the_flag",
                 BOOLEAN,
                 [
                     ("person-1", "$exception", 1, {"$feature/new-checkout": True}),
                     ("person-1", "$exception", 2, {"$feature/new-checkout": True}),
                     ("person-2", "$exception", 3, {"$feature/new-checkout": False}),
-                    # A server error without the flag counts only among all errors.
                     ("person-3", "$exception", 4, {}),
                     ("person-4", "$pageview", 5, {"$feature/new-checkout": True}),
                     # Errors before the edit belong to the old value.
                     ("person-5", "$exception", -5, {"$feature/new-checkout": True}),
                 ],
                 ErrorCounts(
-                    with_errors=3, with_new_errors=0, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
+                    with_errors=3,
+                    with_new_errors=0,
+                    by_variant={},
                 ),
             ),
             (
@@ -92,25 +84,7 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                 ErrorCounts(
                     with_errors=3,
                     with_new_errors=0,
-                    exposed_with_errors=2,
-                    unexposed_with_errors=1,
                     by_variant={"control": 1, "test": 1},
-                ),
-            ),
-            (
-                "enabling_edit_counts_errors_of_apps_that_loaded_flags_without_it_as_unexposed",
-                ENABLED,
-                [
-                    ("person-1", "$exception", 1, {"$feature/new-checkout": True}),
-                    (
-                        "person-2",
-                        "$exception",
-                        2,
-                        {"$active_feature_flags": ["other-flag"], "$feature/other-flag": True},
-                    ),
-                ],
-                ErrorCounts(
-                    with_errors=2, with_new_errors=0, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
                 ),
             ),
         ]
@@ -157,34 +131,4 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             {edit_id: buckets[0].since_edit.with_new_errors for edit_id, buckets in errors.items()},
             {"boolean": 1, "earlier": 3},
-        )
-
-    def test_errors_in_the_watched_conditions_split_by_reason_and_by_properties(self) -> None:
-        def called(flag_key: str, reason: str, value: bool) -> dict[str, Any]:
-            return {"$feature_flag": flag_key, "$feature_flag_reason": reason, f"$feature/{flag_key}": value}
-
-        self._send(
-            [
-                ("person-1", "$feature_flag_called", 1, called("new-checkout", "Matched condition set 2", True)),
-                ("person-1", "$exception", 2, {"$feature/new-checkout": True}),
-                ("person-2", "$feature_flag_called", 3, called("new-checkout", "Out of rollout bound", False)),
-                ("person-2", "$exception", 4, {"$feature/new-checkout": False}),
-                ("person-3", "$feature_flag_called", 5, called("other-flag", "Matched condition set 2", True)),
-                ("person-3", "$exception", 6, {"$feature/new-checkout": True}),
-                ("person-4", "$exception", 7, {"$feature/new-checkout": True}),
-            ],
-            plans={"person-1": "pro", "person-2": "pro", "person-3": "free", "person-4": "pro"},
-        )
-        pro_plan = WatchedCondition(
-            position=1, properties=({"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"},)
-        )
-
-        errors = self._since_edit(dataclasses.replace(BOOLEAN, conditions=(pro_plan,)))
-
-        self.assertEqual(
-            errors.in_condition,
-            {
-                ConditionMatch.REASON: ConditionErrors(exposed_with_errors=1, unexposed_with_errors=1),
-                ConditionMatch.PROPERTIES: ConditionErrors(exposed_with_errors=2, unexposed_with_errors=1),
-            },
         )

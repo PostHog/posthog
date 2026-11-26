@@ -41,6 +41,9 @@ class FakeDatabricksClient:
         self.tables: dict[str, FakeDatabricksTable] = {}
         self.volumes: set[str] = set()
         self.volume_files: dict[str, bytes] = {}
+        # The size of every file PUT, in upload order. Kept apart from `volume_files`, which
+        # `REMOVE` clears once a file has loaded.
+        self.uploaded_bytes: list[int] = []
         self.logger = _NullLogger()
 
     @asynccontextmanager
@@ -67,6 +70,7 @@ class FakeDatabricksClient:
 
     async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str) -> None:
         self.volume_files[f"{volume_path}/{file_name}"] = file.getvalue()
+        self.uploaded_bytes.append(len(self.volume_files[f"{volume_path}/{file_name}"]))
 
     async def acopy_into_table_from_volume(
         self, table_name: str, path: str, fields: list[DatabricksField], with_schema_evolution: bool = False

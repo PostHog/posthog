@@ -1,8 +1,18 @@
 export const integrationKeys = {
   all: ["integrations"] as const,
-  list: () => [...integrationKeys.all, "list"] as const,
-  repositories: (integrationId?: number) =>
-    [...integrationKeys.all, "repositories", integrationId] as const,
+  list: (scope?: string | null) =>
+    scope === undefined
+      ? ([...integrationKeys.all, "list"] as const)
+      : ([...integrationKeys.all, "list", scope] as const),
+  repositories: (integrationId?: number, scope?: string | null) =>
+    scope === undefined
+      ? ([...integrationKeys.all, "repositories", integrationId] as const)
+      : ([
+          ...integrationKeys.all,
+          "repositories",
+          integrationId,
+          scope,
+        ] as const),
   repositoryPicker: (integrationId?: number, search?: string, limit?: number) =>
     [
       ...integrationKeys.all,
@@ -24,6 +34,8 @@ export const integrationKeys = {
     ] as const,
   branches: (integrationId?: number, repo?: string | null, search?: string) =>
     [...integrationKeys.all, "branches", integrationId, repo, search] as const,
+  gitlabProjects: (integrationId?: number, search?: string) =>
+    [...integrationKeys.all, "gitlab-projects", integrationId, search] as const,
 };
 
 export const userGithubIntegrationKeys = {
@@ -79,7 +91,7 @@ export function teamRepositoryRefreshKeys(
 ): RepositoryRefetchKey[] {
   const keys: RepositoryRefetchKey[] = integrationIds.map((integrationId) => ({
     queryKey: integrationKeys.repositories(integrationId),
-    exact: true,
+    exact: false,
   }));
   keys.push({
     queryKey: [...integrationKeys.all, "repository-picker"],

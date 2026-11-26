@@ -2,23 +2,33 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTextArea, Link } from '@posthog/lemon-ui'
 
-import { DeliveryTargetsConfig, GUIDANCE_PLACEHOLDER } from '../components/EvaluationReportConfig'
+import { urls } from 'scenes/urls'
+
+import { DeliveryTargetsConfig } from '../components/DeliveryTargetsConfig'
 import { WEEKDAY_OPTIONS, evaluationReportLogic } from '../evaluationReportLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { reportsUnavailableReason } from './evaluationSummary'
 
+const GUIDANCE_PLACEHOLDER = 'For example: focus on cost changes between models, and keep it to 2 sections.'
+
 type Cadence = 'every_n' | 'daily' | 'weekly'
 
-/** Scheduled reports in a few lines: when they arrive, where they go, and optional guidance for the agent. The step heading holds the on and off switch. */
+/** Scheduled reports in a few lines: when they arrive, optional guidance for the agent, and where they go. The step heading holds the on and off switch. */
 export function EvaluationReportsPanel(): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
     const [guidanceOpen, setGuidanceOpen] = useState(false)
     const { evaluation, isReportableEvaluation } = useValues(llmEvaluationLogic)
-    const { configDraft, configErrors, shownDestinations, reportsLoading, activeReport } = useValues(
-        evaluationReportLogic({ evaluationId: props.evaluationId })
-    )
+    const {
+        configDraft,
+        configErrors,
+        shownDestinations,
+        reportsLoading,
+        activeReport,
+        dataProcessingAccepted,
+        draftReportsEnabled,
+    } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
     const {
         setDraftFrequency,
         setDraftScheduleCadence,
@@ -46,7 +56,7 @@ export function EvaluationReportsPanel(): JSX.Element | null {
         )
     }
     const unavailableReason = reportsUnavailableReason(evaluation, isReportableEvaluation)
-    const enabled = configDraft.enabled && !unavailableReason
+    const enabled = draftReportsEnabled && !unavailableReason
     const cadence: Cadence = configDraft.frequency === 'scheduled' ? configDraft.scheduleCadence : 'every_n'
     const setCadence = (next: Cadence): void => {
         if (next === 'every_n') {
@@ -61,6 +71,18 @@ export function EvaluationReportsPanel(): JSX.Element | null {
     return (
         <div className="flex flex-col gap-4">
             {unavailableReason && <p className="mb-0 text-sm text-secondary">{unavailableReason}</p>}
+            {!unavailableReason && !dataProcessingAccepted && (
+                <p className="mb-0 text-sm text-secondary">
+                    Reports use third-party AI to analyze results.{' '}
+                    <Link
+                        to={urls.settings('organization-details', 'organization-ai-consent')}
+                        data-attr="llma-evaluation-reports-ai-consent-link"
+                    >
+                        Approve AI data processing
+                    </Link>{' '}
+                    to turn them on.
+                </p>
+            )}
             {enabled && (
                 <>
                     <div className="flex flex-col gap-1">
@@ -124,17 +146,6 @@ export function EvaluationReportsPanel(): JSX.Element | null {
                         </div>
                         {error && <span className="text-xs text-danger">{error}</span>}
                     </div>
-                    <DeliveryTargetsConfig
-                        emailValue={configDraft.emailValue}
-                        onEmailChange={setDraftEmailValue}
-                        slackIntegrationId={configDraft.slackIntegrationId}
-                        onSlackIntegrationChange={setDraftSlackIntegrationId}
-                        slackChannelValue={configDraft.slackChannelValue}
-                        onSlackChannelChange={setDraftSlackChannelValue}
-                        shown={shownDestinations}
-                        onAdd={addDraftDestination}
-                        onRemove={removeDraftDestination}
-                    />
                     {guidanceOpen || configDraft.reportPromptGuidance ? (
                         <LemonTextArea
                             value={configDraft.reportPromptGuidance}
@@ -156,6 +167,17 @@ export function EvaluationReportsPanel(): JSX.Element | null {
                             </LemonButton>
                         </div>
                     )}
+                    <DeliveryTargetsConfig
+                        emailValue={configDraft.emailValue}
+                        onEmailChange={setDraftEmailValue}
+                        slackIntegrationId={configDraft.slackIntegrationId}
+                        onSlackIntegrationChange={setDraftSlackIntegrationId}
+                        slackChannelValue={configDraft.slackChannelValue}
+                        onSlackChannelChange={setDraftSlackChannelValue}
+                        shown={shownDestinations}
+                        onAdd={addDraftDestination}
+                        onRemove={removeDraftDestination}
+                    />
                 </>
             )}
         </div>

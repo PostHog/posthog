@@ -4,18 +4,23 @@ import math
 from dataclasses import replace
 from typing import Any
 
-from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.fields import empty
 from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models import User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX, INTEGER_FIELD_MIN
 from posthog.permissions import get_authenticator_scopes
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.contracts import (
+    ActionTarget,
     AgentModelOption,
     AgentModelOptions,
     AgentReasoningEffortOption,
@@ -42,10 +47,12 @@ POPULATION_KINDS = api.POPULATION_KINDS
 PIPELINE_STATUS_CHOICES = api.PIPELINE_STATUS_CHOICES
 TEMPLATE_KEY_CHOICES = api.TEMPLATE_KEY_CHOICES
 VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
+VALIDATION_ERROR_CODE_CHOICES = api.VALIDATION_ERROR_CODE_CHOICES
 MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
 BASE_RATE_SOURCE_CHOICES = api.BASE_RATE_SOURCE_CHOICES
+LIMIT_SOURCE_CHOICES = api.LIMIT_SOURCE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 KICKOFF_REASON_CHOICES = api.KICKOFF_REASON_CHOICES
 RESEARCH_INTERVAL_DAYS_CHOICES = api.RESEARCH_INTERVAL_DAYS_CHOICES
@@ -112,12 +119,33 @@ def require_action_scope(request: Request | None) -> None:
         raise serializers.ValidationError({"target_definition": "An action target needs the action:read scope."})
 
 
+def _require_action_viewer_access(request: Request | None, action: ActionTarget) -> None:
+    if request is None or not isinstance(request.user, User):
+        return
+    if not authorization.check(
+        resource=Resource(
+            type=ResourceType.ACTION,
+            id=str(action.id),
+            project_id=action.team_id,
+            created_by_id=action.created_by_id,
+        ),
+        action=Action.VIEW,
+        subject=Subject(user_id=request.user.id),
+    ):
+        raise serializers.ValidationError(
+            {
+                "target_definition": "You need viewer access to this action to predict it. Ask for access or pick another action."
+            }
+        )
+
+
 def resolve_target(
     *,
     team: Any,
     target_event: str,
     target_definition: dict[str, Any] | None,
     request: Request | None = None,
+    stored_action_id: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Validate and normalize a prediction target, returning (target_event, target_definition).
@@ -152,12 +180,14 @@ def resolve_target(
             )
         require_action_scope(request)
         try:
-            action_name, action_id = api.resolve_action_target(team.project_id, action_id)
+            action = api.resolve_action_target(team.project_id, action_id)
         except (api.PipelineNotFound, api.InvalidTarget) as exc:
             raise serializers.ValidationError({"target_definition": str(exc)}) from exc
-        resolved_event = target_event or action_name or f"action_{action_id}"
+        if action.id != stored_action_id:
+            _require_action_viewer_access(request, action)
+        resolved_event = target_event or action.name or f"action_{action.id}"
         _validate_target_event_value(resolved_event, error_key="target_event" if target_event else "target_definition")
-        return resolved_event, {"type": "action", "action_id": int(action_id)}
+        return resolved_event, {"type": "action", "action_id": action.id}
 
     if not target_event:
         raise serializers.ValidationError(
@@ -532,6 +562,24 @@ class TrainingTrendPointSerializer(DataclassSerializer):
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Parent Task ID of the run's sandbox. Null for a run that an external agent opened.",
+    )
+    task_run_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Task run ID of the run's sandbox, which holds its log, cost and failure reason. "
+            "Null for a run that an external agent opened."
+        ),
+    )
+    task_url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Relative URL to the run's Task detail page. Null for a run that an external agent opened.",
+    )
     iteration_budget = serializers.IntegerField(read_only=True, help_text="Maximum experiments allowed for this run.")
     experiment_count = serializers.IntegerField(
         read_only=True, help_text="Experiments the agent has recorded so far in this run."
@@ -560,6 +608,9 @@ class LiveTrainingRunSerializer(DataclassSerializer):
         dataclass = LiveTrainingRun
         fields = [
             "id",
+            "task_id",
+            "task_run_id",
+            "task_url",
             "iteration_budget",
             "experiment_count",
             "best_holdout_score",
@@ -1150,11 +1201,17 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         is_update = self._pipeline_id is not None
         target_supplied = self._supplied(data, "target_event") or self._supplied(data, "target_definition")
         if not is_update or target_supplied:
+            stored_target = (
+                api.get_pipeline_definition(team.pk, self._pipeline_id).target_definition
+                if self._pipeline_id is not None
+                else None
+            )
             target_event, target_definition = resolve_target(
                 team=team,
                 target_event=self._value(data, "target_event", ""),
                 target_definition=self._value(data, "target_definition"),
                 request=self.context.get("request"),
+                stored_action_id=(stored_target or {}).get("action_id"),
             )
             updates["target_event"] = target_event
             updates["target_definition"] = target_definition
@@ -2024,6 +2081,17 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
             "is passed through; any other failure is a generic message and the detail is logged."
         ),
     )
+    error_code = serializers.ChoiceField(
+        choices=VALIDATION_ERROR_CODE_CHOICES,
+        allow_null=True,
+        help_text=(
+            "Why validation did not run, or null when it did. 'invalid_definition': a query error in the "
+            "definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this "
+            "project's data, so a retry fails the same way; narrow the population, for example to people who "
+            "performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth "
+            "a retry."
+        ),
+    )
 
 
 class StartTrainingRequestSerializer(serializers.Serializer):
@@ -2041,21 +2109,55 @@ class StartTrainingRequestSerializer(serializers.Serializer):
 class TrainingRunCapReachedSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the run did not start.")
     used = serializers.IntegerField(
-        help_text="Sandbox training runs the project started in the last 24 hours, across all its pipelines."
+        help_text="Sandbox training runs the project started that count against its daily limit, across all its pipelines."
     )
-    limit = serializers.IntegerField(help_text="Sandbox training runs the project may start in any 24 hours.")
+    limit = serializers.IntegerField(help_text="The project's daily limit of sandbox training runs.")
     next_slot_at = serializers.DateTimeField(
         allow_null=True,
         help_text="When the next training run can start. Null when training runs are turned off for the project.",
     )
 
 
+class TrainingBudgetReachedSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the run did not start.")
+    code = serializers.CharField(
+        help_text="Always 'training_budget_reached'. Tells this refusal apart from the daily limit, which has no code."
+    )
+    spent_usd = serializers.FloatField(
+        help_text=(
+            "Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar "
+            "month, across all its pipelines. A run whose cost is not recorded yet counts as 0."
+        )
+    )
+    limit_usd = serializers.IntegerField(
+        help_text="The project's monthly training budget, in whole US dollars. 0 means training is turned off."
+    )
+    resets_at = serializers.DateTimeField(help_text="When the budget resets: the start of the next UTC calendar month.")
+
+
+START_TRAINING_REFUSED_SERIALIZER = PolymorphicProxySerializer(
+    component_name="StartTrainingRefused",
+    serializers=[TrainingRunCapReachedSerializer, TrainingBudgetReachedSerializer],
+    resource_type_field_name=None,
+)
+
+
+def _limit_source_field(limit: str) -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        choices=LIMIT_SOURCE_CHOICES,
+        help_text=(
+            f"Where {limit} comes from. project: an override for this project. default: the fleet-wide default. "
+            "code: the built-in default, because no override is set or no override was readable."
+        ),
+    )
+
+
 class ProjectLimitsSerializer(DataclassSerializer):
     max_training_runs_per_day = serializers.IntegerField(
-        help_text="Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off."
+        help_text="The project's daily limit of sandbox training runs, across all its pipelines. 0 means training is turned off."
     )
     training_runs_used = serializers.IntegerField(
-        help_text="Sandbox training runs the project started in the last 24 hours, across all its pipelines."
+        help_text="Sandbox training runs the project started that count against its daily limit, across all its pipelines."
     )
     next_slot_at = serializers.DateTimeField(
         allow_null=True,
@@ -2077,6 +2179,25 @@ class ProjectLimitsSerializer(DataclassSerializer):
     live_pipelines = serializers.IntegerField(
         help_text=("Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered.")
     )
+    max_training_spend_usd_per_month = serializers.IntegerField(
+        help_text=(
+            "The project's monthly training budget, in whole US dollars. A training run is refused once "
+            "training_spend_usd reaches it. A run in progress is never stopped. 0 means training is turned off."
+        )
+    )
+    training_spend_usd = serializers.FloatField(
+        help_text=(
+            "Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar "
+            "month, a run in progress included. A run whose cost is not recorded yet counts as 0."
+        )
+    )
+    training_spend_resets_at = serializers.DateTimeField(
+        help_text="When training_spend_usd resets to 0: the start of the next UTC calendar month."
+    )
+    max_training_runs_per_day_source = _limit_source_field("max_training_runs_per_day")
+    max_iterations_per_run_source = _limit_source_field("max_iterations_per_run")
+    max_live_pipelines_source = _limit_source_field("max_live_pipelines")
+    max_training_spend_usd_per_month_source = _limit_source_field("max_training_spend_usd_per_month")
 
     class Meta:
         dataclass = ProjectLimits
@@ -2087,6 +2208,13 @@ class ProjectLimitsSerializer(DataclassSerializer):
             "max_iterations_per_run",
             "max_live_pipelines",
             "live_pipelines",
+            "max_training_spend_usd_per_month",
+            "training_spend_usd",
+            "training_spend_resets_at",
+            "max_training_runs_per_day_source",
+            "max_iterations_per_run_source",
+            "max_live_pipelines_source",
+            "max_training_spend_usd_per_month_source",
         ]
 
 

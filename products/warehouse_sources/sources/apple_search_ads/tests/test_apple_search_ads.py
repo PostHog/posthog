@@ -311,6 +311,39 @@ class TestAppleSearchAdsTransport:
 
         assert isinstance(result.raised, HTTPError)
 
+    @parameterized.expand(
+        [
+            ("legacy_rate_limited", V5, 429, "rate limiting"),
+            ("platform_rate_limited", V1, 429, "rate limiting"),
+            ("legacy_server_error", V5, 500, "on Apple's side"),
+            ("platform_server_error", V1, 500, "on Apple's side"),
+            ("platform_bad_gateway", V1, 502, "on Apple's side"),
+            ("legacy_unavailable", V5, 503, "on Apple's side"),
+            ("platform_gateway_timeout", V1, 504, "on Apple's side"),
+        ]
+    )
+    def test_a_persistent_transient_status_stays_retryable_with_customer_copy(
+        self, _name: str, api_version: str, status: int, expected_copy: str
+    ) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            return _token_response() if request.url == APPLE_OAUTH_TOKEN_URL else ScriptedResponse(status=status)
+
+        result = _driver().run("campaigns", answer, api_version=api_version)
+
+        source = AppleSearchAdsSource()
+        error = str(result.raised)
+        assert isinstance(result.raised, HTTPError)
+        assert not error_message_matches(error, source.get_non_retryable_errors().keys())
+        assert error_message_matches(error, source.get_retryable_errors())
+        messages = [
+            message
+            for pattern, message in source.get_retry_exhausted_errors().items()
+            if error_message_matches(error, [pattern])
+        ]
+        assert len(messages) == 1
+        assert expected_copy in messages[0]
+        assert "http" not in messages[0]
+
     @parameterized.expand([("legacy_bad_request", V5, 400), ("platform_unauthorized", V1, 401)])
     def test_an_error_without_a_reason_phrase_is_non_retryable(self, _name: str, api_version: str, status: int) -> None:
         def answer(request: RecordedRequest) -> ScriptedResponse:

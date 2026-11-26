@@ -9,6 +9,28 @@
  */
 import * as zod from 'zod'
 
+export const conversationsIntercomImportsCreateBodyRegionDefault = `us`
+export const conversationsIntercomImportsCreateBodyAccessTokenMax = 500
+
+export const ConversationsIntercomImportsCreateBody = /* @__PURE__ */ zod.object({
+    region: zod
+        .enum(['us', 'eu', 'au'])
+        .default(conversationsIntercomImportsCreateBodyRegionDefault)
+        .describe(
+            'Region where the Intercom workspace is hosted: us, eu, or au.\n\n\* `us` - United States\n\* `eu` - Europe\n\* `au` - Australia'
+        ),
+    access_token: zod
+        .string()
+        .max(conversationsIntercomImportsCreateBodyAccessTokenMax)
+        .describe('Intercom access token with permission to read conversations and contacts.'),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.'
+        ),
+})
+
 export const conversationsMacrosCreateBodyNameMax = 200
 
 export const conversationsMacrosCreateBodyShortcutMax = 50
@@ -77,6 +99,23 @@ export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const conversationsPylonImportsCreateBodyApiTokenMax = 500
+
+export const ConversationsPylonImportsCreateBody = /* @__PURE__ */ zod.object({
+    api_token: zod
+        .string()
+        .max(conversationsPylonImportsCreateBodyApiTokenMax)
+        .describe(
+            'Pylon API token whose role can read issues, messages, and contacts. The region (US or EU) is detected from the token.'
+        ),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.'
+        ),
+})
+
 /**
  * Handle ticket updates including assignee changes.
  */
@@ -127,7 +166,12 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
-        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                "Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags."
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
@@ -178,7 +222,12 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
-        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                "Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags."
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
@@ -188,6 +237,8 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
 export const conversationsTicketsAiFeedbackCreateBodyMessageIdMax = 200
 
 export const conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax = 2000
+
+export const conversationsTicketsAiFeedbackCreateBodyReasonsMax = 5
 
 export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
     .object({
@@ -204,6 +255,17 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
             .max(conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax)
             .optional()
             .describe('Optional text explaining a bad rating.'),
+        reasons: zod
+            .array(
+                zod
+                    .enum(['wrong_facts', 'missed_question', 'too_vague', 'wrong_tone', 'should_not_run'])
+                    .describe(
+                        "\* `wrong_facts` - Wrong or made-up facts\n\* `missed_question` - Missed the customer's question\n\* `too_vague` - Too vague to act on\n\* `wrong_tone` - Wrong tone or style\n\* `should_not_run` - Should not have run on this ticket"
+                    )
+            )
+            .max(conversationsTicketsAiFeedbackCreateBodyReasonsMax)
+            .optional()
+            .describe('Optional reasons for a bad rating. Ignored for a good rating.'),
     })
     .describe('Payload for recording reviewer feedback on an AI reply.')
 
@@ -256,7 +318,9 @@ export const ConversationsTicketsNotesCreateBody = /* @__PURE__ */ zod
         rich_content: zod
             .unknown()
             .optional()
-            .describe('Optional TipTap rich content JSON for the note. Omit it to show the markdown message.'),
+            .describe(
+                'Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image src must be the url of an image uploaded to this project.'
+            ),
     })
     .describe('Payload for adding a private note to a ticket. It has no privacy field: the note is always private.')
 
@@ -279,7 +343,7 @@ export const ConversationsTicketsNotesPartialUpdateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message.'
+                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. Each image src must be the url of an image uploaded to this project.'
             ),
     })
     .describe('Payload for updating a private note on a ticket.')
@@ -308,7 +372,12 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
             .describe(
                 "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
             ),
-        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {\"type\": \"image\", \"attrs\": {\"src\": <url>, \"alt\": <text>}} to the \"doc\" content. Each src must be the url of an image uploaded to this project, or the request fails with a 400.'
+            ),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 
@@ -418,7 +487,12 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
             "ID of the support email channel to send from. Omit it to send from the team's default support channel."
         ),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
-    rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'TipTap rich content JSON for formatted messages. Each image src must be the url of an image uploaded to this project.'
+        ),
     tags: zod
         .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
         .max(conversationsTicketsComposeCreateBodyTagsMax)

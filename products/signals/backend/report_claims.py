@@ -151,30 +151,57 @@ def actor_owns_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
     )
 
 
-def actor_can_release_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
-    return actor_owns_claim(claim, actor) or (
-        actor.kind == "user"
-        and actor.user_id is not None
-        and claim.actor_kind == "agent"
-        and claim.actor_user_id == actor.user_id
-    )
+def actor_can_release_claim(claim: ReportClaim, actor: ArtefactAttribution, *, user_id: int | None = None) -> bool:
+    return actor_owns_claim(claim, actor) or is_claim_of_person(claim, _actor_person_id(claim, actor, user_id))
 
 
-def is_user_claim_of(claim: ReportClaim, user_id: int | None) -> bool:
-    """Whether a person holds the claim directly, not through an agent or an internal task."""
-    return claim.actor_kind == "user" and user_id is not None and claim.actor_user_id == user_id
+def is_claim_of_person(claim: ReportClaim, user_id: int | None) -> bool:
+    """Whether a person holds the claim, directly or through their agent, so it counts as theirs."""
+    return claim.actor_kind in ("user", "agent") and user_id is not None and claim.actor_user_id == user_id
 
 
-def is_user_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
-    """Whether the person holding the claim started the task, so the task works under their claim."""
-    if claim.actor_kind != "user":
+def is_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
+    """Whether the person who started the task holds the claim, so the task works under their claim."""
+    if claim.actor_kind not in ("user", "agent"):
         return False
     tasks = tasks_facade.get_tasks_by_ids([task_id], [claim.team_id])
-    return bool(tasks) and is_user_claim_of(claim, tasks[0].created_by_id)
+    return bool(tasks) and is_claim_of_person(claim, tasks[0].created_by_id)
 
 
-def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
-    """Whether the actor can resume the claim and add work to it. Only the owner can release it."""
-    return actor_owns_claim(claim, actor) or (
-        actor.task_id is not None and is_user_claim_of_task_creator(claim, actor.task_id)
+def _actor_person_id(claim: ReportClaim, actor: ArtefactAttribution, user_id: int | None) -> int | None:
+    """The person an actor acts for, given `user_id` or the attribution's `request_user_id`, the authenticated
+    principal of the request.
+
+    The task id is caller-supplied, so a task acts for its creator only when the creator made the request.
+    """
+    if actor.kind in ("user", "agent"):
+        return actor.user_id
+    principal = user_id if user_id is not None else actor.request_user_id
+    if actor.task_id is None or principal is None:
+        return None
+    tasks = tasks_facade.get_tasks_by_ids([actor.task_id], [claim.team_id])
+    return principal if tasks and tasks[0].created_by_id == principal else None
+
+
+def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution, *, user_id: int | None = None) -> bool:
+    """Whether the actor can resume the claim and add work to it.
+
+    A person's claim, direct or through an agent, covers all of their actors: themselves, their agents, and
+    tasks they started. Without `user_id`, a task inherits its creator's direct claim, and an agent claim
+    only when task creation already associated the task with it, which is a server-side fact. On a request,
+    the task id is caller-supplied, so a task counts only through the person check.
+    """
+    if actor_owns_claim(claim, actor):
+        return True
+    if is_claim_of_person(claim, _actor_person_id(claim, actor, user_id)):
+        return True
+    if actor.task_id is None or user_id is not None or actor.request_user_id is not None:
+        return False
+    if claim.actor_kind == "user":
+        return is_claim_of_task_creator(claim, actor.task_id)
+    return (
+        claim.actor_kind == "agent"
+        and SignalReportArtefact.objects.filter(
+            team_id=claim.team_id, type="task_run", task_id=actor.task_id, claim_id=claim.claim_id
+        ).exists()
     )

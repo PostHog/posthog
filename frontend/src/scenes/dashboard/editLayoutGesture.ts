@@ -186,7 +186,7 @@ export function continueResizeGestureInEditMode(
         event,
         gridItem,
         () =>
-            gridItem.closest('.react-grid-layout.dashboard-edit-mode')
+            gridItem.closest('.react-grid-layout.dashboard-layout-editable')
                 ? gridItem.querySelector(`.react-resizable-handle-${direction}`)
                 : null,
         'resizing',
@@ -206,7 +206,7 @@ export function continueDragGestureInEditMode(event: ReactMouseEvent, pointerNow
         gridItem,
         () =>
             // the grid signals that dragging is live by swapping to the edit-mode class
-            target.isConnected && gridItem.closest('.react-grid-layout.dashboard-edit-mode') ? target : null,
+            target.isConnected && gridItem.closest('.react-grid-layout.dashboard-layout-editable') ? target : null,
         'react-draggable-dragging',
         pointerNow
     )

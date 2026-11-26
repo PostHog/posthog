@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "What to run in a project-wide suite run.",
+    "properties": {
+        "check_ids": {
+            "description": "Ids of the checks to run. Omit to run every enabled check in the project.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "subject_type": {
+            "description": "Narrow the run to one subject. Pass subject_uuid with it. Ignored when check_ids is given.\n\n* `table` - table\n* `view` - view\n* `metric` - metric\n* `posthog_table` - posthog_table",
+            "enum": ["table", "view", "metric", "posthog_table"],
+            "type": "string"
+        },
+        "subject_uuid": {
+            "description": "Id of the subject to run every enabled check on. Pass subject_type with it.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

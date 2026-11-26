@@ -139,11 +139,19 @@ class TestAppStoreConnectRestatements:
 
         assert with_restatement_guidance(once) == once
 
-    def test_caption_recipe_follows_the_catalog(self) -> None:
+    def test_caption_points_to_the_table_descriptions_without_a_query(self) -> None:
         caption = restatement_caption()
-        first_analytics = analytics_stream_names(APP_STORE_CONNECT_ENDPOINTS)[0]
 
-        assert f"appstoreconnect_{first_analytics}" in caption
+        assert "SELECT" not in caption
+        assert "```" not in caption
+        assert "table's description has the query" in caption
+
+    def test_caption_is_empty_without_analytics_streams(self) -> None:
+        endpoints = {
+            name: config for name, config in APP_STORE_CONNECT_ENDPOINTS.items() if config.kind != "analytics_report"
+        }
+
+        assert restatement_caption(endpoints) == ""
 
     @pytest.mark.parametrize(
         "table_prefix,expected_table_prefix,expects_caveat",

@@ -12,6 +12,7 @@ import {
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import hooks_experimentCreate from '@/tools/experiments/createExperimentHooks'
 import hooks_experimentGet from '@/tools/experiments/getExperimentHooks'
+import hooks_experimentLaunch from '@/tools/experiments/launchExperimentHooks'
 import hooks_experimentList from '@/tools/experiments/listExperimentsHooks'
 import hooks_experimentUpdate from '@/tools/experiments/updateExperimentHooks'
 import hooks_experimentArchive from '@/tools/featureFlags/conditionIdHooks'
@@ -238,6 +239,7 @@ const ExperimentCreateSchema = () => {
     return ExperimentsCreateBody.omit({
         start_date: true,
         end_date: true,
+        feature_flag_rule_id: true,
         parameters: true,
         excluded_variants: true,
         secondary_metrics: true,
@@ -440,6 +442,7 @@ const ExperimentDuplicateSchema = () => {
                     description: true,
                     start_date: true,
                     end_date: true,
+                    feature_flag_rule_id: true,
                     holdout_id: true,
                     parameters: true,
                     running_time_calculation: true,
@@ -775,31 +778,34 @@ const experimentLaunch = (): ToolBase<ReturnType<typeof ExperimentLaunchSchema>,
     withUiApp('experiment', {
         name: 'experiment-launch',
         schema: ExperimentLaunchSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentLaunchSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.Experiment>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/launch/`,
-            })
-            const filtered = pickResponseFields(result, [
-                'id',
-                'name',
-                'description',
-                'type',
-                'feature_flag_key',
-                'status',
-                'archived',
-                'start_date',
-                'end_date',
-                'created_at',
-                'parameters',
-                'metrics',
-                'metrics_secondary',
-                'conclusion',
-                'conclusion_comment',
-            ]) as typeof result
-            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
-        },
+        handler: withToolHooks(
+            hooks_experimentLaunch,
+            async (context: Context, params: z.infer<ReturnType<typeof ExperimentLaunchSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const result = await context.api.request<Schemas.Experiment>({
+                    method: 'POST',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/launch/`,
+                })
+                const filtered = pickResponseFields(result, [
+                    'id',
+                    'name',
+                    'description',
+                    'type',
+                    'feature_flag_key',
+                    'status',
+                    'archived',
+                    'start_date',
+                    'end_date',
+                    'created_at',
+                    'parameters',
+                    'metrics',
+                    'metrics_secondary',
+                    'conclusion',
+                    'conclusion_comment',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
+            }
+        ),
     })
 
 const ExperimentListSchema = () => {
@@ -834,6 +840,7 @@ const experimentList = (): ToolBase<
                         event: params.event,
                         excluded_tags: params.excluded_tags,
                         feature_flag_id: params.feature_flag_id,
+                        feature_flag_ids: params.feature_flag_ids,
                         limit: params.limit,
                         offset: params.offset,
                         order: params.order,
@@ -1213,10 +1220,13 @@ const experimentSavedMetricsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/`,
             query: {
+                created_by_id: params.created_by_id,
                 event: params.event,
                 limit: params.limit,
+                metric_type: params.metric_type,
                 offset: params.offset,
                 search: params.search,
+                tags: params.tags,
             },
         })
         const filtered = {
@@ -1428,12 +1438,15 @@ const ExperimentTimeseriesResultsSchema = () => {
     )
 }
 
-const experimentTimeseriesResults = (): ToolBase<ReturnType<typeof ExperimentTimeseriesResultsSchema>, unknown> => ({
+const experimentTimeseriesResults = (): ToolBase<
+    ReturnType<typeof ExperimentTimeseriesResultsSchema>,
+    Schemas.ExperimentTimeseriesResults
+> => ({
     name: 'experiment-timeseries-results',
     schema: ExperimentTimeseriesResultsSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentTimeseriesResultsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.ExperimentTimeseriesResults>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
             query: {
@@ -1528,6 +1541,7 @@ const ExperimentUpdateSchema = () => {
                     start_date: true,
                     end_date: true,
                     feature_flag_key: true,
+                    feature_flag_rule_id: true,
                     parameters: true,
                     secondary_metrics: true,
                     filters: true,
@@ -1546,10 +1560,10 @@ const ExperimentUpdateSchema = () => {
             .extend({
                 id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
                 feature_flag: ExperimentsPartialUpdateBody.shape['feature_flag'].describe(
-                    "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100; the analysis baseline defaults to the variant keyed 'control' when present, else the first variant — except web experiments, which must keep a variant keyed 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first)."
+                    'Flag variants, rollout, and payloads. Omitted settings are preserved. Running experiments require confirmation and update_feature_flag_params=true.'
                 ),
                 running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
-                    "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
+                    "Persist the experiment's sample size, detectable effect, and planned running time."
                 ),
                 saved_metrics_ids: SavedMetricsAttachSchema.optional(),
                 variant_notes: ExperimentVariantNotesSchema.optional(),

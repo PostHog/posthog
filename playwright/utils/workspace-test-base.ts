@@ -31,7 +31,7 @@ export const test = coreTest.extend<{ playwrightSetup: PlaywrightSetup; workspac
  */
 export const testWithWorkspace = test.extend<{ workspace: PlaywrightWorkspaceSetupResult }>({
     workspace: async ({ playwrightSetup }, use) => {
-        const workspace = await playwrightSetup.createWorkspace()
+        const workspace = await playwrightSetup.createWorkspace({ no_demo_data: true })
         await use(workspace)
     },
 })

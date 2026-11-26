@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -58,7 +57,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04',
-        featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
         testOptions: {
             waitForSelector: '.DataVisualization canvas',
         },

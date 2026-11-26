@@ -13,6 +13,7 @@ from django.test import Client, override_settings
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.errors import describe_failure
 
@@ -29,6 +30,7 @@ from products.stamphog.backend.temporal.activities import (
     mark_review_failed,
     post_verdict,
     refuse_on_pre_gates,
+    reuse_withheld_verdict,
     review_in_sandbox,
     signal_review_started,
     start_review_sandbox,
@@ -171,6 +173,9 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
     try:
         _run_activity(dismiss_stale_approvals, inp)
         _run_activity(signal_review_started, inp)
+        if _run_activity(reuse_withheld_verdict, inp)["reused"]:
+            _run_activity(post_verdict, inp)
+            return
         _run_activity(fetch_review_context, inp)
         checkout_error: Exception | None = None
         try:
@@ -316,7 +321,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
         stack.enter_context(patch("posthog.slack.channels.SlackIntegration", fake_slack))
         stack.enter_context(
             patch(
-                "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",
+                "products.stamphog.backend.logic.digest.build_anthropic_client",
                 side_effect=RuntimeError("no gateway in tests"),
             )
         )
@@ -336,6 +341,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
 
 
 ROUTING_APP_SLUG = "stamphog-test"
+POSTHOG_APP_SLUG = "posthog-test"
 
 
 @dataclass(frozen=True)
@@ -365,6 +371,7 @@ def routing_chain() -> Iterator[RoutingChain]:
                 AI_GATEWAY_API_KEY="phs_test_mint",
             )
         )
+        stack.enter_context(override_instance_config("GITHUB_APP_SLUG", POSTHOG_APP_SLUG))
         stack.enter_context(patch("products.stamphog.backend.logic.gateway_tokens.requests.post", _fake_gateway_post))
         stack.enter_context(patch("products.stamphog.backend.logic.routing.model.Anthropic", cut_model.client))
         capture_scope = stack.enter_context(patch("products.stamphog.backend.logic.routing.service.ph_scoped_capture"))

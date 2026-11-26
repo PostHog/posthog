@@ -35,7 +35,7 @@ from posthog.management.migration_analysis.operations import (
     ValidateConstraintAnalyzer,
     is_unmanaged_model,
 )
-from posthog.management.migration_analysis.policies import POSTHOG_POLICIES
+from posthog.management.migration_analysis.policies import POSTHOG_ADVISORIES, POSTHOG_POLICIES
 from posthog.management.migration_analysis.utils import OperationCategorizer
 
 # Generated squash tail files (django-nextgensquash): NNNN_squash_YYYY_MM_DD_*.
@@ -222,6 +222,7 @@ class RiskAnalyzer:
 
         # Check PostHog policies
         policy_violations = self.check_policies(migration)
+        review_notes = [note for policy in POSTHOG_POLICIES for note in policy.review_notes(migration)]
 
         # Build info messages
         info_messages = []
@@ -233,6 +234,8 @@ class RiskAnalyzer:
             info_messages.append(
                 "ℹ️  Skipped operations on unmanaged models (managed=False) - schema managed externally."
             )
+        for advisory in POSTHOG_ADVISORIES:
+            info_messages.extend(advisory.check_migration(migration))
 
         return MigrationRisk(
             path=path,
@@ -241,6 +244,7 @@ class RiskAnalyzer:
             operations=operation_risks,
             combination_risks=combination_risks,
             policy_violations=policy_violations,
+            review_notes=review_notes,
             info_messages=info_messages,
             file_path=file_path,
         )

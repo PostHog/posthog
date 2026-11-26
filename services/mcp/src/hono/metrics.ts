@@ -28,10 +28,23 @@ export const toolCallDurationSeconds = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300],
 })
 
+export const toolResponsesShortenedTotal = new Counter({
+    name: 'mcp_tool_responses_shortened_total',
+    help: 'Tool responses shortened to the response budget, by whether a client limit or the default ceiling applied.',
+    labelNames: ['tool', 'budget'] as const,
+})
+
 export const initDurationSeconds = new Histogram({
     name: 'mcp_init_duration_seconds',
     help: 'Session init duration (cold-start cost per new session).',
     buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+})
+
+export const initStepDurationSeconds = new Histogram({
+    name: 'mcp_init_step_duration_seconds',
+    help: 'Session init time by state-resolution step. Steps that run concurrently overlap.',
+    labelNames: ['step'] as const,
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 3],
 })
 
 export const shuttingDown = new Gauge({
@@ -55,6 +68,12 @@ export const toolErrorsTotal = new Counter({
     name: 'mcp_tool_errors_total',
     help: 'MCP tool errors by category.',
     labelNames: ['tool', 'error_type'] as const,
+})
+
+export const posthogCaptureEventsLostTotal = new Counter({
+    name: 'mcp_posthog_capture_events_lost_total',
+    help: "Events the server's PostHog client could not deliver, by capture endpoint and reason.",
+    labelNames: ['endpoint', 'reason'] as const,
 })
 
 export const redisOperationsTotal = new Counter({
@@ -126,7 +145,7 @@ export const confirmedActionRefusalsTotal = new Counter({
     labelNames: ['tool', 'reason'] as const,
 })
 
-// 1 if the codec + nonce ledger were installed at boot, 0 otherwise. A
+// 1 if the codec + payload stash were installed at boot, 0 otherwise. A
 // single boot-time console.error is easy to lose; this lets ops alert
 // directly on `mcp_confirmed_action_runtime_installed == 0` regardless
 // of whether anyone has tried a -prepare/-execute call yet.

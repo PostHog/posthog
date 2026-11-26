@@ -5,6 +5,7 @@ from . import (
     async_migrations,
     calculate_cohort,
     comment_slack_sync,
+    data_deletion_stats,
     demo_create_data,
     demo_reset_master_team,
     early_access_feature,
@@ -28,6 +29,7 @@ from . import (
     team_access_cache_tasks,
     transactional_email,
     usage_report,
+    workos_radar,
 )
 
 __all__ = [
@@ -35,6 +37,7 @@ __all__ = [
     "async_migrations",
     "calculate_cohort",
     "comment_slack_sync",
+    "data_deletion_stats",
     "demo_create_data",
     "demo_reset_master_team",
     "early_access_feature",
@@ -58,4 +61,5 @@ __all__ = [
     "team_access_cache_tasks",
     "transactional_email",
     "usage_report",
+    "workos_radar",
 ]

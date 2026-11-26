@@ -26,7 +26,8 @@ export interface ColumnMeta {
 export function renderColumnMeta<T extends VisualizationNode | DataTableNode>(
     key: string,
     query: T,
-    context?: QueryContext<T>
+    context?: QueryContext<T>,
+    { showSortingIndicator = true }: { showSortingIndicator?: boolean } = {}
 ): ColumnMeta {
     let width: string | number | undefined
     let title: JSX.Element | string | undefined
@@ -114,7 +115,11 @@ export function renderColumnMeta<T extends VisualizationNode | DataTableNode>(
         title = Component ? <Component columnName={key} query={query} /> : context?.columns?.[key]?.title
     }
 
-    if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && isMarketingAnalyticsTableQuery(query.source)) {
+    if (
+        showSortingIndicator &&
+        queryFeatures.has(QueryFeature.selectAndOrderByColumns) &&
+        isMarketingAnalyticsTableQuery(query.source)
+    ) {
         const marketingQuery = query.source as MarketingAnalyticsTableQuery
         const sortKey = marketingQuery.orderBy?.[0]?.[0]
         const isSortedByKey = key === sortKey
@@ -128,6 +133,7 @@ export function renderColumnMeta<T extends VisualizationNode | DataTableNode>(
             )
         }
     } else if (
+        showSortingIndicator &&
         queryFeatures.has(QueryFeature.selectAndOrderByColumns) &&
         isDataTableNode(query) &&
         !query.allowSorting

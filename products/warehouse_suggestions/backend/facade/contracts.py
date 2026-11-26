@@ -26,6 +26,16 @@ SUBJECT_SCOPE_OBJECTS = {
 
 
 @frozen
+class WarehouseSuggestionNote:
+    id: UUID
+    kind: WarehouseSuggestionKind
+    view_name: str
+    message: str
+    url: str
+    can_act: bool
+
+
+@frozen
 class SubjectKinds:
     readable: frozenset[WarehouseSuggestionSubjectKind]
     actionable: frozenset[WarehouseSuggestionSubjectKind]
@@ -70,6 +80,7 @@ class MaterializePayloadFields:
     background_seconds_saved_per_month: float | None = None
     main_saving: WarehouseSuggestionMainSaving | None = None
     read_seconds: float | None = None
+    measurement_capped: bool = False
 
 
 @frozen
@@ -190,6 +201,7 @@ class AcceptOptions:
     lookback_seconds: int | None = None
     keep_materialized: bool | None = None
     delete_view: bool | None = None
+    mark_deprecated: bool | None = None
 
 
 @frozen
@@ -214,6 +226,13 @@ class SuggestionStatus:
     window_days: int
     paused_reason: str | None
     refreshed_at: datetime | None
+    waiting: int
+    can_show_more: bool
+
+
+@frozen
+class SurfaceMoreResult:
+    surfaced: int
 
 
 class SuggestionNotFoundError(Exception):

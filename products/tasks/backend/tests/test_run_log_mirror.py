@@ -291,14 +291,13 @@ class TestAppendLogMirroring(TestCase):
     @patch("products.tasks.backend.logic.services.run_log_mirror.logger")
     @patch("products.tasks.backend.storage.object_storage")
     def test_mirrors_only_allowlisted_origin_products(self, origin_product, expect_mirrored, mock_storage, mock_logger):
-        mock_storage.read.return_value = None
         run = self._create_run(origin_product)
         message = _session_update_entry("agent_message", content={"type": "text", "text": "hi"})
         chunk = _session_update_entry("agent_message_chunk", content={"type": "text", "text": "h"})
 
         run.append_log([message, chunk])
 
-        mock_storage.write.assert_called_once()
+        mock_storage.append.assert_called_once()
         if expect_mirrored:
             # The chunk entry is dropped before persistence, so exactly one line is mirrored.
             mock_logger.info.assert_called_once()
@@ -310,24 +309,22 @@ class TestAppendLogMirroring(TestCase):
     @patch("products.tasks.backend.logic.services.run_log_mirror.logger")
     @patch("products.tasks.backend.storage.object_storage")
     def test_no_mirroring_without_telemetry_flag_stamp(self, mock_storage, mock_logger):
-        mock_storage.read.return_value = None
         run = self._create_run(Task.OriginProduct.SIGNALS_SCOUT, telemetry_enabled=None)
 
         run.append_log([_session_update_entry("agent_message", content={"type": "text", "text": "hi"})])
 
-        mock_storage.write.assert_called_once()
+        mock_storage.append.assert_called_once()
         mock_logger.info.assert_not_called()
 
     @override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=[])
     @patch("products.tasks.backend.logic.services.run_log_mirror.logger")
     @patch("products.tasks.backend.storage.object_storage")
     def test_no_mirroring_when_disabled(self, mock_storage, mock_logger):
-        mock_storage.read.return_value = None
         run = self._create_run(Task.OriginProduct.SIGNALS_SCOUT)
 
         run.append_log([_session_update_entry("agent_message", content={"type": "text", "text": "hi"})])
 
-        mock_storage.write.assert_called_once()
+        mock_storage.append.assert_called_once()
         mock_logger.info.assert_not_called()
 
     @patch(
@@ -336,10 +333,9 @@ class TestAppendLogMirroring(TestCase):
     )
     @patch("products.tasks.backend.storage.object_storage")
     def test_mirror_failure_does_not_break_log_write(self, mock_storage, mock_mirror):
-        mock_storage.read.return_value = None
         run = self._create_run(Task.OriginProduct.SIGNALS_SCOUT)
 
         run.append_log([_session_update_entry("agent_message", content={"type": "text", "text": "hi"})])
 
-        mock_storage.write.assert_called_once()
+        mock_storage.append.assert_called_once()
         mock_mirror.assert_called_once()

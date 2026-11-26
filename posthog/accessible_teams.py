@@ -8,7 +8,10 @@ from posthog.dataclasses import frozen
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models import Team, User
 from posthog.permissions import get_authenticator_scoped_organization_ids, get_authenticator_scoped_team_ids
-from posthog.user_permissions import UserPermissions
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 _CONSTRUCTION_TOKEN = object()
 
@@ -45,8 +48,16 @@ class AccessibleTeams:
         if len(teams) != len(requested):
             raise CredentialScopeDenied("One or more teams do not exist.")
 
-        user_permissions = UserPermissions(user)
-        if any(user_permissions.team(team).effective_membership_level is None for team in teams):
+        subject = Subject(user_id=user.pk)
+        allowed = authorization.check(
+            [
+                CheckRequest(
+                    resource=Resource(type=ResourceType.PROJECT, id=str(team.pk)), action=Action.VIEW, subject=subject
+                )
+                for team in teams
+            ]
+        )
+        if not all(allowed):
             raise CredentialScopeDenied("The user cannot access one or more teams.")
 
         return cls(user_id=user.pk, team_ids=requested, _token=_CONSTRUCTION_TOKEN)

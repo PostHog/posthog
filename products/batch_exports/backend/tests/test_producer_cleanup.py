@@ -132,18 +132,21 @@ async def test_bigquery_activity_stops_producer_before_exiting(staged_export: St
         data_interval_start="2026-01-01T00:00:00+00:00",
         data_interval_end="2026-01-01T01:00:00+00:00",
         stage_folder="stage/",
-        project_id="test-project",
         dataset_id="test_dataset",
         table_id="test_table",
-        private_key="unused-test-key",
-        private_key_id="test-key-id",
-        token_uri="https://example.com/token",
-        client_email="exporter@example.com",
+        integration_id=1,
     )
+    integration = MagicMock(project_id="test-project")
+    integration.has_key.return_value = True
 
     with (
         override_settings(BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES=1),
-        patch.object(BigQueryClient, "from_service_account_inputs", return_value=client),
+        patch(
+            "products.batch_exports.backend.temporal.destinations.bigquery_batch_export."
+            "_get_google_cloud_service_account_integration",
+            AsyncMock(return_value=integration),
+        ),
+        patch.object(BigQueryClient, "from_service_account_integration", return_value=client),
     ):
         activity_task = asyncio.create_task(ActivityEnvironment().run(insert_into_bigquery_activity_from_stage, inputs))
         try:

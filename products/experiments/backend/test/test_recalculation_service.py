@@ -34,6 +34,7 @@ from products.experiments.backend.recalculation import (
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
     RecalculationRateLimited,
     build_timeseries_cold_start_payload,
+    exceeds_recalculation_age_limit,
     get_active_recalculation,
     get_latest_recalculation,
     get_live_query_progress,
@@ -62,6 +63,7 @@ def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
 
 
 _RECALCULATION_MODULE = "products.experiments.backend.recalculation"
+_DISPATCH_MODULE = "products.experiments.backend.temporal.recalculation.dispatch"
 
 
 def _workflow_running() -> SimpleNamespace:
@@ -151,7 +153,7 @@ class TestRecalculationService(BaseTest):
             ("manual_retry_inside_window_starts_new", "manual_retry", "completed", "manual", 2, True),
         ]
     )
-    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    @patch("products.experiments.backend.organization_flags.feature_enabled_or_false", return_value=True)
     def test_request_recalculation_user_refresh_window(
         self,
         name: str,
@@ -190,21 +192,28 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            ("fresh_latest_is_returned", 1, False),
-            ("stale_latest_starts_new", 13, True),
+            ("fresh_latest_is_returned", None, 1, False),
+            ("stale_latest_starts_new", None, 13, True),
+            ("ended_latest_that_reaches_the_end_is_returned", 48, 48, False),
+            ("ended_latest_a_few_hours_short_of_the_end_is_returned", 48, 53, False),
+            ("ended_latest_that_stops_well_before_the_end_starts_new", 48, 61, True),
         ]
     )
     def test_stale_refresh_checks_result_age_with_server_time(
-        self, name: str, query_to_hours_ago: int, expects_new_run: bool
+        self, name: str, ended_hours_ago: int | None, query_to_hours_ago: int, expects_new_run: bool
     ):
+        now = timezone.now()
         exp = self._launched_experiment(flag_key=f"stale-{name}")
+        if ended_hours_ago is not None:
+            exp.end_date = now - timedelta(hours=ended_hours_ago)
+            exp.save()
         latest = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,
             status="completed",
             trigger="manual",
-            query_to=timezone.now() - timedelta(hours=query_to_hours_ago),
-            completed_at=timezone.now() - timedelta(hours=query_to_hours_ago),
+            query_to=now - timedelta(hours=query_to_hours_ago),
+            completed_at=now - timedelta(hours=query_to_hours_ago),
         )
 
         result = request_recalculation(exp, self.user, "stale_refresh")
@@ -214,7 +223,7 @@ class TestRecalculationService(BaseTest):
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == (2 if expects_new_run else 1)
 
     @override_settings(DEBUG=True, TEST=False)
-    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    @patch("products.experiments.backend.organization_flags.feature_enabled_or_false", return_value=True)
     def test_request_recalculation_skips_the_refresh_window_in_local_development(self, _mock_flag):
         exp = self._launched_experiment(flag_key="window-debug")
         ExperimentMetricsRecalculation.objects.create(
@@ -231,7 +240,7 @@ class TestRecalculationService(BaseTest):
         assert result["is_existing"] is False
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
 
-    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=False)
+    @patch("products.experiments.backend.organization_flags.feature_enabled_or_false", return_value=False)
     def test_request_recalculation_skips_the_refresh_window_when_the_flag_is_off(self, _mock_flag):
         exp = self._launched_experiment(flag_key="window-flag-off")
         ExperimentMetricsRecalculation.objects.create(
@@ -250,8 +259,9 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, request function, age-limit flag outcome, experiment age in days, active run age in minutes, expected status)
-            ("flag_off_over_limit_starts_new", request_recalculation, False, 181, None, "pending"),
+            # (name, request function, age-limit flag outcome, experiment age in days, active run age in minutes,
+            # expected status, whether the results page reads the experiment as over the age limit)
+            ("flag_off_over_limit_starts_new", request_recalculation, False, 181, None, "pending", False),
             (
                 "flag_error_over_limit_starts_new",
                 request_recalculation,
@@ -259,13 +269,22 @@ class TestRecalculationService(BaseTest):
                 181,
                 None,
                 "pending",
+                False,
             ),
-            ("under_limit_starts_new", request_recalculation, True, 179, None, "pending"),
-            ("at_limit_starts_new", request_recalculation, True, 180, None, "pending"),
-            ("over_limit_is_rejected", request_recalculation, True, 181, None, "failed"),
-            ("over_limit_reuses_active_run", request_recalculation, True, 181, 5, "pending"),
-            ("over_limit_fails_a_stale_run", request_recalculation, True, 181, 120, "failed"),
-            ("admin_over_limit_starts_new", request_recalculation_without_age_limit, True, 181, None, "pending"),
+            ("under_limit_starts_new", request_recalculation, True, 179, None, "pending", False),
+            ("at_limit_starts_new", request_recalculation, True, 180, None, "pending", False),
+            ("over_limit_is_rejected", request_recalculation, True, 181, None, "failed", True),
+            ("over_limit_reuses_active_run", request_recalculation, True, 181, 5, "pending", True),
+            ("over_limit_fails_a_stale_run", request_recalculation, True, 181, 120, "failed", True),
+            (
+                "admin_over_limit_starts_new",
+                request_recalculation_without_age_limit,
+                True,
+                181,
+                None,
+                "pending",
+                True,
+            ),
         ]
     )
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
@@ -277,6 +296,7 @@ class TestRecalculationService(BaseTest):
         age_days: int,
         active_run_minutes: int | None,
         expected_status: str,
+        expected_over_limit: bool,
     ):
         def evaluate_flag(key: str, *args, **kwargs) -> bool:
             if key != RECALCULATION_AGE_LIMIT_FEATURE_FLAG:
@@ -306,14 +326,18 @@ class TestRecalculationService(BaseTest):
             )
 
         with (
-            patch("products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag),
+            patch(
+                "products.experiments.backend.organization_flags.feature_enabled_or_false", side_effect=evaluate_flag
+            ),
             patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
-            patch(f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_not_found())),
-            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            patch(f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_not_found())),
+            patch("products.experiments.backend.recalculation.cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
+            over_limit = exceeds_recalculation_age_limit(exp)
             result = request(exp, self.user, "manual")
 
+        assert over_limit is expected_over_limit
         assert result["status"] == expected_status
         assert result["is_existing"] is (active_run_minutes is not None and expected_status == "pending")
         if expected_status == "pending":
@@ -394,10 +418,10 @@ class TestRecalculationService(BaseTest):
 
         with (
             patch(
-                f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(describe_outcome)
+                f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(describe_outcome)
             ) as mock_describe,
-            patch(f"{_RECALCULATION_MODULE}.capture_exception") as mock_capture_exception,
-            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            patch(f"{_DISPATCH_MODULE}.capture_exception") as mock_capture_exception,
+            patch("products.experiments.backend.recalculation.cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
@@ -529,7 +553,7 @@ class TestRecalculationService(BaseTest):
                     created_at=timezone.now() - timedelta(hours=2)
                 )
 
-        with patch(f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_running())):
+        with patch(f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_running())):
             active = get_active_recalculation(exp)
         latest = get_latest_recalculation(exp)
         assert (active.id if active else None) == (row.id if row and expect_active else None)

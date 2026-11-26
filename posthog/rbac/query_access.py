@@ -10,28 +10,31 @@ from rest_framework import exceptions
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 
 from posthog.models import User
 
 
-def assert_user_can_read_query(query: dict | None, team_id: int, user: User, database: Database | None = None) -> None:
-    """Raise PermissionDenied unless `user` can read everything `query` selects from.
+def assert_user_can_read_sql(sql: str, team_id: int, user: User, database: Database | None = None) -> None:
+    """Raise PermissionDenied unless `user` can read everything `sql` selects from.
+
+    Raise ValidationError when `sql` does not resolve for a reason other than access.
 
     Pass `database` to reuse an already-built user-scoped schema; building one is the dominant
     cost, so callers checking several queries should build once and share it.
     """
-    sql = (query or {}).get("query")
-    if not isinstance(sql, str) or not sql.strip():
+    if not sql.strip():
         raise exceptions.ValidationError("Query is missing.")
 
     context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True, database=database)
     try:
         # Resolution is where access is enforced, so this doesn't need to print.
         prepare_ast_for_printing(node=parse_select(sql), context=context, dialect="clickhouse")
-    except (ExposedHogQLError, ResolutionError) as err:
-        # Surfaces "You don't have access to table `X`." for a denial; a query that no longer
-        # resolves for any reason also can't be safely published, so it's refused the same way.
+    except TableAccessDeniedError as err:
         raise exceptions.PermissionDenied(str(err))
+    except (ExposedHogQLError, ResolutionError) as err:
+        # A query that no longer resolves, such as one reading a renamed column, can't be safely
+        # published either, but the user is not denied anything, so it is a bad request.
+        raise exceptions.ValidationError(str(err))

@@ -2,9 +2,10 @@ import { encodeParams } from 'kea-router'
 
 import type { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import type { ToolbarRouteScope } from 'lib/toolbar/toolbarProject'
 
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
-import { toolbarFetch } from '~/toolbar/shared/toolbarFetch'
+import { toolbarApiPath, toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/shared/types'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour } from '~/types'
@@ -133,13 +134,36 @@ function emitToast(toastOnError: boolean | string, error: ToolbarApiErrorInfo): 
     lemonToast.error(extractErrorDetail(error.body, error.status, fallback))
 }
 
+/** A path under the project the toolbar's token is scoped to. `request` resolves it when the request runs. */
+interface ScopedRoute {
+    scope: ToolbarRouteScope
+    path: string
+}
+
+type ToolbarRoute = string | ScopedRoute
+
+const projectRoute = (path: string): ScopedRoute => ({ scope: 'project', path })
+const teamRoute = (path: string): ScopedRoute => ({ scope: 'team', path })
+
 async function request<T>(
     method: ToolbarApiMethod,
-    url: string,
+    route: ToolbarRoute,
     payload: Record<string, any> | FormData | undefined,
     options: ToolbarApiOptions
 ): Promise<ToolbarApiResult<T>> {
     const { context, toastOnError = false, reauthenticateOnForbidden = false, urlConstruction = 'full' } = options
+    const url = typeof route === 'string' ? route : toolbarApiPath(route.scope, route.path)
+    if (url === null) {
+        // No session, so no project to build the path from. Answer as toolbarFetch does without an access token.
+        const error: ToolbarApiErrorInfo = {
+            status: 401,
+            detail: extractErrorDetail(null, 401, 'Request failed'),
+            body: null,
+            isAuthError: true,
+            isNetworkError: false,
+        }
+        return { ok: false, status: 401, data: null, error }
+    }
     const pathname = pathnameForLog(url)
 
     let response: Response
@@ -209,35 +233,32 @@ async function request<T>(
     return { ok: false, status, data: null, error }
 }
 
-function apiGet<T = unknown>(url: string, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> {
-    return request<T>('GET', url, undefined, options)
+function apiGet<T = unknown>(route: ToolbarRoute, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> {
+    return request<T>('GET', route, undefined, options)
 }
 function apiPost<T = unknown>(
-    url: string,
+    route: ToolbarRoute,
     payload: Record<string, any> | FormData | undefined,
     options: ToolbarApiOptions
 ): Promise<ToolbarApiResult<T>> {
-    return request<T>('POST', url, payload, options)
+    return request<T>('POST', route, payload, options)
 }
 function apiPatch<T = unknown>(
-    url: string,
+    route: ToolbarRoute,
     payload: Record<string, any> | FormData | undefined,
     options: ToolbarApiOptions
 ): Promise<ToolbarApiResult<T>> {
-    return request<T>('PATCH', url, payload, options)
+    return request<T>('PATCH', route, payload, options)
 }
-function apiDelete<T = unknown>(url: string, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> {
-    return request<T>('DELETE', url, undefined, options)
+function apiDelete<T = unknown>(route: ToolbarRoute, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> {
+    return request<T>('DELETE', route, undefined, options)
 }
-
-const PROJECT = '/api/projects/@current'
-const ENVIRONMENT = '/api/environments/@current'
 
 /**
  * `toolbarApi` is the single entry point for talking to the PostHog API from the toolbar.
  *
  * Prefer the resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.productTours.delete(id, …)`):
- * they own the route strings so every `/api/projects/@current/…` path lives in exactly one place
+ * they own the route strings so every project-scoped path lives in exactly one place
  * and call sites read as intent rather than URLs. Each method takes the resource-specific arguments
  * (id, payload, query) plus a `ToolbarApiOptions` and returns the same `ToolbarApiResult<T>`, so
  * failure handling stays identical everywhere.
@@ -253,50 +274,51 @@ export const toolbarApi = {
 
     actions: {
         list: (options: ToolbarApiOptions): Promise<ToolbarApiResult<{ results: ActionType[] }>> =>
-            apiGet(`${PROJECT}/actions/`, options),
+            apiGet(projectRoute(`actions/`), options),
         create: (payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<ActionType>> =>
-            apiPost(`${PROJECT}/actions/`, payload, options),
+            apiPost(projectRoute(`actions/`), payload, options),
         update: (
             id: number | string,
             payload: Record<string, any>,
             options: ToolbarApiOptions
-        ): Promise<ToolbarApiResult<ActionType>> => apiPatch(`${PROJECT}/actions/${id}/`, payload, options),
+        ): Promise<ToolbarApiResult<ActionType>> => apiPatch(projectRoute(`actions/${id}/`), payload, options),
     },
 
     webExperiments: {
         list: (options: ToolbarApiOptions): Promise<ToolbarApiResult<{ results: WebExperiment[] }>> =>
-            apiGet(`${PROJECT}/web_experiments/`, options),
+            apiGet(projectRoute(`web_experiments/`), options),
         create: (payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<WebExperiment>> =>
-            apiPost(`${PROJECT}/web_experiments/`, payload, options),
+            apiPost(projectRoute(`web_experiments/`), payload, options),
         update: (
             id: number | string,
             payload: Record<string, any>,
             options: ToolbarApiOptions
-        ): Promise<ToolbarApiResult<WebExperiment>> => apiPatch(`${PROJECT}/web_experiments/${id}/`, payload, options),
+        ): Promise<ToolbarApiResult<WebExperiment>> =>
+            apiPatch(projectRoute(`web_experiments/${id}/`), payload, options),
     },
 
     productTours: {
         list: (options: ToolbarApiOptions): Promise<ToolbarApiResult<{ results?: ProductTour[] } | ProductTour[]>> =>
-            apiGet(`${PROJECT}/product_tours/`, options),
+            apiGet(projectRoute(`product_tours/`), options),
         create: (payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<ProductTour>> =>
-            apiPost(`${PROJECT}/product_tours/`, payload, options),
+            apiPost(projectRoute(`product_tours/`), payload, options),
         updateDraft: (
             id: number | string,
             payload: Record<string, any>,
             options: ToolbarApiOptions
         ): Promise<ToolbarApiResult<ProductTour>> =>
-            apiPatch(`${PROJECT}/product_tours/${id}/draft/`, payload, options),
+            apiPatch(projectRoute(`product_tours/${id}/draft/`), payload, options),
         delete: (id: number | string, options: ToolbarApiOptions): Promise<ToolbarApiResult<null>> =>
-            apiDelete(`${PROJECT}/product_tours/${id}/`, options),
+            apiDelete(projectRoute(`product_tours/${id}/`), options),
     },
 
     fieldNotes: {
         listPending: <T = unknown>(options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> =>
-            apiGet<T>(`${PROJECT}/field_notes/?field_note_status=pending`, options),
+            apiGet<T>(teamRoute('field_notes/?field_note_status=pending'), options),
         create: <T = unknown>(payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> =>
-            apiPost<T>(`${PROJECT}/field_notes/`, payload, options),
+            apiPost<T>(teamRoute('field_notes/'), payload, options),
         delete: (id: number | string, options: ToolbarApiOptions): Promise<ToolbarApiResult<null>> =>
-            apiDelete(`${PROJECT}/field_notes/${id}/`, options),
+            apiDelete(teamRoute(`field_notes/${id}/`), options),
     },
 
     featureFlags: {
@@ -304,20 +326,20 @@ export const toolbarApi = {
             params: Record<string, any>,
             options: ToolbarApiOptions
         ): Promise<ToolbarApiResult<CombinedFeatureFlagAndValueType[]>> =>
-            apiGet(`${PROJECT}/feature_flags/my_flags${encodeParams(params, '?')}`, options),
+            apiGet(projectRoute(`feature_flags/my_flags${encodeParams(params, '?')}`), options),
         evaluationReasons: <T = unknown>(
             distinctId: string,
             options: ToolbarApiOptions
         ): Promise<ToolbarApiResult<T>> =>
             apiGet<T>(
-                `${PROJECT}/feature_flags/evaluation_reasons${encodeParams({ distinct_id: distinctId }, '?')}`,
+                projectRoute(`feature_flags/evaluation_reasons${encodeParams({ distinct_id: distinctId }, '?')}`),
                 options
             ),
     },
 
     webVitals: {
         get: <T = unknown>(params: { pathname: string }, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> =>
-            apiGet<T>(`${ENVIRONMENT}/web_vitals${encodeParams(params, '?')}`, options),
+            apiGet<T>(teamRoute(`web_vitals${encodeParams(params, '?')}`), options),
     },
 
     eventDefinitions: {
@@ -326,17 +348,16 @@ export const toolbarApi = {
             options: ToolbarApiOptions
         ): Promise<ToolbarApiResult<{ results?: EventDefinition[] }>> =>
             apiGet(
-                `${PROJECT}/event_definitions/${encodeParams(
-                    { search: query, limit: 20, event_type: 'event_custom' },
-                    '?'
-                )}`,
+                projectRoute(
+                    `event_definitions/${encodeParams({ search: query, limit: 20, event_type: 'event_custom' }, '?')}`
+                ),
                 options
             ),
     },
 
     objectMediaPreviews: {
         create: (payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<unknown>> =>
-            apiPost(`${PROJECT}/object_media_previews/`, payload, options),
+            apiPost(projectRoute(`object_media_previews/`), payload, options),
     },
 
     savedHeatmaps: {
@@ -344,7 +365,7 @@ export const toolbarApi = {
             formData: FormData,
             options: ToolbarApiOptions
         ): Promise<ToolbarApiResult<{ id: string; short_id: string }>> =>
-            apiPost(`${PROJECT}/saved/capture/`, formData, options),
+            apiPost(teamRoute('saved/capture/'), formData, options),
     },
 
     elementStats: {
@@ -352,7 +373,7 @@ export const toolbarApi = {
             params: Record<string, any>,
             options: ToolbarApiOptions
         ): Promise<ToolbarApiResult<PaginatedResponse<ElementsEventType>>> =>
-            apiGet(`/api/element/stats/${encodeParams(params, '?')}`, options),
+            apiGet(teamRoute(`elements/stats/${encodeParams(params, '?')}`), options),
         // Pagination URLs come from a response body — pinned to the uiHost/apiHost origin.
         page: (
             url: string,

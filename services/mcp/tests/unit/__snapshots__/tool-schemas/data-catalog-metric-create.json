@@ -6,19 +6,6 @@
             "maxLength": 128,
             "type": "string"
         },
-        "confidence": {
-            "anyOf": [
-                {
-                    "maximum": 1,
-                    "minimum": 0,
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "AI author's confidence in the proposal, 0-1."
-        },
         "definition": {
             "anyOf": [
                 {

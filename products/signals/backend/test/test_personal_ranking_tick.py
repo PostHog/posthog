@@ -29,7 +29,9 @@ from products.signals.backend.activity_summary.read import ActivitySummaryStatus
 from products.signals.backend.models import (
     PersonalInboxRanking,
     SignalReport,
+    SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportSuggestedReviewer,
     SignalSourceConfig,
     UserActivitySummary,
     UserActivitySummaryQueueState,
@@ -163,42 +165,45 @@ class TestTickEnrollment(_TickTest):
 
 
 class TestTickSelection(_TickTest):
-    def test_selects_due_pairs_paying_first_then_by_activity_and_oldest_list_within_the_org_share(self) -> None:
+    def test_selects_overdue_pairs_first_then_paying_and_recent_activity_within_the_org_share(self) -> None:
         paying = Team.objects.create(
             organization=Organization.objects.create(name="Paying", has_active_subscription=True), name="Paying"
         )
         free = Team.objects.create(organization=Organization.objects.create(name="Free"), name="Free")
         with time_machine.travel(NOW, tick=False):
             users = {
-                "paying": self._pair(paying, "paying@example.com", active_hours_ago=30),
-                "recent_no_list": self._pair(free, "a@example.com", active_hours_ago=1),
-                "recent_old_list": self._pair(free, "b@example.com", active_hours_ago=1, list_hours_ago=3),
+                "paying_recent": self._pair(paying, "paying@example.com", active_hours_ago=0.5, list_hours_ago=2),
+                "free_no_list": self._pair(free, "a@example.com", active_hours_ago=30),
+                "free_overdue": self._pair(free, "b@example.com", active_hours_ago=10, list_hours_ago=6),
                 # Past this organization's share of the tick.
-                "older": self._pair(free, "c@example.com", active_hours_ago=2, list_hours_ago=4),
-                "oldest_activity": self._pair(self.team, "d@example.com", active_hours_ago=3, list_hours_ago=5),
-                "fresh_list": self._pair(self.team, "e@example.com", active_hours_ago=1, list_hours_ago=0.2),
+                "free_recent": self._pair(free, "c@example.com", active_hours_ago=1, list_hours_ago=3),
+                "old_activity_overdue": self._pair(self.team, "d@example.com", active_hours_ago=20, list_hours_ago=30),
+                # Past the limit: the most recent activity does not beat an overdue pair.
+                "recent_not_overdue": self._pair(self.team, "e@example.com", active_hours_ago=0.2, list_hours_ago=1.5),
+                "fresh_list": self._pair(self.team, "f@example.com", active_hours_ago=1, list_hours_ago=0.2),
                 "checked_recently": self._pair(
-                    self.team, "f@example.com", active_hours_ago=1, list_hours_ago=3, checked_hours_ago=0.2
+                    self.team, "g@example.com", active_hours_ago=1, list_hours_ago=30, checked_hours_ago=0.2
                 ),
-                "inactive": self._pair(self.team, "g@example.com", active_hours_ago=24 * 10),
+                "inactive": self._pair(self.team, "h@example.com", active_hours_ago=24 * 10),
             }
             selection = select_pairs(
-                parse_config({"tick": {"enabled": True, "max_org_share": 0.5}}),
+                parse_config({"tick": {"enabled": True, "max_org_share": 0.5, "overdue_after_minutes": 240}}),
                 NOW,
                 4,
                 [paying.id, free.id, self.team.id],
             )
 
         assert [pair.user_id for pair in selection.pairs] == [
-            users[name].id for name in ("paying", "recent_no_list", "recent_old_list", "oldest_activity")
+            users[name].id for name in ("free_no_list", "old_activity_overdue", "free_overdue", "paying_recent")
         ]
-        assert (selection.due_pairs, selection.due_without_list, selection.oldest_due_hours) == (5, 2, 5.0)
-        assert (selection.oldest_due_activity_hours, selection.oldest_due_summary_hours) == (3.0, 0.0)
-        assert selection.fresh_share == 2 / 7
+        assert (selection.due_pairs, selection.due_without_list, selection.oldest_due_hours) == (6, 1, 30.0)
+        assert (selection.due_overdue, selection.picked_overdue) == (3, 3)
+        assert (selection.oldest_due_activity_hours, selection.oldest_due_summary_hours) == (20.0, 0.0)
+        assert selection.fresh_share == 2 / 8
         assert (selection.pair_list_hours, selection.unpicked_without_list, selection.unpicked_oldest_hours) == (
-            [None, None, 3.0, 5.0],
+            [None, 30.0, 6.0, 2.0],
             0,
-            4.0,
+            3.0,
         )
 
 
@@ -214,13 +219,14 @@ class TestTickPair(_TickTest):
         self.create.side_effect = lambda **_: SimpleNamespace(
             choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=self._answer()))],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+            service_tier=None,
         )
         scoped_capture = MagicMock()
         self.capture = scoped_capture.return_value.__enter__.return_value
-        summary = ActivitySummaryView(status=ActivitySummaryStatus.READY, version=1)
+        self.get_summary = MagicMock(return_value=ActivitySummaryView(status=ActivitySummaryStatus.READY, version=1))
         for target, value in (
             ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
-            ("products.signals.backend.personal_ranking.logic.get_summary", MagicMock(return_value=summary)),
+            ("products.signals.backend.personal_ranking.logic.get_summary", self.get_summary),
             ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", scoped_capture),
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
@@ -230,10 +236,12 @@ class TestTickPair(_TickTest):
             patcher = patch(target, value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        report = SignalReport.objects.create(
+        self.report = SignalReport.objects.create(
             team=self.team, title="Claimed", summary="Claimed", signal_count=1, total_weight=1.0, status="ready"
         )
-        SignalReportAssignment.all_teams.create(team=self.team, report=report, actor_kind="user", actor_user=self.user)
+        SignalReportAssignment.all_teams.create(
+            team=self.team, report=self.report, actor_kind="user", actor_user=self.user
+        )
         UserActivitySummary.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -264,13 +272,28 @@ class TestTickPair(_TickTest):
 
     @parameterized.expand(
         [
-            ("a_ranked_list_is_kept", 0, "built", "unchanged", 1),
-            ("a_failed_model_call_is_retried", 1, "failed", "built", 2),
+            ("a_ranked_list_is_kept", 0, "built", "unchanged", 1, {}),
+            ("a_failed_model_call_is_retried", 1, "failed", "built", 2, {}),
+            (
+                "a_ranked_list_of_a_model_arm_is_kept",
+                0,
+                "built",
+                "unchanged",
+                1,
+                {"model_arms": [{"name": "terra", "percentage": 100, "model": "gpt-terra"}]},
+            ),
         ]
     )
     def test_an_unchanged_pair_calls_no_model_unless_its_last_build_failed(
-        self, _name: str, malformed_answers: int, first: str, second: str, model_calls: int
+        self,
+        _name: str,
+        malformed_answers: int,
+        first: str,
+        second: str,
+        model_calls: int,
+        payload: dict[str, Any],
     ) -> None:
+        self.payload = payload
         self.malformed_answers = malformed_answers
         assert self._run() == PersonalRankingPairResult(
             status=first,  # type: ignore[arg-type]
@@ -291,6 +314,90 @@ class TestTickPair(_TickTest):
 
         assert self.create.call_count == model_calls
         assert select_pairs(self._config(), timezone.now(), 10, [self.team.id]).pairs == []
+
+    def _name_person_on_new_report(self) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, title="Named", summary="Named", signal_count=1, total_weight=1.0, status="ready"
+        )
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS, content="[]"
+        )
+        SignalReportSuggestedReviewer.all_teams.create(
+            team=self.team, report=report, artefact=artefact, user_uuid=self.user.uuid
+        )
+
+    @parameterized.expand(
+        [
+            ("no_change", lambda test: None, "hit"),
+            # `update()` leaves `updated_at` as it was.
+            (
+                "a_title_edit",
+                lambda test: SignalReport.objects.filter(id=test.report.id).update(title="Renamed"),
+                "miss",
+            ),
+            (
+                "a_status_change",
+                lambda test: SignalReport.objects.filter(id=test.report.id).update(status="pending_input"),
+                "miss",
+            ),
+            (
+                "a_new_priority",
+                lambda test: SignalReportArtefact.objects.create(
+                    team=test.team,
+                    report=test.report,
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                    content=json.dumps({"priority": "P0"}),
+                ),
+                "miss",
+            ),
+            ("a_report_that_names_the_person", lambda test: test._name_person_on_new_report(), "miss"),
+            (
+                "a_new_summary_version",
+                lambda test: setattr(
+                    test.get_summary,
+                    "return_value",
+                    ActivitySummaryView(status=ActivitySummaryStatus.READY, version=2),
+                ),
+                "miss",
+            ),
+            ("a_config_change", lambda test: test.payload.update({"rank_top": 10}), "miss"),
+            # The report leaves the window of the `for_you_recommended` pool with no write.
+            ("a_day_passes", lambda test: test.traveller.shift(datetime.timedelta(days=1, hours=1)), "miss"),
+            ("a_lost_fingerprint", lambda test: cache.clear(), "miss"),
+        ]
+    )
+    def test_the_precheck_confirms_a_list_only_when_no_input_changed(
+        self, _name: str, change: Callable[["TestTickPair"], Any], outcome: str
+    ) -> None:
+        self.payload = {"window_days": 1}
+        self.tick = {**self.tick, "precheck_hours": 48, "precheck_sample_share": 0}
+        SignalReport.objects.filter(id=self.report.id).update(created_at=NOW)
+        with time_machine.travel(NOW, tick=False) as self.traveller:
+            assert self._run().status == "built"
+            # The first check of a new list is a full check, which stores the fingerprint.
+            assert self._run() == PersonalRankingPairResult(status="unchanged", precheck="miss")
+            change(self)
+            self.traveller.shift(datetime.timedelta(minutes=5))
+            result = self._run()
+
+            assert result.precheck == outcome
+            if outcome == "hit":
+                assert result.status == "unchanged"
+                assert self._rows().get().checked_at == timezone.now()
+
+    @parameterized.expand([("agreed", False, "unchanged"), ("disagreed", True, "built")])
+    def test_a_sampled_hit_follows_the_full_check(self, outcome: str, edit: bool, status: str) -> None:
+        self.tick = {**self.tick, "precheck_hours": 48, "precheck_sample_share": 1}
+        # A fingerprint that misses the edit stands for an input that the pre-check cannot see.
+        with patch("products.signals.backend.personal_ranking.logic.input_fingerprint", return_value="same"):
+            assert self._run().status == "built"
+            assert self._run() == PersonalRankingPairResult(status="unchanged", precheck="miss")
+            if edit:
+                SignalReport.objects.filter(id=self.report.id).update(title="Renamed")
+
+            result = self._run()
+
+        assert (result.status, result.precheck) == (status, outcome)
 
     @parameterized.expand([("running",), ("tick_limited",), ("shared_limited",), ("not_enrolled",)])
     def test_a_pair_that_may_not_build_calls_no_model(self, status: str) -> None:
@@ -324,6 +431,8 @@ def _plan(pairs: int, **overrides: Any) -> PersonalRankingTickPlan:
         "time_budget_seconds": 600.0,
         "stop_reason": None,
         "due_pairs": pairs,
+        "due_overdue": pairs,
+        "picked_overdue": 2,
         "enrolled_teams": 3,
     }
     return PersonalRankingTickPlan(**{**fields, **overrides})
@@ -331,7 +440,7 @@ def _plan(pairs: int, **overrides: Any) -> PersonalRankingTickPlan:
 
 async def _run_tick(
     plan: PersonalRankingTickPlan,
-    pair_status: str | Callable[[TickPair], Awaitable[str]],
+    pair_status: str | Callable[[TickPair], Awaitable[str | PersonalRankingPairResult]],
     *,
     sliding_window: bool = True,
 ) -> tuple[PersonalRankingTickResult, int, list[PersonalRankingTickResult]]:
@@ -347,12 +456,15 @@ async def _run_tick(
         nonlocal running, peak
         running += 1
         peak = max(peak, running)
+        status: str | PersonalRankingPairResult
         if isinstance(pair_status, str):
             status = pair_status
             await asyncio.sleep(0.01)
         else:
             status = await pair_status(pair)
         running -= 1
+        if isinstance(status, PersonalRankingPairResult):
+            return status
         return PersonalRankingPairResult(
             status=status,  # type: ignore[arg-type]
             model_called=status in ("built", "failed"),
@@ -440,6 +552,7 @@ async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
         stop_reason,
     )
     assert (result.due_pairs, result.enrolled_teams) == (plan.due_pairs, plan.enrolled_teams)
+    assert (result.due_overdue, result.picked_overdue) == (plan.due_overdue, min(picked, 2))
     backlog = result.remaining
     # The tick takes a few milliseconds, which adds to the age of the oldest remaining list.
     assert (
@@ -489,6 +602,18 @@ async def test_fast_pairs_start_while_a_slow_pair_runs() -> None:
         None,
         2,
     )
+
+
+@pytest.mark.asyncio
+async def test_the_tick_counts_prechecks_and_times_prechecked_pairs_apart() -> None:
+    async def pair_status(pair: TickPair) -> PersonalRankingPairResult:
+        return PersonalRankingPairResult(status="unchanged", precheck="hit" if pair.user_id % 2 else "miss")
+
+    result, _, captured = await _run_tick(_plan(4), pair_status)
+
+    assert (result.statuses, result.prechecks) == ({"unchanged": 4}, {"hit": 2, "miss": 2})
+    assert set(result.pair_seconds_p50) == {"prechecked", "unchanged"}
+    assert captured == [result]
 
 
 @pytest.mark.asyncio

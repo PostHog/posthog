@@ -66,6 +66,9 @@ const skillCreate = (): ToolBase<ReturnType<typeof SkillCreateSchema>, Schemas.L
         if (params.files !== undefined) {
             body['files'] = params.files
         }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
+        }
         const result = await context.api.request<Schemas.LLMSkill>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/`,

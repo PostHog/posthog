@@ -1,4 +1,6 @@
 import type { HookCallback, HookInput } from "@anthropic-ai/claude-agent-sdk";
+import { isGitlabRun } from "@posthog/git/gitlab";
+import { SECURITY_FIX_PUBLISH_REMINDER } from "@posthog/harness/extensions/task-system-prompt";
 import type { Logger } from "../../../utils/logger";
 
 export const BUDGET_CAP_ENV = "AI_GATEWAY_TOKEN_CAP_USD";
@@ -26,6 +28,8 @@ export interface ModelPrice {
 export interface ModelPriceRule {
   match: RegExp;
   price: ModelPrice;
+  // A request whose prompt is over aboveInputTokens pays these prices for all of its tokens.
+  longContext?: { aboveInputTokens: number; price: ModelPrice };
 }
 
 export interface BudgetThresholdEvent {
@@ -78,6 +82,10 @@ const OPUS_PRICE: ModelPrice = {
 
 export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
   {
+    match: /(fable|mythos)-5-2/i,
+    price: { input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 },
+  },
+  {
     match: /fable|mythos/i,
     price: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
   },
@@ -89,6 +97,14 @@ export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
   {
     match: /sonnet/i,
     price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  },
+  {
+    match: /haiku-5-5/i,
+    price: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+    longContext: {
+      aboveInputTokens: 100_000,
+      price: { input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 },
+    },
   },
   {
     match: /haiku/i,
@@ -109,6 +125,10 @@ export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
   {
     match: /deepseek-v4\.1-flash-1017-fast/i,
     price: { input: 0.6, output: 2.4, cacheRead: 0.014, cacheWrite: 0.6 },
+  },
+  {
+    match: /deepseek-v4\.1-flash-1017/i,
+    price: { input: 0.3, output: 1.2, cacheRead: 0.007, cacheWrite: 0.3 },
   },
   {
     match: /deepseek/i,
@@ -173,9 +193,16 @@ export function estimateMessageCostUsd(
   const usage = message.usage;
   if (!usage) return 0;
   const model = message.model ?? "";
-  const price =
-    prices.find((rule) => rule.match.test(model))?.price ?? OPUS_PRICE;
+  const rule = prices.find((candidate) => candidate.match.test(model));
   const cacheWriteTotal = usage.cache_creation_input_tokens ?? 0;
+  const promptTokens =
+    (usage.input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    cacheWriteTotal;
+  const price =
+    rule?.longContext && promptTokens > rule.longContext.aboveInputTokens
+      ? rule.longContext.price
+      : (rule?.price ?? OPUS_PRICE);
   const oneHourWrites = Math.min(
     usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
     cacheWriteTotal,
@@ -212,6 +239,7 @@ export class RunBudgetGuard {
   private steerMode: BudgetSteerMode;
   private readonly steers: BudgetSteerRecord[] = [];
   private stopTaken = false;
+  private gitlab = false;
 
   constructor(
     readonly capUsd: number,
@@ -235,7 +263,9 @@ export class RunBudgetGuard {
     const prices =
       parseModelPricesJson(env[BUDGET_PRICES_ENV], logger) ??
       DEFAULT_MODEL_PRICES;
-    return new RunBudgetGuard(capUsd, prices, logger, mode);
+    const guard = new RunBudgetGuard(capUsd, prices, logger, mode);
+    guard.gitlab = isGitlabRun(env);
+    return guard;
   }
 
   get mode(): BudgetSteerMode {
@@ -384,6 +414,21 @@ export class RunBudgetGuard {
   steerText(stage: BudgetSteerStage): string {
     const spent = formatUsd(this.spentUsd);
     const cap = formatUsd(this.capUsd);
+    if (this.gitlab) {
+      const publish = `Stage and commit your changes with git commit, push with git push, and open or update the merge request using gitlab_merge_request. ${SECURITY_FIX_PUBLISH_REMINDER} `;
+      const instruction =
+        this.mode === "publish"
+          ? publish
+          : "If the user requested a merge request, " + publish;
+      return (
+        `Budget ${stage === "critical" ? "critical" : "notice"}: this run has used about ${spent} of its ${cap} model budget. Wrap up now. ` +
+        instruction +
+        (stage === "critical"
+          ? "The gateway will refuse further calls very soon. Do not start subagents or workflows, or run further tests. "
+          : "Skip optional checks and parallel subagents. ") +
+        "End your turn with a summary of what is done and what remains."
+      );
+    }
     if (this.mode === "publish") {
       if (stage === "critical") {
         return (
@@ -392,6 +437,7 @@ export class RunBudgetGuard {
           "Stop new work now. Stage what is on disk and commit it with the git_signed_commit tool " +
           "(it publishes the commit for you; raw git commit and git push are blocked here), then open " +
           "or update the pull request and end your turn with a two-line summary. " +
+          `${SECURITY_FIX_PUBLISH_REMINDER} ` +
           "Do not start subagents or workflows, and do not run further test or review passes."
         );
       }
@@ -401,7 +447,8 @@ export class RunBudgetGuard {
         "already touched, then stage and commit with the git_signed_commit tool (it publishes the " +
         "commit for you; raw git commit and git push are blocked here) and open the draft pull request. " +
         "Skip optional polish such as /simplify or parallel review subagents: an open PR is what " +
-        "preserves the work. If a PR is already open, commit what you have and stop."
+        "preserves the work. If a PR is already open, commit what you have and stop. " +
+        SECURITY_FIX_PUBLISH_REMINDER
       );
     }
     const explicitPr =
@@ -451,7 +498,9 @@ export class RunBudgetGuard {
       );
       const next =
         this.mode === "publish"
-          ? "Commit what is on disk with the git_signed_commit tool and open or update the pull request yourself."
+          ? this.gitlab
+            ? `Commit with git commit, push with git push, and open or update the merge request with gitlab_merge_request. ${SECURITY_FIX_PUBLISH_REMINDER}`
+            : `Commit what is on disk with the git_signed_commit tool and open or update the pull request yourself. ${SECURITY_FIX_PUBLISH_REMINDER}`
           : "Finish with the result you have.";
       return {
         continue: true,

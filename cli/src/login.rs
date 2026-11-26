@@ -13,6 +13,7 @@ use crate::{
             env_id_validator, host_validator, token_validator, CredentialProvider, HomeDirProvider,
             Token,
         },
+        describe_failed_response, redact_request_error, redact_url,
         web_url::WebUrl,
     },
 };
@@ -78,7 +79,10 @@ pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>)
     };
 
     info!("🔐 Starting OAuth Device Flow authentication...");
-    info!("Connecting to: {}", host);
+    info!(
+        "Connecting to: {}",
+        redact_url(&reqwest::Url::parse(&host)?)
+    );
 
     // Step 1: Request device code
     let device_data = request_device_code(&host)?;
@@ -148,12 +152,13 @@ fn request_device_code(host: &str) -> Result<DeviceCodeResponse, Error> {
         .post(&url)
         .header("Content-Type", "application/json")
         .send()
+        .map_err(redact_request_error)
         .context("Failed to request device code")?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
-            "Failed to request device code: HTTP {}",
-            response.status()
+            "Failed to request device code: {}",
+            describe_failed_response(response)
         ));
     }
 
@@ -187,6 +192,7 @@ fn poll_for_authorization(
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
+            .map_err(redact_request_error)
             .context("Failed to poll for authorization")?;
 
         let status_code = response.status();

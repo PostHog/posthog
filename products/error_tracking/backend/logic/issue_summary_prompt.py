@@ -1,13 +1,14 @@
 """The issue summary prompt and response schema.
 
 The generator and the offline quality check both import this module, so the two cannot drift.
-Bump `ISSUE_SUMMARY_PROMPT_VERSION` on any change here: it is part of the input hash, so stored
-summaries regenerate on their next read.
+Bump `ISSUE_SUMMARY_PROMPT_VERSION` on any change here: it is part of the input hash, so summaries
+written by different prompt versions have different hashes. A bump does not regenerate stored
+summaries. Only summaries written after the deploy use the new prompt.
 """
 
 from pydantic import BaseModel, ConfigDict
 
-ISSUE_SUMMARY_PROMPT_VERSION = "v5"
+ISSUE_SUMMARY_PROMPT_VERSION = "v6"
 
 ISSUE_SUMMARY_SYSTEM_PROMPT = """\
 You summarise one error tracking issue for an engineer who is deciding what to do about it.
@@ -43,6 +44,7 @@ Facts:
 
 ISSUE_SUMMARY_IMPACT_LINE = "Impact in range: {occurrences} occurrences, {users} users, {sessions} sessions"
 ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET = "Impact: not known yet, because the issue was just created from its first event"
+ISSUE_SUMMARY_IMPACT_NOT_COUNTED = "Impact: not counted, because the summary reads only the issue's first event"
 
 
 class IssueSummaryResponse(BaseModel):

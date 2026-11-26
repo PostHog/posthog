@@ -19,6 +19,7 @@ from products.warehouse_sources.sources.ahrefs.settings import (
     ORGANIC_KEYWORD_FIELDS,
     RANK_TRACKER_FIELDS,
     REFDOMAIN_FIELDS,
+    TOP_PAGE_FIELDS,
 )
 from products.warehouse_sources.sources.ahrefs.source import AhrefsSource
 from products.warehouse_sources.sources.sdk import RESTClientRetryableError, SourceInputs
@@ -188,6 +189,20 @@ TARGET = {
             ],
             {
                 "select": [",".join(ORGANIC_KEYWORD_FIELDS)],
+                "limit": ["1000"],
+                "order_by": ["sum_traffic:desc"],
+                "date": ["2026-10-13"],
+                "mode": ["domain"],
+                "protocol": ["https"],
+            },
+        ),
+        (
+            "top_pages",
+            "pages",
+            [{"url": "https://example.com/a", "sum_traffic": 90}, {"url": "https://example.com/b", "sum_traffic": 5}],
+            [{"url": "https://example.com/a", "sum_traffic": 90}, {"url": "https://example.com/b", "sum_traffic": 5}],
+            {
+                "select": [",".join(TOP_PAGE_FIELDS)],
                 "limit": ["1000"],
                 "order_by": ["sum_traffic:desc"],
                 "date": ["2026-10-13"],
@@ -390,6 +405,19 @@ def test_target_report_without_site_audit_target_fails_permanently(healthscores:
     assert len(result.requests) == 1
 
 
+def test_issues_bad_request_fails_permanently() -> None:
+    source = AhrefsSource()
+    result = SourceDriver(source, AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+        "site_audit_issues", [ScriptedResponse(status=400, json={"error": "Invalid project state"})]
+    )
+    assert isinstance(result.raised, HTTPError)
+    raised = str(result.raised)
+    assert error_message_matches(raised, source.get_non_retryable_errors())
+    mapped = [m for key, m in source.get_non_retryable_errors().items() if error_message_matches(raised, [key])]
+    assert mapped and mapped[0] is not None and "completed crawl" in mapped[0]
+    assert len(result.requests) == 1
+
+
 @pytest.mark.parametrize("count", [99, 100, 101])
 def test_page_sample_cap(count: int) -> None:
     rows = [{"url": f"https://example.com/{i}"} for i in range(count)]
@@ -413,7 +441,7 @@ def test_page_sample_cap(count: int) -> None:
 def test_exhausted_units_keep_the_schema_enabled(status: int, body: object) -> None:
     answer = ScriptedResponse(status=status, json=body)
     with scripted_network([answer]) as network:
-        valid, error = validate_credentials("test-key")
+        valid, error = validate_credentials("test-key", "123")
     assert valid is False
     assert error is not None and "API units are exhausted" in error
     assert len(network.requests_log) == 1
@@ -432,20 +460,48 @@ def test_exhausted_units_keep_the_schema_enabled(status: int, body: object) -> N
 
 
 def test_free_credential_probe(send: MagicMock) -> None:
-    send.return_value = response({"limits_and_usage": {"subscription": "Lite", "units_usage_api_key": 0}})
-    assert validate_credentials("test-key") == (True, None)
-    send.assert_called_once()
-    request = send.call_args.args[0]
-    assert request.headers["Authorization"] == "Bearer test-key"
-    assert request.url == "https://api.ahrefs.com/v3/subscription-info/limits-and-usage?output=json"
-    assert send.call_args.kwargs["timeout"] == (10, 60)
+    send.side_effect = [
+        response({"limits_and_usage": {"subscription": "Lite", "units_usage_api_key": 0}}),
+        response({"healthscores": [{"project_id": 123, "target_url": "example.com"}]}),
+    ]
+    assert validate_credentials("test-key", "123") == (True, None)
+    assert [call.args[0].url for call in send.call_args_list] == [
+        "https://api.ahrefs.com/v3/subscription-info/limits-and-usage?output=json",
+        "https://api.ahrefs.com/v3/site-audit/projects?output=json&project_id=123",
+    ]
+    assert all(call.args[0].headers["Authorization"] == "Bearer test-key" for call in send.call_args_list)
+    assert all(call.kwargs["timeout"] == (10, 60) for call in send.call_args_list)
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (403, {"error": "Forbidden"}, "Ahrefs denied access"),
+        (401, {"error": "Unauthorized"}, "Ahrefs authentication failed"),
+        (403, {"error": "API units limit exceeded"}, "API units are exhausted"),
+    ],
+)
+def test_project_probe_rejects_key_without_project_access(status: int, body: object, expected: str) -> None:
+    with scripted_network(
+        [
+            ScriptedResponse(json={"limits_and_usage": {"subscription": "Lite"}}),
+            ScriptedResponse(status=status, json=body),
+        ]
+    ) as network:
+        valid, error = validate_credentials("test-key", "123")
+    assert valid is False
+    assert error is not None and expected in error
+    assert [request.path for request in network.requests_log] == [
+        "/v3/subscription-info/limits-and-usage",
+        "/v3/site-audit/projects",
+    ]
 
 
 @pytest.mark.parametrize("status", [429, 500, 503])
 def test_transient_probe_failure_is_not_invalid_credentials(status: int) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json={"error": "Try later"}))) as network:
         with pytest.raises(RESTClientRetryableError):
-            validate_credentials("test-key")
+            validate_credentials("test-key", "123")
     assert network.requests_log
     assert all(request.path == "/v3/subscription-info/limits-and-usage" for request in network.requests_log)
 
@@ -453,7 +509,7 @@ def test_transient_probe_failure_is_not_invalid_credentials(status: int) -> None
 def test_unrecognized_probe_error_propagates() -> None:
     with scripted_network([ScriptedResponse(status=400, json={"error": "Invalid request"})]) as network:
         with pytest.raises(HTTPError):
-            validate_credentials("test-key")
+            validate_credentials("test-key", "123")
     assert len(network.requests_log) == 1
 
 
@@ -463,7 +519,7 @@ def test_missing_response_envelope_fails(probe: bool) -> None:
     if probe:
         with scripted_network([answer]) as network:
             with pytest.raises(ValueError, match="matched nothing"):
-                validate_credentials("test-key")
+                validate_credentials("test-key", "123")
         assert len(network.requests_log) == 1
     else:
         result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
@@ -562,6 +618,92 @@ def test_brand_radar_web_pages_read_each_report_linked_to_the_project() -> None:
     assert reports_request.path == "/v3/management/brand-radar-reports"
     assert [request.method for request in page_requests] == ["POST", "POST"]
     assert [json.loads(request.body or b"")["report_id"] for request in page_requests] == ["r-1", "r-2"]
+
+
+BRAND_RADAR_PLATFORMS = ["chatgpt", "google_ai_overviews", "google_ai_mode", "gemini", "perplexity", "copilot", "grok"]
+
+
+@pytest.mark.parametrize(
+    ("last_value", "expected_date_from"),
+    [(None, "2026-04-16"), ("2026-09-01", "2026-08-02")],
+)
+@time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+def test_brand_radar_mentions_history_reads_each_platform_of_each_report(
+    last_value: str | None, expected_date_from: str
+) -> None:
+    reports = [
+        {"report_id": "r-1", "project_id": 123, "settings": {"brands": [{"names": ["Acme", "Acme App"]}]}},
+        {"report_id": "r-other", "project_id": 999, "settings": {"brands": [{"names": ["Other"]}]}},
+        {"report_id": "r-urls", "project_id": 123, "settings": {"brands": [{"url_groups": [{"target": "a.example"}]}]}},
+        {"report_id": "r-2", "project_id": 123, "settings": {"brands": [{"names": ["Beta"]}, {"url_groups": []}]}},
+    ]
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v3/management/brand-radar-reports":
+            return ScriptedResponse(json={"reports": reports})
+        body = json.loads(request.body or b"")
+        if body["data_source"] == ["grok"]:
+            return ScriptedResponse(status=403, json={"error": "Forbidden"})
+        return ScriptedResponse(
+            json={"metrics": [{"date": "2026-10-02", "mentions": 4}, {"date": "2026-10-01", "mentions": 3}]}
+        )
+
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="00123")).run(
+        "brand_radar_mentions_history",
+        answer,
+        incremental_field="date" if last_value else None,
+        db_incremental_field_last_value=last_value,
+    )
+
+    assert result.raised is None
+    assert result.response is not None and result.response.sort_mode is None
+    readable = [platform for platform in BRAND_RADAR_PLATFORMS if platform != "grok"]
+    assert result.rows == [
+        {"date": day, "mentions": mentions, "project_id": "123", "report_id": report_id, "data_source": platform}
+        for report_id in ["r-1", "r-2"]
+        for platform in readable
+        for day, mentions in [("2026-10-01", 3), ("2026-10-02", 4)]
+    ]
+    reports_request, *history_requests = result.requests
+    assert reports_request.path == "/v3/management/brand-radar-reports"
+    assert [json.loads(request.body or b"") for request in history_requests] == [
+        {
+            "output": "json",
+            "report_id": report_id,
+            "brands": brands,
+            "data_source": [platform],
+            "date_from": expected_date_from,
+        }
+        for report_id, brands in [("r-1", [{"names": ["Acme", "Acme App"]}]), ("r-2", [{"names": ["Beta"]}])]
+        for platform in BRAND_RADAR_PLATFORMS
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (403, {"error": "Forbidden"}, "ahrefs_access_denied"),
+        (403, {"error": "API units limit exceeded"}, "ahrefs_quota_exceeded"),
+    ],
+)
+def test_brand_radar_mentions_history_fails_when_no_platform_is_readable(
+    status: int, body: object, expected: str
+) -> None:
+    reports = [{"report_id": "r-1", "project_id": 123, "settings": {"brands": [{"names": ["Acme"]}]}}]
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v3/management/brand-radar-reports":
+            return ScriptedResponse(json={"reports": reports})
+        return ScriptedResponse(status=status, json=body)
+
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+        "brand_radar_mentions_history", answer
+    )
+
+    assert isinstance(result.raised, ValueError)
+    assert str(result.raised) == expected
+    history_requests = len(result.requests) - 1
+    assert history_requests == (len(BRAND_RADAR_PLATFORMS) if expected == "ahrefs_access_denied" else 1)
 
 
 @pytest.mark.parametrize(

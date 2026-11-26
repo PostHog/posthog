@@ -76,7 +76,6 @@ class TestSummarizeWithOpenAI:
             assert isinstance(result, SummarizationResponse)
             assert result.title == "Test Summary"
             mock_get_client.assert_called_once_with(
-                "llma_summarization",
                 ai_product="aio_summarization",
                 properties={"team_id": "1"},
                 distinct_id="team-1",
@@ -253,11 +252,13 @@ class TestSummarizeWithOpenAI:
         [
             (OpenAIModel.GPT_5_NANO, True, "flex", "minimal", SUMMARIZATION_FLEX_TIMEOUT),
             (OpenAIModel.GPT_5_NANO, False, omit, "minimal", SUMMARIZATION_TIMEOUT),
+            # gpt-6 rejects "minimal", and is not on the flex allowlist yet
+            (OpenAIModel.GPT_6_LUNA, True, omit, "low", SUMMARIZATION_TIMEOUT),
             # gpt-4.1 rejects service_tier, so a flex request must not forward it
             (OpenAIModel.GPT_4_1_MINI, True, omit, omit, SUMMARIZATION_TIMEOUT),
         ],
     )
-    def test_flex_and_reasoning_effort_apply_only_to_gpt5(
+    def test_flex_and_reasoning_effort_follow_model_family(
         self, valid_response_json, model, flex, expected_tier, expected_effort, expected_timeout
     ):
         mock_response = MagicMock()

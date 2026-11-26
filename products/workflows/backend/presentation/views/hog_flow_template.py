@@ -9,6 +9,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -19,6 +20,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from products.cdp.backend.presentation.serializers import HogFunctionFiltersSerializer
 from products.workflows.backend.facade.contracts import WorkflowTemplate, WorkflowTemplateNotFound
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
+from products.workflows.backend.facade.sandbox_email import SANDBOX_EMAIL_ACTION_TYPE
 from products.workflows.backend.facade.templates import (
     create_template,
     delete_template,
@@ -32,6 +34,7 @@ from products.workflows.backend.facade.templates import (
 from products.workflows.backend.facade.workflows import SUPPORTED_ACTION_TYPES, WORKFLOW_SAFE_INTERNAL_EVENTS
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HogFlowActionTypeField,
+    HogFlowConditionFiltersSerializer,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )
@@ -97,6 +100,10 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
+        if data.get("type") == SANDBOX_EMAIL_ACTION_TYPE:
+            raise serializers.ValidationError(
+                {"type": "Templates can't use the PostHog test sender. Use an email step with a verified sender."}
+            )
         trigger_is_function = False
         if data.get("type") == "trigger":
             trigger_type = data.get("config", {}).get("type")
@@ -154,7 +161,12 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
                     if "events" in filters:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
 
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    filters_serializer_class = (
+                        HogFlowConditionFiltersSerializer
+                        if data.get("type") == "conditional_branch"
+                        else HogFunctionFiltersSerializer
+                    )
+                    serializer = filters_serializer_class(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
                     condition["filters"] = serializer.validated_data
 
@@ -264,7 +276,7 @@ _TEMPLATE_ID_PARAMETER = OpenApiParameter(
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = HogFlowTemplateSerializer
-    permission_classes = [PreventGlobalTemplateDatabaseOperations]
+    permission_classes = [PreventGlobalTemplateDatabaseOperations, CDPPropertyAccessPermission]
     log_source = "hog_flow_template"
     app_source = "hog_flow_template"
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]

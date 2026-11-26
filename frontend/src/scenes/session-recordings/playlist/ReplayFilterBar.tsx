@@ -13,16 +13,15 @@ import { RecordingUniversalFilters } from '~/types'
 
 import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
-import { comparableRecordingFilters } from './playlistUtils'
+import { stripSessionIds } from './playlistUtils'
 import { QuillSaveFiltersModal } from './QuillSaveFiltersModal'
-import { SavedFilterChips } from './SavedFilterChips'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 function withoutSort(filters: RecordingUniversalFilters): Partial<RecordingUniversalFilters> {
     const { order: _order, order_direction: _direction, ...rest } = filters
-    return comparableRecordingFilters(rest)
+    return stripSessionIds(rest)
 }
 
 export function ReplayFilterBar({
@@ -31,14 +30,12 @@ export function ReplayFilterBar({
     totalFiltersCount,
     currentSessionRecordingId,
     onReload,
-    savedFilterChips,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     totalFiltersCount?: number
     currentSessionRecordingId?: string
     onReload: () => void
-    savedFilterChips?: boolean
 }): JSX.Element {
     const { sessionRecordingsResponseLoading, defaultFilters } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
@@ -60,7 +57,7 @@ export function ReplayFilterBar({
     })
     const [saveModalOpen, setSaveModalOpen] = useState(false)
 
-    const edited = !!appliedSavedFilter && !equal(appliedSavedFilterFilters, comparableRecordingFilters(filters))
+    const edited = !!appliedSavedFilter && !equal(appliedSavedFilterFilters, stripSessionIds(filters))
     const filtersAreDefault = equal(withoutSort(filters), withoutSort(defaultFilters))
     useEffect(() => {
         if (appliedSavedFilter && filtersAreDefault) {
@@ -90,7 +87,6 @@ export function ReplayFilterBar({
                         <TooltipContent>{isFiltersExpanded ? 'Hide filters' : 'Add a filter'}</TooltipContent>
                     </Tooltip>
                     <SavedFilterSelect edited={edited} onSaveCurrent={() => setSaveModalOpen(true)} />
-                    {savedFilterChips && <SavedFilterChips edited={edited} />}
                     <FilterChips filters={filters} setFilters={setFilters} />
                 </div>
                 <Button

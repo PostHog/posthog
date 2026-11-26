@@ -31,7 +31,7 @@ from products.experiments.backend.health.context import (
     HealthContext,
     load_health_context,
 )
-from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
+from products.experiments.backend.health.test.factories import ENDED, EVENTS_LIMITED, RUNNING_CONTEXT
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.edits import FlagVariant
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -137,6 +137,13 @@ class TestZeroExposures(TestCase):
                 {"flag": replace(FLAG, deleted=True), "flag_called_during_run": False},
                 None,
                 (Action.EDIT_EXPOSURE_CRITERIA,),
+                WARNING,
+            ),
+            (
+                "billing_limit_after_calls_during_the_run",
+                {"billing_limits": EVENTS_LIMITED, "flag_called_during_run": True},
+                CALLS_NOT_COUNTED,
+                (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
                 WARNING,
             ),
             ("ended_flag_not_called", {**ENDED, "flag_called_during_run": False}, FLAG_NOT_CALLED, (), INFO),
@@ -456,6 +463,6 @@ class TestFlagCalledDuringRun(BaseTest):
         )
 
         with override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="events"), time_machine.travel(NOW, tick=False):
-            ctx = load_health_context(experiment)
+            ctx = load_health_context(experiment, can_read_flag_calls=True)
 
         self.assertEqual((ctx.flag_called_during_run, ctx.flag_called_after_end), (during_run, after_end))

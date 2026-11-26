@@ -22,6 +22,15 @@ from products.tasks.backend.logic.services.agent_command import (
 
 
 class TestValidateSandboxUrl:
+    @pytest.mark.parametrize("cloud", [True, False])
+    @patch("products.tasks.backend.logic.services.agent_command.socket.getaddrinfo")
+    def test_a_listed_out_of_band_host_is_refused_on_cloud_only(self, mock_getaddrinfo, cloud):
+        with patch("products.tasks.backend.logic.services.agent_command.is_cloud", return_value=cloud):
+            error = validate_sandbox_url("https://abc.oast.live")
+
+        assert mock_getaddrinfo.called is not cloud
+        assert (error == "Host is not allowed") is cloud
+
     @pytest.mark.parametrize(
         "url,expected_error",
         [
@@ -41,14 +50,16 @@ class TestValidateSandboxUrl:
             "rejected_no_host",
         ],
     )
-    def test_scheme_and_host_validation(self, url: str, expected_error: str | None):
+    @patch(
+        "products.tasks.backend.logic.services.agent_command.socket.getaddrinfo",
+        return_value=[(2, 1, 6, "", ("93.184.216.34", 443))],
+    )
+    def test_scheme_and_host_validation(self, _mock_getaddrinfo, url: str, expected_error: str | None):
+        result = validate_sandbox_url(url)
+
         if expected_error is None:
-            # We can't fully validate without DNS, but scheme+host parsing should pass
-            result = validate_sandbox_url(url)
-            # May fail on DNS but won't fail on scheme/host
-            assert result is None or "Cannot resolve" in result
+            assert result is None
         else:
-            result = validate_sandbox_url(url)
             assert result is not None
             assert expected_error in result
 

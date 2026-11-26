@@ -88,23 +88,53 @@ class TestTopLevel:
 
 
 class TestFanout:
-    def test_incremental_cutoff_applied_to_children_but_not_survey_enumeration(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, incremental_field, child_path, cutoff_param, expected_cutoff",
+        [
+            ("responses", "completed_time", "/v3/responses", "date.gte", "2026-01-02"),
+            ("ticket_comments", "created_at", "/v3/tickets/10/comments", "created_date.gte", "2026-01-01T03:04:05"),
+        ],
+    )
+    def test_incremental_cutoff_applied_to_children_but_not_parent_enumeration(
+        self, endpoint: str, incremental_field: str, child_path: str, cutoff_param: str, expected_cutoff: str
+    ) -> None:
         result = _driver().run(
-            "responses",
+            endpoint,
             [
                 _page([{"id": 10}], has_next_page=False),
                 _page([{"id": 1}], has_next_page=False),
             ],
-            incremental_field="completed_time",
+            incremental_field=incremental_field,
             db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
         )
 
-        assert result.requests[0].param("date.gte") is None  # survey enumeration
-        child = next(request for request in result.requests if "/v3/responses" in request.path)
-        assert child.param("date.gte") == "2026-01-02"
+        parent, child = result.requests
+        assert parent.param(cutoff_param) is None
+        assert child.path == child_path
+        assert child.param(cutoff_param) == expected_cutoff
 
-    @pytest.mark.parametrize("endpoint", ["questions", "channels"])
-    def test_child_is_scoped_by_survey_id_and_rows_carry_it(self, endpoint: str) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, parent_path, parent_column, expected_child",
+        [
+            ("questions", "/v3/surveys", "survey_id", lambda parent_id: ("/v3/questions", {"survey_id": parent_id})),
+            ("channels", "/v3/surveys", "survey_id", lambda parent_id: ("/v3/channels", {"survey_id": parent_id})),
+            (
+                "ticket_comments",
+                "/v3/tickets",
+                "ticket_id",
+                lambda parent_id: (f"/v3/tickets/{parent_id}/comments", {}),
+            ),
+            (
+                "reputation_reviews",
+                "/v3/reputation/app_platforms",
+                "app_platform_id",
+                lambda parent_id: ("/v3/reputation/reviews", {"app_platform_id": parent_id}),
+            ),
+        ],
+    )
+    def test_child_is_scoped_by_parent_id_and_rows_carry_it(
+        self, endpoint: str, parent_path: str, parent_column: str, expected_child: Any
+    ) -> None:
         result = _driver().run(
             endpoint,
             [
@@ -114,9 +144,23 @@ class TestFanout:
             ],
         )
 
-        child_requests = [request for request in result.requests if f"/v3/{endpoint}" in request.path]
-        assert [request.param("survey_id") for request in child_requests] == ["10", "20"]
-        assert [(r["survey_id"], r["id"]) for r in result.rows] == [(10, 1), (20, 1)]
+        parent_request, *child_requests = result.requests
+        assert parent_request.path == parent_path
+        for request, parent_id in zip(child_requests, ["10", "20"], strict=True):
+            path, params = expected_child(parent_id)
+            assert request.path == path
+            assert {name: request.param(name) for name in params} == params
+        assert [(r[parent_column], r["id"]) for r in result.rows] == [(10, 1), (20, 1)]
+
+
+class TestUnpaginated:
+    def test_contact_properties_is_one_request_without_page_params(self) -> None:
+        result = _driver().run("contact_properties", [_page([{"id": 1}, {"id": 2}])])
+
+        assert [r["id"] for r in result.rows] == [1, 2]
+        assert len(result.requests) == 1
+        assert result.params("page") == [None]
+        assert result.params("limit") == [None]
 
 
 class TestIncrementalRequestShaping:
