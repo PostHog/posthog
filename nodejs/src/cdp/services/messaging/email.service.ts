@@ -1118,6 +1118,7 @@ export class EmailService {
                     status: success ? 'sent' : 'failed',
                     reason: success ? sentStatusReason(invocation, trackingEnabled) : failureReason,
                     sendingDomain,
+                    providerMessageId: messageId,
                     messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
             }
