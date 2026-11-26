@@ -4,7 +4,7 @@ import { TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quil
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 
-import { timeSeriesFromFrames, yAxisFor } from '../../timeSeriesFrames'
+import { timeSeriesFromFrames, yAxisFor } from '../../data/timeSeriesFrames'
 import type { DataFrame } from '../../vizTypes'
 import type { BarOptions } from './barSpec'
 

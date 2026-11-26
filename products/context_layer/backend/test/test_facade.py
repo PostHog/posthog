@@ -1,7 +1,9 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
 
 import posthog.storage.object_storage as object_storage_module
 from posthog.storage.object_storage import UnavailableStorage
@@ -41,3 +43,26 @@ class TestContextLayerFacade(BaseTest):
 
     def test_get_sandbox_mount_is_none_without_wiki(self) -> None:
         assert facade.get_sandbox_mount(self.organization.id) is None
+
+
+class TestSlackChannelPagePath(SimpleTestCase):
+    def test_path_is_named_by_channel_id_under_its_project(self) -> None:
+        assert facade.slack_channel_page_path(7, "C0456EFGH") == "projects/7/slack-channels/C0456EFGH.md"
+
+    @parameterized.expand(
+        [
+            ("traversal", 7, "../../areas/x"),
+            ("lowercase", 7, "c0456efgh"),
+            ("empty", 7, ""),
+            ("reserved_word", 7, "AGENTS"),
+            ("instruction_file", 7, "CLAUDE"),
+            ("workspace_id", 7, "T0123ABCD"),
+            ("team_id_with_a_path", "1/spaces", "C0456EFGH"),
+            ("team_id_zero", 0, "C0456EFGH"),
+        ]
+    )
+    def test_rejects_ids_that_are_not_project_and_slack_channel_ids(
+        self, _name: str, team_id: object, slack_channel_id: str
+    ) -> None:
+        with self.assertRaises(facade.InvalidPagePathError):
+            facade.slack_channel_page_path(team_id, slack_channel_id)  # type: ignore[arg-type]

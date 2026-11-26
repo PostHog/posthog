@@ -259,6 +259,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    RESULT_READY = "result_ready"
     FLAG_SHARED = "flag_shared"
     STALE_EXPERIMENT = "stale_experiment"
 
@@ -327,6 +328,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    RESULT_READY = "result_ready"
     STALE_EXPERIMENT = "stale_experiment"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
@@ -480,6 +482,11 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "control",
     )
     SIGNIFICANT = "significant", "Whether a variant's difference from the control is significant"
+    SIGNIFICANT_SINCE_AT = (
+        "significant_since_at",
+        "Since when every result of the primary metric, up to the current one, shows a variant as significant. With "
+        "more than one significant variant, the earliest date",
+    )
     FORCED_CONDITION_COUNT = (
         "forced_condition_count",
         "Release conditions of the feature flag that serve a fixed variant through a variant override",
@@ -1544,6 +1551,75 @@ class ExperimentRef:
     id: int
     team_id: int
     created_by_id: int | None
+
+
+@frozen
+class ExperimentHandle:
+    """The fields of one experiment that the detail actions of the experiment API read before they call the
+    facade: what their access checks need, and the ids that their reads take."""
+
+    id: int
+    team_id: int
+    created_by_id: int | None
+    feature_flag_id: int
+    feature_flag_created_by_id: int | None
+    holdout_id: int | None
+    flag_cleanup_task_id: "UUID | None"
+    # The connection that a warehouse-native experiment reads, or None for an experiment that reads events.
+    warehouse_native_connection_id: str | None
+
+
+class ExperimentNotFound(Exception):
+    """Raised when the project has no live experiment with the id, so a caller at an HTTP boundary can return a 404."""
+
+
+@frozen
+class FlagCleanupTarget:
+    """The repository that a flag-cleanup pull request for an experiment would be opened in, and how it was chosen."""
+
+    repository: str | None
+    source: Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
+    candidates: tuple[str, ...]
+
+
+@frozen
+class ExposureCohortCreated:
+    """The exposure cohort created for an experiment, as the cohort API shows it."""
+
+    cohort: dict[str, Any]
+
+
+@frozen
+class ExperimentTimeseriesResults:
+    """The day-by-day results of one metric of an experiment under its current settings. The days are YYYY-MM-DD in
+    the project's timezone, and the times are ISO 8601 strings."""
+
+    experiment_id: int
+    metric_uuid: str
+    status: str
+    timeseries: dict[str, Any]
+    configuration_by_day: dict[str, str]
+    errors: dict[str, str] | None
+    computed_at: str | None
+    created_at: str
+    updated_at: str
+    recalculation_status: str | None
+    recalculation_created_at: str | None
+    formatted_results: str
+
+
+@frozen
+class TimeseriesRecalculationRequest:
+    """A backfill of the daily results of one metric. `is_existing` is True when the active backfill of the metric
+    already has the current calculation key, so no new backfill was created."""
+
+    id: "UUID"
+    experiment_id: int
+    metric_uuid: str | None
+    fingerprint: str
+    status: str
+    created_at: str
+    is_existing: bool
 
 
 @frozen

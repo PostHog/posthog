@@ -15,6 +15,7 @@ from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
+from posthog.permissions import user_can_access_resource
 
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
@@ -269,6 +270,18 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
     )
     without_click = TransactionalEmailConversionsSerializer(
         allow_null=True, help_text="Delivered sends nobody clicked and how many converted. Null without an event."
+    )
+    sessions = serializers.IntegerField(
+        allow_null=True,
+        help_text="Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run "
+        "tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends "
+        "at most. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is "
+        "false, when the user has no access to querying events, or when the count could not be computed.",
+    )
+    link_tagging_enabled = serializers.BooleanField(
+        help_text="Whether the project setting that tags tracked links on the sender's own domain with "
+        "ph_workflow_run is on now. The tag connects a click to its session. When false, sessions is null. Set it "
+        "with workflows_config.email_workflow_run_link_tag_enabled in the project settings."
     )
 
 
@@ -559,7 +572,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
         summary="Get how far a transactional email's sends got",
-        description="Count one email's sends that were sent, delivered, opened and clicked. With an event, also count "
+        description="Count one email's sends that were sent, delivered, opened and clicked, and the sessions with a "
+        "pageview from its links. With an event, also count "
         "the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.",
     )
     @action(detail=False, methods=["GET"])
@@ -570,7 +584,10 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if workflow_id not in self._workflow_access().viewable_ids:
             raise NotFound()
         event = query.get("event") or None
-        if event and not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+        can_query_events = user_can_access_resource(
+            self.team, cast(User, request.user), "query", "viewer", user_access_control=self.user_access_control
+        )
+        if event and not can_query_events:
             raise PermissionDenied("You need access to querying events to count conversions.")
         with query_concurrency_slots(self.team):
             impact = transactional_email_impact(
@@ -578,6 +595,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 cast(User, request.user),
                 workflow_id,
                 event,
+                can_query_events=can_query_events,
                 date_from=query.get("date_from"),
                 date_to=query.get("date_to"),
             )

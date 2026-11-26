@@ -11,7 +11,11 @@ from posthog.schema import ExperimentQueryResponse, ExperimentStatsBaseValidated
 
 from posthog.models import Organization, Team, User
 
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.demo_timeseries import copy_demo_timeseries
+from products.experiments.backend.metric_calculation.config import (
+    CALCULATION_KEY_VERSION,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -23,6 +27,76 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 @pytest.mark.django_db
 class TestBackfillExperimentTimeseries(BaseTest):
+    def test_copy_seeded_timeseries_requires_matching_settings_and_complete_windows(self):
+        start = datetime.datetime(2024, 12, 25, 10, tzinfo=ZoneInfo("UTC"))
+        until = datetime.date(2024, 12, 26)
+        teams = [Team.objects.create(organization=self.organization, timezone="UTC") for _ in range(2)]
+        requests: list[ExperimentTimeseriesRecalculation] = []
+        for team in teams:
+            metric_uuid = f"metric-{team.id}"
+            metric = {
+                "kind": "ExperimentMetric",
+                "name": "Uploads",
+                "metric_type": "mean",
+                "uuid": metric_uuid,
+                "source": {"kind": "EventsNode", "event": "uploaded_file"},
+            }
+            experiment = Experiment.objects.create(
+                team=team,
+                feature_flag=FeatureFlag.objects.create(team=team, key="uploads"),
+                start_date=start,
+                metrics=[metric],
+            )
+            config = get_metric_calculation_config(experiment, metric_uuid)
+            assert config is not None
+            requests.append(
+                ExperimentTimeseriesRecalculation.objects.create(
+                    experiment=experiment,
+                    team=team,
+                    metric=metric,
+                    fingerprint=config.key_for_version(CALCULATION_KEY_VERSION)
+                    if not requests
+                    else config.calculation_key(),
+                )
+            )
+        source, target = requests
+        source.status = ExperimentTimeseriesRecalculation.Status.COMPLETED
+        source.last_successful_date = until
+        source.save()
+        for day in (26, 27):
+            assert not copy_demo_timeseries(source.team_id, target, until)
+            ExperimentMetricResult.objects.create(
+                experiment=source.experiment,
+                metric_uuid=source.metric["uuid"],
+                fingerprint=source.fingerprint,
+                query_from=start,
+                query_to=start.replace(day=day, hour=0),
+                status=ExperimentMetricResult.Status.COMPLETED,
+                result={"baseline": {"sum": day}, "clickhouse_sql": "master query"},
+            )
+
+        assert not ExperimentMetricResult.objects.filter(experiment=target.experiment).exists()
+        target.team.timezone = "Europe/Berlin"
+        target.team.save()
+        assert not copy_demo_timeseries(source.team_id, target, until)
+        target.team.timezone = "UTC"
+        target.team.save()
+        assert copy_demo_timeseries(source.team_id, target, until)
+        points = ExperimentMetricResult.objects.filter(experiment=target.experiment).order_by("query_to")
+        assert list(points.values_list("metric_uuid", "fingerprint", "query_from", "query_to", "result")) == [
+            (
+                target.metric["uuid"],
+                target.fingerprint,
+                start,
+                start.replace(day=day, hour=0),
+                {"baseline": {"sum": day}, "clickhouse_sql": None, "hogql": None},
+            )
+            for day in (26, 27)
+        ]
+        target.refresh_from_db()
+        assert target.status == ExperimentTimeseriesRecalculation.Status.COMPLETED
+        assert target.last_successful_date == until
+
     def test_backfill_processes_all_days_and_creates_correct_records(self):
         org = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=org, name="Test Team", timezone="America/New_York")
