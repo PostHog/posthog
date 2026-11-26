@@ -218,6 +218,9 @@ class ProgressReporter:
             self._dashboard.setup_started(phase)
         _emit(f"SETUP START  {phase}")
 
+    def prewarm_finished(self, count: int, duration_seconds: float) -> None:
+        _emit(f"TEAMS READY  {count} single-use teams  {_format_duration(duration_seconds)}")
+
     def print_run_header(
         self,
         *,
@@ -225,6 +228,7 @@ class ProgressReporter:
         agent_runtime: str,
         agent_model: str,
         max_sandboxes: int,
+        team_setup_concurrency: int,
         trials: int,
         case_timeout_seconds: int,
     ) -> None:
@@ -238,6 +242,7 @@ class ProgressReporter:
             f"Provider: {provider}",
             f"Agent: {agent_runtime} / {agent_model}",
             f"Sandbox concurrency: {max_sandboxes}",
+            f"Team setup concurrency: {team_setup_concurrency}",
             f"Trials per case: {trials}",
             f"Case timeout: {case_timeout_seconds}s",
             "Execution completion does not include scoring. The experiment ends when results are ready.",
@@ -412,6 +417,8 @@ class ProgressReporter:
             reasoning_effort=options.reasoning_effort,
             service_tier=options.service_tier,
             provider=options.provider,
+            team_setup_concurrency=options.team_setup_concurrency,
+            max_sandboxes=options.max_sandboxes,
             trials=options.trials,
             suite_ids=[suite.id for suite in suites],
             suite_kinds=sorted({suite.kind.value for suite in suites}),

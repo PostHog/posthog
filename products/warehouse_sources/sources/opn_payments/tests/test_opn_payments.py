@@ -3,6 +3,8 @@ from typing import Any
 
 import pytest
 
+from parameterized import parameterized
+
 from products.warehouse_sources.sources.opn_payments._config import OpnPaymentsSourceConfig
 from products.warehouse_sources.sources.opn_payments.opn_payments import (
     OpnPaymentsResumeConfig,
@@ -10,7 +12,13 @@ from products.warehouse_sources.sources.opn_payments.opn_payments import (
     validate_credentials,
 )
 from products.warehouse_sources.sources.opn_payments.source import OpnPaymentsSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 def _envelope(data: list[dict[str, Any]], offset: int, total: int, limit: int = 100) -> dict[str, Any]:
@@ -79,6 +87,8 @@ class TestOpnPaymentsSourcePagination:
         assert len(result.rows) == 150
         assert result.params("offset") == ["0", "100"]
         assert result.params("limit") == ["100", "100"]
+        assert result.response is not None
+        assert result.response.sort_mode == "asc"
 
 
 class TestOpnPaymentsSourceIncremental:
@@ -115,3 +125,84 @@ class TestOpnPaymentsSourceResume:
 
         assert result.raised is None
         assert result.params("offset") == ["200"]
+
+
+class TestOpnPaymentsSourceFanout:
+    @parameterized.expand(
+        [
+            ("cards", "Cards", "/customers", "cust_test", "cards", "customer_id"),
+            ("occurrences", "Occurrences", "/schedules", "schd_test", "occurrences", "schedule_id"),
+        ]
+    )
+    def test_walks_every_parent_and_tags_rows_with_the_parent_id(
+        self, _name: str, schema: str, parent_path: str, parent_prefix: str, child: str, parent_column: str
+    ) -> None:
+        first, second, gone = f"{parent_prefix}_a1", f"{parent_prefix}_b2", f"{parent_prefix}_c3"
+        result = _driver().run(
+            schema,
+            route(
+                {
+                    f"{parent_path}/{first}/{child}": [
+                        ScriptedResponse(json=_envelope(_page(100), offset=0, total=101)),
+                        ScriptedResponse(json=_envelope(_page(1, start_id=100), offset=100, total=101)),
+                    ],
+                    f"{parent_path}/{second}/{child}": [
+                        ScriptedResponse(json=_envelope([{"id": "row_b"}], offset=0, total=1)),
+                    ],
+                    f"{parent_path}/{gone}/{child}": [ScriptedResponse(status=404, json={"code": "not_found"})],
+                    parent_path: [
+                        ScriptedResponse(
+                            json=_envelope([{"id": first}, {"id": second}, {"id": gone}], offset=0, total=3)
+                        )
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            parent_path,
+            f"{parent_path}/{first}/{child}",
+            f"{parent_path}/{first}/{child}",
+            f"{parent_path}/{second}/{child}",
+            f"{parent_path}/{gone}/{child}",
+        ]
+        assert result.params("offset") == ["0", "0", "100", "0", "0"]
+        assert [row[parent_column] for row in result.rows] == [first] * 101 + [second]
+        assert all(f"_{parent_path[1:].capitalize()}_id" not in row for row in result.rows)
+        assert result.requests[1].param("from") is None
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+    def test_resumes_after_the_parents_it_already_finished(self) -> None:
+        customers = ScriptedResponse(
+            json=_envelope([{"id": "cust_test_a1"}, {"id": "cust_test_b2"}], offset=0, total=2)
+        )
+        first_cards = ScriptedResponse(json=_envelope([{"id": "card_a"}], offset=0, total=1))
+        second_cards = ScriptedResponse(json=_envelope([{"id": "card_b"}], offset=0, total=1))
+
+        interrupted = _driver().run(
+            "Cards",
+            route(
+                {
+                    "/customers/cust_test_a1/cards": [first_cards],
+                    "/customers/cust_test_b2/cards": [
+                        ScriptedResponse(status=401, json={"code": "authentication_failure"})
+                    ],
+                    "/customers": [customers],
+                }
+            ),
+        )
+        assert interrupted.raised is not None
+        assert isinstance(interrupted.final_state, OpnPaymentsResumeConfig)
+        assert interrupted.final_state.fanout_state is not None
+
+        resumed = _driver().run(
+            "Cards",
+            route({"/customers/cust_test_b2/cards": [second_cards], "/customers": [customers]}),
+            resume_state=interrupted.final_state,
+        )
+
+        assert resumed.raised is None
+        assert "/customers/cust_test_a1/cards" not in resumed.paths
+        assert [row["id"] for row in resumed.rows] == ["card_b"]

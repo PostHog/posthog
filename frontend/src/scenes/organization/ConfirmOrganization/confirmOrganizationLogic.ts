@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { initialReferrerSignupFields } from 'scenes/authentication/shared/initialReferrer'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 
 export interface ConfirmOrganizationFormValues {
@@ -179,6 +180,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                         referral_source_ai_prompt: followUp === 'ai' ? formValues.referral_source_ai_prompt : '',
                         referral_source_influencer:
                             followUp === 'influencer' ? formValues.referral_source_influencer : '',
+                        ...initialReferrerSignupFields(),
                     })
                     continueUrl = typeof response?.continue_url === 'string' ? response.continue_url : null
                 } catch (error: any) {

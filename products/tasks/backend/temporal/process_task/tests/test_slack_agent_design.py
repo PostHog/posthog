@@ -29,6 +29,12 @@ PROJECT_URL = "https://us.posthog.com/project/7"
 
 
 class TestStreamedAnswerCodeElements(SimpleTestCase):
+    def setUp(self) -> None:
+        # No database here for the shared-channel check, which only matters in a Slack Connect channel.
+        stub = patch.object(SlackThreadHandler, "_shared_channel_turned_off", return_value=False)
+        stub.start()
+        self.addCleanup(stub.stop)
+
     @parameterized.expand(
         [
             ("backticks", "```", True),
@@ -212,6 +218,45 @@ class TestSlackAgentDesignStream(TestCase):
 
         assert "Signups grew." in client.chat_postMessage.call_args.kwargs["text"]
         mock_deliver.assert_called_once_with(self.task_run)
+
+    @parameterized.expand([("delivered", True), ("not_delivered", False)])
+    @patch.object(SlackThreadHandler, "offer_feature_tip")
+    @patch.object(SlackThreadHandler, "stop_status_stream")
+    @patch("products.slack_app.backend.slack_thread.SlackIntegration")
+    def test_a_delivered_answer_removes_the_eyes_from_the_message_it_answers(
+        self, _name, delivered, mock_slack, mock_stop, _mock_tip
+    ) -> None:
+        mock_stop.return_value = delivered
+        record_delivered_message(
+            str(self.task_run.id),
+            "msg-2",
+            actor_slack_user_id="U456",
+            person_message="And EU?",
+            person_message_ts="5.0",
+        )
+
+        stop_slack_agent_design_stream(
+            StopSlackAgentDesignStreamInput(
+                slack_thread_context={
+                    "team_id": self.integration.team_id,
+                    "integration_id": self.integration.id,
+                    "channel": "C1",
+                    "thread_ts": "1.0",
+                    "user_message_ts": "1.0",
+                },
+                ts="2.0",
+                final_markdown="EU grew too.",
+                answer_markdown="EU grew too.",
+                run_id=str(self.task_run.id),
+                message_id="msg-2",
+            )
+        )
+
+        reactions_remove = mock_slack.return_value.client.reactions_remove
+        if delivered:
+            reactions_remove.assert_called_once_with(channel="C1", timestamp="5.0", name="eyes")
+        else:
+            reactions_remove.assert_not_called()
 
     @parameterized.expand(
         [

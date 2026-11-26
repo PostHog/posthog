@@ -30,6 +30,7 @@ Any one row firing is enough; both volume gates must pass before the rate counts
 Every number is a `WORKFLOW_EMAIL_AUTO_PAUSE_*` or `WORKFLOW_EMAIL_WARN_*` setting in `posthog/settings/ses.py` with an env override.
 Warnings repeat at most once per `WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS` (default 7) per workflow.
 A warning goes out only while the rate its reason leads with, the project's for a project warning, is under the pause rate; otherwise the detector tries the next signal.
+A transactional workflow is the exception: at or above the pause rate it gets the warning in place of a pause, as described under Rollout.
 Batch job metrics count toward their parent workflow, and discovery gates sum at the team level so a breach split across many small batch jobs still surfaces.
 
 Feedback arrives hours or days after the send it belongs to.
@@ -53,14 +54,16 @@ The pause reason then says the project's workflows passed the pause limit and na
 
 ## Rollout
 
-`WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED` (default off) gates every automatic write; warnings and pauses arm together.
+`WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE` (default off) gates every automatic write; warnings and pauses arm together.
+Older releases read `WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED` instead, and the oldest of them pause transactional workflows. Keep that key off, so a rollback to any of them falls back to dry run.
 Staff admin actions write regardless of the flag, which is the intended dogfood path before enabling.
 
 1. Deploy dark. The detector logs `would_pause_workflow_email_sending` and `would_warn_workflow_email_sending` (with workflow name, rates, and volume) and counts `workflow_email_auto_pause_total` / `workflow_email_warning_total` with `mode="dry_run"`.
 2. Read the would-pause list for a week or two and tune thresholds per region if needed.
 3. Validate the machinery with one staff pause on an internal workflow: worker skip, admin email, banner, resume.
-4. Set `WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=true` per region via `posthog/charts`.
-5. To back out, unset the flag; existing pauses stay until resumed.
+4. Check that a staff alert fires on `would_pause_workflow_email_sending` with `mode="transactional"`, using a synthetic log line, since a real breach logs `mode="dry_run"` until enforcement is on. Without the alert, a transactional breach reaches only the project's admins.
+5. Set `WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE=true` per region via `posthog/charts`, once this release runs in both regions.
+6. To back out, unset `WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE`; existing pauses stay until resumed. Before a CDP rollback, unset it first, and start the rollback only once every sweep worker has restarted with it off. Set it again only 24 hours after the end of the last clock hour in which the older CDP release ran: complaints it counted twice stay inside the detector's 24-hour window until then. A rollback to an older Django release falls back to dry run by itself. Before rolling back to a release without the transactional warning, unset the key, wait until every sweep worker has restarted with it off and no sweep is running, and then let the email queue drain: an older worker drops a transactional warning, and its cooldown is already saved.
 
 `WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS` takes a comma-separated list of workflow ids that stay in dry run while the flag is on.
 The detector still logs their own breaches, with `mode="exempt"`, and writes nothing.
@@ -69,6 +72,21 @@ A project breach that only an exempt workflow's feedback would cause is neither 
 An exempt workflow is judged on its own sends only, never on its project's.
 An id that is not a UUID in the 8-4-4-4-12 form, in either case, stops Django from starting.
 Use it for a workflow whose email must not stop, such as sign-in verification codes.
+
+A workflow whose every email step is transactional (`message_category_type` is `transactional`) is never paused automatically.
+Where it would be paused, the sweep sends its admins the warning email instead, at most once per warning cooldown, and logs the breach at warning level with `mode="transactional"`.
+While enforcement is off, these breaches log as `mode="dry_run"` with `transactional=true`.
+Its warning email says it is not paused automatically and that staff can pause it by hand.
+Its sends and feedback stay out of the project totals that can pause other workflows.
+The sweep checks the project's transactional workflows as a group and gives each workflow's own breach or warning priority.
+When pooled bounces cross a threshold, the sweep uses the project result for the remaining workflows that also cross it. Their warnings describe the project rate, and their logs have `scope="project"`.
+If a workflow's own rate is in the warning band and its pooled bounces are at the pause rate, the sweep logs and counts the pooled breach and sends the warning about the workflow's own rate.
+Transactional email sent from code, by template or by key, runs a workflow built with one transactional email step, so this rule covers it.
+A workflow with one email step that is not transactional, such as a marketing step, is judged like any other.
+That includes a code-sent workflow whose email step someone switched to marketing in the editor.
+Its `function_email` steps follow the quota check's rule.
+Any other function step that runs the `template-email` template, whatever its category, makes the workflow pausable.
+The exempt list wins over this rule: an exempt workflow stays in dry run and gets no warning, transactional or not.
 
 Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES` afterwards, so an auto-paused workflow also demotes its team's tier at the next daily run.
 
@@ -79,4 +97,6 @@ Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_
 - A workflow below every volume gate is auto-paused only through its project's hard bounce check; the team's tier caps bound its blast radius, and staff can pause it by hand.
 - Workflow completion does not confirm an email send. Test responses expose the email provider outcome separately; a skipped send retains its reason, and provider acceptance does not confirm inbox delivery.
 - Skipped sends log at error level in the run and record an `email_paused` metric; the run itself continues past the email step, so downstream steps still execute.
+- A workflow with both transactional and marketing email steps stays pausable, and a pause holds every email step in it, the transactional ones too.
+- The sweep reads a workflow's steps before it writes a pause. A workflow republished as transactional in between is paused and its admins get the pause email. They can resume it, unless it was resumed within the repeat window, when only staff can.
 - Sends from the PostHog test sender (the `email_sandbox` step) never count toward a workflow's rates and are never paused by the detector. They record no ordinary email metrics, and the PostHog test sender has its own controls (see [email sending tiers](workflows-email-sending-tiers.md#posthog-test-sender)).

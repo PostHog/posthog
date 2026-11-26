@@ -219,7 +219,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         // needs raw exception data, not person/geoip/group data).
         // softDeadlineMs (10s) + ERROR_TRACKING_CYMBAL_TIMEOUT_MS (15s) stays below
         // CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s).
-        .pipeChunk(createCymbalProcessingStep(cymbalClient), {
+        .pipeChunk(createCymbalProcessingStep(cymbalClient, { overflowMode, preservePartitionLocality }), {
             retry: { tries: 5, sleepMs: 100, backoffFactor: 4, softDeadlineMs: 10000, name: 'cymbal_processing' },
         })
 

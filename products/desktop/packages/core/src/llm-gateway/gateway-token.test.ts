@@ -574,7 +574,7 @@ describe("GatewayTokenService.getRoute", () => {
     "https://evil.example",
     "https://llm.posthog.com",
     "http://ai-gateway.us.posthog.com",
-    "http://localhost:3308",
+    "http://localhost:8080",
     "https://ai-gateway.us.posthog.com/v1",
     "https://ai-gateway.dev.posthog.dev",
   ])("refuses a token naming %s", async (gatewayUrl) => {
@@ -832,13 +832,13 @@ describe("GatewayTokenService.getRoute", () => {
   it("uses the dev override without minting", async () => {
     const t = setup({
       config: {
-        override: { url: "http://localhost:3308", token: "phe_dev" },
+        override: { url: "http://localhost:8080", token: "phe_dev" },
       },
     });
 
     expect(await t.service.getRoute()).toMatchObject({
       mode: "go",
-      gatewayUrl: "http://localhost:3308",
+      gatewayUrl: "http://localhost:8080",
       token: "phe_dev",
       source: "override",
       allowedModels: null,

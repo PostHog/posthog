@@ -830,6 +830,14 @@ export interface TicketErrorApi {
     error_type?: string
 }
 
+/**
+ * Returned when a Support AI run was started for a ticket.
+ */
+export interface AiRerunResponseApi {
+    /** ID of the Support AI run that was started. */
+    workflow_id: string
+}
+
 export interface TicketAttachmentApi {
     /** ID of the stored file. */
     id: string

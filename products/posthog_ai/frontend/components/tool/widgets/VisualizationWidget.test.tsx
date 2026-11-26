@@ -1,8 +1,13 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
+import {
+    mockAllIsIntersecting,
+    setupIntersectionMocking,
+    resetIntersectionMocking,
+} from 'react-intersection-observer/test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { ArtifactContentType, VisualizationArtifactContent } from '~/queries/schema/schema-assistant-messages'
@@ -13,18 +18,41 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { VisualizationWidget } from './VisualizationWidget'
 
 jest.mock('~/queries/Query/Query', () => ({
-    Query: () => {
-        throw new Error('The collapsed visualization must not mount its query')
-    },
+    Query: () => <div data-attr="chart" />,
 }))
 
 describe('VisualizationWidget', () => {
     beforeEach(() => {
+        setupIntersectionMocking(jest.fn)
         initKeaTests()
         router.actions.push('/project/997/insights/current')
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        resetIntersectionMocking()
+    })
+
+    it('mounts a chart only when near the viewport and keeps it mounted after scrolling away', () => {
+        render(
+            <Provider>
+                <VisualizationWidget
+                    content={{
+                        content_type: ArtifactContentType.Visualization,
+                        query: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                        },
+                    }}
+                />
+            </Provider>
+        )
+        expect(screen.queryByTestId('chart')).not.toBeInTheDocument()
+        act(() => mockAllIsIntersecting(true))
+        expect(screen.getByTestId('chart')).toBeInTheDocument()
+        act(() => mockAllIsIntersecting(false))
+        expect(screen.getByTestId('chart')).toBeInTheDocument()
+    })
 
     it('resolves a collapsed AI definition without loading the chart or full cohort list', async () => {
         const list = jest.fn(() => ({ count: 0, results: [] }))
@@ -56,6 +84,7 @@ describe('VisualizationWidget', () => {
                 <VisualizationWidget content={content} isCollapsed />
             </Provider>
         )
+        expect(screen.queryByTestId('chart')).not.toBeInTheDocument()
         expect(detail).not.toHaveBeenCalled()
         fireEvent.click(screen.getByText('Trends'))
         await waitFor(() => {

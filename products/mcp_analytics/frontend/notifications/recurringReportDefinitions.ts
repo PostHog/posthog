@@ -28,8 +28,8 @@ export interface MCPRecurringReport {
 
 export const TOOL_HEALTH_REPORT: MCPRecurringReport = {
     key: 'tool-health',
-    headline: 'How your tools held up',
-    lead: 'Volume, error rate and latency per tool, with the failures worth acting on.',
+    headline: 'Tool quality report',
+    lead: 'A subscription that recaps how each of your tools performed. Each week PostHog AI writes it from your tool calls and sends it to you.',
     // Weekly, not daily: a typical MCP server sees a few dozen calls a day, so a daily error
     // rate or p95 is noise. A week gives those numbers enough data to mean something.
     frequency: 'weekly',
@@ -46,18 +46,18 @@ export const TOOL_HEALTH_REPORT: MCPRecurringReport = {
         'and skip sections where nothing notable happened.',
     ].join(' '),
     covers: [
-        'Total calls and calls per tool',
-        'Error rate, the most common error types and example messages',
+        'Calls per tool',
+        'Error rates, common errors and example messages',
         'p95 latency per tool',
-        'Tools whose errors or latency got clearly worse than the weeks before',
+        'Tools that got worse than in earlier weeks',
     ],
 }
 
 export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
     {
         key: 'intent-roundup',
-        headline: 'What agents are trying to do',
-        lead: 'Their goals in their own words, grouped and ranked, with the ones that keep failing called out.',
+        headline: 'Agent intent report',
+        lead: 'A subscription that recaps what agents tried to do with your MCP server. Each week PostHog AI groups their goals and sends you the recap.',
         frequency: 'weekly',
         title: 'MCP intent roundup',
         // This report infers an unmet intent from the error flag on a tool call. Explicit
@@ -73,10 +73,10 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
             'change to our tools that would help the most agents.',
         ].join(' '),
         covers: [
-            "Agent goals grouped and ranked by how often they came up, quoted in the agents' own words",
-            'The share of each goal that ended in a failed tool call',
-            'Goals that are new compared with previous weeks',
-            'One change to your tools that would help the most agents',
+            'The most common agent goals, in their own words',
+            'Goals that keep ending in a failed call',
+            'Goals that are new this week',
+            'One tool change that would help the most agents',
         ],
     },
     TOOL_HEALTH_REPORT,

@@ -477,6 +477,18 @@ class QueryBatchInput:
     tile: str | None = None
 
 
+class DashboardCustomizationRejected(ValueError):
+    """A dashboard's group key or group settings break a group rule.
+
+    The API answers 400 with `message`, on `field` when it names one.
+    """
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.field = field
+
+
 # A board document is stored as the client sends it. Only its size and schema version are checked, so a malformed
 # tile still saves and the scene shows it as an error tile.
 MAX_BOARD_SPEC_BYTES = 1_000_000

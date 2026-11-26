@@ -16,19 +16,21 @@ from products.experiments.backend.metric_resolution import build_metric
 from products.experiments.backend.models.experiment import Experiment
 
 
+def has_metric_windows(experiment: Experiment) -> bool:
+    return not experiment.archived and experiment.only_count_matured_users
+
+
 def load_primary_metric_windows(
-    experiment: Experiment, *, can_read_flag_history: bool
+    experiment: Experiment, *, launched_at: datetime | None
 ) -> tuple[MetricWindow, ...] | None:
     """
-    The windows of the primary metrics of a launched experiment that hasn't ended, isn't archived and has
-    `only_count_matured_users` on, or None. Never raises: the check that reads them then reports that it couldn't check.
+    The windows of the primary metrics of an experiment that launched, or launches, at `launched_at`, isn't archived
+    and has `only_count_matured_users` on, or None. Never raises: the check that reads them then reports that it
+    couldn't check.
     """
-    if not experiment.is_running or experiment.archived or not experiment.only_count_matured_users:
+    if launched_at is None or not has_metric_windows(experiment):
         return None
     try:
-        launched_at = experiment.launched_at(read_activity_log=can_read_flag_history)
-        if launched_at is None:
-            return None
         return _load_primary_metric_windows(experiment, launched_at)
     except Exception as error:
         capture_exception(error)

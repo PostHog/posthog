@@ -247,10 +247,9 @@ export const backfillDefaultModalityRates = (defaultCost: ModelCost, candidates:
 }
 
 /*
- * `default` keeps the promotion. `PROVIDER_ALIASES` maps `$ai_provider:
- * 'openrouter'` onto it, and for those callers the promo price is what they were
- * billed, so raising it to list over-reports them by 1/(1 - rate). Splitting the
- * two readers needs an `openrouter` key in `CanonicalProvider` first.
+ * `default` keeps the promotion. `$ai_provider: 'openrouter'` falls back to it
+ * when a row has no `openrouter` key, and for those callers the promo price is
+ * what they were billed, so raising it to list over-reports them by 1/(1 - rate).
  */
 
 export type DiscountConfirmation = 'confirmed' | 'unconfirmed' | 'not-checkable' | 'not-applicable'

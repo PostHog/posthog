@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
 import {
     DataWarehouseNode,
     FunnelsActorsQuery,
@@ -835,5 +836,32 @@ describe('personsModalLogic', () => {
 
             expect(logic.values.propertiesTimelineQuery).toEqual(expectsTimeline ? query : null)
         })
+    })
+
+    it('saves the cohort on the project cohorts route', async () => {
+        let createdCohort: unknown
+        useMocks({
+            post: {
+                '/api/projects/:team_id/cohorts/': async ({ request }) => {
+                    createdCohort = await request.json()
+                    return [201, { id: 42, name: 'Pageview users' }]
+                },
+            },
+        })
+        cohortsModel.mount()
+        logic = personsModalLogic({
+            query: {
+                kind: NodeKind.InsightActorsQuery,
+                source: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
+            },
+            url: null,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.saveAsCohort('Pageview users')
+        }).toFinishAllListeners()
+
+        expect(createdCohort).toMatchObject({ name: 'Pageview users', is_static: true })
     })
 })

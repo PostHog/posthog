@@ -22,7 +22,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
-import { Environment, createEnvironment } from './environment'
+import { Environment, createEnvironment, proxiesOf } from './environment'
 import { startProbeProcess } from './probe-process'
 import * as processes from './processes'
 import {
@@ -39,6 +39,7 @@ import {
     MODES_WITHOUT_A_ROLE,
     ROLE_PORTS,
     Role,
+    configHashOf,
     consumerGroupsOf,
     fetchRetriesOf,
     intakeTopicsOf,
@@ -49,6 +50,7 @@ import {
     RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
+    cyclotronUrlOf,
     forgetSesBucket,
     lagOf,
     membersOf,
@@ -412,6 +414,25 @@ describe('scenario environment', () => {
             expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
         })
 
+        it("lists the database behind the edge's proxy, not the proxy, for a role that reaches Cyclotron through it", () => {
+            const cyclotron = 'postgres://posthog:posthog@localhost:5432/cyclotron_node'
+            const [spec] = roleSpecs(
+                base,
+                EDGE,
+                secretsOf({}),
+                STATE_DIR,
+                {},
+                undefined,
+                {},
+                {
+                    urls: { [cyclotron]: 'postgres://posthog:posthog@127.0.0.1:7001/cyclotron_node' },
+                    fallback: cyclotron,
+                }
+            )
+
+            expect(postgresServersOf(spec, POSTHOG)).toEqual([POSTHOG])
+        })
+
         const hogflowWorker = (settings: Record<string, string>) =>
             roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings).find(
                 ({ role }) => role === 'cdp-cyclotron-worker-hogflow'
@@ -533,6 +554,42 @@ describe('scenario environment', () => {
             expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
         })
 
+        const POOLERS = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+        const SECOND = 'postgres://a@127.0.0.1:5432/cyclotron_second'
+        const proxyFor = (database: string): string => `postgres://a@127.0.0.1:7000/proxy-for-${database}`
+        const routed = (env: NodeJS.ProcessEnv, settings: Record<string, string>) => {
+            const args = [{ ...base, ...env }, EDGE, secretsOf({}), STATE_DIR, settings, undefined, {}] as const
+            const direct = roleSpecs(...args)
+            return {
+                direct,
+                through: (proxies: Record<string, string>) =>
+                    roleSpecs(...args, { urls: proxies, fallback: POOLERS[0] }),
+            }
+        }
+
+        it.each<[string, NodeJS.ProcessEnv, Record<string, string>, (index: number) => string]>([
+            ['each pooler', { SCENARIO_POOLER_URLS: POOLERS.join(',') }, {}, (index) => POOLERS[index % 2]],
+            ['the database a profile names', {}, { CYCLOTRON_NODE_DATABASE_URL: SECOND }, () => SECOND],
+        ])(
+            "reaches %s through the edge's proxy for it, while the runner reads that database itself",
+            async (_story, env, settings, databaseOf) => {
+                const { direct, through } = routed(env, settings)
+                const specs = through(await proxiesOf((database) => Promise.resolve(proxyFor(database)), direct))
+
+                expect(specs.map((spec) => [spec.env.CYCLOTRON_NODE_DATABASE_URL, cyclotronUrlOf(spec)])).toEqual(
+                    specs.map((_, index) => [proxyFor(databaseOf(index)), databaseOf(index)])
+                )
+            }
+        )
+
+        it('refuses to route a role to a database the edge has no proxy for', () => {
+            const { through } = routed({}, { CYCLOTRON_NODE_DATABASE_URL: SECOND })
+
+            expect(() => through({ [POOLERS[0]]: proxyFor(POOLERS[0]) })).toThrow(
+                'the edge has no Postgres proxy for the Cyclotron database the profile names'
+            )
+        })
+
         it.each(CdpRole.options)(
             'runs %s as itself in dev, marked, against the edge and its proxy for every team, without AWS_PROFILE',
             (role) => {
@@ -642,6 +699,131 @@ describe('scenario environment', () => {
                 ENCRYPTION_SALT_KEYS: 'run-key',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt',
             })
+        })
+
+        const MACHINE = { PATH: '/usr/bin', HOME: '/home/a' }
+        const hashOf = (machine: Record<string, string>, stateDir: string, settings = {}): string =>
+            configHashOf(roleSpecs(machine, EDGE, secretsOf({}), stateDir, settings))
+        const withSetting = (settings: Record<string, string>): string => hashOf(MACHINE, STATE_DIR, settings)
+
+        it('hashes the server config the roles start with, apart from the machine around them', () => {
+            const here = hashOf(MACHINE, STATE_DIR)
+            const database = withSetting({ DATABASE_URL: 'postgres://posthog:one@cluster-a:5432/posthog' })
+
+            expect({
+                elsewhere: hashOf({ PATH: '/opt/bin', HOME: '/home/b' }, '/other-state'),
+                settings: withSetting({ CDP_WATCHER_HOG_COST_TIMING: '7' }),
+                inherited: hashOf({ ...MACHINE, CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '9' }, STATE_DIR),
+                processEnv: hashOf({ ...MACHINE, HOG_BYTECODE_CACHE_REWRITE: '1' }, STATE_DIR),
+                databaseEmptied: withSetting({ DATABASE_URL: '' }),
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'bm90LWEta2V5' }),
+                sealingOff: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: ',,' }, STATE_DIR),
+                commaPassword: withSetting({ POSTHOG_DB_PASSWORD: ',' }),
+                certificateCheckOff: withSetting({
+                    KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'false',
+                }),
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-b' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/b' }, STATE_DIR),
+            }).toEqual({
+                elsewhere: here,
+                settings: expect.not.stringMatching(here),
+                inherited: expect.not.stringMatching(here),
+                processEnv: expect.not.stringMatching(here),
+                databaseEmptied: expect.not.stringMatching(database),
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'YW5vdGhlci1rZXk=' }),
+                sealingOff: expect.not.stringMatching(here),
+                sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                commaPassword: expect.not.stringMatching(withSetting({ POSTHOG_DB_PASSWORD: '' })),
+                certificateCheckOff: expect.not.stringMatching(
+                    withSetting({ KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'true' })
+                ),
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-a' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/a' }, STATE_DIR),
+            })
+            expect(here).toMatch(/^[0-9a-f]{64}$/)
+        })
+
+        it.each<[string, string, string, string]>([
+            [
+                'URL whose userinfo holds a slash',
+                'DATABASE_URL',
+                'postgres://posthog:o/ne@cluster-b:5432/posthog',
+                'postgres://reader:t/wo@cluster-c:6432/other',
+            ],
+            [
+                'URL whose userinfo holds a comma',
+                'DATABASE_URL',
+                'postgres://posthog:o,ne@cluster-b:5432/posthog',
+                'postgres://reader:t,wo@cluster-c:6432/other',
+            ],
+            [
+                'URL whose userinfo holds an at sign',
+                'DATABASE_URL',
+                'postgres://posthog:o@ne@cluster-b/posthog',
+                'postgres://reader:t@wo@cluster-c/other',
+            ],
+            [
+                'URL whose userinfo is percent-encoded',
+                'DATABASE_URL',
+                'postgres://posthog:o%2Fn%40e@cluster-b/posthog',
+                'postgres://reader:t%2Cwo@cluster-c/other',
+            ],
+            [
+                'value holding several URLs',
+                'DATABASE_URL',
+                'postgres://a:one@h1/db,postgres://b:two@h2/db',
+                'redis://c:three@h3/0,redis://d:four@h4/1',
+            ],
+            [
+                'URL with a password in its query',
+                'DATABASE_URL',
+                'postgres://cluster-a/posthog?password=one&sslrootcert=/srv/a/ca.pem',
+                'postgres://cluster-b/other?password=two',
+            ],
+            ['bare password setting', 'POSTHOG_DB_PASSWORD', 'one', 'two'],
+            [
+                'keyword-form connection string',
+                'DATABASE_URL',
+                'host=cluster-a user=posthog password=one dbname=posthog',
+                'host=cluster-b user=reader password=two dbname=other',
+            ],
+            [
+                'keyword-form password under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'host=cluster-a password=one',
+                'host=cluster-b PASSWORD = two',
+            ],
+            ['URL setting without a scheme', 'POSTHOG_HOST_URL', 'cluster-a:8000/one', 'cluster-b:9000/two'],
+            ['broker list', 'KAFKA_HOSTS', 'kafka-a:9092,kafka-b:9092', 'kafka-c:9093'],
+            [
+                'broker list named as a list',
+                'KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST',
+                'kafka-a:9092',
+                'kafka-b:9093',
+            ],
+            [
+                'URL under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'https://user:one@host-a/x',
+                'https://other:two@host-b/y',
+            ],
+            [
+                'credentials without a scheme under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'user:one@host-a',
+                'other:two@host-b',
+            ],
+            ['SASL user name', 'KAFKA_WAREHOUSE_PRODUCER_SASL_USERNAME', 'reader-a', 'reader-b'],
+            ['bare address', 'PERSONHOG_LEADER_ADDR', 'router-a:50051', 'router-b:50052'],
+            [
+                'host and port under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'router-a:50051',
+                'router-b:50052',
+            ],
+        ])('keeps every part of a %s out of the config hash', (_class, key, value, other) => {
+            expect(withSetting({ [key]: value })).toEqual(withSetting({ [key]: other }))
         })
     })
 
@@ -1264,7 +1446,16 @@ describe('scenario environment', () => {
                     process.stderr.write('timeout: still not ready: capture (pending)\\n')
                     process.exit(2)
                 }
-                fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: true }))
+                fs.writeFileSync(
+                    stateFile,
+                    JSON.stringify({
+                        running: true,
+                        ready: true,
+                        services: stack.services,
+                        restarted: stack.restarted,
+                        inspectFails: stack.inspectFails,
+                    })
+                )
             } else if (verb === 'dev:generate') {
                 const saved = fs.existsSync(process.env.HOGLI_MPROCS_PATH)
                     ? JSON.parse(fs.readFileSync(process.env.HOGLI_MPROCS_PATH, 'utf8'))._posthog
@@ -1273,9 +1464,15 @@ describe('scenario environment', () => {
                 const units = ['backend', 'frontend', 'nodejs', 'ingestion', 'ngrok', ...saved.intents, ...flags.with].filter(
                     (unit) => !excluded.includes(unit)
                 )
+                const compose = 'docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml'
+                const composeShell =
+                    'if [ "\${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox" && echo "docker-compose ready" && sleep infinity; else ' +
+                    compose + ' up --pull always -d || { echo "docker compose up failed"; exit 1; } && echo "docker-compose ready" && ' +
+                    compose + ' logs --tail=100 -f; fi'
                 fs.writeFileSync(
                     process.env.HOGLI_MPROCS_PATH,
-                    'procs:\\n' + units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
+                    'procs:\\n  docker-compose:\\n    shell: ' + JSON.stringify(composeShell) + '\\n' +
+                        units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
                 )
             } else if (verb === 'up' && flags.d && flags.custom) {
                 if (stack.running) {
@@ -1288,6 +1485,10 @@ describe('scenario environment', () => {
                 if (started) {
                     fail('The config at ' + flags.custom + ' starts ' + started[1])
                 }
+                const ups = [...fs.readFileSync(flags.custom, 'utf8').matchAll(/ up (-.*?) -d /g)].map((up) => up[1])
+                if (ups.join() !== '--pull always --no-recreate') {
+                    fail('The config at ' + flags.custom + ' runs docker compose up ' + (ups.join(', then ') || 'nowhere') + ', which recreates the running containers')
+                }
                 fs.writeFileSync(
                     stateFile,
                     JSON.stringify({
@@ -1296,6 +1497,9 @@ describe('scenario environment', () => {
                         firstStartS: stack.firstStartS,
                         hangs: stack.hangs,
                         ignoresTerm: stack.ignoresTerm,
+                        services: stack.services,
+                        restarted: stack.restartsDuringStart,
+                        inspectFails: stack.inspectFailsAfterStart,
                     })
                 )
             } else if (verb === 'dev:sync-hog-templates') {
@@ -1317,6 +1521,42 @@ describe('scenario environment', () => {
             const fs = require('fs')
             const path = require('path')
             const args = process.argv.slice(2)
+            const stack = JSON.parse(fs.readFileSync(path.join(__dirname, 'stack.json'), 'utf8'))
+            const containers = (stack.services || ['kafka running', 'db running']).map((line, i) => {
+                const [service, listed, policy = 'on-failure', code = '0', afterStart = listed] = line.split(' ')
+                const id = 'c' + i
+                const restarted = (stack.restarted || []).includes(service)
+                return { id, service, state: restarted ? afterStart : listed, policy, code, restarted }
+            })
+            if (args[0] === 'ps') {
+                const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.ID}} {{.Label "com.docker.compose.service"}} {{.State}}']
+                if (args.slice(1).join(' ') !== lists.join(' ')) {
+                    process.stderr.write('unknown flag: ' + args.join(' ') + '\\n')
+                    process.exit(125)
+                }
+                process.stdout.write(containers.map((c) => [c.id, c.service, c.state].join(' ') + '\\n').join(''))
+                process.exit(0)
+            }
+            if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}}') {
+                const asked = containers.filter((c) => args.slice(3).includes(c.id))
+                process.stdout.write(asked.map((c) => [c.id + '0000', c.policy, c.state, c.code].join(' ') + '\\n').join(''))
+                process.exit(0)
+            }
+            if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}}') {
+                if (stack.inspectFails) {
+                    process.stderr.write(stack.inspectFails + '\\n')
+                    process.exit(1)
+                }
+                const row = (c) => [c.id + '0000', c.service, c.policy, c.state, c.code, c.restarted ? 'restarted' : 'first']
+                const asked = args.slice(3).map((id) => [id, containers.find((c) => id === c.id || id === c.id + '0000')])
+                process.stdout.write(asked.filter(([, c]) => c).map(([, c]) => row(c).join(' ') + '\\n').join(''))
+                process.stderr.write(asked.filter(([, c]) => !c).map(([id]) => 'Error: No such object: ' + id + '\\n').join(''))
+                process.exit(asked.every(([, c]) => c) ? 0 : 1)
+            }
+            if (args.join(' ') === 'volume ls --format {{.Name}}') {
+                process.stdout.write((stack.volumes || []).join('\\n') + '\\n')
+                process.exit(0)
+            }
             const [exec, container, rpk, noun, verb, group] = args
             const [, , , , , , to, position, topicsFlag, topic, allowNew] = args
             if ([exec, container, rpk, noun, verb, args[5]].join(' ') === 'exec posthog-kafka-1 rpk topic create --') {
@@ -1492,6 +1732,10 @@ describe('scenario environment', () => {
             firstStartS?: number
             hangs?: boolean
             ignoresTerm?: boolean
+            services?: string[]
+            volumes?: string[]
+            restartsDuringStart?: string[]
+            inspectFailsAfterStart?: string
         }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1706,6 +1950,97 @@ describe('scenario environment', () => {
                 expect({ stack: stackOf(), templates: await templatesInDjango() }).toEqual({
                     stack: { running: true, ready: true },
                     templates: [...STACK.templates].sort(),
+                })
+            },
+            30_000
+        )
+
+        it('names the existing dev services it keeps when it starts the stack', async () => {
+            writeStack({
+                running: false,
+                ready: false,
+                services: [
+                    'kafka running',
+                    'kafka-init exited no 0',
+                    'db running',
+                    'clickhouse running',
+                    'opensearch-init running no 0 exited',
+                ],
+                volumes: ['posthog_clickhouse-data'],
+                restartsDuringStart: ['opensearch-init'],
+            })
+            const said = jest.spyOn(process.stderr, 'write')
+            environment = environmentOf()
+
+            try {
+                await environment.up(NEVER_ABORTED)
+
+                expect(said).toHaveBeenCalledWith(
+                    expect.stringContaining(
+                        'Keeping the existing dev services as they are: clickhouse, db, kafka, opensearch-init.'
+                    )
+                )
+            } finally {
+                said.mockRestore()
+            }
+        }, 30_000)
+
+        it.each([
+            [
+                'a container that is not running, which would start with its old mounts',
+                ['db running', 'kafka-init exited no 0', 'clickhouse exited on-failure 0'],
+                ['posthog_clickhouse-data'],
+                'The dev services clickhouse have containers that are not running',
+            ],
+            [
+                'a ClickHouse container whose data is not on its named volume yet',
+                ['db running', 'clickhouse running'],
+                ['posthog_postgres-15-data'],
+                'The dev services clickhouse still keep their data on anonymous volumes',
+            ],
+        ])(
+            'refuses to keep %s, before hogli starts anything',
+            async (_case, services, volumes, refusal) => {
+                writeStack({ running: false, ready: false, services, volumes })
+                environment = environmentOf()
+
+                await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
+                    name: 'StackNotReadyError',
+                    message: expect.stringContaining(refusal),
+                })
+                expect(stackOf()).toMatchObject({ running: false, ready: false })
+            },
+            30_000
+        )
+
+        it.each([
+            [
+                'started again',
+                {},
+                'The dev services kafka, temporal-ui started again while the runner started the stack',
+            ],
+            [
+                'cannot be read again',
+                {
+                    inspectFailsAfterStart:
+                        'Cannot connect to the Docker daemon at unix:///tmp/No such container/docker.sock. Is the docker daemon running?',
+                },
+                'Cannot connect to the Docker daemon',
+            ],
+        ])(
+            'refuses a stack whose kept containers %s after hogli started it',
+            async (_case, stack, message) => {
+                writeStack({
+                    running: false,
+                    ready: false,
+                    services: ['kafka running', 'db running', 'temporal-ui running no 0'],
+                    restartsDuringStart: ['kafka', 'temporal-ui'],
+                    ...stack,
+                })
+                environment = environmentOf()
+
+                await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
+                    message: expect.stringContaining(message),
                 })
             },
             30_000
