@@ -15,17 +15,20 @@ def pin_judges_to_active_key(apps, schema_editor):
     EvaluationConfig = apps.get_model("ai_observability", "EvaluationConfig")
     Evaluation = apps.get_model("ai_observability", "Evaluation")
     LLMModelConfiguration = apps.get_model("ai_observability", "LLMModelConfiguration")
+    # bin/migrate can run on a different connection than the default one.
+    db = schema_editor.connection.alias
 
     configs = (
-        EvaluationConfig.objects.filter(active_provider_key__isnull=False)
+        EvaluationConfig.objects.using(db)
+        .filter(active_provider_key__isnull=False)
         .select_related("active_provider_key")
         .order_by("team_id")
     )
     for config in configs.iterator(chunk_size=BATCH_SIZE):
         key = config.active_provider_key
-        judges = Evaluation.objects.filter(team_id=config.team_id, deleted=False, evaluation_type="llm_judge")
+        judges = Evaluation.objects.using(db).filter(team_id=config.team_id, deleted=False, evaluation_type="llm_judge")
 
-        LLMModelConfiguration.objects.filter(
+        LLMModelConfiguration.objects.using(db).filter(
             team_id=config.team_id,
             provider=key.provider,
             provider_key__isnull=True,
@@ -36,10 +39,17 @@ def pin_judges_to_active_key(apps, schema_editor):
         if model is None:
             continue
         for judge in judges.filter(model_configuration__isnull=True).only("id"):
-            model_configuration = LLMModelConfiguration.objects.create(
+            model_configuration = LLMModelConfiguration.objects.using(db).create(
                 team_id=config.team_id, provider=key.provider, model=model, provider_key=key
             )
-            Evaluation.objects.filter(id=judge.id).update(model_configuration=model_configuration)
+            # Someone may have picked a model for this judge since it was read, so only fill an empty slot.
+            pinned = (
+                Evaluation.objects.using(db)
+                .filter(id=judge.id, model_configuration__isnull=True)
+                .update(model_configuration=model_configuration)
+            )
+            if not pinned:
+                model_configuration.delete()
 
 
 class Migration(migrations.Migration):
