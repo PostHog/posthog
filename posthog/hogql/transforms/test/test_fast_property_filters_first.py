@@ -27,8 +27,9 @@ class _MarkerOrder(TraversingVisitor):
                 self.markers.append(MARKERS[value])
 
     def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess) -> None:
-        if node.keys[0] in MARKERS:
-            self.markers.append(MARKERS[node.keys[0]])
+        key = node.keys[0] if node.map_subcolumn is None else node.map_subcolumn.removeprefix("key_")
+        if key in MARKERS:
+            self.markers.append(MARKERS[key])
 
 
 class TestFastPropertyFiltersFirst(SimpleTestCase):

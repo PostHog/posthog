@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model
 from django.db.models.query import QuerySet
 
 import structlog
@@ -16,7 +15,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.scope_resolution import CURRENT_ALIAS, is_flat_route, note_flat_route, record_scope_resolution
+from posthog.api.scope_resolution import (
+    CURRENT_ALIAS,
+    is_flat_route,
+    note_flat_route,
+    record_scope_resolution,
+    record_token_on_project_path,
+)
 from posthog.api.utils import get_token
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -50,6 +55,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     TwoFactorEnforcementPermission,
     VerifiedDomainEnforcementPermission,
+    filter_visible_project_objects,
     is_service_auth,
 )
 from posthog.products import is_product_module
@@ -58,11 +64,9 @@ from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource
-from products.authorization.backend.facade.enums import ResourceType
-from products.authorization.backend.presentation.querysets import can_filter_queryset, filter_queryset
+from products.authorization.backend.presentation.querysets import can_filter_queryset
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -380,6 +384,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # Recorded even when a permission check refuses the call, the case a caller following the user hits most.
             if is_flat_route(request) or CURRENT_ALIAS in self.kwargs.values():
                 record_scope_resolution(request, token_team=self._get_team_from_request)
+            elif self._is_team_view or self._is_project_view:
+                record_token_on_project_path(
+                    request, token_team=self._get_team_from_request, path_kwargs=self.parent_query_kwargs
+                )
         self._parse_path_parameters()
         self._team_scope_token = None
         if self._is_team_view or self._is_project_view:
@@ -603,12 +611,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             or not can_filter_queryset(queryset.model)
         ):
             return access.filter_queryset_by_access_level(queryset, include_all_if_admin=include_all_if_admin)
-        return filter_queryset(
-            queryset,
-            resource=Resource(
-                type=ResourceType(cast(str, model_to_resource(cast(Model, queryset.model)))), project_id=access.team.id
-            ),
-            include_all_if_admin=include_all_if_admin,
+        return filter_visible_project_objects(
+            queryset, team_id=access.team.id, include_all_if_admin=include_all_if_admin
         )
 
     def dangerously_get_object(self) -> Any:

@@ -1109,6 +1109,128 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
         .describe('Free-form metadata object. Omit to preserve the current value.'),
 })
 
+/**
+ * Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits.
+ */
+export const errorTrackingSentryMigrationApplyCreateBodyAuthTokenMax = 1024
+
+export const errorTrackingSentryMigrationApplyCreateBodyBaseUrlDefault = `https://sentry.io`
+export const errorTrackingSentryMigrationApplyCreateBodyBaseUrlMax = 2048
+
+export const errorTrackingSentryMigrationApplyCreateBodyOrganizationSlugMax = 255
+
+export const errorTrackingSentryMigrationApplyCreateBodyProjectSlugMax = 255
+
+export const errorTrackingSentryMigrationApplyCreateBodyRegionUrlMax = 2048
+
+export const errorTrackingSentryMigrationApplyCreateBodyItemIdsItemMax = 255
+
+export const errorTrackingSentryMigrationApplyCreateBodyItemIdsMax = 1000
+
+export const ErrorTrackingSentryMigrationApplyCreateBody = /* @__PURE__ */ zod.object({
+    auth_token: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyAuthTokenMax)
+        .describe(
+            "Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it."
+        ),
+    base_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyBaseUrlMax)
+        .default(errorTrackingSentryMigrationApplyCreateBodyBaseUrlDefault)
+        .describe(
+            'Base URL of the Sentry instance. It must use `https:\/\/`. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
+        ),
+    organization_slug: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyOrganizationSlugMax)
+        .describe('Slug of the Sentry organization.'),
+    project_slug: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyProjectSlugMax)
+        .describe('Slug of the Sentry project to import from.'),
+    region_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyRegionUrlMax)
+        .nullish()
+        .describe(
+            'Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.'
+        ),
+    item_ids: zod
+        .array(zod.string().max(errorTrackingSentryMigrationApplyCreateBodyItemIdsItemMax))
+        .max(errorTrackingSentryMigrationApplyCreateBodyItemIdsMax)
+        .describe('IDs of the preview items to import.'),
+})
+
+/**
+ * Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits.
+ */
+export const errorTrackingSentryMigrationPreviewCreateBodyAuthTokenMax = 1024
+
+export const errorTrackingSentryMigrationPreviewCreateBodyBaseUrlDefault = `https://sentry.io`
+export const errorTrackingSentryMigrationPreviewCreateBodyBaseUrlMax = 2048
+
+export const errorTrackingSentryMigrationPreviewCreateBodyOrganizationSlugMax = 255
+
+export const errorTrackingSentryMigrationPreviewCreateBodyProjectSlugMax = 255
+
+export const errorTrackingSentryMigrationPreviewCreateBodyRegionUrlMax = 2048
+
+export const ErrorTrackingSentryMigrationPreviewCreateBody = /* @__PURE__ */ zod.object({
+    auth_token: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyAuthTokenMax)
+        .describe(
+            "Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it."
+        ),
+    base_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyBaseUrlMax)
+        .default(errorTrackingSentryMigrationPreviewCreateBodyBaseUrlDefault)
+        .describe(
+            'Base URL of the Sentry instance. It must use `https:\/\/`. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
+        ),
+    organization_slug: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyOrganizationSlugMax)
+        .describe('Slug of the Sentry organization.'),
+    project_slug: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyProjectSlugMax)
+        .describe('Slug of the Sentry project to import from.'),
+    region_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyRegionUrlMax)
+        .nullish()
+        .describe(
+            'Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.'
+        ),
+})
+
+/**
+ * Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits.
+ */
+export const errorTrackingSentryMigrationProjectsCreateBodyAuthTokenMax = 1024
+
+export const errorTrackingSentryMigrationProjectsCreateBodyBaseUrlDefault = `https://sentry.io`
+export const errorTrackingSentryMigrationProjectsCreateBodyBaseUrlMax = 2048
+
+export const ErrorTrackingSentryMigrationProjectsCreateBody = /* @__PURE__ */ zod.object({
+    auth_token: zod
+        .string()
+        .max(errorTrackingSentryMigrationProjectsCreateBodyAuthTokenMax)
+        .describe(
+            "Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it."
+        ),
+    base_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationProjectsCreateBodyBaseUrlMax)
+        .default(errorTrackingSentryMigrationProjectsCreateBodyBaseUrlDefault)
+        .describe(
+            'Base URL of the Sentry instance. It must use `https:\/\/`. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
+        ),
+})
+
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     adaptive_ingestion_enabled: zod
         .boolean()
@@ -1437,7 +1559,7 @@ export const ErrorTrackingTagRulesCreateBody = /* @__PURE__ */ zod.object({
     label: zod
         .string()
         .max(errorTrackingTagRulesCreateBodyLabelMax)
-        .describe('Display name of the tag the rule applies to each new issue whose first event matches the filters.'),
+        .describe('Display name of the tag the rule applies to matching issues.'),
     description: zod
         .string()
         .max(errorTrackingTagRulesCreateBodyDescriptionMax)
@@ -1587,7 +1709,7 @@ export const ErrorTrackingTagRulesCreateBody = /* @__PURE__ */ zod.object({
             ),
         })
         .describe(
-            'Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.'
+            'Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.'
         ),
     order_key: zod
         .number()
@@ -1762,7 +1884,7 @@ export const ErrorTrackingTagRulesUpdateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe(
-            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
         ),
 })
 
@@ -1931,7 +2053,7 @@ export const ErrorTrackingTagRulesPartialUpdateBody = /* @__PURE__ */ zod.object
         })
         .optional()
         .describe(
-            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
         ),
 })
 

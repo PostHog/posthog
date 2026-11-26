@@ -69,7 +69,19 @@ class CyberimpactSource(ResumableSource[CyberimpactSourceConfig, CyberimpactResu
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Append would add a new row for every member edit, so members only merge.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS.keys())
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_FIELDS.keys(),
+            descriptions={
+                "member_consents": (
+                    "Consent details of each member. Off by default because it makes one request per member "
+                    "on every sync."
+                )
+            },
+            should_sync_default={"member_consents": False},
+        )
 
     def validate_credentials(
         self,

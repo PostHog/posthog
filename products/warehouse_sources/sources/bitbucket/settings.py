@@ -219,6 +219,38 @@ BITBUCKET_ENDPOINTS: dict[str, BitbucketEndpointConfig] = {
         # pull request, so the parents complete the key.
         primary_keys=["repository_uuid", "pull_request_id", "id"],
     ),
+    "pull_request_commits": BitbucketEndpointConfig(
+        name="pull_request_commits",
+        path="/repositories/{workspace}/{repo_slug}/pullrequests/{pull_request_id}/commits",
+        # The commit date never changes, so it is a stable partition key. It cannot be the
+        # cursor, because a commit pushed to a pull request today can carry an old date.
+        partition_key="date",
+        # The endpoint has no time filter, so the cursor is the parent pull request's
+        # updated_on, which a push to the source branch bumps. The same value bounds the
+        # pull request walk.
+        incremental_fields=[
+            {
+                "label": "pull_request_updated_on",
+                "type": IncrementalFieldType.DateTime,
+                "field": "pull_request_updated_on",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="pull_request_updated_on",
+        page_size=50,  # the other pull request endpoints reject pagelen > 50
+        fan_out=SecondLevelFanOut(
+            parent="pull_requests",
+            path_param="pull_request_id",
+            id_field="id",
+            order="id_asc",
+            order_field="id",
+            parent_sort="created_on",
+            parent_filter_field="updated_on",
+            inject={"pull_request_id": "id", "pull_request_updated_on": "updated_on"},
+        ),
+        # One commit can be on several pull requests, so the pull request completes the key.
+        primary_keys=["repository_uuid", "pull_request_id", "hash"],
+    ),
     "pipeline_steps": BitbucketEndpointConfig(
         name="pipeline_steps",
         path="/repositories/{workspace}/{repo_slug}/pipelines/{pipeline_uuid}/steps/",

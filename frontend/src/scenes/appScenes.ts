@@ -116,6 +116,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.IdentityProviderConfig]: () =>
         import('./settings/organization/IdentityProviderConfig/IdentityProviderConfigScene'),
+    [Scene.OAuthApplication]: () => import('./settings/organization/OAuthApplication/OAuthApplicationScene'),
     [Scene.Signup]: () => import('./authentication/auth/Auth'),
     [Scene.Site]: () => import('./sites/Site'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
@@ -136,6 +137,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.CodeLoopLink]: () => import('./code-canvas/CodeLoopLink'),
     [Scene.VercelConnect]: () => import('./authentication/vercel/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/vercel/VercelLinkError'),
+    [Scene.ToolbarOAuthError]: () => import('./authentication/toolbar/ToolbarOAuthError'),
     [Scene.AgenticAccountMismatch]: () => import('./authentication/account/AgenticAccountMismatch'),
     [Scene.VerifyEmail]: () => import('./authentication/verify-email/VerifyEmail'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),

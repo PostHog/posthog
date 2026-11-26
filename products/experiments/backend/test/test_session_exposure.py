@@ -17,7 +17,6 @@ from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.replay_linkage import (
@@ -29,7 +28,7 @@ from products.experiments.backend.replay_linkage import (
     resolve_in_session_exposure_semantics,
 )
 from products.experiments.backend.session_exposure import resolve_session_exposure
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -176,7 +175,7 @@ class TestResolveInSessionExposureSemantics(BaseTest):
             team=self.team, project_id=self.team.project_id, event=EXPERIMENT_EXPOSURE_EVENT, property="$session_id"
         )
 
-        with patch_exposure_event_flag(enabled=True):
+        with override_exposure_event_cutoff(enabled=True):
             semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 
         assert semantics.session_exposure is not None

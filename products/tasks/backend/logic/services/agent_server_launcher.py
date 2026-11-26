@@ -125,11 +125,7 @@ EGRESS_PROBE_MAX_TIME_SECONDS = 3
 CURL_EXIT_OPERATION_TIMEOUT = 28
 CURL_EXIT_PATTERN = re.compile(r"curl_exit=(\d+)$")
 
-SESSION_INIT_PROBE_HOSTS = (
-    "gateway.us.posthog.com",
-    "gateway.eu.posthog.com",
-    "api.anthropic.com",
-)
+SESSION_INIT_PROBE_HOSTS = ("api.anthropic.com",)
 
 
 def _session_init_probe_hosts() -> list[str]:
@@ -350,6 +346,7 @@ class AgentServerLaunchMixin(SandboxBase):
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
         sandbox_runtime: str | None = None,
+        run_policy: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -371,6 +368,7 @@ class AgentServerLaunchMixin(SandboxBase):
             benjamin_enabled=benjamin_enabled,
             pi_acp_conversation=pi_acp_conversation,
             unset_bedrock=self.disable_direct_bedrock,
+            run_policy=run_policy,
         )
         subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
@@ -731,6 +729,7 @@ class AgentServerLaunchMixin(SandboxBase):
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
         before_launch: Callable[[], None] | None = None,
+        run_policy: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -824,6 +823,7 @@ class AgentServerLaunchMixin(SandboxBase):
                 codex_model_access=codex_model_access,
                 codex_run_token_file=codex_run_token_file,
                 sandbox_runtime=sandbox_runtime or self._sandbox_runtime(),
+                run_policy=run_policy,
             )
             if memory_watchdog_ready:
                 return f"{build_memory_watchdog_start_command()}; {command}"

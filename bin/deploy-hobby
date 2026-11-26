@@ -146,6 +146,12 @@ if [ -f .env ]; then
             echo "$key=$(openssl rand -hex 32)" >> .env
         fi
     done
+    # A Fernet key: exactly 32 characters, read as bytes, so 24 random bytes in base64 rather than hex.
+    # Any existing line is kept, even an empty one, because replacing a key makes queued sends unreadable.
+    if ! grep -q "CDP_SEALED_STATE_KEYS" .env; then
+        # The leading newline keeps the key off an unterminated last line.
+        printf '\nCDP_SEALED_STATE_KEYS=%s\n' "$(openssl rand -base64 24)" >> .env
+    fi
 else
     # Optional AI provider keys. PostHog's AI features (the Max assistant, SQL/regex assist)
     # run on your own LLM provider key. These are safe to leave blank now — you can add them
@@ -169,6 +175,8 @@ else
 
     POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
     ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)
+    # Encrypts login codes and reset links while they wait on the intake topic.
+    CDP_SEALED_STATE_KEYS=$(openssl rand -base64 24)
     # Dedicated browserless token so a compromise of the rendering container can't yield
     # Django's SECRET_KEY (the compose file falls back to POSTHOG_SECRET when unset, for
     # installs whose .env predates this variable).
@@ -184,6 +192,7 @@ else
     cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
+CDP_SEALED_STATE_KEYS=$CDP_SEALED_STATE_KEYS
 BROWSERLESS_SECRET=$BROWSERLESS_SECRET
 INTERNAL_REQUEST_TOKEN=$INTERNAL_REQUEST_TOKEN
 RECORDING_API_JWT_SECRET=$RECORDING_API_JWT_SECRET

@@ -138,7 +138,6 @@ APIScopeObject = Literal[
     "subscription",
     "support_ticket",
     "survey",
-    "tagger",
     "ticket",
     "task",
     "today",

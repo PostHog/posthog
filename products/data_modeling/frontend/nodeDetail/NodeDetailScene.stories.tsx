@@ -305,6 +305,34 @@ export const MaterializedView: Story = {
     },
 }
 
+export const RefreshSlowedByPlan: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, { ...node, type: 'matview' }],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [
+                        200,
+                        {
+                            ...savedQuery,
+                            is_materialized: true,
+                            status: 'Completed',
+                            sync_frequency: '1hour',
+                            plan_clamp: {
+                                previous_target_seconds: 900,
+                                plan_floor_seconds: 3600,
+                                at: '2026-09-13T12:00:00Z',
+                            },
+                        },
+                    ],
+                    '/api/projects/:team_id/data_modeling_jobs/': () => [200, { results: [], count: 0, next: null }],
+                },
+            },
+        },
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
+
 export const NarrowMaterializedView: Story = {
     ...MaterializedView,
     decorators: NarrowView.decorators,
@@ -549,4 +577,8 @@ export const QuillNoConnectedModels: Story = {
             },
         },
     },
+}
+
+export const QuillRefreshSlowedByPlan: Story = {
+    parameters: { ...RefreshSlowedByPlan.parameters, ...QUILL_PARAMETERS },
 }

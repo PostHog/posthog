@@ -269,6 +269,29 @@ describe('signing key registry', () => {
         expect(keys.isLoaded).toBe(false)
     })
 
+    // A refused edit must still revoke: an operator who deletes a key and leaves its allowlist
+    // behind gets a refused snapshot, and the deleted key must not keep working.
+    it.each([
+        ['a deployment whose entry is gone', { __CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY }, { [DJANGO]: [DJANGO_KEY] }],
+        [
+            'one key of a deployment that keeps its entry',
+            { __CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY, __CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: DW_KEY_NEW },
+            { [DJANGO]: [DJANGO_KEY], [DW]: [DW_KEY_NEW] },
+        ],
+    ])('drops %s when a refused reload removes it', (_label, next: Record<string, string>, expected) => {
+        const keys = new SigningKeyLoader('test')
+        keys.loadFrom({
+            __CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
+            __CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW}, ${DW_KEY_OLD}`,
+            __ALLOWED_SECRETS_TEMPORAL_WORKER_DATA_WAREHOUSE: 'GOOGLE_ADS_APP_CLIENT_ID',
+        })
+
+        // The allowlist names a deployment with no key, so the load refuses the snapshot.
+        expect(keys.reloadFrom({ ...next, __ALLOWED_SECRETS_NO_SUCH_DEPLOYMENT: 'A_KEY' })).toBe(false)
+
+        expect(Object.fromEntries(keys.entries())).toEqual(expected)
+    })
+
     // A malformed edit must not lock a running fleet out, so reload keeps the previous
     // keys. That makes it the one path a revocation travels and it fails open — see the
     // last-loaded gauge and the failure counter in metrics.ts.

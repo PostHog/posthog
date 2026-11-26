@@ -69,6 +69,7 @@ import { RealtimeCohortAudienceNotice } from './components/RealtimeCohortAudienc
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleList } from './components/ScheduleList'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
+import { SkippedTestAccountFiltersNotice } from './components/SkippedTestAccountFiltersNotice'
 import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
 import { keepOnlyRealtimeCohort } from './realtimeCohortStatus'
 
@@ -796,6 +797,7 @@ function StepTriggerConfigurationBatch({
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                     />
                     <RealtimeCohortAudienceNotice blastRadius={blastRadius} />
+                    <SkippedTestAccountFiltersNotice blastRadius={blastRadius} />
                 </div>
             )}
 
@@ -884,7 +886,7 @@ function StepTriggerConfigurationTrackingPixel({
 }
 
 export const TTL_OPTIONS = [
-    { value: null, label: 'indefinitely' },
+    { value: null, label: 'ever' },
     { value: 5 * 60, label: '5 minutes' },
     { value: 15 * 60, label: '15 minutes' },
     { value: 30 * 60, label: '30 minutes' },
@@ -910,7 +912,7 @@ function TTLSelect({
 }): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1 items-center">
-            <span>per</span>
+            {value !== null ? <span>per</span> : null}
             <LemonSelect value={value} onChange={onChange} options={TTL_OPTIONS} />
         </div>
     )
@@ -939,7 +941,11 @@ function FrequencySection({
             <LemonField.Pure>
                 <div className="flex flex-wrap gap-1 items-center">
                     <LemonSelect
-                        options={options.map(({ value, label }) => ({ value, label }))}
+                        options={options.map(({ value, label, shortLabel }) => ({
+                            value,
+                            label: shortLabel ?? label,
+                            labelInMenu: label,
+                        }))}
                         value={workflow.trigger_masking?.hash ?? null}
                         onChange={(val) => {
                             const option = options.find((candidate) => candidate.value === val)

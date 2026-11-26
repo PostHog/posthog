@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 
-import { EmailBlockStyle, EmailPageStyle, EmailSides, resolvePageStyle } from './emailDocument'
+import { EmailBlockStyle, EmailPageStyle, EmailSides, SECTION_PADDING, resolvePageStyle } from './emailDocument'
 import {
     isEmptyCondition,
     oldEditorBlockHtml,
@@ -323,7 +323,11 @@ function columnsRow(
                 block.type === 'emailColumns'
                     ? ({
                           type: 'html',
-                          values: { html: oldEditorBlockHtml(block, page, innerWidth).html, containerPadding: '0px' },
+                          values: {
+                              html: oldEditorBlockHtml(block, page, innerWidth).html,
+                              containerPadding: '0px',
+                              ...visibilityValues(block),
+                          },
                       } as Content)
                     : blockContent(block, page, innerWidth)
             )
@@ -332,6 +336,7 @@ function columnsRow(
             padding: sidesCss(addSides(padding, columnOuter)),
             backgroundColor: columnStyle.backgroundColor ?? style.backgroundColor ?? page.bodyBackgroundColor,
             border: buttonBorder(columnStyle, '#e5e5e5').border ?? {},
+            ...(columnStyle.borderRadius ? { borderRadius: `${number(columnStyle.borderRadius, 0)}px` } : {}),
         })
     })
     const sectionPadding = style.padding ?? NO_SIDES
@@ -341,6 +346,22 @@ function columnsRow(
         ...(style.backgroundColor ? { columnsBackgroundColor: style.backgroundColor } : {}),
         ...visibilityValues(node),
     })
+}
+
+/** The old editor has no sections, so one becomes a row whose only column draws the box. */
+function sectionAsColumns(node: JSONContent): JSONContent {
+    const style = styleOf(node)
+    return {
+        type: 'emailColumns',
+        attrs: { emailVisibility: node.attrs?.emailVisibility },
+        content: [
+            {
+                type: 'emailColumn',
+                attrs: { emailStyle: { ...style, padding: style.padding ?? SECTION_PADDING } },
+                content: node.content,
+            },
+        ],
+    }
 }
 
 /**
@@ -366,6 +387,9 @@ export function emailDocumentToUnlayer(doc: JSONContent): Record<string, any> {
         .map((block, index) => {
             if (block.type === 'emailColumns') {
                 return columnsRow(block, page, contentWidth, ids, outer(index))
+            }
+            if (block.type === 'emailSection') {
+                return columnsRow(sectionAsColumns(block), page, contentWidth, ids, outer(index))
             }
             const content = blockContent(block, page, contentWidth, outer(index))
             return content
