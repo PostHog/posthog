@@ -95,6 +95,27 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert rows[0].errors == 1
         assert rows[0].error_rate_pct == 33.3
 
+    @parameterized.expand([("asked", True, 3, 1), ("not_asked", None, 0, 0)])
+    def test_volume_buckets_come_back_only_when_asked_for(
+        self, _name: str, include_buckets: bool | None, expected_calls: int, expected_errors: int
+    ) -> None:
+        _emit(self.team, tool_name="query_run")
+        _emit(self.team, tool_name="query_run", is_error=True)
+        _emit(self.team, tool_name="exec", exec_tool_name="query_run")
+        flush_persons_and_events()
+
+        row = (
+            MCPToolQualityRowsQueryRunner(
+                query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), includeBuckets=include_buckets),
+                team=self.team,
+            )
+            .calculate()
+            .results[0]
+        )
+
+        assert sum(bucket.calls for bucket in row.buckets or []) == expected_calls
+        assert sum(bucket.errors for bucket in row.buckets or []) == expected_errors
+
     def test_category_filter_narrows_the_rows(self) -> None:
         _emit(self.team, tool_name="query_run", category="Data")
         _emit(self.team, tool_name="insight_get", category="Insights")

@@ -2748,6 +2748,14 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("reply_with_write", "reply", "post", ["ticket:write"], status.HTTP_201_CREATED),
             ("reply_with_read_only", "reply", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("reply_wrong_scope", "reply", "post", ["insight:write"], status.HTTP_403_FORBIDDEN),
+            ("ai_rerun_with_read_only", "ai_rerun", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "scout_ai_rerun",
+                "ai_rerun",
+                "post",
+                ["ticket:write", "signal_scout_internal:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
         ]
     )
     def test_messages_and_reply_scopes(self, _name, action, method, scopes, expected_status):

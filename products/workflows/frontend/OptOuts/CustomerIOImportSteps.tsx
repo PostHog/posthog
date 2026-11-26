@@ -97,7 +97,7 @@ function StoredKeyField(): JSX.Element {
     )
 }
 
-function Step2Content(): JSX.Element {
+function Step2Content({ offersContacts }: { offersContacts: boolean }): JSX.Element {
     const { csvFile, csvProgress, isUploadingCSV, syncConfig } = useValues(customerIOImportLogic)
     const { setCSVFile, uploadCSV } = useActions(customerIOImportLogic)
     const persistedCSVResult = !csvProgress ? syncConfig?.csv_import_result : null
@@ -185,8 +185,10 @@ function Step2Content(): JSX.Element {
     return (
         <div className="space-y-4">
             <p className="text-sm text-muted">
-                Export a CSV from Customer.io containing users with subscription preferences. This is not supported via
-                the API. You can upload multiple times to update existing users.
+                {offersContacts
+                    ? 'Importing contacts in step 1 reads these preferences too. If you leave contacts out, export a CSV from Customer.io containing users with subscription preferences. '
+                    : 'Export a CSV from Customer.io containing users with subscription preferences. This is not supported via the API. '}
+                You can upload multiple times to update existing users.
                 <br />
                 <Link
                     to="https://posthog.com/docs/workflows/import-customerio-optouts"
@@ -479,6 +481,8 @@ export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOp
     const { stepCompletion, syncConfigLoading, syncConfig, latestImportRun } = useValues(customerIOImportLogic)
     const { showsAutomationImport } = useValues(providerImportLogic)
 
+    const offersContacts = provider.steps.some((step) => step.key === 'contacts')
+
     if (syncConfigLoading) {
         return (
             <div className="flex justify-center py-8">
@@ -512,7 +516,11 @@ export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOp
                         key: 'step1',
                         header: (
                             <div className="flex items-center justify-between w-full">
-                                <span>1. Import categories, opt-outs & suppressions</span>
+                                <span>
+                                    {offersContacts
+                                        ? '1. Import categories, opt-outs, suppressions & contacts'
+                                        : '1. Import categories, opt-outs & suppressions'}
+                                </span>
                                 <StepBadge status={stepCompletion.step1} />
                             </div>
                         ),
@@ -533,7 +541,7 @@ export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOp
                                 <StepBadge status={stepCompletion.step2} />
                             </div>
                         ),
-                        content: <Step2Content />,
+                        content: <Step2Content offersContacts={offersContacts} />,
                     },
                     {
                         key: 'step3',

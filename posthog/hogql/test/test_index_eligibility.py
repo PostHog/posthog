@@ -47,8 +47,8 @@ from posthog.hogql.transforms.property_types import build_property_swapper
 
 from posthog.schema_enums import PredicateFixAction, QueryIndexUsage
 
+from products.event_definitions.backend.facade.enums import PropertyType
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.event_definitions.backend.property_type import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 

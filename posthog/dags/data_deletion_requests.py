@@ -41,7 +41,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.common.s3_staging import S3StagingLocation
 from posthog.dags.deletes import deletes_job
-from posthog.data_deletion import compile_event_uuid_query
+from posthog.data_deletion import QUERY_BACKED_MAX_EXECUTION_TIME, compile_event_uuid_query
 from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
@@ -515,7 +515,7 @@ class HogQLEventDeletionExecutor:
             workload=Workload.OFFLINE,
             team_id=request.team_id,
             ch_user=ClickHouseUser.DELETION_EXECUTOR,
-            settings=selected.settings,
+            settings={**selected.settings, "max_execution_time": QUERY_BACKED_MAX_EXECUTION_TIME},
             external_tables=list(selected.context.external_tables.values()) or None,
         )
         return result if isinstance(result, int) else 0

@@ -8,9 +8,6 @@ import { formatResponse } from '@/lib/response'
 /** Codex converts a token limit to bytes at this rate, so a budget here is measured the same way. */
 const BYTES_PER_TOKEN = 4
 
-/** A backstop for clients with no documented limit. Claude Code saves a result over 50,000 characters to a file instead of cutting it. */
-export const DEFAULT_MAX_RESPONSE_TOKENS = 100_000
-
 export const RESPONSE_BUDGET_KEY = '_responseBudget'
 
 const NOTICE_RESERVE_BYTES = 1_024
@@ -40,16 +37,6 @@ export function byteLength(text: string): number {
 
 export function maxResponseBytes(maxTokens: number): number {
     return maxTokens * BYTES_PER_TOKEN
-}
-
-/** `truncate: false` asks for the complete result, so only a client's own limit applies to it. */
-export function responseTokenBudget(clientLimit: number | undefined, args: unknown): number | undefined {
-    if (clientLimit !== undefined) {
-        return clientLimit
-    }
-    const wantsFullResult =
-        typeof args === 'object' && args !== null && (args as Record<string, unknown>).truncate === false
-    return wantsFullResult ? undefined : DEFAULT_MAX_RESPONSE_TOKENS
 }
 
 function jsonBytes(value: unknown): number {

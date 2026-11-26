@@ -196,6 +196,34 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
     )
 
 
+def resolve_chatgpt_apps_enabled(slack_workspace_id: str, slack_user_id: str | None) -> bool:
+    """Whether Slack runs on this user's ChatGPT plan may use the apps connected to that plan.
+
+    Off until the user turns it on. People who join the user's threads talk to the same run,
+    so the apps would answer them with the plan owner's data.
+    """
+    if not slack_user_id:
+        return False
+
+    from products.slack_app.backend.models import SlackSettings
+
+    return bool(
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("chatgpt_apps_enabled", flat=True)
+        .first()
+    )
+
+
+def set_chatgpt_apps_enabled(slack_workspace_id: str, slack_user_id: str, enabled: bool) -> None:
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"chatgpt_apps_enabled": enabled},
+    )
+
+
 # Stored with each onboarding, so a later version can find people who finished an earlier one.
 ONBOARDING_VERSION = 1
 
@@ -453,9 +481,11 @@ __all__ = [
     "update_onboarding",
     "AIPreferences",
     "resolve_auto_model_choice",
+    "resolve_chatgpt_apps_enabled",
     "resolve_channel_welcome_mode",
     "resolve_untagged_question_mode",
     "set_auto_model_choice",
+    "set_chatgpt_apps_enabled",
     "set_untagged_followup_mode",
     "set_untagged_question_mode",
     "set_channel_welcome_mode",

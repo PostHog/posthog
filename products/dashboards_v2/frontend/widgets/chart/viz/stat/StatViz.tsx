@@ -1,9 +1,8 @@
 import { Sparkline } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
-
-import { timeSeriesFromFrames } from '../../timeSeriesFrames'
-import type { DataFrame } from '../../vizTypes'
+import type { DataFrame } from '../../../../query/queryTypes'
+import { timeSeriesFromFrames } from '../../data/timeSeriesFrames'
+import { useSharedChartTheme } from '../../useSharedChartTheme'
 import type { StatOptions } from './statSpec'
 
 const FORMATTERS: Record<NonNullable<StatOptions['format']>, (value: number) => string> = {
@@ -14,7 +13,7 @@ const FORMATTERS: Record<NonNullable<StatOptions['format']>, (value: number) => 
 
 /** The latest value of the first frame, over a sparkline of the whole range when the frame has timestamps. */
 export function StatViz({ frames, options }: { frames: DataFrame[]; options: StatOptions }): JSX.Element {
-    const theme = useChartTheme()
+    const theme = useSharedChartTheme()
     const first = frames.slice(0, 1)
     const hasTime = first.some((frame) => frame.fields.some((field) => field.type === 'time'))
     const { labels, series } = timeSeriesFromFrames(first)

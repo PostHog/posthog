@@ -4,8 +4,8 @@ import {
     type Tile,
     type TileAppearance,
     isSectionWidget,
-} from '../dashboard/dashboardTypes'
-import { changeTilesWhere } from '../dashboard/tileTree'
+} from '../dashboard/document/dashboardTypes'
+import { changeTilesWhere } from '../dashboard/document/tileTree'
 
 /**
  * Presentational edits: they change how a tile looks, such as which of its parts show, and never where a tile sits or

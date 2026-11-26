@@ -10,6 +10,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
+import { load } from '../cards'
 import { ValveEntry } from '../cards/schema'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
 import { pinClockAfterMinuteStart } from '../cloud/fixtures'
@@ -653,9 +654,10 @@ describe('valves', () => {
             expect(valves.timeline()[0].error).toBeUndefined()
         })
 
-        it('picks the units a share dose hits from the card seed, whatever order they arrive in, and lists them', async () => {
+        it('picks the units a share dose hits from the seed override, whatever order they arrive in, and lists them', async () => {
             const ordinals = Array.from({ length: 20 }, (_, index) => index + 1)
             const firedIn = async (seed: number, arriving: number[]) => {
+                const { card } = load(path.join(__dirname, '../cards/email-worker-killed-after-accept.yaml'), { seed })
                 const runId = randomUUID()
                 const valves = createValves({ pollMs: 5 })
                 await valves.start(
@@ -668,7 +670,7 @@ describe('valves', () => {
                             for: '1m',
                         },
                     ],
-                    { ...onEdge(), seed }
+                    { ...onEdge(), seed: card.seed }
                 )
                 await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
                 const outcomes = new Map<number, string[]>()
@@ -947,6 +949,37 @@ describe('valves', () => {
                 observed: valves.timeline()[0].observedAt !== undefined,
                 next: await send(),
             }).toEqual({ answered: outcome, sentWhenKilled, error, observed: running, next: 'sent' })
+        })
+
+        it('kills after one seeded SES acceptance and records the selected unit', async () => {
+            const run = async (arriving: number[], seed?: number) => {
+                const { card } = load(path.join(__dirname, '../cards/email-worker-killed-after-accept.yaml'), { seed })
+                const runId = randomUUID()
+                const valves = createValves({ pollMs: 5 })
+                const stack = withWorker(true)
+                await valves.start([{ ...card.valves[0], at: '0ms' }], { ...stack.context, seed: card.seed })
+                await stack.held
+                const aborted: number[] = []
+                for (const ordinal of arriving) {
+                    const outcome = await send(
+                        stack.worker.aborted ? undefined : stack.worker,
+                        `${runId}-${ordinal}@www.example.com`
+                    )
+                    if (outcome === 'AbortError') {
+                        aborted.push(ordinal)
+                    }
+                }
+                await valves.releaseAll()
+                return {
+                    aborted,
+                    hit: valves.fired()[0]?.unitIds?.map((id) => Number(id.slice(runId.length + 1))),
+                    kills: stack.sentWhenKilled.length,
+                }
+            }
+
+            expect(await run([3, 1, 4, 5, 2])).toEqual({ aborted: [1], hit: [1], kills: 1 })
+            expect(await run([4, 3, 1, 5, 2], 8)).toEqual({ aborted: [1], hit: [1], kills: 1 })
+            expect(await run([3, 1, 4, 5, 2], 13)).toEqual({ aborted: [2], hit: [2], kills: 1 })
         })
 
         it('holds no send and kills nothing before its arming delay passes', async () => {
