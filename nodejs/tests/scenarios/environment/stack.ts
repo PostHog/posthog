@@ -539,7 +539,8 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
     }
 }
 
-export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
+export const cyclotronUrlOf = (spec: RoleSpec): string =>
+    spec.cyclotronUrl ?? (spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl)
 
 const settingsOf = (spec: RoleSpec): PluginsServerConfig =>
     overrideWithEnv({ ...getDefaultConfig(), DATABASE_URL: STACK.postgresUrl }, spec.env)
@@ -555,9 +556,14 @@ function serverOf(url: string): string {
 }
 
 export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[] {
+    // A role that reaches Cyclotron through the edge's proxy still holds its sessions on the database behind it.
+    const direct =
+        spec.cyclotronUrl === undefined
+            ? spec
+            : { ...spec, env: { ...spec.env, CYCLOTRON_NODE_DATABASE_URL: spec.cyclotronUrl } }
     const urls = [
         postgresUrl,
-        ...Object.values(settingsOf(spec)).filter(
+        ...Object.values(settingsOf(direct)).filter(
             (value): value is string => typeof value === 'string' && POSTGRES_URL.test(value)
         ),
     ]

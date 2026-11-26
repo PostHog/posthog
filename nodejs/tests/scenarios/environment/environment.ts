@@ -69,7 +69,11 @@ export type { RoleExit } from './supervisor'
 
 export interface Environment {
     up(signal: AbortSignal): Promise<void>
-    reset(settings: Profile['settings'], replicas?: Replicas): Promise<void>
+    reset(
+        settings: Profile['settings'],
+        replicas?: Replicas,
+        through?: { cyclotronThroughEdge?: boolean }
+    ): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
     roles(): RoleHandle[]
@@ -190,6 +194,15 @@ async function holdConnectionsDropped(sweep: () => Promise<number>): Promise<Act
     }
 }
 
+// The edge's proxy for each Cyclotron database the roles reach on their own.
+export async function proxiesOf(
+    pgProxyOf: EdgeProcess['pgProxyOf'],
+    direct: RoleSpec[]
+): Promise<Record<string, string>> {
+    const databases = [...new Set(direct.map(cyclotronUrlOf))]
+    return Object.fromEntries(await Promise.all(databases.map(async (url) => [url, await pgProxyOf(url)])))
+}
+
 export function createEnvironment({
     hogli = { command: path.join(REPO_ROOT, 'bin', 'hogli'), cwd: REPO_ROOT },
     docker = 'docker',
@@ -236,10 +249,10 @@ export function createEnvironment({
             }
         },
 
-        async reset(settings, replicas = {}) {
+        async reset(settings, replicas = {}, through = {}) {
             const edge = startedEdge('reset')
             try {
-                await resetRoles(edge, settings, replicas)
+                await resetRoles(edge, settings, replicas, through.cyclotronThroughEdge === true)
             } catch (error) {
                 await stop()
                 throw error
@@ -330,11 +343,22 @@ export function createEnvironment({
         return edge
     }
 
-    async function resetRoles(edge: EdgeProcess, settings: Profile['settings'], replicas: Replicas): Promise<void> {
+    async function resetRoles(
+        edge: EdgeProcess,
+        settings: Profile['settings'],
+        replicas: Replicas,
+        cyclotronThroughEdge: boolean
+    ): Promise<void> {
         const exitsBefore = supervisor.exits().length
         const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
-        const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        const direct = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        const specs = cyclotronThroughEdge
+            ? roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas, {
+                  urls: await proxiesOf(edge.pgProxyOf, direct),
+                  fallback: STACK.cyclotronNodeUrl,
+              })
+            : direct
         running = specs
         launched = specs
         await createTopics(intakeTopicsOf(specs), docker)
