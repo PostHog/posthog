@@ -123,13 +123,11 @@ def _alias_depths(aliases: dict[str, ast.Expr]) -> dict[str, int]:
     return depths
 
 
-def _is_sibling_alias_read(node: ast.Field, names: set[str]) -> bool:
-    return (
-        len(node.chain) == 1
-        and isinstance(node.chain[0], str)
-        and node.chain[0] in names
-        and isinstance(node.type, ast.FieldAliasType)
-    )
+def _sibling_alias_read(node: ast.Field, names: set[str]) -> str | None:
+    if len(node.chain) != 1 or not isinstance(node.type, ast.FieldAliasType):
+        return None
+    name = node.chain[0]
+    return name if isinstance(name, str) and name in names else None
 
 
 class _AggregateOrWindowFinder(_AggregateFunctionFinder):
@@ -155,8 +153,9 @@ class _SiblingAliasReadFinder(TraversingVisitor):
         super().visit_alias(node)
 
     def visit_field(self, node: ast.Field) -> None:
-        if _is_sibling_alias_read(node, self.names):
-            self.reads[node.chain[0]] += 1
+        name = _sibling_alias_read(node, self.names)
+        if name is not None:
+            self.reads[name] += 1
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         return None
@@ -172,8 +171,9 @@ class _SiblingAliasQualifier(CloningVisitor):
         self.source_alias = source_alias
 
     def visit_field(self, node: ast.Field) -> ast.Field:
-        if _is_sibling_alias_read(node, self.names):
-            return ast.Field(chain=[self.source_alias, node.chain[0]], start=node.start, end=node.end)
+        name = _sibling_alias_read(node, self.names)
+        if name is not None:
+            return ast.Field(chain=[self.source_alias, name], start=node.start, end=node.end)
         return super().visit_field(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
