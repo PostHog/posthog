@@ -36,6 +36,7 @@ import type {
     PatchedTicketViewApi,
     PylonImportJobApi,
     PylonImportStartApi,
+    SetupTestTicketApi,
     SigningSecretApi,
     TicketApi,
     TicketAttachmentApi,
@@ -741,6 +742,28 @@ export const conversationsTicketsComposeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(composeTicketApi),
+    })
+}
+
+export const getConversationsTicketsSendTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/send_test/`
+}
+
+/**
+ * Create a test ticket from the requesting team member, so a new team can see a ticket before a customer writes in.
+ *
+ * The ticket arrives on the widget channel with the tag "test". A reply to it is stored and is not delivered anywhere.
+ */
+export const conversationsTicketsSendTestCreate = async (
+    projectId: string,
+    setupTestTicketApi?: SetupTestTicketApi,
+    options?: RequestInit
+): Promise<ComposeTicketResponseApi> => {
+    return apiMutator<ComposeTicketResponseApi>(getConversationsTicketsSendTestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setupTestTicketApi),
     })
 }
 

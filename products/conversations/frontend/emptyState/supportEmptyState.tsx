@@ -28,7 +28,7 @@ export const supportEmptyState: SceneProductEmptyState = {
             },
             'waiting-for-data': {
                 headline: 'Support is on. Waiting for your first ticket',
-                lead: 'Tickets from every connected channel show up here as they arrive. Connect a channel below, then send it a test message to see a ticket land.',
+                lead: 'Tickets from every connected channel show up here as they arrive. Connect a channel below, or send a test ticket to see how one looks in your inbox.',
             },
         },
         SetupCard: SupportSetupCard,
