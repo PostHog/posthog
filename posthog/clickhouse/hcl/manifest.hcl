@@ -135,9 +135,11 @@ role "batch_exports" {
 # sharded_flag_evaluations, the Kafka consumer and the MV that fills it, plus the
 # flag_evaluations read table. The data nodes read it through that table, so prod data
 # points it at this cluster (roles/data/prod). Dev is not modeled: no flags cluster is
-# confirmed there, and dev data keeps the storage table. The local stacks have no flags
-# node and keep the storage on data and the consumer on medium.
+# confirmed there, and dev data keeps the storage table. The local flags node holds no
+# objects, because migration 0394 leaves the storage on data and the consumer on medium
+# outside prod.
 role "flags" {
+  env "local-multi" { layers = ["roles/flags/local"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
 }
@@ -159,16 +161,23 @@ role "data" {
 # tables for its topic class, the MV that reads them, and the writable_* Distributed
 # proxies that write into the data cluster (migration 0157 moved this off the data node).
 # Beyond that they carry only the shared query_log_archive path. Role names are the
-# hostClusterRole macros migrations target: events, small, medium.
-role "events" {
+# hostClusterRole macros migrations target: ingestion_events, ingestion_small, ingestion_medium.
+role "ingestion_events" {
   env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/logs_avro_ingest", "roles/coshared/events_json_write", "roles/shared/person_group_membership.hcl", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/ingestion_events/local"] }
 }
 
-role "small" {
+# EVENTS cluster: the storage shards behind the events_json read path. Only the local node
+# is modeled. It holds no objects, because the events_json storage stays on the local
+# data node.
+role "events" {
+  env "local-multi" { layers = ["roles/events/local"] }
+}
+
+role "ingestion_small" {
   env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/shared/person_group_membership.hcl", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/coshared/named_collections", "roles/coshared/aux_small", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/ingestion_small/local"] }
 }
 
-role "medium" {
+role "ingestion_medium" {
   env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/flag_evaluations_ingest", "roles/ingestion_medium/local"] }
 }
 

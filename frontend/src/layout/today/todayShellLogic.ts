@@ -19,10 +19,13 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-import { dataProductForPath, isDefinitionDetailPath } from './todayData'
-import { isErrorTrackingIssuePath, monitorProductForPath } from './todayMonitor'
-import { isTodayPaneEnabled } from './todayPaneFlags'
+import { isDefinitionDetailPath } from './todayData'
+import { homePaneRouteForPath, isHomePanePath } from './todayHome'
+import { isErrorTrackingIssuePath } from './todayMonitor'
+import { isTodayHomePaneEnabled, isTodayPaneEnabled } from './todayPaneFlags'
+import { paneConfigProductForPath } from './todayPaneProducts'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
+import { TODAY_PRODUCT_PANES, isProductPane } from './todayProductPanes'
 
 export type TodayRailPane =
     | 'home'
@@ -31,6 +34,7 @@ export type TodayRailPane =
     | 'monitor'
     | 'people'
     | 'release'
+    | 'automate'
     | 'data'
     | 'products'
     | 'settings'
@@ -78,6 +82,7 @@ export const TODAY_RAIL_PANES: TodayRailPane[] = [
     'people',
     'release',
     'monitor',
+    'automate',
     'data',
     'products',
 ]
@@ -94,6 +99,7 @@ const RAIL_PANE_HOMES: Partial<
     people: (_, featureFlags) =>
         featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? urls.customerAnalyticsDashboard() : urls.persons(),
     release: () => urls.releases(),
+    automate: () => urls.workflows(),
     data: () => urls.sources(),
     settings: () => urls.settings('project'),
 }
@@ -130,13 +136,17 @@ export function nextPhonePages(
 }
 
 /**
- * The pane a route belongs to, or null for pages that keep whichever pane was open. Monitor's and Data's pages belong
- * to them only while their pane is on, and to Products otherwise.
+ * The pane a route belongs to, or null for pages that keep whichever pane was open. Monitor's, Automate's and Data's
+ * pages belong to them only while their pane is on, and to Products otherwise.
  */
 export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
     if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
+    }
+    const homePaneRoute = homePaneRouteForPath(path, featureFlags)
+    if (homePaneRoute) {
+        return homePaneRoute
     }
     if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
@@ -158,11 +168,11 @@ export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet)
     ) {
         return 'analytics'
     }
-    if (isTodayPaneEnabled('monitor', featureFlags) && monitorProductForPath(path)) {
-        return 'monitor'
-    }
-    if (isTodayPaneEnabled('data', featureFlags) && dataProductForPath(path)) {
-        return 'data'
+    const productPane = TODAY_PRODUCT_PANES.find(
+        (config) => isTodayPaneEnabled(config.pane, featureFlags) && paneConfigProductForPath(config, path)
+    )
+    if (productPane) {
+        return productPane.pane
     }
     if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
         return 'settings'
@@ -205,7 +215,8 @@ function productsPaneListsPath(path: string): boolean {
  */
 function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
     return (
-        ((routePane === 'analytics' || routePane === 'monitor' || routePane === 'data') &&
+        // Home's own pages, the Today page among them, still switch to Home. Only the Inbox and Pulse stay.
+        ((routePane === 'analytics' || isProductPane(routePane) || (routePane === 'home' && isHomePanePath(path))) &&
             productsPaneListsPath(path)) ||
         (routePane === 'people' && isPeopleListPath(path))
     )
@@ -378,7 +389,7 @@ export interface todayShellLogicMeta {
             routePane: TodayRailPane | null,
             featureFlags: FeatureFlagsSet
         ) => TodayRailPane
-        paneHasSidebar: (activePane: TodayRailPane) => boolean
+        paneHasSidebar: (activePane: TodayRailPane, featureFlags: FeatureFlagsSet) => boolean
         currentView: (
             location: {
                 hash: string
@@ -544,7 +555,11 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 return isTodayPaneEnabled(pane, featureFlags) ? pane : 'home'
             },
         ],
-        paneHasSidebar: [(s) => [s.activePane], (activePane: TodayRailPane): boolean => activePane !== 'home'],
+        paneHasSidebar: [
+            (s) => [s.activePane, s.featureFlags],
+            (activePane: TodayRailPane, featureFlags: FeatureFlagsSet): boolean =>
+                activePane !== 'home' || isTodayHomePaneEnabled(featureFlags),
+        ],
         currentView: [
             (s) => [router.selectors.location, s.activePane, s.sidebarOpen],
             (

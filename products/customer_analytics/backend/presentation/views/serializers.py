@@ -86,7 +86,10 @@ from products.customer_analytics.backend.facade.enums import (
     AccountRelationshipSource,
     AccountViewVisibility,
     CustomPropertyOptionColor,
+    DefaultPinnedAccountPropertiesSourceKind,
+    PinnedAccountPropertiesSourceKind,
     TaskDigestCadence,
+    WarehousePersonPropertyMissingRowBehavior,
 )
 
 
@@ -1842,6 +1845,9 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     produced = serializers.IntegerField(
         read_only=True, help_text="Property updates written or produced to the ingestion pipeline."
     )
+    removed = serializers.IntegerField(
+        read_only=True, help_text="People whose mapped properties were removed after they left the source table."
+    )
     skipped_missing_person = serializers.IntegerField(
         read_only=True,
         help_text="Changed rows skipped because no existing account, person, or group matched the key column value.",
@@ -1871,6 +1877,7 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
             "changed",
             "existing",
             "produced",
+            "removed",
             "skipped_missing_person",
             "error",
             "created_at",
@@ -1925,6 +1932,15 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "Person and group sources only: {warehouse_column: description} giving each mapped column a "
             "human-facing description, seeded from the warehouse column's information_schema "
             "description. Optional per column."
+        ),
+    )
+    missing_row_behavior = serializers.ChoiceField(
+        choices=WarehousePersonPropertyMissingRowBehavior.choices,
+        required=False,
+        default=WarehousePersonPropertyMissingRowBehavior.KEEP.value,
+        help_text=(
+            "Person sources only: keep the last synced values, or remove mapped properties when a key "
+            "is absent from a complete table read. Existing sources default to 'keep'."
         ),
     )
     key_column = serializers.CharField(
@@ -2014,6 +2030,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "source_column",
             "column_property_map",
             "column_descriptions",
+            "missing_row_behavior",
             "key_column",
             "is_enabled",
             "consecutive_failures",
@@ -2202,6 +2219,14 @@ class CustomPropertySourceUpdateSerializer(serializers.Serializer):
             "Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column."
         ),
     )
+    missing_row_behavior = serializers.ChoiceField(
+        choices=WarehousePersonPropertyMissingRowBehavior.choices,
+        required=False,
+        help_text=(
+            "Person sources only: keep the last synced values, or remove mapped properties when a key "
+            "is absent from a complete table read."
+        ),
+    )
     is_enabled = serializers.BooleanField(
         required=False, help_text="Whether the source syncs; re-enabling it resets the failure count."
     )
@@ -2361,11 +2386,63 @@ class AccountDetailTabsConfigSerializer(serializers.Serializer):
     )
 
 
+class PinnedAccountPropertiesRoleSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Organization role UUID.")
+    name = serializers.CharField(read_only=True, help_text="Organization role name.")
+
+
+class PinnedAccountPropertiesSourceSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        read_only=True,
+        choices=PinnedAccountPropertiesSourceKind.choices,
+        help_text="Whether pinned_properties comes from personal pins, merged role defaults, or the project default.",
+    )
+    roles = PinnedAccountPropertiesRoleSerializer(
+        many=True,
+        read_only=True,
+        help_text="Roles that added pins to pinned_properties, in merge order. Empty unless kind is role.",
+    )
+
+
+class DefaultPinnedAccountPropertiesSourceSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        read_only=True,
+        choices=DefaultPinnedAccountPropertiesSourceKind.choices,
+        help_text="Whether this default option is the project default or a role default.",
+    )
+    role = PinnedAccountPropertiesRoleSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Role this default belongs to when kind is role, or null for the project default.",
+    )
+
+
+class AvailableDefaultPinnedAccountPropertiesSerializer(serializers.Serializer):
+    source = DefaultPinnedAccountPropertiesSourceSerializer(  # type: ignore[assignment]
+        read_only=True,
+        help_text="Which default this entry represents.",
+    )
+    pinned_properties = PinnedAccountPropertySerializer(
+        many=True,
+        read_only=True,
+        help_text="Ordered account properties saved for this default.",
+    )
+
+
 class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
     pinned_properties = PinnedAccountPropertySerializer(
         many=True,
         read_only=True,
         help_text="Account properties pinned in sidebar display order.",
+    )
+    pinned_properties_source = PinnedAccountPropertiesSourceSerializer(
+        read_only=True,
+        help_text="Where pinned_properties came from: personal pins, merged role defaults, or the project default.",
+    )
+    available_default_pinned_properties = AvailableDefaultPinnedAccountPropertiesSerializer(
+        many=True,
+        read_only=True,
+        help_text="Project and role defaults the requesting user can reset their pinned properties to.",
     )
     task_digest = TaskDigestPreferencesSerializer(
         read_only=True,
@@ -2377,12 +2454,36 @@ class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
     )
 
 
+class FollowedDefaultPinnedPropertiesSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=DefaultPinnedAccountPropertiesSourceKind.choices,
+        help_text="Follow the project default or the default of one of the requesting user's roles.",
+    )
+    role_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Role whose default to follow. Required when kind is role.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["kind"] == DefaultPinnedAccountPropertiesSourceKind.ROLE and not attrs.get("role_id"):
+            raise serializers.ValidationError({"role_id": "Pass the role to follow."})
+        return attrs
+
+
 class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
     pinned_properties = PinnedAccountPropertySerializer(
         many=True,
         allow_empty=True,
         required=False,
         help_text="Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.",
+    )
+    followed_default = FollowedDefaultPinnedPropertiesSerializer(
+        required=False,
+        help_text=(
+            "Show a default set of pinned properties and keep it in sync with later changes to that default. "
+            "Replaces any personal pins. Cannot be combined with pinned_properties."
+        ),
     )
     task_digest = TaskDigestPreferencesUpdateSerializer(
         required=False,
@@ -2392,6 +2493,11 @@ class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
         required=False,
         help_text="Complete personal account tab configuration. Omit to keep it unchanged.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "pinned_properties" in attrs and "followed_default" in attrs:
+            raise serializers.ValidationError("Pass either pinned_properties or followed_default, not both.")
+        return attrs
 
 
 class AccountRelationshipDefinitionSerializer(DataclassSerializer):

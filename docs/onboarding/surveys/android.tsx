@@ -29,7 +29,7 @@ function getSurveysAndroidSteps(ctx: OnboardingComponentsContext): StepDefinitio
                                 code: dedent`
                                     dependencies {
                                         // ... existing dependencies
-                                        implementation("com.posthog:posthog-android-surveys-compose:0.+")
+                                        implementation("com.posthog:posthog-android-surveys-compose:1.+")
                                     }
                                 `,
                             },

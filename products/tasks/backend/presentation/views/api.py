@@ -3,7 +3,7 @@ import re
 import json
 import asyncio
 import dataclasses
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Iterable, Mapping
 from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -51,7 +51,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
 from posthog.permissions import (
     APIScopePermission,
@@ -101,6 +101,7 @@ from products.tasks.backend.facade.client_provenance import (
 )
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
+from products.tasks.backend.facade.desktop_gateway import posthog_code_plan
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     StreamTokenRoute,
@@ -115,7 +116,12 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_resume_gap,
     observe_stream_token_routed,
 )
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.model_catalogue import (
+    FREE_TIER_PIN_KEY,
+    TASK_RUN_GATEWAY_PRODUCT,
+    plan_model_choices,
+)
+from products.tasks.backend.facade.model_override import RunModelSelection, with_prompt_model_switch
 from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
@@ -585,6 +591,25 @@ SANDBOX_AGENT_RUN_START_BUDGETS: tuple[tuple[str, Budget], ...] = (
 
 
 @extend_schema(tags=["tasks"])
+def _with_first_message_model(data: Mapping[str, Any], *, team: Team, user: User) -> dict[str, Any]:
+    """A copy of a new run's request data, on the model its first message asks for."""
+    message = data.get("pending_user_message")
+    if not isinstance(message, str):
+        return dict(data)
+    selection = RunModelSelection(
+        runtime_adapter=data.get("runtime_adapter"),
+        model=data.get("model"),
+        reasoning_effort=data.get("reasoning_effort"),
+        initial_permission_mode=data.get("initial_permission_mode"),
+    )
+    switched = with_prompt_model_switch(message, selection, team=team, user=user)
+    # Only the changed fields go back, so a field the request left out stays out.
+    changes = {
+        field: value for field, value in dataclasses.asdict(switched).items() if getattr(selection, field) != value
+    }
+    return {**data, **changes}
+
+
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -1055,6 +1080,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 run_error = create_result.run_error
                 run_started = not run_error
             else:
+                if (
+                    origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI
+                    and validated_data.get("runtime") != tasks_facade.TaskRuntime.PI
+                ):
+                    # Before warm matching, so a sandbox booted on the picked model is not reused for another.
+                    validated_data = _with_first_message_model(
+                        validated_data, team=self.team, user=cast(User, request.user)
+                    )
                 task = tasks_facade.create_task(
                     self.team_id,
                     self._user_id(),
@@ -1300,14 +1333,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List available models",
         description=(
             "Return the models a task run may use, with the reasoning efforts each one supports. "
-            "Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. "
-            "An empty list means the gateway is unreachable — clients should fall back to their own default rather "
-            "than treating it as 'no models exist'."
+            "Read from the PostHog model catalog, narrowed to the models a PostHog Code token may call. "
+            "Each model is marked with whether the project's plan allows it."
         ),
     )
     @action(detail=False, methods=["get"], url_path="models", required_scopes=["task:read"])
     def models(self, request, **kwargs):
-        choices = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+        plan_pin = FREE_TIER_PIN_KEY if posthog_code_plan(self.team) == "free" else TASK_RUN_GATEWAY_PRODUCT
+        choices = plan_model_choices(TASK_RUN_GATEWAY_PRODUCT, plan_pin)
         return Response(ModelCatalogueResponseSerializer({"models": choices}).data)
 
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
@@ -1780,6 +1813,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ReportTaskCapExceeded,
         )
 
+        validated_data = request.validated_data
+        if validated_data.get("pending_user_message") and (
+            (visible := tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())) is not None
+            and visible.origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI
+            and visible.runtime != tasks_facade.TaskRuntime.PI
+        ):
+            validated_data = _with_first_message_model(validated_data, team=self.team, user=cast(User, request.user))
+
         run_started = False
         try:
             result = tasks_facade.run_task(
@@ -1787,7 +1828,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self.team_id,
                 self._user_id(),
                 validated_data={
-                    **request.validated_data,
+                    **validated_data,
                     **sandbox_run_data,
                     "client_platform": "mobile"
                     if request.headers.get("X-PostHog-Client-Platform") == "mobile"

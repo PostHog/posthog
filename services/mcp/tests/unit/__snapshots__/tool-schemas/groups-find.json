@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "group_key": {
+            "description": "Specify the key of the group to find",
+            "type": "string"
+        },
+        "group_type_index": {
+            "description": "Specify the group type to find",
+            "type": "number"
+        },
+        "skip_create_notebook": {
+            "default": true,
+            "description": "When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.",
+            "type": "boolean"
+        }
+    },
+    "required": ["group_key", "group_type_index"],
+    "type": "object"
+}

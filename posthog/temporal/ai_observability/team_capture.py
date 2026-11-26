@@ -1,6 +1,6 @@
 """Emitting AI observability events on behalf of a team, without a Postgres read per event.
 
-Every emitted `$ai_evaluation` / `$ai_tag` event needs the team's `api_token` to call
+Every emitted `$ai_evaluation` event needs the team's `api_token` to call
 `capture_ai_internal`. Those emit closures run under `database_sync_to_async(thread_sensitive=False)`,
 so each one lands on a fresh executor thread and grabs a pooled Postgres connection for a
 single-row read — under pool pressure pgbouncer answers with `query_wait_timeout` instead.

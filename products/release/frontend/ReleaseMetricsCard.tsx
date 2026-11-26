@@ -41,7 +41,10 @@ function AddMetricCombobox({ row }: { row: ReleaseRow }): JSX.Element {
             onInputValueChange={(value: string) => searchRelated(value)}
             onValueChange={(key: string | null) => {
                 if (key) {
-                    updateRelease(row.id, { metric_insight_ids: [...row.metricInsightIds, Number(key)] })
+                    updateRelease(row.id, { metric_insight_ids: [...row.metricInsightIds, Number(key)] }, undefined, {
+                        event: 'release metric added',
+                        properties: { release_id: row.id, metric_count: row.metricInsightIds.length + 1 },
+                    })
                 }
             }}
             itemToStringLabel={(key: string) => names.get(key) ?? ''}

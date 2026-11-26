@@ -14,6 +14,7 @@ use metrics::counter;
 use serde_json::json;
 use tracing::{error, warn};
 
+use crate::secret_key::{find_secret_key, is_secret_key_digest, SECRET_KEY_PREFIX};
 use crate::unknown_tokens::{UnknownTokenMode, UnknownTokens};
 
 const REJECTED_COUNTER: &str = "capture_logs_requests_rejected_total";
@@ -69,9 +70,9 @@ impl Authorizer {
         query_token: Option<&'a str>,
         signal: Signal,
     ) -> Result<&'a str, Rejection> {
-        let token = resolve_token(headers, query_token)
+        let (token, from_header) = resolve_token(headers, query_token)
             .map_err(|rejection| self.reject(signal, "missing_token", rejection))?;
-        self.authorize_token(token, signal)?;
+        self.check(token, signal, from_header && signal == Signal::Logs)?;
         Ok(token)
     }
 
@@ -90,13 +91,16 @@ impl Authorizer {
             .and_then(|value| value.to_str().ok())
             .map(strip_bearer)
             .filter(|token| !token.is_empty());
-        match verbatim {
-            Some(token) => {
-                self.authorize_token(token, signal)?;
-                Ok(token)
+        let token = match verbatim {
+            Some(token) => token,
+            None => {
+                resolve_token(headers, None)
+                    .map_err(|rejection| self.reject(signal, "missing_token", rejection))?
+                    .0
             }
-            None => self.authorize(headers, None, signal),
-        }
+        };
+        self.check(token, signal, signal == Signal::Logs)?;
+        Ok(token)
     }
 
     /// Resolve the token from the URL path, then the `Authorization` header, then the `token` query
@@ -119,16 +123,36 @@ impl Authorizer {
                     .unwrap_or(value)
                     .trim()
             });
-        let token = [path_token, header_token, query_token]
-            .into_iter()
-            .flatten()
-            .find(|token| !token.is_empty())
-            .ok_or_else(|| self.reject(signal, "missing_token", missing_token()))?;
-        self.authorize_token(token, signal)?;
+        let (token, from_header) = [
+            (path_token, false),
+            (header_token, true),
+            (query_token, false),
+        ]
+        .into_iter()
+        .find_map(|(token, from_header)| {
+            token
+                .filter(|token| !token.is_empty())
+                .map(|token| (token, from_header))
+        })
+        .ok_or_else(|| self.reject(signal, "missing_token", missing_token()))?;
+        self.check(token, signal, from_header && signal == Signal::Logs)?;
         Ok(token)
     }
 
-    fn authorize_token(&self, token: &str, signal: Signal) -> Result<(), Rejection> {
+    fn check(&self, token: &str, signal: Signal, digest_allowed: bool) -> Result<(), Rejection> {
+        let is_digest = is_secret_key_digest(token);
+        // A key that is not hashed came from a URL. The key scope is `logs:write`.
+        if find_secret_key(token).is_some() || (is_digest && !digest_allowed) {
+            return Err(self.reject(signal, "secret_key_not_allowed", secret_key_not_allowed()));
+        }
+
+        // This can be a key in a form that `find_secret_key` does not find.
+        let is_token_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
+        let holds_key_prefix = token.to_ascii_lowercase().contains(SECRET_KEY_PREFIX);
+        if holds_key_prefix && !token.bytes().all(is_token_char) {
+            return Err(self.reject(signal, "secret_key_not_allowed", secret_key_not_allowed()));
+        }
+
         if self.token_dropper.should_drop(token, "") {
             return Err(self.reject(signal, "dropped_token", unauthorized("Invalid token")));
         }
@@ -137,15 +161,17 @@ impl Authorizer {
         // as a personal API key pasted into an exporter. Whether a well-formed token belongs to
         // a team needs Postgres, which this service does not have. The consumer finds out and
         // publishes the tokens with no team, which `unknown_tokens` mirrors below.
-        if let Err(reason) = validate_token(token) {
-            error!("Rejecting request with an invalid project API key: {reason}");
-            return Err(self.reject(
-                signal,
-                "invalid_token",
-                unauthorized(format!(
-                    "Invalid project API key ({reason}). Use your project API key, which you can find in your PostHog project settings."
-                )),
-            ));
+        if !is_digest {
+            if let Err(reason) = validate_token(token) {
+                error!("Rejecting request with an invalid project API key: {reason}");
+                return Err(self.reject(
+                    signal,
+                    "invalid_token",
+                    unauthorized(format!(
+                        "Invalid project API key ({reason}). Use your project API key, which you can find in your PostHog project settings."
+                    )),
+                ));
+            }
         }
 
         if self.unknown_tokens.is_unknown(token) {
@@ -179,7 +205,13 @@ impl Authorizer {
     }
 }
 
-fn unauthorized(message: impl Into<String>) -> Rejection {
+fn secret_key_not_allowed() -> Rejection {
+    unauthorized(
+        "A project secret API key works only on a logs endpoint, and only in a request header. Use your project API key here.",
+    )
+}
+
+pub(crate) fn unauthorized(message: impl Into<String>) -> Rejection {
     (
         StatusCode::UNAUTHORIZED,
         Json(json!({ "error": message.into() })),
@@ -200,15 +232,17 @@ fn strip_bearer(value: &str) -> &str {
 fn resolve_token<'a>(
     headers: &'a HeaderMap,
     query_token: Option<&'a str>,
-) -> Result<&'a str, Rejection> {
+) -> Result<(&'a str, bool), Rejection> {
     if let Some(value) = headers.get("Authorization") {
         return Some(strip_bearer(value.to_str().unwrap_or("")))
             .filter(|token| !token.is_empty())
+            .map(|token| (token, true))
             .ok_or_else(missing_token);
     }
 
     query_token
         .filter(|token| !token.is_empty())
+        .map(|token| (token, false))
         .ok_or_else(missing_token)
 }
 
@@ -285,12 +319,108 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
+    use crate::secret_key::EXAMPLE_DIGEST as DIGEST;
+
+    fn assert_secret_key_not_allowed(result: Result<impl std::fmt::Debug, Rejection>, case: &str) {
+        let (status, Json(body)) = result.expect_err(case);
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{case}");
+        assert!(
+            body["error"].as_str().unwrap().contains("secret API key"),
+            "{case}: {body}"
+        );
+    }
+
+    #[test]
+    fn a_secret_key_digest_is_accepted_only_from_a_header_of_a_logs_request() {
+        const FIREHOSE: &str = "x-amz-firehose-access-key";
+        let bearer = format!("Bearer {DIGEST}");
+        let from_header = headers(&[("Authorization", bearer.as_str())]);
+        let from_firehose = headers(&[(FIREHOSE, bearer.as_str())]);
+        let no_headers = HeaderMap::new();
+        let a = authorizer();
+
+        for (accepted, case) in [
+            (a.authorize(&from_header, None, Signal::Logs), "otlp"),
+            (
+                a.authorize_from_path_header_or_query(None, &from_header, None, Signal::Logs),
+                "vendor header",
+            ),
+            (
+                a.authorize_from_header_or_bearer(&from_firehose, FIREHOSE, Signal::Logs),
+                "firehose header",
+            ),
+            (
+                a.authorize_from_header_or_bearer(&from_header, FIREHOSE, Signal::Logs),
+                "firehose fallback",
+            ),
+        ] {
+            assert_eq!(accepted.ok(), Some(DIGEST), "{case}");
+        }
+
+        for (rejected, case) in [
+            (a.authorize(&from_header, None, Signal::Traces), "traces"),
+            (a.authorize(&from_header, None, Signal::Metrics), "metrics"),
+            (
+                a.authorize(&no_headers, Some(DIGEST), Signal::Logs),
+                "otlp query",
+            ),
+            (
+                a.authorize_from_path_header_or_query(None, &from_header, None, Signal::Metrics),
+                "vendor metrics header",
+            ),
+            (
+                a.authorize_from_path_header_or_query(
+                    Some(DIGEST),
+                    &from_header,
+                    None,
+                    Signal::Logs,
+                ),
+                "vendor path",
+            ),
+            (
+                a.authorize_from_path_header_or_query(
+                    None,
+                    &no_headers,
+                    Some(DIGEST),
+                    Signal::Logs,
+                ),
+                "vendor query",
+            ),
+            (
+                a.authorize_from_header_or_bearer(&from_firehose, FIREHOSE, Signal::Metrics),
+                "firehose metrics",
+            ),
+        ] {
+            assert_secret_key_not_allowed(rejected, case);
+        }
+    }
+
+    #[test]
+    fn a_secret_key_that_no_layer_hashed_is_rejected() {
+        let no_headers = HeaderMap::new();
+        for token in [
+            "phs_example",
+            "PHS_example",
+            " phs_example",
+            "Basic phs_example",
+            "Bearer phs_example",
+            "Bearer%20phs_broken.key",
+            "abcPHS_def.ghi",
+        ] {
+            assert_secret_key_not_allowed(authorizer().check(token, Signal::Logs, false), token);
+            assert_secret_key_not_allowed(
+                authorizer().authorize(&no_headers, Some(token), Signal::Logs),
+                token,
+            );
+        }
+    }
+
     #[test]
     fn a_personal_api_key_is_rejected_instead_of_silently_accepted() {
         // Pasting a personal API key into an exporter is the misconfiguration that used to be
         // answered 200 forever while every record was dropped downstream.
         let (status, _) = authorizer()
-            .authorize_token("phx_personal_api_key", Signal::Logs)
+            .check("phx_personal_api_key", Signal::Logs, false)
             .expect_err("a personal API key should not be accepted");
 
         assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -302,17 +432,25 @@ mod tests {
 
         for token in [too_long.as_str(), "tokenwith\0nullbyte", "🦀", ""] {
             let (status, _) = authorizer()
-                .authorize_token(token, Signal::Logs)
+                .check(token, Signal::Logs, false)
                 .expect_err("expected rejection");
             assert_eq!(status, StatusCode::UNAUTHORIZED, "{token:?}");
         }
     }
 
     #[test]
-    fn a_well_formed_token_is_accepted() {
-        assert!(authorizer()
-            .authorize_token("phc_well_formed", Signal::Logs)
-            .is_ok());
+    fn a_public_token_is_accepted_also_with_an_unusual_character() {
+        for token in [
+            "phc_well_formed",
+            "phc_with.dot",
+            "team:token",
+            "abcphs_def",
+        ] {
+            assert!(
+                authorizer().check(token, Signal::Logs, false).is_ok(),
+                "{token}"
+            );
+        }
     }
 
     mod unknown_tokens {
@@ -340,9 +478,7 @@ mod tests {
         async fn off_accepts_a_token_that_is_in_the_set() {
             let authorizer = authorizer_in(UnknownTokenMode::Off, &["phc_ghost"]).await;
 
-            assert!(authorizer
-                .authorize_token("phc_ghost", Signal::Logs)
-                .is_ok());
+            assert!(authorizer.check("phc_ghost", Signal::Logs, false).is_ok());
         }
 
         #[tokio::test]
@@ -350,7 +486,7 @@ mod tests {
             let authorizer = authorizer_in(UnknownTokenMode::Shadow, &["phc_ghost"]).await;
 
             for signal in [Signal::Logs, Signal::Traces, Signal::Metrics] {
-                assert!(authorizer.authorize_token("phc_ghost", signal).is_ok());
+                assert!(authorizer.check("phc_ghost", signal, false).is_ok());
             }
         }
 
@@ -360,7 +496,7 @@ mod tests {
 
             for signal in [Signal::Logs, Signal::Traces, Signal::Metrics] {
                 let (status, body) = authorizer
-                    .authorize_token("phc_ghost", signal)
+                    .check("phc_ghost", signal, false)
                     .expect_err("expected rejection");
                 assert_eq!(status, StatusCode::UNAUTHORIZED);
                 assert_eq!(
@@ -389,7 +525,7 @@ mod tests {
             let authorizer = authorizer_in(UnknownTokenMode::Reject, &["phc_ghost"]).await;
 
             assert!(authorizer
-                .authorize_token("phc_real_project", Signal::Logs)
+                .check("phc_real_project", Signal::Logs, false)
                 .is_ok());
         }
 
@@ -398,7 +534,7 @@ mod tests {
             let authorizer = authorizer_in(UnknownTokenMode::Reject, &[]).await;
 
             assert!(authorizer
-                .authorize_token("phc_anything", Signal::Logs)
+                .check("phc_anything", Signal::Logs, false)
                 .is_ok());
         }
 
@@ -408,7 +544,7 @@ mod tests {
             let authorizer = authorizer().with_unknown_tokens(unknown);
 
             assert!(authorizer
-                .authorize_token("phc_anything", Signal::Logs)
+                .check("phc_anything", Signal::Logs, false)
                 .is_ok());
         }
 
@@ -428,11 +564,9 @@ mod tests {
                 .is_err());
             let authorizer = authorizer().with_unknown_tokens(unknown);
 
+            assert!(authorizer.check("phc_ghost", Signal::Logs, false).is_err());
             assert!(authorizer
-                .authorize_token("phc_ghost", Signal::Logs)
-                .is_err());
-            assert!(authorizer
-                .authorize_token("phc_real_project", Signal::Logs)
+                .check("phc_real_project", Signal::Logs, false)
                 .is_ok());
         }
 
@@ -441,7 +575,7 @@ mod tests {
             let authorizer = authorizer_in(UnknownTokenMode::Reject, &["phx_personal"]).await;
 
             let (_, body) = authorizer
-                .authorize_token("phx_personal", Signal::Logs)
+                .check("phx_personal", Signal::Logs, false)
                 .expect_err("expected rejection");
             assert_ne!(body.0, json!({ "error": "Unknown project API key" }));
         }

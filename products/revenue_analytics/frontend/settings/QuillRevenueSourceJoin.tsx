@@ -33,7 +33,7 @@ export function QuillRevenueSourceJoin({
     const join = findRevenueJoin(joins, source, joiningTableName)
 
     return (
-        <span className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-2">
             <Text size="xs" render={<span className="m-0 whitespace-nowrap" />}>
                 Joined to <code>{joiningTableName}</code> via:
             </Text>

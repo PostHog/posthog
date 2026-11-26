@@ -70,12 +70,13 @@ CI runs them on a production build, so run them after `pnpm build:toolbar-all`, 
 
 ```sh
 pnpm check-toolbar-size      # loader size, eager-set budget, every file under the CloudFront gzip limit
-pnpm check-toolbar-graph     # no new toolbar-to-app import edges, no denylisted packages
+pnpm check-toolbar-graph     # no new toolbar-to-app import edges, no denylisted packages, every bundled file in the toolbar Tailwind scan
 pnpm check-toolbar-csp-eval  # no eval, new Function or string timers in shipped code
 ```
 
 Each script's header comment explains its limits.
 When `check-toolbar-graph` fails, cut the new import rather than add it to `bin/toolbar-graph-baseline.json`.
+When it names a file outside the Tailwind scan, add a glob for it to `src/toolbar/shared/tailwind.config.js`.
 
 These guards cover the floating toolbar bundle only.
 The extension has no guard script, but Manifest V3 refuses `eval` and remote scripts, so a break there shows when you load the extension.

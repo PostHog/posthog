@@ -23,6 +23,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.oauth_provenance import SANDBOX_OAUTH_APP_CLIENT_IDS
 
+from products.signals.backend.first_report_experiment import DISPATCHED_VARIANT_KEY
 from products.signals.backend.models import (
     SignalFirstReportNotification,
     SignalScoutConfig,
@@ -139,10 +140,10 @@ class TestInboxOnboarding(APIBaseTest):
         [
             (None, False, None, None),
             ("guided", False, None, None),
-            ("guided", False, "test-sol", "agent"),
+            ("guided", False, "test-terra", "agent"),
             ("guided", False, "control", None),
             ("quick", False, None, "agent"),
-            ("quick", True, "test-sol", None),
+            ("quick", True, "test-terra", None),
         ]
     )
     def test_completion_is_durable_and_retry_safe(
@@ -182,13 +183,13 @@ class TestInboxOnboarding(APIBaseTest):
         config = SignalTeamConfig.objects.get(team=self.team)
         assert config.onboarding is not None
         assert config.onboarding["jobs"] == {
-            "scout": "pending" if arm or quick else "skipped",
+            "scout": "pending",
             "recommendations": "pending" if quick else "skipped",
         }
         pending_jobs = {job for job, status in config.onboarding["jobs"].items() if status == "pending"}
         assert {call.args for call in launch.call_args_list} == {(self.team.id, job) for job in pending_jobs}
         assert config.onboarding.get("first_report_variant") == arm
-        assert bool(first.json().get("first_report")) is (arm == "test-sol")
+        assert first.json()["first_report"] == {"status": "pending"}
         assert config.autostart_enabled is automatic_implementation
         assert config.default_autostart_priority == "P1"
         assert config.onboarding["activated_by"] == self.user.id
@@ -713,7 +714,7 @@ class TestInboxOnboardingActivation(BaseTest):
         config = SignalTeamConfig.objects.create(
             team=self.team,
             onboarding={
-                "first_report_variant": "test-sol",
+                "first_report_scout": True,
                 "completed_at": timezone.now().isoformat(),
                 "activated_by": self.user.pk,
                 "jobs": {"scout": "pending"},
@@ -733,7 +734,7 @@ class TestInboxOnboardingActivation(BaseTest):
             patch("products.signals.backend.onboarding_activation.sync_connect") as connect,
             patch(
                 "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
-                return_value="test-sol" if enrolled else False,
+                return_value="test-terra" if enrolled else False,
             ),
             patch(
                 "posthoganalytics.get_feature_flag_payload",
@@ -753,14 +754,12 @@ class TestInboxOnboardingActivation(BaseTest):
         connect.assert_not_called()
         config.refresh_from_db()
         assert config.onboarding is not None
-        assert config.onboarding["first_report"]["status"] == (
-            "no_data" if enrolled and source_enabled else "incomplete"
-        )
+        assert config.onboarding["first_report"]["status"] == ("no_data" if source_enabled else "incomplete")
         assert (
             capture.return_value.__enter__.return_value.call_args.kwargs["properties"]["first_report_outcome"]
             == config.onboarding["first_report"]["status"]
         )
-        if not enrolled or not source_enabled:
+        if not source_enabled:
             probe.assert_not_called()
         assert (
             not SignalScoutConfig.objects.for_team(self.team.id)
@@ -770,23 +769,28 @@ class TestInboxOnboardingActivation(BaseTest):
 
     @parameterized.expand(
         [
-            ("scout", 0, None),
-            ("scout", 5, None),
-            ("scout", 0, "test-sol"),
-            ("scout", 5, "test-sol"),
-            ("scout", 0, "control"),
-            ("scout", 0, "test-sol", "flag_error"),
-            ("scout", 5, "test-sol", "flag_error"),
-            ("scout", 0, "test-sol", "flag_missing"),
-            ("scout", 5, "test-sol", "flag_missing"),
-            ("recommendations", 0, "test-sol"),
-            ("recommendations", 5, "test-sol"),
-            ("scout", 0, None, "workflow", True),
-            ("recommendations", 0, None, "workflow", True),
+            ("scout", 0, False, None),
+            ("scout", 5, False, None),
+            ("scout", 0, True, "test-terra"),
+            ("scout", 5, True, "test-terra"),
+            ("scout", 0, True, "control"),
+            ("scout", 0, True, None),
+            ("scout", 0, True, "test-terra", "flag_error"),
+            ("scout", 5, True, "test-terra", "flag_error"),
+            ("recommendations", 0, True, "test-terra"),
+            ("recommendations", 5, True, "test-terra"),
+            ("scout", 0, False, None, "workflow", True),
+            ("recommendations", 0, False, None, "workflow", True),
         ]
     )
     def test_dispatch_retries_use_one_workflow_and_preserve_completed_jobs(
-        self, job: str, retry_count: int, arm: str | None, failure_source: str = "workflow", pilot: bool = False
+        self,
+        job: str,
+        retry_count: int,
+        first_report: bool,
+        arm: str | None,
+        failure_source: str = "workflow",
+        pilot: bool = False,
     ) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -794,7 +798,8 @@ class TestInboxOnboardingActivation(BaseTest):
             team=self.team,
             onboarding={
                 "draft": {"activation_mode": "github_optional"} if pilot else {"setup_mode": "quick"},
-                "first_report_variant": arm,
+                **({"first_report_scout": True} if first_report else {}),
+                **({"first_report_variant": arm} if arm else {}),
                 "completed_at": timezone.now().isoformat(),
                 "activated_by": self.user.pk,
                 "jobs": {"scout": "pending", "recommendations": "pending"},
@@ -829,8 +834,6 @@ class TestInboxOnboardingActivation(BaseTest):
         ):
             if failure_source == "flag_error":
                 flag.side_effect = RuntimeError("Flag evaluation unavailable")
-            elif failure_source == "flag_missing":
-                flag.return_value = None
             else:
                 client.start_workflow.side_effect = RuntimeError("Temporarily unavailable")
             launch_inbox_onboarding_job.push_request(retries=retry_count)
@@ -842,7 +845,7 @@ class TestInboxOnboardingActivation(BaseTest):
             config.refresh_from_db()
             assert config.onboarding is not None
             assert config.onboarding["jobs"][job] == ("failed" if retry_count == 5 else "pending")
-            if job == "scout" and arm == "test-sol" and failure_source == "workflow":
+            if job == "scout" and first_report and failure_source == "workflow":
                 assert config.onboarding["first_report_activation_team_id"] == self.team.id
             if failure_source != "workflow":
                 client.start_workflow.assert_not_called()
@@ -870,14 +873,17 @@ class TestInboxOnboardingActivation(BaseTest):
         assert client.start_workflow.call_args.kwargs["id"] == dispatch["id"]
         if job == "scout":
             started_skill = client.start_workflow.call_args.args[1].skill_name
-            assert started_skill == ("signals-scout-first-report" if arm == "test-sol" else "signals-scout-general")
+            assert started_skill == ("signals-scout-first-report" if first_report else "signals-scout-general")
             exposures = exposure.return_value.__enter__.return_value.call_args_list
             assert {event.kwargs["properties"]["$feature_flag_response"] for event in exposures} == (
-                {arm} if arm else set()
+                {arm} if first_report and arm else set()
+            )
+            assert config.onboarding.get(DISPATCHED_VARIANT_KEY, "absent") == (
+                (arm or None) if first_report else "absent"
             )
         assert SignalScoutConfig.objects.for_team(self.team.id).filter(
             skill_name="signals-scout-first-report"
-        ).exists() is (job == "scout" and arm == "test-sol")
+        ).exists() is (job == "scout" and first_report)
         events = capture.return_value.__enter__.return_value.call_args_list
         assert [event.kwargs["properties"]["status"] for event in events] == (
             ["failed", "started", "started"] if retry_count == 5 else ["started", "started"]

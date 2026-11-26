@@ -296,6 +296,10 @@ tools:
             Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source
             issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required
             `fingerprint` and optional `name` or `description`.
+    error-tracking-issues-summarize-create:
+        operation: error_tracking_issues_summarize_create
+        enabled: false
+        disabled_reason: Each call spends the organization's AI credits, so only a person may start it from the issue page.
     error-tracking-issues-tag-definitions-retrieve:
         operation: error_tracking_issues_tag_definitions_retrieve
         enabled: true

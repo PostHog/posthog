@@ -826,8 +826,8 @@ def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _Reso
     except pydantic.ValidationError:
         criteria = None
     exposure_config = criteria.exposure_config if criteria else None
-    # This surface deliberately stays on the legacy default rather than resolving the
-    # $experiment_exposure rollout per experiment. Its reads of $feature_flag_called also match the
+    # This surface deliberately stays on the legacy default rather than resolving the default
+    # exposure event per experiment. Its reads of $feature_flag_called also match the
     # $experiment_exposure copy, which lands on the same session with the same properties, so they
     # find an exposure whichever of the two events reaches the events table.
     event, variant_property = get_exposure_event_and_property(
