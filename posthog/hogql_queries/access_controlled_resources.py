@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
-from dataclasses import field
+from dataclasses import asdict, field
 from functools import reduce
 from operator import or_
 from typing import TYPE_CHECKING, Optional
@@ -266,9 +266,19 @@ def queried_access_controlled_resources(
         [value for name, value in query.__dict__.items() if name != "query"] if is_hogql_query else [query]
     )
     if not _nested:
-        # `filterTestAccounts` applies the team's test-account filters at execution, and a HogQL entry there
-        # can read any table. Scanned for every query: an unused filter only adds scopes.
-        embedded_sources.append(team.test_account_filters)
+        # Execution also applies HogQL stored outside the query: the team's test-account filters when the
+        # query turns them on, and the steps of every action it names. Either can read any table.
+        if _enables_test_account_filters(query):
+            embedded_sources.append(team.test_account_filters)
+        action_ids = set(_referenced_action_ids(query))
+        if action_ids:
+            from products.actions.backend.facade import api as actions_facade  # noqa: PLC0415
+
+            embedded_sources.extend(
+                asdict(step)
+                for action in actions_facade.get_actions(action_ids=action_ids, project_id=team.project_id)
+                for step in action.steps
+            )
     with nullcontext() if _shared_catalogs.get() is not None else shared_warehouse_lookups():
         for embedded_sql in _embedded_hogql(embedded_sources):
             nested = queried_access_controlled_resources(
@@ -492,6 +502,44 @@ def _embedded_hogql(value) -> Iterator[str]:
     elif isinstance(value, dict):
         for item in value.values():
             yield from _embedded_hogql(item)
+
+
+def _enables_test_account_filters(value) -> bool:
+    """Whether a `filterTestAccounts` flag is on anywhere in the query's tree."""
+    if isinstance(value, BaseModel):
+        if getattr(value, "filterTestAccounts", None):
+            return True
+        return any(_enables_test_account_filters(item) for item in value.__dict__.values())
+    if isinstance(value, (list, tuple)):
+        return any(_enables_test_account_filters(item) for item in value)
+    if isinstance(value, dict):
+        return bool(value.get("filterTestAccounts")) or any(
+            _enables_test_account_filters(item) for item in value.values()
+        )
+    return False
+
+
+def _referenced_action_ids(value) -> Iterator[int]:
+    """Ids of the saved actions a query's tree names: actions series nodes, `actionId` fields, and actions
+    retention entities."""
+    if isinstance(value, BaseModel):
+        kind = getattr(value, "kind", None)
+        is_actions_entity = isinstance(value, RetentionEntity) and value.type == EntityType.ACTIONS
+        if (isinstance(kind, str) and kind.endswith("ActionsNode")) or is_actions_entity:
+            identifier = getattr(value, "id", None)
+            if isinstance(identifier, int) or (isinstance(identifier, str) and identifier.isdigit()):
+                yield int(identifier)
+        action_id = getattr(value, "actionId", None)
+        if isinstance(action_id, int):
+            yield action_id
+        for item in value.__dict__.values():
+            yield from _referenced_action_ids(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _referenced_action_ids(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _referenced_action_ids(item)
 
 
 def _table_names_including_join_constraints(select) -> set[str]:

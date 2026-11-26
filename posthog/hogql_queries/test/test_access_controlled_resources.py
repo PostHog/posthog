@@ -42,6 +42,7 @@ from posthog.hogql_queries.access_controlled_resources import (
 )
 
 from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
+from products.actions.backend.facade.testing import create_action
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -293,12 +294,31 @@ class TestQueriedAccessControlledResources(BaseTest):
         assert result is not None
         assert expected_subset <= result
 
-    def test_team_test_account_filters_are_scanned(self):
+    @parameterized.expand([("enabled", True, True), ("disabled", False, False)])
+    def test_team_test_account_filters_are_scanned_when_enabled(self, _name, enabled, expect_tracing):
         self.team.test_account_filters = [
             {"type": "hogql", "key": "properties.x in (select span_id from posthog.trace_spans)"}
         ]
         self.team.save()
-        query = HogQLQuery(query="select count() from events where {filters}")
+        query = HogQLQuery(
+            query="select count() from events where {filters}", filters=HogQLFilters(filterTestAccounts=enabled)
+        )
+        result = queried_access_controlled_resources(query, self.team)
+        assert result is not None
+        assert ("tracing" in result) is expect_tracing
+
+    def test_saved_action_steps_are_scanned(self):
+        action = create_action(
+            team=self.team,
+            name="span action",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"type": "hogql", "key": "1 in (select 1 from posthog.trace_spans)"}],
+                }
+            ],
+        )
+        query = EventsQuery(select=["*"], actionId=action.id)
         result = queried_access_controlled_resources(query, self.team)
         assert result is not None
         assert "tracing" in result
