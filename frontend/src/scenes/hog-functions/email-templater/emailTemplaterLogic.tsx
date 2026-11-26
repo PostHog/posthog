@@ -328,6 +328,20 @@ function plainTextForEdit(
     return keepsOwnPlainText(design) && current?.text?.trim() ? current.text : exported.text
 }
 
+/** True when the open new editor now keeps the plain text tab's text, so the html stays. */
+function keptOwnPlainText(values: {
+    usesDocumentEditor: boolean
+    isEmailEditorReady: boolean
+    emailEditorRef: EditorRef | null
+}): boolean {
+    const editor = values.emailEditorRef?.editor
+    if (!values.usesDocumentEditor || !values.isEmailEditorReady || !editor?.keepOwnPlainText) {
+        return false
+    }
+    editor.keepOwnPlainText()
+    return true
+}
+
 function emailWithEdit(
     { type }: Pick<EmailTemplaterLogicProps, 'type'>,
     template: EmailTemplate,
@@ -989,7 +1003,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
-                if (values.activeContentTab === 'plaintext') {
+                // The new editor keeps the html and the typed plain text side by side, so its save goes on below.
+                if (values.activeContentTab === 'plaintext' && !keptOwnPlainText(values)) {
                     const finalValues: EmailTemplate = {
                         ...formValues,
                         html: '',
@@ -1136,6 +1151,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!editor) {
                 return
             }
+            // A plain text edit used to clear the html. Such an email keeps its text when the canvas is edited again.
+            if (values.usesDocumentEditor && props.value?.text?.trim() && !props.value?.html) {
+                editor.keepOwnPlainText?.({ quietly: true })
+            }
             const htmlData: { design: JSONTemplate } = await exportEditorHtml(editor)
             breakpoint()
             if (values.emailEditorRef?.editor !== editor) {
@@ -1235,13 +1254,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
 
             const key = Array.isArray(name) ? name[0] : name
+            const plainTextEdit = key === 'text' && values.activeContentTab === 'plaintext'
 
             props.onChange({
                 ...props.value,
                 [key]: value,
-                // Plain-text authoring replaces the html body (the modal save does this too);
+                // In the old editor, plain-text authoring replaces the html body (the modal save does this too);
                 // without it the stale html keeps winning over the text at send time.
-                ...(key === 'text' && values.activeContentTab === 'plaintext' ? { html: '' } : {}),
+                ...(plainTextEdit && !keptOwnPlainText(values) ? { html: '' } : {}),
             } as EmailTemplate)
         },
 

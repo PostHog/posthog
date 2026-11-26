@@ -104,6 +104,14 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
                 emit('design:loaded')
             }
         },
+        // Text written in the plain text tab belongs to the person, so edits to the email stop rewriting it.
+        keepOwnPlainText: ({ quietly = false }: { quietly?: boolean } = {}) => {
+            if (editor.state.doc.attrs.ownPlainText === true) {
+                return
+            }
+            const tr = editor.state.tr.setDocAttribute('ownPlainText', true).setMeta('addToHistory', false)
+            editor.view.dispatch(quietly ? tr.setMeta(AUTOMATIC_CHANGE_META, true) : tr)
+        },
         loadDocument: (doc: Record<string, any>) => {
             loadDoc(doc)
             emit('design:loaded')

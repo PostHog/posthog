@@ -381,6 +381,69 @@ describe('emailTemplaterLogic', () => {
             editor.destroy()
         })
 
+        const mountDocumentEditor = async (
+            value: Record<string, any>,
+            onChange: jest.Mock
+        ): Promise<{ editor: TiptapEditor }> => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic({
+                ...makeProps({ value: { ...blankEmail, ...value } as any }),
+                layout: 'inline',
+                onChange,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const editor = new TiptapEditor({
+                extensions: buildEmailExtensions(''),
+                content: logic.values.documentEditorInitialDoc,
+            })
+            logic.actions.setEmailEditorRef({ editor: createEmailEditorAdapter(editor) } as any)
+            logic.actions.onEmailEditorReady()
+            await expectLogic(logic).toFinishAllListeners()
+            return { editor }
+        }
+
+        it('keeps the html when the plain text tab is edited, and keeps that text on later edits', async () => {
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, onChange)
+
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', 'Written by hand, café ✨')
+            await logic.asyncActions.flushPendingDesignEdit()
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({ html: expect.stringContaining('Old'), text: 'Written by hand, café ✨' })
+            )
+
+            const html = '<p>New</p>'
+            editor.view.dispatch(editor.state.tr.setNodeAttribute(0, 'html', html))
+            await logic.asyncActions.flushPendingDesignEdit()
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({ html, text: 'Written by hand, café ✨' })
+            )
+            editor.destroy()
+        })
+
+        it('keeps the text of an email a plain text edit left without html once the canvas is edited', async () => {
+            const source = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, jest.fn())
+            let design: Record<string, any> = {}
+            logic.values.emailEditorRef?.editor?.exportHtml((data: { design: Record<string, any> }) => {
+                design = data.design
+            })
+            source.editor.destroy()
+            logic.unmount()
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '', text: 'Only text', design }, onChange)
+
+            const html = '<p>New</p>'
+            editor.view.dispatch(editor.state.tr.setNodeAttribute(0, 'html', html))
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ html, text: 'Only text' }))
+            editor.destroy()
+        })
+
         it('does not load the new template sample over the new editor starter', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
                 [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
