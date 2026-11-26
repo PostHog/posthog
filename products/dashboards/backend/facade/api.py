@@ -600,7 +600,14 @@ def tile_for_insight_on_dashboard(
     )
     if tile is None:
         return None
-    layouts = json.loads(tile.layouts) if isinstance(tile.layouts, str) else tile.layouts
+    layouts = tile.layouts
+    if isinstance(layouts, str):
+        # Tiles migrated from the old schema store layouts as a JSON string. A template can store any
+        # string, so an unparseable one is passed through as stored rather than failing the request.
+        try:
+            layouts = json.loads(layouts)
+        except json.JSONDecodeError:
+            pass
     return contracts.InsightTileOnDashboard(
         id=tile.id, dashboard=_to_summary(tile.dashboard), color=tile.color, layouts=layouts
     )

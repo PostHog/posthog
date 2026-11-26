@@ -298,12 +298,13 @@ class TestInsightTileReads(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("json", {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}),
-            ("stringified_json", '{"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}'),
+            ("json", {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}, {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}),
+            ("stringified_json", '{"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}', {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}),
+            ("unparseable_string", "not json", "not json"),
         ]
     )
     def test_tile_for_insight_on_dashboard_returns_parsed_layouts_and_the_dashboard(
-        self, _name: str, stored_layouts: dict | str
+        self, _name: str, stored_layouts: dict | str, expected_layouts: dict | str
     ) -> None:
         DashboardTile.objects.filter(id=self.second_tile).update(layouts=stored_layouts, color="blue")
 
@@ -314,7 +315,7 @@ class TestInsightTileReads(APIBaseTest):
             self.second_tile,
             self.dashboard,
             "blue",
-            {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
+            expected_layouts,
         )
 
     def test_insight_tiles_is_empty_for_a_soft_deleted_dashboard(self) -> None:
