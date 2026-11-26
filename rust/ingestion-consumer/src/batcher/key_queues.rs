@@ -116,10 +116,10 @@ pub enum Settlement {
         /// The key's run finished at least one message.
         progressed: bool,
     },
-    /// The request finished nothing; `retry_at` is the busy retry time.
     Bounced {
         messages: Vec<SerializedKafkaMessage>,
         retry_at: Instant,
+        escalate_now: bool,
     },
     Failed {
         messages: Vec<SerializedKafkaMessage>,
@@ -208,7 +208,7 @@ struct KeyState {
     /// Settles that count under the [`EscalationRule`]. A failure leaves it,
     /// because a failed request says nothing about the budget.
     unfinished_attempts: u32,
-    /// One of those settles finished a message of the key.
+    /// The key finished a message since it last finished a run.
     progressed: bool,
 }
 
@@ -326,6 +326,10 @@ impl ReadySizes {
             }
         }
     }
+}
+
+fn attempts_used_up(budget_attempts: Option<NonZeroU32>, unfinished_attempts: u32) -> bool {
+    budget_attempts.is_some_and(|attempts| unfinished_attempts >= attempts.get())
 }
 
 /// An unbudgeted replay goes ahead of a budgeted one of its epoch, because
@@ -565,15 +569,24 @@ impl KeyQueues {
                 }
                 (messages, None)
             }
-            (Settlement::Bounced { messages, retry_at }, EscalationRule::StalledKey) => {
-                state.unfinished_attempts = state.unfinished_attempts.saturating_add(1);
-                (messages, Some(retry_at))
+            (
+                Settlement::Bounced {
+                    messages,
+                    retry_at,
+                    escalate_now,
+                },
+                EscalationRule::StalledKey,
+            ) => {
+                state.unfinished_attempts = match self.budget_attempts {
+                    Some(attempts) if escalate_now => state.unfinished_attempts.max(attempts.get()),
+                    _ => state.unfinished_attempts.saturating_add(1),
+                };
+                let escalates = attempts_used_up(self.budget_attempts, state.unfinished_attempts);
+                (messages, (!escalates).then_some(retry_at))
             }
             (Settlement::Failed { messages, retry_at }, _) => (messages, Some(retry_at)),
         };
-        let unbudgeted = self
-            .budget_attempts
-            .is_some_and(|attempts| state.unfinished_attempts >= attempts.get());
+        let unbudgeted = attempts_used_up(self.budget_attempts, state.unfinished_attempts);
         let mut settled = Settled::default();
 
         if !claim.revoked.is_empty() {
@@ -1136,6 +1149,7 @@ mod tests {
                     SettleKind::Bounced => Settlement::Bounced {
                         messages,
                         retry_at: now,
+                        escalate_now: false,
                     },
                     SettleKind::Failed => failure(messages, now),
                 };

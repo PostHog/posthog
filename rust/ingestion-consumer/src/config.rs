@@ -203,12 +203,11 @@ pub struct Config {
     #[envconfig(from = "INGESTION_REQUEST_BUDGET_ATTEMPTS", default = "3")]
     pub request_budget_attempts: u32,
 
-    /// `legacy` (default) or `stalled_key`. The README's Batcher section says
-    /// which settles each rule counts.
+    /// `legacy` (default) or `stalled_key`; see the README's Batcher section.
     #[envconfig(from = "INGESTION_BUDGET_ESCALATION_RULE", default = "legacy")]
     pub budget_escalation_rule: EscalationRule,
 
-    /// `false` keeps requests sent without a budget out of the RTT average.
+    /// `false` keeps the resends of escalated keys out of the RTT average.
     #[envconfig(from = "INGESTION_GOVERNOR_SAMPLE_UNBUDGETED", default = "true")]
     pub governor_sample_unbudgeted: bool,
 
@@ -654,16 +653,16 @@ impl Config {
             .ok_or("INGESTION_REQUEST_BUDGET_ATTEMPTS must be at least 1")?;
         // A partial ack that finished nothing does not count as progress, so
         // it must come back before the stall watchdog fires. Under the
-        // stalled-key rule `attempts` of them can follow each other.
-        let unprogressed_ms = match self.budget_escalation_rule {
-            EscalationRule::Legacy => budget_ms,
-            EscalationRule::StalledKey => budget_ms
-                .saturating_add(self.parked_retry_interval_ms)
-                .saturating_mul(u64::from(attempts.get())),
+        // stalled-key rule only a bounce in the second half of the stall
+        // window escalates at once, so bounces must come back within half of it.
+        let (unprogressed_ms, window_ms) = match self.budget_escalation_rule {
+            EscalationRule::Legacy => (budget_ms, self.consumer_deferred_flush_timeout_ms),
+            EscalationRule::StalledKey => (
+                budget_ms.saturating_add(self.parked_retry_interval_ms),
+                self.consumer_deferred_flush_timeout_ms / 2,
+            ),
         };
-        if unprogressed_ms.saturating_add(self.pack_latency_budget_ms)
-            >= self.consumer_deferred_flush_timeout_ms
-        {
+        if unprogressed_ms.saturating_add(self.pack_latency_budget_ms) >= window_ms {
             return Err(match self.budget_escalation_rule {
                 EscalationRule::Legacy => {
                     "INGESTION_REQUEST_SOFT_BUDGET_MS plus INGESTION_PACK_LATENCY_BUDGET_MS must \
@@ -671,9 +670,8 @@ impl Config {
                 }
                 EscalationRule::StalledKey => {
                     "under INGESTION_BUDGET_ESCALATION_RULE=stalled_key, \
-                     INGESTION_REQUEST_BUDGET_ATTEMPTS times the sum of \
-                     INGESTION_REQUEST_SOFT_BUDGET_MS and INGESTION_PARKED_RETRY_INTERVAL_MS, plus \
-                     INGESTION_PACK_LATENCY_BUDGET_MS, must be below \
+                     INGESTION_REQUEST_SOFT_BUDGET_MS plus INGESTION_PARKED_RETRY_INTERVAL_MS plus \
+                     INGESTION_PACK_LATENCY_BUDGET_MS must be below half of \
                      CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS"
                 }
             }
@@ -831,12 +829,12 @@ mod tests {
         ],
         Some((49999, 3))
     )]
-    #[case::just_below_the_stall_timeout_over_every_bounce_under_the_stalled_key_rule(
+    #[case::just_below_half_the_stall_timeout_with_the_retry_delay_under_the_stalled_key_rule(
         &[
-            ("INGESTION_REQUEST_SOFT_BUDGET_MS", "19799"),
+            ("INGESTION_REQUEST_SOFT_BUDGET_MS", "29799"),
             ("INGESTION_BUDGET_ESCALATION_RULE", "stalled_key"),
         ],
-        Some((19799, 3))
+        Some((29799, 3))
     )]
     fn a_valid_request_budget_is_read(
         #[case] vars: &[(&str, &str)],
@@ -869,8 +867,8 @@ mod tests {
         ("INGESTION_REQUEST_SOFT_BUDGET_MS", "250"),
         ("INGESTION_REQUEST_BUDGET_ATTEMPTS", "0"),
     ])]
-    #[case::at_the_stall_timeout_over_every_bounce_under_the_stalled_key_rule(&[
-        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "19800"),
+    #[case::at_half_the_stall_timeout_with_the_retry_delay_under_the_stalled_key_rule(&[
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "29800"),
         ("INGESTION_BUDGET_ESCALATION_RULE", "stalled_key"),
     ])]
     fn an_invalid_request_budget_is_rejected(#[case] vars: &[(&str, &str)]) {

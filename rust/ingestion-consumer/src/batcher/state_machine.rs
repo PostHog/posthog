@@ -504,6 +504,10 @@ impl ActiveState {
             counter!("ingestion_consumer_request_budget_bounces_total").increment(1);
         }
         let bounce_retry_at = self.retry.retry_at(now, RetryReason::Busy);
+        // A bounce does not move the stall clock, and while bounced keys wait
+        // the freed slots go to other keys. Past half the stall window, or in a
+        // drain, a bounce escalates at once so its resend starts in time.
+        let escalate_now = draining || now >= self.last_progress + self.stall_timeout / 2;
         effects.completions = completions(
             assignment_epoch,
             partial_runs.iter().flat_map(|run| &run.accepted),
@@ -523,6 +527,7 @@ impl ActiveState {
                 Settlement::Bounced {
                     messages: run.unfinished,
                     retry_at: bounce_retry_at,
+                    escalate_now,
                 }
             } else {
                 Settlement::Unfinished {
@@ -2335,14 +2340,12 @@ mod tests {
         let second = effects.sends[0].request;
 
         let bounced_again_at = bounced_at + BUSY_DELAY + BUDGET;
-        let (batcher, effects) =
+        let (_, effects) =
             batcher.on_request_partial(bounced_again_at, &workers, second, 0, both());
-        assert!(effects.sends.is_empty());
-        let (_, effects) = batcher.on_wakeup(bounced_again_at + BUSY_DELAY, &workers);
         assert_eq!(
             (shape(&effects.sends[0]), effects.sends[0].soft_budget),
             (vec![("a", vec![1]), ("b", vec![2])], None),
-            "the last attempt drops the budget, so a saturated pool still finishes the keys"
+            "the bounce that uses up the attempts resends at once without the budget"
         );
         assert!(effects.sends[0].class.unbudgeted);
 
@@ -2358,6 +2361,44 @@ mod tests {
             })
             .collect();
         assert_eq!(bounces, vec![2], "one per request, not one per key");
+    }
+
+    #[rstest]
+    #[case::late_in_the_stall_window(STALL / 2, false)]
+    #[case::while_draining(BUDGET, true)]
+    fn under_the_stalled_key_rule_a_bounce_escalates_at_once_when_time_runs_short(
+        #[case] bounced_after: Duration,
+        #[case] draining: bool,
+    ) {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = packing_batcher(1, Duration::ZERO, 1, now)
+            .with_request_budget(Some(RequestBudget {
+                soft_budget: BUDGET,
+                attempts: NonZeroU32::new(3).expect("nonzero attempts"),
+            }))
+            .with_escalation_rule(EscalationRule::StalledKey)
+            .on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
+        let first = effects.sends[0].request;
+        let batcher = if draining {
+            batcher.on_shutdown(now, &workers).0
+        } else {
+            batcher
+        };
+
+        let (_, effects) = batcher.on_request_partial(
+            now + bounced_after,
+            &workers,
+            first,
+            0,
+            vec![message("a", 0, 1)],
+        );
+        assert_eq!(
+            (shape(&effects.sends[0]), effects.sends[0].soft_budget),
+            (vec![("a", vec![1])], None),
+            "a takes the slot it freed without its budget, ahead of b's budgeted send"
+        );
     }
 
     fn labels(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
