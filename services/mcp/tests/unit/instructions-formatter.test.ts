@@ -33,6 +33,11 @@ const fullCtx: InstructionsContext = {
     renderUiEnabled: true,
 }
 
+const fullNudge = (ref: string): string =>
+    `PostHog watches the data in this project for the user, including connected data warehouse sources, and files what it finds as researched reports in the Self-driving inbox. When the user wants to know what is going on in their product, such as what is new, what broke or what needs their attention, start with ${ref}, and query the data yourself only for what the reports do not cover.`
+const shortNudge = (ref: string): string =>
+    `When the user wants to know what is going on in their product, start with ${ref}. The Self-driving inbox holds what PostHog already found and researched in this project's data.`
+
 describe('InstructionsFormatter', () => {
     describe('buildToolsInstructions', () => {
         it('resolves every placeholder when fully populated', () => {
@@ -446,30 +451,36 @@ describe('InstructionsFormatter', () => {
                 {
                     surface: 'tools instructions',
                     render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildToolsInstructions(ctx),
-                    ref: 'the `inbox-reports-list` tool',
+                    line: fullNudge('the `inbox-reports-list` tool'),
                 },
                 {
                     surface: 'exec command reference',
                     render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildExecCommandReference(ctx),
-                    ref: '`call inbox-reports-list <json_input>`',
+                    line: fullNudge('`call inbox-reports-list <json_input>`'),
+                },
+                {
+                    surface: 'compact exec command reference',
+                    render: (f: InstructionsFormatter, ctx: InstructionsContext) =>
+                        f.buildCompactExecCommandReference(ctx),
+                    line: fullNudge('`call inbox-reports-list <json_input>`'),
                 },
                 {
                     surface: 'compact exec command reference for claude.ai',
                     render: (f: InstructionsFormatter, ctx: InstructionsContext) =>
                         f.buildCompactExecCommandReference(ctx, { claudeChat: true }),
-                    ref: '`call inbox-reports-list <json_input>`',
+                    line: shortNudge('`call inbox-reports-list <json_input>`'),
                 },
             ].flatMap((surface) => [true, false].map((enabled) => ({ ...surface, enabled })))
         )(
             '$surface points to the inbox list without the inbox-first section only when the nudge is on: $enabled',
-            ({ render, ref, enabled }) => {
+            ({ render, line, enabled }) => {
                 const rendered = render(new InstructionsFormatter(), {
                     ...fullCtx,
                     inboxFirstEnabled: false,
                     inboxNudgeEnabled: enabled,
                 })
 
-                expect(rendered.includes(`To see which Inbox reports need the user, use ${ref}.`)).toBe(enabled)
+                expect(rendered.includes(line)).toBe(enabled)
             }
         )
     })
