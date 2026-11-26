@@ -29,7 +29,6 @@ import {
     byteLength,
     jsonResponseBody,
     maxResponseBytes,
-    responseTokenBudget,
     type ResponseBodySource,
     toonResponseBody,
 } from '@/lib/response-budget'
@@ -2560,7 +2559,7 @@ export function createExecTool(
                     // `formatResponse` drops the pagination fields a client needs to fetch the next page.
                     const nextPageHint = useJson ? null : getNextPageHint(tool.name, result)
                     const fullText = `${outputText}${chartFooter}${nextPageHint ? `\n\n${nextPageHint}` : ''}`
-                    const budget = responseTokenBudget(options.toolResultTokenLimit, input)
+                    const budget = options.toolResultTokenLimit
                     const maxBytes =
                         budget === undefined
                             ? undefined
@@ -2573,10 +2572,7 @@ export function createExecTool(
                         outputText = fullText
                     } else {
                         // The executor's own cap then sees a text that fits, so it never counts this one.
-                        toolResponsesShortenedTotal.inc({
-                            tool: tool.name,
-                            budget: options.toolResultTokenLimit === undefined ? 'default' : 'client',
-                        })
+                        toolResponsesShortenedTotal.inc({ tool: tool.name })
                         // Reserve the chart's bytes before re-serializing the result body. The next-page
                         // hint is dropped because it offsets past the rows the bound cuts.
                         const bodyBudget = maxBytes - byteLength(chartFooter)
