@@ -230,6 +230,7 @@ def reconcile_trino_schemas(
             source_schema=resolved_schema,
             source_table_name=resolved_table,
         )
+        matched.source = source
         # Drop dead columns so the next projection doesn't reference `missing_col`.
         removed_columns = persist_schema_metadata(
             matched, schema_metadata=schema_metadata, detected_primary_keys=source_schema.detected_primary_keys

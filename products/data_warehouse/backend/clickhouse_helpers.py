@@ -186,6 +186,7 @@ def reconcile_clickhouse_schemas(
             source_schema=resolved_database,
             source_table_name=resolved_table,
         )
+        matched.source = source
         removed_columns = persist_schema_metadata(
             matched, schema_metadata=schema_metadata, detected_primary_keys=source_schema.detected_primary_keys
         )
