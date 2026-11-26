@@ -513,8 +513,8 @@ tools:
         description: >
             Cancel a running setup job started with `aeo-setup-start`, by its `id`. PostHog stops before its next step
             and keeps what it already saved; its `status` becomes `cancelled`. The job's first run stops too: checks
-            already under way finish and are kept, and the rest don't run. A finished job is returned unchanged, and
-            no run is stopped.
+            already under way finish and are kept, and the rest don't run. A finished job is returned unchanged, and no
+            run is stopped.
         param_overrides:
             id:
                 description: The setup job id, from `aeo-setup-start`.
