@@ -38,7 +38,6 @@ import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { ContentAutopilotMentionResultTag } from './ContentAutopilotMentionResultTag'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
-import { ContentAutopilotPromptsActions } from './ContentAutopilotPromptsActions'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
@@ -226,7 +225,6 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 <PromptsFilterMenu />
                 <div className="ml-auto flex flex-wrap items-center gap-2">
                     <PromptLimitCount />
-                    <ContentAutopilotPromptsActions />
                 </div>
             </div>
             <Text size="xs" variant="muted" className="m-0 max-w-3xl">

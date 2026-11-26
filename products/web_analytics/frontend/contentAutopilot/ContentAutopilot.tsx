@@ -6,7 +6,6 @@ import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
-import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
@@ -75,6 +74,23 @@ export const ContentAutopilot = (): JSX.Element => {
                 </FilteredTab>
             ),
         },
+        // Settings belong to a site, so the tab waits until one is set up.
+        ...(profile
+            ? [
+                  {
+                      key: 'settings' as const,
+                      label: 'Settings',
+                      // pinned: was the settings gear's data-attr
+                      'data-attr': 'content-autopilot-settings',
+                      content: (
+                          <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
+                              <ContentAutopilotSitePicker />
+                              <ContentAutopilotSettings />
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
     ]
 
     return (
@@ -92,23 +108,11 @@ export const ContentAutopilot = (): JSX.Element => {
                 <ContentAutopilotSetup onboarding />
             ) : promptId ? (
                 <ContentAutopilotPromptDetail />
-            ) : workspaceTab === 'settings' && profile ? (
-                <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
-                    <ContentAutopilotPageHeader
-                        title="Settings"
-                        backLabel="Overview"
-                        backDataAttr="content-autopilot-settings-back"
-                        onBack={() => setWorkspaceTab('overview')}
-                    />
-                    <ContentAutopilotSitePicker />
-                    <ContentAutopilotSettings />
-                </div>
             ) : (
                 <ContentAutopilotWorkspaceTabs
                     tabs={tabs}
-                    activeKey={workspaceTab}
+                    activeKey={workspaceTab === 'settings' && !profile ? 'overview' : workspaceTab}
                     onChange={setWorkspaceTab}
-                    onOpenSettings={profile ? () => setWorkspaceTab('settings') : undefined}
                 />
             )}
             <ContentAutopilotPromptAddModal />

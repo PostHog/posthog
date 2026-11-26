@@ -1,25 +1,22 @@
-import { IconGear } from '@posthog/icons'
-import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
 
 import type { ContentAutopilotWorkspaceTab } from './contentAutopilotLogic'
 
 export interface ContentAutopilotWorkspaceTabDefinition {
-    key: Exclude<ContentAutopilotWorkspaceTab, 'settings'>
+    key: ContentAutopilotWorkspaceTab
     label: string
     content: JSX.Element
+    'data-attr'?: string
 }
 
 export const ContentAutopilotWorkspaceTabs = ({
     tabs,
     activeKey,
     onChange,
-    onOpenSettings,
 }: {
     tabs: ContentAutopilotWorkspaceTabDefinition[]
     activeKey: ContentAutopilotWorkspaceTab
     onChange: (tab: ContentAutopilotWorkspaceTab) => void
-    /** Absent until a site is set up, because settings belong to a site. */
-    onOpenSettings?: () => void
 }): JSX.Element => (
     <Tabs
         value={activeKey}
@@ -27,26 +24,14 @@ export const ContentAutopilotWorkspaceTabs = ({
         className="flex flex-col gap-4"
         data-attr="content-autopilot-workspace-tabs"
     >
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="overflow-x-auto">
             <TabsList variant="line">
-                {tabs.map(({ key, label }) => (
-                    <TabsTrigger key={key} value={key}>
+                {tabs.map(({ key, label, 'data-attr': dataAttr }) => (
+                    <TabsTrigger key={key} value={key} data-attr={dataAttr}>
                         {label}
                     </TabsTrigger>
                 ))}
             </TabsList>
-            {onOpenSettings ? (
-                <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={onOpenSettings}
-                    tooltip="Settings"
-                    aria-label="Settings"
-                    data-attr="content-autopilot-settings"
-                >
-                    <IconGear />
-                </Button>
-            ) : null}
         </div>
         {tabs.map(({ key, content }) => (
             <TabsContent key={key} value={key}>

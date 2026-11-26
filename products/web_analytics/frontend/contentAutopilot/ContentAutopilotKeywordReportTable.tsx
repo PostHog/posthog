@@ -14,7 +14,6 @@ import { GOOGLE_SEARCH_CONSOLE_DOCS_URL } from '../searchAndAi/searchAndAiQuerie
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCard } from './AiVisibilityCard'
 import { AiVisibilityTable } from './AiVisibilityTable'
-import { ContentAutopilotKeywordsActions } from './ContentAutopilotKeywordsActions'
 import { contentAutopilotKeywordSearchLogic } from './contentAutopilotKeywordSearchLogic'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import type { KeywordSearchImpressions } from './keywordSearchImpressions'
@@ -220,7 +219,7 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
     ]
 
     return (
-        <AiVisibilityCard title="How your keywords perform" actions={<ContentAutopilotKeywordsActions />}>
+        <AiVisibilityCard title="How your keywords perform">
             {reportError ? (
                 <AiVisibilityBanner
                     type="error"
