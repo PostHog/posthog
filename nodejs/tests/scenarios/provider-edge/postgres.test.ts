@@ -15,8 +15,8 @@ const CONNECTION_LOST = 'connection lost'
 
 const codeOf = (error: unknown): string => (error instanceof DatabaseError && error.code ? error.code : CONNECTION_LOST)
 
-const listening = async (server: net.Server): Promise<number> => {
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+const listening = async (server: net.Server, host = '127.0.0.1'): Promise<number> => {
+    await new Promise<void>((resolve) => server.listen(0, host, resolve))
     return (server.address() as net.AddressInfo).port
 }
 
@@ -77,6 +77,32 @@ describe('the edge in front of Cyclotron', () => {
 
     test('refuses to proxy a database URL whose query names its endpoint', async () => {
         await expect(edge.pgProxyOf(`${UPSTREAM}?host=127.0.0.2`)).rejects.toThrow('names host in its query')
+    })
+
+    test('reaches a database whose URL names an IPv6 address', async () => {
+        const target = new URL(UPSTREAM)
+        const forwarder = net.createServer((inbound) => {
+            const outbound = net.connect({ host: target.hostname, port: Number(target.port || 5432) })
+            inbound.pipe(outbound).pipe(inbound)
+            inbound.on('error', () => outbound.destroy())
+            outbound.on('error', () => inbound.destroy())
+        })
+        const literal = new URL(UPSTREAM)
+        literal.hostname = '[::1]'
+        literal.port = String(await listening(forwarder, '::1'))
+        const ipv6 = new Client({ connectionString: await edge.pgProxyOf(literal.toString()) })
+        ipv6.on('error', () => undefined)
+        try {
+            const answer = await ipv6
+                .connect()
+                .then(() => ipv6.query('SELECT 1 AS up'))
+                .then(({ rows }) => rows, codeOf)
+
+            expect(answer).toEqual([{ up: 1 }])
+        } finally {
+            await ipv6.end().catch(() => undefined)
+            forwarder.close()
+        }
     })
 
     test('marks the fault observed once a refusal reaches the client, and not when the connection closes first', async () => {

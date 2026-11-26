@@ -193,11 +193,15 @@ export async function startPgProxy(upstream: string, refusals: PgRefusals): Prom
         socket.once('close', () => sockets.delete(socket))
         return socket
     }
-    const proxy = net.createServer({ allowHalfOpen: true }, (client) => {
+    // A URL keeps an IPv6 address in brackets, which net would resolve as a hostname.
+    const host = target.hostname.replace(/^\[(.*)\]$/, '$1')
+    // A query arrives as several frames, each written on its own, and Nagle would hold each one until the peer acknowledged the last.
+    const proxy = net.createServer({ allowHalfOpen: true, noDelay: true }, (client) => {
         const server = net.connect({
-            host: target.hostname,
+            host,
             port: Number(target.port || DEFAULT_PORT),
             allowHalfOpen: true,
+            noDelay: true,
         })
         connect(track(client), track(server), refusals)
     })
