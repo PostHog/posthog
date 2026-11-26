@@ -40,6 +40,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 
 import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplatePicker } from 'products/workflows/frontend/TemplateLibrary/MessageTemplatePicker'
+import { MessageTemplatePickerFilters } from 'products/workflows/frontend/TemplateLibrary/MessageTemplatePickerFilters'
 
 import { AddHeaderFieldButton } from './AddHeaderFieldButton'
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
@@ -492,7 +493,14 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
     const { applyTemplate } = useActions(emailTemplaterLogic)
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="Choose a starting point" width={880}>
+        <LemonModal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Choose a starting point"
+            width={880}
+            // The description slot stays put while the list scrolls under it.
+            description={<MessageTemplatePickerFilters />}
+        >
             <MessageTemplatePicker
                 onBlank={onClose}
                 onPick={(template) => {

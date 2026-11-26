@@ -3,10 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
-import { TagSelect } from 'lib/components/TagSelect'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
 import { MessageTemplate } from './types'
@@ -19,43 +15,12 @@ export function MessageTemplatePicker({
     onPick: (template: MessageTemplate) => void
 }): JSX.Element {
     const logic = messageTemplatesLogic({ listKey: 'template-picker' })
-    const {
-        templates,
-        templatesLoading,
-        hasActiveFilters,
-        canLoadMoreTemplates,
-        moreTemplatesLoading,
-        search,
-        createdByFilter,
-        tagsFilter,
-    } = useValues(logic)
-    const { setSearch, setCreatedByFilter, setTagsFilter, loadMoreTemplates } = useActions(logic)
+    const { templates, templatesLoading, hasActiveFilters, canLoadMoreTemplates, moreTemplatesLoading } =
+        useValues(logic)
+    const { loadMoreTemplates } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="sticky top-0 z-10 flex flex-wrap gap-2 items-center pb-2 bg-surface-primary">
-                <LemonInput
-                    type="search"
-                    placeholder="Search templates"
-                    value={search}
-                    onChange={setSearch}
-                    className="flex-1 min-w-48"
-                    autoFocus
-                    data-attr="template-picker-search"
-                />
-                <MemberSelect
-                    defaultLabel="Any creator"
-                    value={createdByFilter}
-                    onChange={(user) => setCreatedByFilter(user?.id ?? null)}
-                />
-                <TagSelect
-                    size="small"
-                    defaultLabel="Any tags"
-                    value={tagsFilter}
-                    onChange={setTagsFilter}
-                    listDataAttr="template-picker-tags-filter-list"
-                />
-            </div>
             <div className="flex flex-wrap gap-3">
                 <LemonCard
                     className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
