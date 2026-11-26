@@ -2532,11 +2532,17 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_get_usage_data.assert_called_once()
 
-    @parameterized.expand([("limits_route", "/api/billing//"), ("list_route", "/api/billing/")])
+    @parameterized.expand(
+        [
+            ("limits_route", "/api/billing//", status.HTTP_403_FORBIDDEN),
+            ("list_route", "/api/billing/", status.HTTP_403_FORBIDDEN),
+            ("read_only_route", "/api/billing/period/", status.HTTP_405_METHOD_NOT_ALLOWED),
+        ]
+    )
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
     @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_rejects_admin_limit_update(
-        self, _name: str, url: str, _mock_feature_enabled, mock_update_billing
+        self, _name: str, url: str, expected_status: int, _mock_feature_enabled, mock_update_billing
     ):
         response = self.client.patch(
             url,
@@ -2544,7 +2550,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, expected_status)
         mock_update_billing.assert_not_called()
 
     def test_mutating_action_rejects_wildcard_personal_api_key(self):
