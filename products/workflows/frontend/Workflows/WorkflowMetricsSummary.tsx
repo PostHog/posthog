@@ -112,11 +112,13 @@ export function WorkflowMetricsSummary({
         }
         const sends = getSingleTrendSeries(sent, previous)
         const bounces = getSingleTrendSeries(bounced, previous)?.series[0]?.values ?? []
-        // Unclamped per bucket, so a bounce in a later bucket than its send nets out as in the table's total.
+        // Clamped on the total, not per bucket, so a bounce in a later bucket than its send nets out as in the table.
+        const values = sends?.series[0]?.values.map((v, i) => v - (bounces[i] ?? 0)) ?? []
+        const netDelivered = values.reduce((total, value) => total + value, 0)
         return (
             sends && {
                 ...sends,
-                series: [{ name: delivered, values: sends.series[0].values.map((v, i) => v - (bounces[i] ?? 0)) }],
+                series: [{ name: delivered, values: netDelivered > 0 ? values : values.map(() => 0) }],
             }
         )
     }
