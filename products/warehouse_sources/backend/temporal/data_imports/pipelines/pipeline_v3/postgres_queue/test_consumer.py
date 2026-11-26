@@ -16,6 +16,7 @@ from django.test import override_settings
 import psycopg
 import structlog
 
+from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLConnectionError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
@@ -533,7 +534,7 @@ class TestProcessSingle:
             # too, the same as the non-retryable branch already does.
             DestinationDeliveryError(
                 "Prod",
-                RuntimeError(
+                PostgreSQLConnectionError(
                     "Failed to connect after 5 attempts due to an unrecoverable error. "
                     "Please review connection configuration. Error message: connection failed: "
                     'connection to server at "203.0.113.5", port 5432 failed: '
@@ -547,7 +548,7 @@ class TestProcessSingle:
             # for..." message.
             DestinationDeliveryError(
                 "Prod",
-                RuntimeError(
+                PostgreSQLConnectionError(
                     "The database did not answer on the host and port given. Check the host and "
                     "port on the destination, and allow PostHog's IP addresses through your firewall."
                 ),
@@ -575,18 +576,35 @@ class TestProcessSingle:
         assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
         mock_capture.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A plain app-DB error, not wrapped at all.
+            DjangoOperationalError(
+                'connection to server at "10.0.0.5", port 5432 failed: server closed the connection unexpectedly'
+            ),
+            # deliver_batch_to_destinations wraps every exception it sees as a
+            # DestinationDeliveryError, including a Django ORM read against PostHog's own app
+            # DB (loading the destination's integration, the S3 writer's Team lookup, ...),
+            # not only a failed destination connect — the cause here is a plain
+            # django.db OperationalError, not PostgreSQLClient.connect's PostgreSQLConnectionError.
+            DestinationDeliveryError(
+                "Prod",
+                DjangoOperationalError(
+                    'connection to server at "10.0.0.5", port 5432 failed: server closed the connection unexpectedly'
+                ),
+            ),
+        ],
+        ids=["bare_app_db_error", "destination_delivery_error_wrapping_app_db_error"],
+    )
     @pytest.mark.asyncio
-    async def test_connection_drop_text_still_reported_when_not_a_destination_error(self):
-        # DESTINATION_CONNECT_EXHAUSTED_PATTERNS matches generic libpq wording that a plain
+    async def test_connection_drop_text_still_reported_when_not_a_destination_error(self, error: Exception):
+        # DESTINATION_CONNECT_EXHAUSTED_PATTERNS matches generic libpq wording that an
         # OperationalError against PostHog's own app DB or PgBouncer can carry too, not only a
-        # DestinationDeliveryError. That must still reach error tracking once retries exhaust.
+        # destination connect failure. That must still reach error tracking once retries exhaust.
         consumer = _make_consumer(max_attempts=2)
         batch = _make_batch(latest_attempt=1)
-        consumer._process_batch = AsyncMock(
-            side_effect=DjangoOperationalError(
-                'connection to server at "10.0.0.5", port 5432 failed: server closed the connection unexpectedly'
-            )
-        )
+        consumer._process_batch = AsyncMock(side_effect=error)
 
         with (
             patch(

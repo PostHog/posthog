@@ -23,6 +23,7 @@ from asgiref.sync import sync_to_async
 
 from posthog.exceptions_capture import capture_exception
 
+from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLConnectionError
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
     SYNC_DISABLED_JOB_ERROR,
@@ -1212,10 +1213,16 @@ class DeltaBatchConsumerAdapter:
         message = str(err)
         if any(pattern in message for pattern in EXPECTED_USER_ERROR_PATTERNS):
             return True
-        # Scoped to DestinationDeliveryError, not any exception: the same libpq wording can
-        # come from PostHog's own app DB or PgBouncer, which must still reach error tracking.
-        return isinstance(err, DestinationDeliveryError) and any(
-            pattern in message for pattern in DESTINATION_CONNECT_EXHAUSTED_PATTERNS
+        # DestinationDeliveryError wraps every exception deliver_batch_to_destinations sees,
+        # including a Django ORM read against PostHog's own app DB (loading the destination's
+        # integration, the S3 writer's Team lookup, ...), not only a failed destination connect.
+        # Those reads raise a plain django.db OperationalError, which can carry this same libpq
+        # wording and must still reach error tracking, so the cause must be the destination
+        # connect's own PostgreSQLConnectionError, not merely the wrapper type.
+        return (
+            isinstance(err, DestinationDeliveryError)
+            and isinstance(err.cause, PostgreSQLConnectionError)
+            and any(pattern in message for pattern in DESTINATION_CONNECT_EXHAUSTED_PATTERNS)
         )
 
     async def after_batch_processed(
