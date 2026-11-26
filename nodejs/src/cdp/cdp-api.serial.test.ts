@@ -1,6 +1,11 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
 import { createInMemoryJobQueue, createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
-import { kafkaRecordsOn, mockProducer, mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
+import {
+    kafkaRecordsOn,
+    mockKafkaClient,
+    mockProducer,
+    mockProducerObserver,
+} from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
@@ -5275,21 +5280,16 @@ describe('CDP API', () => {
             const stallSuppressionReads = () => {
                 const postgres = api['emailSuppressionService']['postgres']
                 const query = postgres.query.bind(postgres)
+                let reachedRead!: () => void
+                const reached = new Promise<void>((resolve) => (reachedRead = resolve))
                 const held: (() => void)[] = []
-                const waiting: { count: number; reached: () => void }[] = []
-                const reachedTimes = (count: number) =>
-                    new Promise<void>((reached) =>
-                        held.length >= count ? reached() : waiting.push({ count, reached })
-                    )
-                const reached = reachedTimes(1)
                 let holding = true
                 jest.spyOn(postgres, 'query').mockImplementation(((...args: Parameters<typeof query>) => {
                     if (!holding || !String(args[1]).includes('blocks_transactional')) {
                         return query(...args)
                     }
-                    const read = new Promise((resolve, reject) => held.push(() => query(...args).then(resolve, reject)))
-                    waiting.filter(({ count }) => held.length >= count).forEach(({ reached }) => reached())
-                    return read
+                    reachedRead()
+                    return new Promise((resolve, reject) => held.push(() => query(...args).then(resolve, reject)))
                 }) as typeof postgres.query)
                 const release = () => {
                     holding = false
@@ -5298,7 +5298,7 @@ describe('CDP API', () => {
                 releaseStalledReads = release
                 // Later reads go through while the held ones stay held.
                 const pass = () => (holding = false)
-                return { reached, reachedTimes, release, pass }
+                return { reached, release, pass }
             }
             let intakeRecords: () => Buffer[]
 
@@ -5825,12 +5825,15 @@ describe('CDP API', () => {
                         teamId,
                         flowId: (await insertHogFlow({ ...transactionalFlow('api', 'active'), team_id: teamId })).id,
                     })
+                    const ownTeam = { teamId: team.id, flowId: hogFlow.id }
                     const sameOrg = await flowOf(await createTeam(hub.postgres, team.organization_id))
                     const otherOrg = await flowOf(
                         await createTeam(hub.postgres, await createOrganization(hub.postgres))
                     )
-                    const { app: four } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 4 })
-                    served[served.length - 1].cdpApi['refusalDeadline'] = () => new Promise<void>(() => {})
+                    const { app: four } = await servedWith({
+                        CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 4,
+                        CDP_INTAKE_KAFKA_ASYNC_TEAMS: '*',
+                    })
                     const sendAs = ({ teamId, flowId }: { teamId: number; flowId: string }, to: string) =>
                         supertest(four)
                             .post(`/api/projects/${teamId}/hog_flows/${flowId}/${TEMPLATE}`)
@@ -5838,24 +5841,51 @@ describe('CDP API', () => {
                                 Authorization: `Bearer ${mintToken(teamId, flowId, { claims: { kind: kindOf(TEMPLATE) } })}`,
                             })
                             .send(batchOf(recipient(to)))
-                    const read = stallSuppressionReads()
-                    const fresh = () => `ada-${new UUIDT().toString()}@example.com`
+                            .then((answer) => answer)
+                    const intakeTopic = api['config'].CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC
+                    const deliver = mockKafkaClient.produce.getMockImplementation()!
+                    const heldDeliveries: (() => void)[] = []
+                    let reachedBoth!: () => void
+                    const bothAtBroker = new Promise<void>((resolve) => (reachedBoth = resolve))
+                    mockKafkaClient.produce.mockImplementation(((...args: Parameters<typeof deliver>) => {
+                        if (heldDeliveries.length >= 2 || args[0] !== intakeTopic) {
+                            return deliver(...args)
+                        }
+                        heldDeliveries.push(() => deliver(...args))
+                        if (heldDeliveries.length === 2) {
+                            reachedBoth()
+                        }
+                    }) as typeof deliver)
 
-                    const heldByTeam = sendAs({ teamId: team.id, flowId: hogFlow.id }, fresh()).then((answer) => answer)
-                    const heldBySameOrg = sendAs(sameOrg, fresh()).then((answer) => answer)
-                    await read.reachedTimes(2)
-                    read.pass()
-                    const thirdOfOrg = await sendAs(sameOrg, fresh())
-                    const ofOtherOrg = await sendAs(otherOrg, fresh())
-                    read.release()
-                    const held = await Promise.all([heldByTeam, heldBySameOrg])
+                    let thirdOfOrg: supertest.Response
+                    let ofOtherOrg: supertest.Response
+                    let held: supertest.Response[]
+                    try {
+                        const holders = Promise.all([
+                            sendAs(ownTeam, 'ada@example.com'),
+                            sendAs(sameOrg, 'bo@example.com'),
+                        ])
+                        await Promise.race([
+                            bothAtBroker,
+                            holders.then(() => Promise.reject(new Error('a held batch answered before its delivery'))),
+                        ])
+                        thirdOfOrg = await sendAs(sameOrg, 'cy@example.com')
+                        ofOtherOrg = await sendAs(otherOrg, 'di@example.com')
+                        heldDeliveries.forEach((release) => release())
+                        held = await holders
+                    } finally {
+                        mockKafkaClient.produce.mockImplementation(deliver)
+                    }
 
                     expect([thirdOfOrg.status, thirdOfOrg.body]).toEqual([503, { error: 'over_capacity' }])
                     expect([ofOtherOrg.status, ofOtherOrg.body.results]).toEqual([
                         200,
                         [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
                     ])
-                    expect(held.map(({ status }) => status)).toEqual([200, 200])
+                    expect(held.map(({ status, body }) => [status, body.results[0].status])).toEqual([
+                        [200, 202],
+                        [200, 202],
+                    ])
                 })
 
                 it.each([

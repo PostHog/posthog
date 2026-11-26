@@ -139,9 +139,14 @@ export const slotRequestOf = (batch: TransactionalEmailBatchRequest, recipient: 
 
 export const transactionalEmailBatchRequestsTotal = new Counter({
     name: 'cdp_transactional_email_batch_requests_total',
-    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod, or the team on this pod, already ran its share of batches), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
+    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod is full, the organization on this pod already runs its share of batches, or only the slots kept for organizations running none are left), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
     labelNames: ['outcome'],
 })
+
+export type BatchSlot = {
+    claimFor(organizationId: string): boolean
+    release(): void
+}
 
 export class BatchCapacity {
     private admitted = 0
@@ -154,20 +159,36 @@ export class BatchCapacity {
         this.reserved = Math.max(1, Math.floor(maxRequests / 4))
     }
 
-    admit(organizationId: string): (() => void) | null {
-        const held = this.admittedByOrganization.get(organizationId) ?? 0
-        if (
-            this.admitted >= this.maxRequests ||
-            held >= this.maxRequestsPerOrganization ||
-            (held > 0 && this.admitted >= this.maxRequests - this.reserved)
-        ) {
+    admit(): BatchSlot | null {
+        if (this.admitted >= this.maxRequests) {
             return null
         }
         this.admitted++
-        this.admittedByOrganization.set(organizationId, held + 1)
-        return () => {
-            this.admitted--
-            this.releaseFor(organizationId)
+        let claimedFor: string | null = null
+        let released = false
+        return {
+            claimFor: (organizationId) => {
+                const held = this.admittedByOrganization.get(organizationId) ?? 0
+                if (
+                    held >= this.maxRequestsPerOrganization ||
+                    (held > 0 && this.admitted > this.maxRequests - this.reserved)
+                ) {
+                    return false
+                }
+                this.admittedByOrganization.set(organizationId, held + 1)
+                claimedFor = organizationId
+                return true
+            },
+            release: () => {
+                if (released) {
+                    return
+                }
+                released = true
+                this.admitted--
+                if (claimedFor !== null) {
+                    this.releaseFor(claimedFor)
+                }
+            },
         }
     }
 

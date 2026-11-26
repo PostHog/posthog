@@ -13,17 +13,26 @@ import {
 
 describe('transactional email batch', () => {
     describe('BatchCapacity', () => {
+        const admitFor = (capacity: BatchCapacity, organizationId: string): (() => void) | null => {
+            const slot = capacity.admit()
+            if (slot?.claimFor(organizationId)) {
+                return slot.release
+            }
+            slot?.release()
+            return null
+        }
+
         it('refuses a request over the cap until an admitted one releases', () => {
             const capacity = new BatchCapacity(1)
-            const release = capacity.admit('org-a')
+            const release = admitFor(capacity, 'org-a')
 
             expect(release).not.toBeNull()
-            expect(capacity.admit('org-b')).toBeNull()
+            expect(admitFor(capacity, 'org-b')).toBeNull()
 
             release!()
 
-            expect(capacity.admit('org-b')).not.toBeNull()
-            expect(capacity.admit('org-a')).toBeNull()
+            expect(admitFor(capacity, 'org-b')).not.toBeNull()
+            expect(admitFor(capacity, 'org-a')).toBeNull()
         })
 
         it.each([
@@ -32,15 +41,15 @@ describe('transactional email batch', () => {
             [8, 4],
         ])('admits another organization while one holds its share of a cap of %i', (cap, share) => {
             const capacity = new BatchCapacity(cap)
-            const held = Array.from({ length: share }, () => capacity.admit('org-a'))
+            const held = Array.from({ length: share }, () => admitFor(capacity, 'org-a'))
 
             expect(held).not.toContain(null)
-            expect(capacity.admit('org-a')).toBeNull()
-            expect(capacity.admit('org-b')).not.toBeNull()
+            expect(admitFor(capacity, 'org-a')).toBeNull()
+            expect(admitFor(capacity, 'org-b')).not.toBeNull()
 
             held[0]!()
 
-            expect(capacity.admit('org-a')).not.toBeNull()
+            expect(admitFor(capacity, 'org-a')).not.toBeNull()
         })
 
         it.each([
@@ -50,13 +59,26 @@ describe('transactional email batch', () => {
         ])('keeps the last slots of a cap of %i for organizations holding none', (cap, reserve) => {
             const capacity = new BatchCapacity(cap)
             const share = Math.floor(cap / 2)
-            Array.from({ length: share }, () => capacity.admit('org-a'))
-            const heldByB = Array.from({ length: cap - share - reserve }, () => capacity.admit('org-b'))
+            Array.from({ length: share }, () => admitFor(capacity, 'org-a'))
+            const heldByB = Array.from({ length: cap - share - reserve }, () => admitFor(capacity, 'org-b'))
 
             expect(heldByB).not.toContain(null)
-            expect(capacity.admit('org-b')).toBeNull()
-            expect(Array.from({ length: reserve }, (_, i) => capacity.admit(`fresh-${i}`))).not.toContain(null)
-            expect(capacity.admit('fresh-last')).toBeNull()
+            expect(admitFor(capacity, 'org-b')).toBeNull()
+            expect(Array.from({ length: reserve }, (_, i) => admitFor(capacity, `fresh-${i}`))).not.toContain(null)
+            expect(admitFor(capacity, 'fresh-last')).toBeNull()
+        })
+
+        it('refuses a full pod before the organization is known, and frees a slot whose claim it refused', () => {
+            const capacity = new BatchCapacity(2)
+            const pending = capacity.admit()!
+
+            expect(admitFor(capacity, 'org-a')).not.toBeNull()
+            expect(capacity.admit()).toBeNull()
+            expect(pending.claimFor('org-a')).toBe(false)
+
+            pending.release()
+
+            expect(admitFor(capacity, 'org-b')).not.toBeNull()
         })
     })
 
