@@ -143,6 +143,8 @@ export interface RecommendationGroup {
     keepOnly: boolean
 }
 
+export const RECOMMENDATIONS_PAGE_SIZE = 20
+
 export function impactColumnTitle(keepOnly: boolean): string {
     return keepOnly ? 'Spend' : 'Impact'
 }

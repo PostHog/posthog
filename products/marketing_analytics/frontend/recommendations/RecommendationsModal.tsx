@@ -30,6 +30,7 @@ import {
     RECOMMENDATION_CATEGORY_LABELS,
     RECOMMENDATION_RULE_DESCRIPTIONS,
     RECOMMENDATION_RULE_LABELS,
+    RECOMMENDATIONS_PAGE_SIZE,
     RecommendationGroup,
     RecommendationTotal,
 } from './recommendations'
@@ -102,7 +103,7 @@ function RecommendationRows({
             size="small"
             dataSource={rows}
             rowKey={(row) => row.key}
-            pagination={{ pageSize: 20, hideOnSinglePage: true, useUrl: false }}
+            pagination={{ pageSize: RECOMMENDATIONS_PAGE_SIZE, hideOnSinglePage: true, useUrl: false }}
             expandable={{
                 expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} rule={row.rule} />,
                 rowExpandable: (row) => (row.steps?.length ? 1 : 0),
