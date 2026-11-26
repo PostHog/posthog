@@ -31,6 +31,7 @@ export type LoadedCard = {
 }
 
 export type LoadOptions = { profilePath?: string; target?: Target }
+export type ReadAlertFile = (file: string) => { path: string; sha256: string }
 
 export class CardError extends Error {
     constructor(
@@ -373,33 +374,40 @@ export function readProfile(file: string): ProfileRead {
     return 'profile' in read ? { ...read, dir: path.dirname(file) } : read
 }
 
-function checkAlerts({ alerts }: Profile, dir: string | undefined, target: Target): string[] {
+function checkAlerts({ alerts }: Profile, hasFiles: boolean, target: Target): string[] {
     if (alerts === undefined) {
         return []
     }
     if (target === 'dev') {
         return ['profile.alerts: the dev target exposes no role metrics to scrape, so only --target local runs alerts']
     }
-    return dir === undefined
+    return !hasFiles
         ? ['profile.alerts: a profile read from text has no directory to resolve its rules and label map against']
         : []
 }
 
-function alertsOf({ alerts }: Profile, dir: string | undefined): AlertsProfile | undefined {
-    return alerts && dir !== undefined
-        ? { ...alerts, rules: path.resolve(dir, alerts.rules), labels: path.resolve(dir, alerts.labels) }
-        : undefined
+function alertFileAt(dir: string): ReadAlertFile {
+    return (file) => {
+        const resolved = path.resolve(dir, file)
+        return { path: resolved, sha256: createHash('sha256').update(readFileSync(resolved)).digest('hex') }
+    }
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
     return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options.target)
 }
 
-export function loadText(label: string, { card, profile }: { card: string; profile: string }): LoadedCard {
+export function loadText(
+    label: string,
+    { card, profile }: { card: string; profile: string },
+    readAlertFile?: ReadAlertFile
+): LoadedCard {
     return check(
         label,
         parseYaml(() => card, 'card'),
-        () => profileOf(parseYaml(() => profile, 'profile'))
+        () => profileOf(parseYaml(() => profile, 'profile')),
+        'local',
+        readAlertFile
     )
 }
 
@@ -407,7 +415,8 @@ function check(
     cardPath: string,
     read: Read,
     profileFor: (card: Card) => ProfileRead,
-    target: Target = 'local'
+    target: Target = 'local',
+    readAlertFile?: ReadAlertFile
 ): LoadedCard {
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
@@ -418,6 +427,9 @@ function check(
     }
     const card = parsed.data
     const loaded = profileFor(card)
+    if ('dir' in loaded && loaded.dir !== undefined) {
+        readAlertFile ??= alertFileAt(loaded.dir)
+    }
     const defaults = getDefaultConfig() as unknown as Settings
     const derived = 'profile' in loaded ? loadTargetsOf(card, loaded.profile) : { problems: [] }
 
@@ -438,7 +450,7 @@ function check(
                   ...checkAcceptedBoundaryReplicas(card, loaded.profile),
                   ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
-                  ...checkAlerts(loaded.profile, loaded.dir, target),
+                  ...checkAlerts(loaded.profile, readAlertFile !== undefined, target),
               ]
             : loaded.problems),
     ]
@@ -446,12 +458,27 @@ function check(
         throw new CardError(cardPath, problems)
     }
 
-    const profileHash = sha256(loaded.profile)
+    let alerts: AlertsProfile | undefined
+    let profileHash = sha256(loaded.profile)
+    if (loaded.profile.alerts && readAlertFile) {
+        const files = loaded.profile.alerts
+        try {
+            const rules = readAlertFile(files.rules)
+            const labels = readAlertFile(files.labels)
+            alerts = { ...files, rules: rules.path, labels: labels.path }
+            profileHash = sha256({
+                profile: loaded.profile,
+                alertFiles: { rules: rules.sha256, labels: labels.sha256 },
+            })
+        } catch (error) {
+            throw new CardError(cardPath, [`profile.alerts: ${(error as Error).message}`])
+        }
+    }
     return {
         card,
         profile: loaded.profile,
         admission: { load: derived.load, host: loaded.profile.host },
-        alerts: alertsOf(loaded.profile, loaded.dir),
+        alerts,
         profileHash,
         cardHash: cardHashOf(card, profileHash),
     }

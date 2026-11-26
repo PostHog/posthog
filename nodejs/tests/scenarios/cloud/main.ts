@@ -50,7 +50,13 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
-    const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes)
+    const card = runCardOf(
+        controller.origin,
+        admission.admitted.commit,
+        cardId,
+        inputs.runner.bytes,
+        inputs.readAlertFile
+    )
     if (card.failsOver && idleMax === undefined) {
         throw new Error(`${cardId} fails the reader over, so the cloud profile needs readerAcu.idleMax.`)
     }

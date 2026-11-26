@@ -1,4 +1,5 @@
 import { loadText } from '../cards'
+import type { ReadAlertFile } from '../cards/load'
 import { pairProblemsOf } from '../runner/pair'
 import { Origin } from './admission'
 
@@ -16,7 +17,13 @@ export function isCardId(id: string): boolean {
     return CARD_ID.test(id)
 }
 
-export function runCardOf(origin: Origin, commit: string, id: string, runnerProfile: Buffer): RunCard {
+export function runCardOf(
+    origin: Origin,
+    commit: string,
+    id: string,
+    runnerProfile: Buffer,
+    readAlertFile: ReadAlertFile
+): RunCard {
     const file = `nodejs/tests/scenarios/cards/${id}.yaml at ${commit}`
     let yaml: string
     try {
@@ -24,7 +31,7 @@ export function runCardOf(origin: Origin, commit: string, id: string, runnerProf
     } catch (error) {
         throw new Error(`${id} is not a card at commit ${commit}: ${(error as Error).message}`)
     }
-    const loaded = loadText(file, { card: yaml, profile: runnerProfile.toString('utf8') })
+    const loaded = loadText(file, { card: yaml, profile: runnerProfile.toString('utf8') }, readAlertFile)
     const { card } = loaded
     const [problem] = card.pair ? pairProblemsOf(loaded, true) : []
     if (problem !== undefined) {

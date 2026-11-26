@@ -810,13 +810,28 @@ describe('load', () => {
     })
 
     it("finds a profile's alert files next to the profile, wherever the runner starts", () => {
-        const alerts = { rules: 'alerts/rules.yaml', labels: '../labels.yaml', exclude: ['SyntheticLeftOut'] }
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml', exclude: ['SyntheticLeftOut'] }
+        write(alerts.rules, 'groups: []\n')
+        write(alerts.labels, 'labels: {}\n')
 
         expect(loadCard(card, { ...profile, alerts }).alerts).toEqual({
-            rules: path.join(dir, 'alerts', 'rules.yaml'),
-            labels: path.join(path.dirname(dir), 'labels.yaml'),
+            rules: path.join(dir, alerts.rules),
+            labels: path.join(dir, alerts.labels),
             exclude: ['SyntheticLeftOut'],
         })
+    })
+
+    it.each(['rules', 'labels'] as const)('changes the profile hash when the alert %s file changes', (kind) => {
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml' }
+        write(alerts.rules, 'groups: []\n')
+        write(alerts.labels, 'labels: {}\n')
+        const before = loadCard(card, { ...profile, alerts })
+
+        write(alerts[kind], kind === 'rules' ? 'groups: []\n\n' : 'labels: { stage: test }\n')
+        const after = loadCard(card, { ...profile, alerts })
+
+        expect(after.profileHash).not.toBe(before.profileHash)
+        expect(after.cardHash).not.toBe(before.cardHash)
     })
 
     it('refuses an alerts profile on the dev target, and one read from text with no directory for its files', () => {

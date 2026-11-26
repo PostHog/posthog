@@ -1,9 +1,10 @@
 import { createHash } from 'crypto'
-import { readFileSync } from 'fs'
+import { readFileSync, realpathSync, statSync } from 'fs'
 import path from 'path'
 import { parse } from 'yaml'
 import { z } from 'zod'
 
+import type { ReadAlertFile } from '../cards/load'
 import { Duration } from '../duration'
 import { RunCard } from './card'
 
@@ -133,7 +134,12 @@ export type CloudProfile = z.infer<typeof CloudProfile>
 
 export type InputFile = { file: string; bytes: Buffer; sha256: string }
 
-export type ProfileInputs = { profile: CloudProfile; runner: InputFile; inputs: InputFile[] }
+export type ProfileInputs = {
+    profile: CloudProfile
+    runner: InputFile
+    inputs: InputFile[]
+    readAlertFile: ReadAlertFile
+}
 
 export type RunInputs = ProfileInputs & { card: RunCard }
 
@@ -178,6 +184,23 @@ export function loadCloudProfile(filePath: string): CloudProfile {
 export function loadRunInputs(filePath: string): ProfileInputs {
     const cloud = readInput('cloud-profile.yaml', filePath)
     const profile = parseCloudProfile(filePath, cloud)
-    const runner = readInput('runner-profile.yaml', path.resolve(path.dirname(filePath), profile.runnerProfile))
-    return { profile, runner, inputs: [cloud, runner] }
+    const dir = realpathSync(path.dirname(filePath))
+    const runner = readInput('runner-profile.yaml', path.join(dir, profile.runnerProfile))
+    const inputs = [cloud, runner]
+    const readAlertFile: ReadAlertFile = (file) => {
+        if (!/^alerts\/[\w-][\w.-]*\.ya?ml$/.test(file)) {
+            throw new Error('Alert files must be YAML files in the alerts directory beside the runner profile.')
+        }
+        const resolved = path.join(dir, file)
+        let input = inputs.find((input) => input.file === file)
+        if (!input) {
+            if (realpathSync(resolved) !== resolved || !statSync(resolved).isFile()) {
+                throw new Error('Alert files must be regular files in the alerts directory beside the runner profile.')
+            }
+            input = readInput(file, resolved)
+            inputs.push(input)
+        }
+        return { path: resolved, sha256: input.sha256 }
+    }
+    return { profile, runner, inputs, readAlertFile }
 }
