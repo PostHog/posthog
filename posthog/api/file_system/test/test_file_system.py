@@ -582,8 +582,8 @@ class TestFileSystemAPI(APIBaseTest):
 
         self.assertEqual([item["id"] for item in recents["results"]], [str(entry.id)])
 
-    def test_log_view_list_skips_views_of_retired_types(self) -> None:
-        _folder, retired = self._create_retired_row_in_folder()
+    @parameterized.expand([("link",), ("hog_flow",), ("message_template",)])
+    def test_log_view_list_skips_views_of_hidden_types(self, hidden_type: str) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
         entry = FileSystem.objects.create(
             team=self.team, path="Viewed earlier", type="dashboard", ref=str(dashboard.id), created_by=self.user
@@ -592,12 +592,21 @@ class TestFileSystemAPI(APIBaseTest):
         self.client.post(
             f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
         )
-        self.client.post(f"{base}/log_view/", {"type": "link", "ref": retired.ref, "viewed_at": "2026-09-02T00:00:00Z"})
+        visible_view = FileSystemViewLog.objects.get(team=self.team, type="dashboard")
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type=hidden_type,
+            ref="0190a1b2-0000-7000-8000-000000000002",
+            surface=visible_view.surface,
+            viewed_at=visible_view.viewed_at + timedelta(days=1),
+        )
 
-        response = self.client.get(f"{base}/log_view/")
+        responses = [self.client.get(f"{base}/log_view/"), self.client.get(f"{base}/log_view/?limit=1")]
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual([item["ref"] for item in response.json()], [entry.ref])
+        for response in responses:
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            self.assertEqual([item["ref"] for item in response.json()], [entry.ref])
 
     @parameterized.expand([("hog_flow",), ("message_template",)])
     def test_log_view_refuses_types_the_tree_no_longer_files(self, file_type: str) -> None:
