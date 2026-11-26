@@ -385,7 +385,7 @@ def _date_cells(worksheet: gspread.Worksheet, grid: list[list[str]]) -> dict[_Ce
         return {}
 
 
-def _as_utc_date_time(value: datetime.date, time_zone: datetime.tzinfo) -> datetime.datetime:
+def _as_utc_date_time(value: datetime.date | datetime.datetime, time_zone: datetime.tzinfo) -> datetime.datetime:
     if not isinstance(value, datetime.datetime):
         value = datetime.datetime.combine(value, datetime.time.min)
     return value.replace(tzinfo=time_zone).astimezone(datetime.UTC)
