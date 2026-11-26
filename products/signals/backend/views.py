@@ -362,6 +362,7 @@ from products.signals.backend.serializers import (
     SignalReportCheckSerializer,
     SignalReportClaimSerializer,
     SignalReportFilterQuerySerializer,
+    SignalReportForYouCountSerializer,
     SignalReportLeaveReviewersSerializer,
     SignalReportListQuerySerializer,
     SignalReportListSerializer,
@@ -465,6 +466,7 @@ tracer = trace.get_tracer(__name__)
 
 AVAILABLE_REVIEWERS_LIMIT = 100
 PR_GITHUB_CACHE_SECONDS = 15
+FOR_YOU_COUNT_CACHE_SECONDS = 5 * 60
 _PULL_REQUEST_ID_PARAMETER = OpenApiParameter(
     "pull_request_id",
     OpenApiTypes.UUID,
@@ -2492,6 +2494,32 @@ class SignalReportViewSet(
         )
         return Response(SignalReportSectionCountsSerializer(counts).data)
 
+    @validated_request(
+        responses={200: SignalReportForYouCountSerializer},
+        description=(
+            "Count the reports in the requesting person's own inbox: the total a list request with "
+            "`view=for_you` returns. The count is cached for each person for a few minutes, so a client "
+            "can read it at the start of every session. Takes no parameters."
+        ),
+    )
+    @action(detail=False, methods=["get"], required_scopes=["inbox:read"], pagination_class=None)
+    @tracer.start_as_current_span("signals.reports.for_you_count")
+    def for_you_count(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if trial_store_for_request(request, self.team_id) is not None:
+            raise exceptions.PermissionDenied("Private scout trials cannot read the personal inbox count.")
+        if request.query_params:
+            # The list's filters read the query string, and a filtered total would be cached as the person's count.
+            raise serializers.ValidationError(
+                dict.fromkeys(sorted(request.query_params), "The personal inbox count takes no parameters.")
+            )
+        cache_key = f"signals:reports:for-you-count:{self.team_id}:{cast(User, request.user).id}"
+        count = cache.get(cache_key)
+        trace.get_current_span().set_attribute("signals.reports.for_you_count.cache_hit", count is not None)
+        if count is None:
+            count = self.filter_queryset(self.get_queryset()).order_by().count()
+            cache.set(cache_key, count, timeout=FOR_YOU_COUNT_CACHE_SECONDS)
+        return Response(SignalReportForYouCountSerializer({"count": count}).data)
+
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
     @action(detail=False, methods=["post"], required_scopes=["inbox:read"])
     def read_state(self, request, **kwargs):
@@ -2594,7 +2622,7 @@ class SignalReportViewSet(
         if self.action in {"list", "section_counts"}:
             qs = self._apply_signal_report_ranking_filters(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
-        if self.action not in {"bulk_state", "bulk_claim", "section_counts"}:
+        if self.action not in {"bulk_state", "bulk_claim", "section_counts", "for_you_count"}:
             # `bulk_state` and `bulk_claim` answer with one outcome per id, never a serialized report, and
             # the list ordering that reads this value does not apply to them either.
             qs = self._annotate_is_suggested_reviewer(qs)
@@ -2660,7 +2688,7 @@ class SignalReportViewSet(
     }
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "bulk_claim", "section_counts"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "bulk_claim", "section_counts", "for_you_count"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -2791,7 +2819,7 @@ class SignalReportViewSet(
     def _apply_signal_report_listed_filter(self, queryset):
         # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
         if (
-            self.action not in {"list", "section_counts", "search"}
+            self.action not in {"list", "section_counts", "for_you_count", "search"}
             or self._bool_query_param("include_unlisted") is True
             or self._plan_step_order is not None
         ):
@@ -3147,7 +3175,7 @@ class SignalReportViewSet(
         return queryset.filter(latest_already_addressed=already_addressed)
 
     def _apply_signal_report_inbox_view_filter(self, queryset):
-        inbox_view = self.request.query_params.get("view")
+        inbox_view = "for_you" if self.action == "for_you_count" else self.request.query_params.get("view")
         if not inbox_view:
             return queryset
         if inbox_view not in self._INBOX_VIEWS:

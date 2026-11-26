@@ -124,6 +124,7 @@ import type {
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
     SignalReportFeedbackStateApi,
+    SignalReportForYouCountApi,
     SignalReportLeaveReviewersApi,
     SignalReportMergeRequestApi,
     SignalReportMergeResponseApi,
@@ -1868,6 +1869,23 @@ export const signalsReportsForMeRetrieve = async (
     options?: RequestInit
 ): Promise<PersonalRankingApi> => {
     return apiMutator<PersonalRankingApi>(getSignalsReportsForMeRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsForYouCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/for_you_count/`
+}
+
+/**
+ * Count the reports in the requesting person's own inbox: the total a list request with `view=for_you` returns. The count is cached for each person for a few minutes, so a client can read it at the start of every session. Takes no parameters.
+ */
+export const signalsReportsForYouCountRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalReportForYouCountApi> => {
+    return apiMutator<SignalReportForYouCountApi>(getSignalsReportsForYouCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

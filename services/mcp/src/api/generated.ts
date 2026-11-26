@@ -121317,6 +121317,11 @@ export namespace Schemas {
       note: string;
     }
 
+    export interface SignalReportForYouCount {
+      /** Reports in the requesting person's own inbox: the total a list request with `view=for_you` returns. Cached for a few minutes, so it can trail the list. */
+      count: number;
+    }
+
     export interface SignalReportLeaveReviewers {
       /** Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.
        *

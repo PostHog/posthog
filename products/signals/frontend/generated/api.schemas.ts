@@ -8573,6 +8573,11 @@ export interface PersonalRankingApi {
     folded: PersonalRankingFoldApi[]
 }
 
+export interface SignalReportForYouCountApi {
+    /** Reports in the requesting person's own inbox: the total a list request with `view=for_you` returns. Cached for a few minutes, so it can trail the list. */
+    count: number
+}
+
 /**
  * * `passing` - Passing
  * * `failing` - Failing
