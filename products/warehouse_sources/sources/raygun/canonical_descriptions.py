@@ -15,6 +15,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "rumDataType": "The type of real user monitoring data the application collects.",
         },
     },
+    "teams": {
+        "description": "A team of users in the Raygun account.",
+        "docs_url": "https://api.raygun.com/v3/swagger",
+        "columns": {
+            "identifier": "Unique identifier for the team.",
+            "name": "Display name of the team.",
+            "planIdentifier": "Identifier of the Raygun plan the team belongs to.",
+            "isSystemManaged": "Whether the team is a system team (Owners or Users), which cannot be deleted.",
+        },
+    },
     "error_groups": {
         "description": "A group of error instances sharing the same root cause within an application.",
         "docs_url": "https://raygun.com/documentation/product-guides/apis/rest-api/",

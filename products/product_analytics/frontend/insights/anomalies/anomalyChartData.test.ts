@@ -1,14 +1,28 @@
+import type { AnomalySeriesPointApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { anomalyAxisTickFormatter, anomalyChartData } from './anomalyChartData'
+
+function point(
+    bucket_start: string,
+    value: number,
+    flag: boolean,
+    verdict: Partial<AnomalySeriesPointApi> = {}
+): AnomalySeriesPointApi {
+    return { bucket_start, value, flag, anomaly_kind: null, anomaly_reason: null, ...verdict }
+}
 
 describe('anomalyChartData', () => {
     it('charts from the chart window to the last checked bucket and splits the flags at the flag window', () => {
         const data = anomalyChartData(
             { interval: 'day', scored_through: '2026-11-05T00:00:00+00:00' },
             [
-                { bucket_start: '2026-11-01T00:00:00+00:00', value: 5, flag: true },
-                { bucket_start: '2026-11-02T00:00:00+00:00', value: 6, flag: false },
-                { bucket_start: '2026-11-04T00:00:00+00:00', value: 40, flag: true },
-                { bucket_start: '2026-11-05T00:00:00+00:00', value: 7, flag: false },
+                point('2026-11-01T00:00:00+00:00', 5, true),
+                point('2026-11-02T00:00:00+00:00', 6, false),
+                point('2026-11-04T00:00:00+00:00', 40, true, {
+                    anomaly_kind: 'spike',
+                    anomaly_reason: 'Far above usual.',
+                }),
+                point('2026-11-05T00:00:00+00:00', 7, false),
             ],
             {
                 chartFrom: '2026-10-30T12:00:00+00:00',
@@ -20,6 +34,14 @@ describe('anomalyChartData', () => {
 
         expect(data?.labels[0]).toEqual('2026-10-31T00:00:00Z')
         expect(data?.values).toEqual([NaN, 5, 6, NaN, 40, 7])
+        expect(data?.verdicts).toEqual([
+            null,
+            null,
+            null,
+            null,
+            { anomaly_kind: 'spike', anomaly_reason: 'Far above usual.' },
+            null,
+        ])
         expect(data?.earlierFlaggedIndices).toEqual([1])
         expect(data?.flaggedIndices).toEqual([4])
         expect(data?.flagWindowStartIndex).toEqual(4)
@@ -30,9 +52,9 @@ describe('anomalyChartData', () => {
         const data = anomalyChartData(
             { interval: 'day', scored_through: '2026-11-03T00:00:00-05:00' },
             [
-                { bucket_start: '2026-10-31T00:00:00-04:00', value: 1, flag: false },
-                { bucket_start: '2026-11-01T00:00:00-04:00', value: 2, flag: true },
-                { bucket_start: '2026-11-03T00:00:00-05:00', value: 3, flag: false },
+                point('2026-10-31T00:00:00-04:00', 1, false),
+                point('2026-11-01T00:00:00-04:00', 2, true),
+                point('2026-11-03T00:00:00-05:00', 3, false),
             ],
             {
                 chartFrom: '2026-10-31T00:00:00-04:00',

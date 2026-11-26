@@ -276,6 +276,39 @@ describe('todayShellLogic', () => {
         }
     )
 
+    test.each([
+        ['/project/1/inbox', 'home', 'products'],
+        ['/project/1/inbox/reports', 'home', 'products'],
+        ['/project/1/inbox/reports/0190-report', 'home', 'products'],
+        ['/project/1/inbox/reports/triage', 'home', 'products'],
+        ['/project/1/inbox/monitoring', 'home', 'products'],
+        ['/project/1/pulse', 'home', 'products'],
+        ['/project/1/inbox/sources', 'data', 'products'],
+        ['/project/1/inbox/scouts', 'automate', 'automate'],
+        ['/project/1/inbox/settings', 'home', 'products'],
+        ['/project/1/inboxes', null, null],
+    ])('puts %s under %s with today-home-pane on, and under %s with it off', (pathname, pane, paneWithoutHome) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.DATA_AREA]: true }
+        expect(railPaneForPath(pathname, { ...flags, [FEATURE_FLAGS.TODAY_HOME_PANE]: true })).toBe(pane)
+        expect(railPaneForPath(pathname, flags)).toBe(paneWithoutHome)
+    })
+
+    test.each([
+        ['products', '/project/1/inbox/reports', 'products'],
+        ['products', '/project/1/home', 'home'],
+        ['home', '/project/1/inbox/settings', 'home'],
+        ['analytics', '/project/1/inbox/settings', 'home'],
+    ] as const)('with today-home-pane on, the %s pane open on %s shows the %s pane', (openPane, pathname, pane) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.TODAY_HOME_PANE]: true }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane(openPane)
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
     test.each([true, false])('with monitor-area %s, Error tracking opened from Products keeps Products', (enabled) => {
         const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }
         featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
@@ -338,20 +371,32 @@ describe('todayShellLogic', () => {
         }
     )
 
-    it('never shows a sidebar on Home, so the page takes the full width', () => {
-        const logic = todayShellLogic()
-        logic.mount()
+    test.each([
+        [false, false, TODAY_RAIL_WIDTH],
+        [true, true, TODAY_RAIL_WIDTH + 300],
+    ])(
+        'with today-home-pane %s, a Home rail click opens the Today page and shows the sidebar: %s',
+        (homePane, sidebarVisible, leftNavWidth) => {
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.TODAY_HOME_PANE]: homePane }
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            const logic = todayShellLogic()
+            logic.mount()
 
-        logic.actions.setSidebarOpen(true)
-        logic.actions.setSidebarWidth(300)
-        logic.actions.clickRailPane('home')
-        expect(logic.values.sidebarVisible).toBe(false)
-        expect(logic.values.sidebarBreadcrumbShown).toBe(false)
-        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+            logic.actions.pickPane('products')
+            router.actions.push('/project/1/airplane')
+            logic.actions.setSidebarOpen(true)
+            logic.actions.setSidebarWidth(300)
+            logic.actions.clickRailPane('home')
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.projectHomepage())
+            expect(logic.values.activePane).toBe('home')
+            expect(logic.values.sidebarVisible).toBe(sidebarVisible)
+            expect(logic.values.sidebarBreadcrumbShown).toBe(false)
+            expect(logic.values.leftNavWidth).toBe(leftNavWidth)
 
-        logic.actions.clickRailPane('products')
-        expect(logic.values.sidebarVisible).toBe(true)
-    })
+            logic.actions.clickRailPane('products')
+            expect(logic.values.sidebarVisible).toBe(true)
+        }
+    )
 
     it('keeps the last pane open on pages that belong to no pane', () => {
         const logic = todayShellLogic()

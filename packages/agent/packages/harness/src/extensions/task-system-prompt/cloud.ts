@@ -10,6 +10,10 @@ import {
   type StoreSkillsListing,
 } from "../skills-store";
 import {
+  SECURITY_FIX_PUBLISH_EXCEPTION,
+  SECURITY_FIX_PUBLISH_REMINDER,
+} from "./security-fix";
+import {
   buildTaskSummaryInstructions,
   TASK_SUMMARY_TOOL_NAME,
 } from "./task-summary";
@@ -66,7 +70,8 @@ export class CloudTaskPrompt {
       `Unless the user explicitly asks for a new branch or separate PR, you MUST:\n` +
       `1. ${this.buildExistingPrCheckoutInstruction(prUrl)}\n` +
       `2. Make changes, commit, and push to that branch\n` +
-      `By default, do not create a new branch, close the existing PR, or create a new PR — continue on the existing PR. If the user explicitly asks you to create a new branch or a separate PR, follow their instruction instead.`
+      `By default, do not create a new branch, close the existing PR, or create a new PR — continue on the existing PR. If the user explicitly asks you to create a new branch or a separate PR, follow their instruction instead.` +
+      `\n${SECURITY_FIX_PUBLISH_REMINDER}`
     );
   }
 
@@ -88,7 +93,8 @@ export class CloudTaskPrompt {
       "Unless the user explicitly asks for a new branch or separate merge request, you MUST:\n" +
       `1. ${this.buildExistingPrCheckoutInstruction(mrUrl)}\n` +
       "2. Make changes, commit, and push to that branch\n" +
-      "Do not create a new branch, close the existing merge request, or create a new one unless the user explicitly asks."
+      "Do not create a new branch, close the existing merge request, or create a new one unless the user explicitly asks." +
+      `\n${SECURITY_FIX_PUBLISH_REMINDER}`
     );
   }
 
@@ -141,6 +147,7 @@ After completing the requested changes:
 
 Important:
 - Do NOT create a new branch or a new merge request unless the user explicitly asks.
+${SECURITY_FIX_PUBLISH_EXCEPTION}
 ${common}
 `;
     }
@@ -161,7 +168,8 @@ If this same request already has an open merge request (for example, an earlier 
 Otherwise, after completing the requested changes, ${openMr}
 
 Important:
-- Always open the merge request as a draft. Do not ask for confirmation.
+- Always open the merge request as a draft. Do not ask for confirmation, except for a security fix.
+${SECURITY_FIX_PUBLISH_EXCEPTION}
 ${common}
 `;
   }
@@ -384,6 +392,7 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
+${SECURITY_FIX_PUBLISH_EXCEPTION}
 ${commonInstructions}
 `;
     }
@@ -415,7 +424,8 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
-- Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes`
+- Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes, except for a security fix.
+${SECURITY_FIX_PUBLISH_EXCEPTION}`
             : `
 When the user explicitly asks for code changes in a GitHub repository:
 - If the user explicitly asks you to open or update a pull request, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone. Before opening the PR, check the cloned repo for a default PR template at \`.github/pull_request_template.md\` (or variants) and named templates in \`.github/PULL_REQUEST_TEMPLATE/*.md\`. If multiple templates exist, use the one that best matches the change as the body structure. If no repo-level template exists, check the org's \`.github\` repo via \`gh api\` for a default or named template. Search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
@@ -500,7 +510,8 @@ ${prFooter}
 \`\`\`
 
 Important:
-- Always create the PR as a draft. Do not ask for confirmation.
+- Always create the PR as a draft. Do not ask for confirmation, except for a security fix.
+${SECURITY_FIX_PUBLISH_EXCEPTION}
 ${commonInstructions}
 `;
   }

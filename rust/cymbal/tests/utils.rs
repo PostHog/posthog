@@ -25,7 +25,6 @@ use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolu
 
 use async_trait::async_trait;
 use mockall::mock;
-use rdkafka::message::ToBytes;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -63,20 +62,10 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     s3_client: Arc<MockS3Client>,
     configure: impl FnOnce(&mut ProcessingConfig),
 ) -> (StatusCode, T) {
-    let ctx = build_context(db, storage_bucket, s3_client, configure).await;
-
-    let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
-
-    let status = res.status();
-
-    let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
-        .await
-        .unwrap();
-
-    let body_string = String::from_utf8(body_bytes.to_vec()).unwrap();
-
-    // Deserialize the JSON into your struct
-    let body: T = serde_json::from_slice(body_bytes.to_bytes())
+    let (status, body_string) =
+        get_raw_response_with_config(db, storage_bucket, request_factory, s3_client, configure)
+            .await;
+    let body: T = serde_json::from_str(&body_string)
         .unwrap_or_else(|e| panic!("Failed to deserialize response: {e} {body_string}"));
     (status, body)
 }
@@ -159,7 +148,18 @@ pub(crate) async fn get_raw_response(
     request_factory: impl Fn() -> Request<Body>,
     s3_client: Arc<MockS3Client>,
 ) -> (StatusCode, String) {
-    let ctx = build_context(db, storage_bucket, s3_client, |_| {}).await;
+    get_raw_response_with_config(db, storage_bucket, request_factory, s3_client, |_| {}).await
+}
+
+#[allow(dead_code)]
+pub(crate) async fn get_raw_response_with_config(
+    db: PgPool,
+    storage_bucket: String,
+    request_factory: impl Fn() -> Request<Body>,
+    s3_client: Arc<MockS3Client>,
+    configure: impl FnOnce(&mut ProcessingConfig),
+) -> (StatusCode, String) {
+    let ctx = build_context(db, storage_bucket, s3_client, configure).await;
 
     let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
 

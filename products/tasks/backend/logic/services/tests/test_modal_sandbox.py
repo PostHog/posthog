@@ -3176,12 +3176,12 @@ class TestSessionInitProbeHosts:
         assert "ai-gateway.dev.posthog.dev" in hosts
 
     @override_settings(
-        SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com",
+        SANDBOX_LLM_GATEWAY_URL="https://api.anthropic.com",
         SANDBOX_AI_GATEWAY_URL=None,
     )
     def test_deduplicates_against_static_hosts_and_skips_unset(self):
         hosts = _session_init_probe_hosts()
-        assert hosts.count("gateway.us.posthog.com") == 1
+        assert hosts.count("api.anthropic.com") == 1
 
 
 def _socks_rate_limit() -> Exception:

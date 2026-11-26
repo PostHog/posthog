@@ -52,7 +52,7 @@ Config shape has one SSOT; UI metadata stays hand-written.
 | Runtime validation         | `backend/widget_specs/registry.py` (`validate_widget_config`)         | Derived                                                                                        |
 | Registry manifest          | `backend/widget_specs/registry.py` → `EXPECTED_WIDGET_TYPES`          | Per-type `WidgetSpec` entry                                                                    |
 | Agent catalog              | `backend/widget_catalog.py` (derived from `WIDGET_SPECS`)             | Labels in `registry.py`; `config_schema` = `model_json_schema()`                               |
-| OpenAPI config             | `backend/widget_specs/openapi.py`                                     | Stub DRF serializers + Pydantic `model_json_schema()` via `pydantic_openapi.py` postprocessing |
+| OpenAPI config             | `backend/presentation/widget_openapi_serializers.py`                  | Stub DRF serializers + Pydantic `model_json_schema()` via `presentation/pydantic_openapi.py`   |
 | FE config Zod              | `frontend/generated/widget-configs.zod.ts` + `widget-config-schemas/` | Codegen — `hogli build:widget-types` (Orval `generateReusableSchemas`)                         |
 | FE config property keys    | `frontend/generated/widget-config-property-keys.json`                 | Codegen — `generate-widget-config-zod.mjs` (parity tests)                                      |
 | Widget date presets        | `frontend/generated/widget-date-from-options.json`                    | Codegen — `scripts/build_widget_types.py` (`constants.py` values + labels)                     |

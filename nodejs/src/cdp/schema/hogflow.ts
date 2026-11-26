@@ -258,6 +258,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             // of the body, events keep no subject, clicked links keep only their origin, and the run
             // snapshot keeps no variables.
             sensitive: z.boolean().optional(),
+            click_tracking_enabled: z.boolean().optional(),
             // When true, links get utm_source, utm_medium and utm_campaign tags they don't already carry.
             utm_tags_enabled: z.boolean().optional(),
             // When false, tracked links in this email don't get the run id that connects a click to the

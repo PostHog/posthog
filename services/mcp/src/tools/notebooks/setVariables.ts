@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -26,7 +27,7 @@ export interface SetVariablesResult {
 }
 
 function sameDeclaration(a: Schemas.NotebookVariable | undefined, b: Schemas.NotebookVariable | undefined): boolean {
-    return !!a && !!b && a.type === b.type && (a.value ?? null) === (b.value ?? null)
+    return !!a && !!b && a.type === b.type && isDeepStrictEqual(a.value ?? null, b.value ?? null)
 }
 
 /** Names whose declaration differs between the two lists: added, removed, retyped, or given a new value. */

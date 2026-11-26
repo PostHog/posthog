@@ -14,7 +14,7 @@
 
 # team-security's required reviews are not in this file. The `master` branch ruleset requires
 # them (Settings > Rules > Rulesets > master), so an edit to this file cannot remove them. They
-# cover the CI security scans, the pull_request_target workflows and their scripts, the
+# cover the CI security scans, the pull_request_target workflows, the
 # authentication code, the Content Security Policy and the dev sandbox.
 
 /.github/CODEOWNERS @PostHog/team-devex
@@ -44,6 +44,14 @@ packages/owners-yaml/** @PostHog/team-devex
 /posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt @PostHog/team-devex
 /posthog/management/migration_analysis/atomic_false_acknowledged_migrations.txt @PostHog/team-devex
 /.github/scripts/migration-deletion-allowlist.txt @PostHog/team-devex
+
+# The scripts that the auto-assign-reviewers and auto-assign-labels workflows run on their
+# pull_request_target events, with a token that can write to the PR. They read data that a
+# fork PR controls, such as the title and the changed paths. DevEx maintains them and reviews
+# them with that risk in mind.
+.github/scripts/assign-reviewers.js @PostHog/team-devex
+.github/scripts/codeowners.js @PostHog/team-devex
+.github/scripts/label-pr-from-title.js @PostHog/team-devex
 
 # Ingestion team owns persons migrations
 rust/persons_migrations/** @PostHog/team-ingestion
@@ -84,10 +92,3 @@ docs/internal/ci-things-already-tried.md @PostHog/team-devex
 .github/workflows/pr-rebuild-notify.yml @PostHog/team-devex
 .github/scripts/mobile-rebuild.mjs @PostHog/team-devex
 .github/scripts/mobile-rebuild.test.mjs @PostHog/team-devex
-
-# The hog release approver check decides who may approve a release of the signed hog CLI, and the
-# release workflow is what runs it. The workflow runs the checker as the last release tag has it, so a
-# weakened copy merged here would govern every later release. Both files need a review from the team
-# that owns hog.
-hog/release/check-approvers.sh @PostHog/team-growth
-.github/workflows/release-hog.yml @PostHog/team-growth

@@ -90,12 +90,10 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
                 shouldProcessPerson && routingConfig.pipelineWritesPersons
                     ? true
                     : routingConfig.preservePartitionLocality
-            return redirect(
-                'Event redirected to overflow due to force overflow restrictions',
-                OVERFLOW_OUTPUT,
-                preservePartitionLocality,
-                false
-            )
+            return redirect('Event redirected to overflow due to force overflow restrictions', OVERFLOW_OUTPUT, {
+                preserveKey: preservePartitionLocality,
+                awaitAck: false,
+            })
         }
 
         return Promise.resolve(ok(input))

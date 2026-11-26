@@ -19,11 +19,12 @@ import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/components/RealtimeCohortAudienceNotice'
+import { SkippedTestAccountFiltersNotice } from '../../Workflows/hogflows/steps/components/SkippedTestAccountFiltersNotice'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
 import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
-import { broadcastWizardLogic, rateLimitedReachSentence } from '../broadcastWizardLogic'
+import { broadcastWizardLogic, rateLimitedReachSentence, readFilterTestAccounts } from '../broadcastWizardLogic'
 import { BroadcastChannelPicker } from './BroadcastChannelPicker'
 import { BroadcastRateLimitSuggestion } from './BroadcastRateLimitSuggestion'
 
@@ -161,7 +162,7 @@ function MessageCategoryPicker(): JSX.Element {
 }
 
 function AudienceListTable(): JSX.Element {
-    const { audienceProperties } = useValues(broadcastWizardLogic)
+    const { audienceProperties, broadcast } = useValues(broadcastWizardLogic)
     const [query, setQuery] = useState<DataTableNode>(() => ({
         kind: NodeKind.DataTableNode,
         source: {
@@ -169,6 +170,7 @@ function AudienceListTable(): JSX.Element {
             tags: { productKey: ProductKey.WORKFLOWS, scene: Scene.Broadcast },
             select: ['person_display_name -- Person', 'properties.email -- Email', 'created_at'],
             properties: audienceProperties as AnyPersonScopeFilter[],
+            filterTestAccounts: readFilterTestAccounts(broadcast),
             orderBy: ['created_at DESC'],
         } as ActorsQuery,
         full: false,
@@ -274,6 +276,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             />
             <RealtimeCohortAudienceNotice blastRadius={blastRadius} />
+            <SkippedTestAccountFiltersNotice blastRadius={blastRadius} />
             {!realtimeCohortAlone && (
                 <div>
                     <LemonButton
