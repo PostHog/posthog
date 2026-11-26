@@ -48,14 +48,9 @@ class BillingPeriodResolver:
         if not settings.posthog_api_base_url:
             return None
 
-        url = f"{settings.posthog_api_base_url.rstrip('/')}/api/billing/period/"
+        url = f"{settings.posthog_api_base_url.rstrip('/')}/api/projects/{team_id}/billing/period/"
         try:
-            response = await self._http.get(
-                url,
-                headers={"Authorization": auth_header},
-                params={"team_id": team_id},
-                timeout=2.0,
-            )
+            response = await self._http.get(url, headers={"Authorization": auth_header}, timeout=2.0)
             response.raise_for_status()
             data = response.json()
             if not isinstance(data, dict):
