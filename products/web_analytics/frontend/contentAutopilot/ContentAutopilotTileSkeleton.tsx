@@ -1,12 +1,11 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Skeleton } from '@posthog/quill'
 
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
+import { AiVisibilityCard } from './AiVisibilityCard'
 
 /** A loading tile with its real title, so the page reads the same before and after its data arrives. */
 export const ContentAutopilotTileSkeleton = ({
     title,
-    bodyClassName = 'p-3',
+    bodyClassName,
     skeletonClassName = 'h-48 w-full',
     withInsightButton = false,
 }: {
@@ -15,14 +14,13 @@ export const ContentAutopilotTileSkeleton = ({
     skeletonClassName?: string
     withInsightButton?: boolean
 }): JSX.Element => (
-    <PagePerformanceCard className="min-w-0">
-        <PagePerformanceCardHeader
-            title={title}
-            // The loaded query tiles put a small "Open as insight" LemonButton here, which sets the header height.
-            actions={withInsightButton ? <LemonSkeleton className="h-[2.0625rem] w-[2.0625rem]" /> : undefined}
-        />
-        <div className={bodyClassName}>
-            <LemonSkeleton className={skeletonClassName} />
+    <AiVisibilityCard
+        title={title}
+        // The loaded query tiles put an "Open as insight" button here, which sets the header height.
+        actions={withInsightButton ? <Skeleton className="h-7 w-32" /> : undefined}
+    >
+        <div className={bodyClassName} aria-busy>
+            <Skeleton className={skeletonClassName} />
         </div>
-    </PagePerformanceCard>
+    </AiVisibilityCard>
 )

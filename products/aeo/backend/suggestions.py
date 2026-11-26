@@ -19,8 +19,9 @@ import structlog
 from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
-from products.aeo.backend.engines import MAX_PROMPT_LENGTH
+from products.aeo.backend.engines import MAX_PROMPT_LENGTH, AICreditsExhausted
 from products.aeo.backend.facade.contracts import (
+    OUT_OF_AI_CREDITS_MESSAGE,
     PROMPT_TOPIC_MAX_LENGTH,
     FunnelStage,
     PromptCircle,
@@ -173,6 +174,9 @@ def generate_suggestions(
             max_tokens=BASE_SUGGESTION_TOKENS + TOKENS_PER_SUGGESTION * count,
             max_searches=MAX_SUGGESTION_SEARCHES,
         )
+    except AICreditsExhausted as error:
+        logger.info("aeo_prompt_suggestions_out_of_credits", team_id=team_id, trace_id=trace_id)
+        raise PromptSuggestionError(OUT_OF_AI_CREDITS_MESSAGE) from error
     except (requests.RequestException, ValueError) as error:
         logger.warning("aeo_prompt_suggestions_failed", team_id=team_id, trace_id=trace_id, error=type(error).__name__)
         raise PromptSuggestionError("Prompt suggestions failed. Try again in a minute.") from error

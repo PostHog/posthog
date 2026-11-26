@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconArrowRight, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonDialog } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotOnboardingStep, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSiteFields } from './ContentAutopilotSiteFields'
+import { ContentAutopilotSiteSettingsCard } from './ContentAutopilotSiteSettingsCard'
 import { ContentAutopilotSourceFields } from './ContentAutopilotSourceFields'
 
 const SETUP_STEPS: GuidedWizardStep<ContentAutopilotOnboardingStep>[] = [
@@ -32,52 +34,18 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
         : splitHasNoValues(profileDraft.sourceUrls)
           ? 'Add at least one sitemap or source URL'
           : undefined
-    const confirmDeleteSite = (): void => {
-        if (!profile) {
-            return
-        }
-        LemonDialog.open({
-            title: `Delete ${profile.name || profile.domain}?`,
-            description:
-                'PostHog stops any run in progress and removes this site and its proposals from the workspace. You can add the site again later.',
-            primaryButton: {
-                children: 'Delete site',
-                status: 'danger',
-                onClick: () => deleteProfile(profile.id),
-            },
-            secondaryButton: { children: 'Keep site' },
-        })
-    }
 
     if (!onboarding) {
         return (
-            <LemonCard hoverEffect={false} className="w-full max-w-3xl p-4">
-                <p className="m-0 mb-4 text-secondary">Change this site's sources and research boundaries.</p>
-                <div className="flex flex-col gap-5">
-                    <ContentAutopilotSiteFields draft={profileDraft} />
-                    <ContentAutopilotSourceFields draft={profileDraft} />
-                </div>
-                <div className="mt-4 flex items-center justify-between gap-2">
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        onClick={confirmDeleteSite}
-                        loading={deletedProfileLoading}
-                        data-attr="content-autopilot-delete-site"
-                    >
-                        Delete site
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={saveProfile}
-                        loading={savedProfileLoading}
-                        disabledReason={saveDisabledReason}
-                    >
-                        Save settings
-                    </LemonButton>
-                </div>
-            </LemonCard>
+            <ContentAutopilotSiteSettingsCard
+                siteLabel={profile ? profile.name || profile.domain : null}
+                draft={profileDraft}
+                deleting={deletedProfileLoading}
+                saving={savedProfileLoading}
+                saveDisabledReason={saveDisabledReason}
+                onDelete={() => profile && deleteProfile(profile.id)}
+                onSave={saveProfile}
+            />
         )
     }
 
@@ -121,13 +89,16 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
                         <p className="m-0 mt-1 text-muted">Confirm where PostHog may research content.</p>
                     </div>
                     {discoveredSite ? (
-                        <LemonBanner type={discoveredSite.sitemap_detected ? 'success' : 'warning'} className="mb-4">
+                        <AiVisibilityBanner
+                            type={discoveredSite.sitemap_detected ? 'success' : 'warning'}
+                            className="mb-4"
+                        >
                             {discoveredSite.sitemap_detected
                                 ? `Detected ${discoveredSite.source_urls.length} sitemap${
                                       discoveredSite.source_urls.length === 1 ? '' : 's'
                                   }.`
                                 : discoveredSite.warnings[0]}
-                        </LemonBanner>
+                        </AiVisibilityBanner>
                     ) : null}
                     <ContentAutopilotSourceFields draft={profileDraft} />
                     <div className="mt-6 flex justify-between">
