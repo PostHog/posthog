@@ -2037,6 +2037,23 @@ class TestAlertSimulate(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert message in response.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("Unable to resolve field: timestamp"), "Unable to resolve field"),
+            ("clickhouse", CHQueryErrorNoCommonType("There is no supertype", code=386), "no supertype"),
+        ]
+    )
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_simulate_trends_query_error_returns_validation_error(self, _name, error, message, mock_calculate) -> None:
+        mock_calculate.side_effect = error
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {"insight": self.insight["id"], "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert message in response.json()["detail"]
+
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:
         mock_simulate.return_value = {
