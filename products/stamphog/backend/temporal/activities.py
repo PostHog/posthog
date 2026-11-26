@@ -96,7 +96,6 @@ from products.stamphog.backend.logic.gateway_tokens import (
     GatewayTokenError,
     active_user,
     gateway_root,
-    is_legacy_stamphog_route,
     mint_scoped_token,
     revoke_scoped_token,
 )
@@ -339,11 +338,6 @@ def _hosted_gateway() -> AIGatewayConfig:
     if gateway is None:
         raise RuntimeError(
             "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must both be set; hosted reviews require the ai-gateway"
-        )
-    if is_legacy_stamphog_route(gateway.url):
-        raise RuntimeError(
-            "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
-            "the ai-gateway key belongs with the ai-gateway URL"
         )
     return gateway
 
@@ -962,7 +956,7 @@ def _fast_refusal_summary(run: ReviewRun, outcome: PregateOutcome) -> str | None
     is already REFUSED, so the note must never delay or fail it.
     """
     gateway = resolve_ai_gateway_config()
-    if gateway is None or is_legacy_stamphog_route(gateway.url) or outcome.result is None:
+    if gateway is None or outcome.result is None:
         return None
     try:
         token = _mint_reviewer_scoped_token(gateway, run, _connected_user(run))
