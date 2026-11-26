@@ -558,6 +558,7 @@ const aeoPromptsOverviewGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/overview/`,
             query: {
                 branded: params.branded,
+                current_prompts: params.current_prompts,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 engine: params.engine,
@@ -586,6 +587,7 @@ const aeoPromptsRankingsGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/rankings/`,
             query: {
                 branded: params.branded,
+                current_prompts: params.current_prompts,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 engine: params.engine,

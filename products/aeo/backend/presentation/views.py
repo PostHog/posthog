@@ -928,6 +928,17 @@ class AEOPromptSetOverviewQuerySerializer(AEOCheckScopeQuerySerializer):
     )
 
 
+class AEOPromptSetReportQuerySerializer(AEOPromptSetOverviewQuerySerializer):
+    current_prompts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to "
+            "prompts archived by a reset don't count."
+        ),
+    )
+
+
 class AEOVisibilityDashboardSerializer(DataclassSerializer):
     class Meta:
         dataclass = VisibilityDashboard
@@ -1546,7 +1557,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         return Response(AEOPromptStatsSerializer(stats).data)
 
     @validated_request(
-        query_serializer=AEOPromptSetOverviewQuerySerializer,
+        query_serializer=AEOPromptSetReportQuerySerializer,
         operation_id="aeo_prompts_overview",
         summary="Get the AEO prompt set overview",
         description=(
@@ -1572,11 +1583,12 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 branded=BrandedSegment(request.validated_query_data["branded"]),
                 engine=request.validated_query_data["engine"],
                 topic=request.validated_query_data["topic"],
+                current_prompts=request.validated_query_data["current_prompts"],
             )
         return Response(AEOPromptSetOverviewSerializer(overview).data)
 
     @validated_request(
-        query_serializer=AEOPromptSetOverviewQuerySerializer,
+        query_serializer=AEOPromptSetReportQuerySerializer,
         operation_id="aeo_prompts_rankings",
         summary="Get AEO brand rankings",
         description=(
@@ -1600,6 +1612,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 branded=BrandedSegment(request.validated_query_data["branded"]),
                 engine=request.validated_query_data["engine"],
                 topic=request.validated_query_data["topic"],
+                current_prompts=request.validated_query_data["current_prompts"],
             )
         return Response(AEOPromptSetRankingsSerializer(rankings).data)
 

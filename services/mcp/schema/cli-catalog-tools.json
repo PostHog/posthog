@@ -3148,6 +3148,11 @@
                     "csv": false
                 },
                 {
+                    "param": "current_prompts",
+                    "key": "current_prompts",
+                    "csv": false
+                },
+                {
                     "param": "date_from",
                     "key": "date_from",
                     "csv": false
@@ -3203,6 +3208,11 @@
                 {
                     "param": "branded",
                     "key": "branded",
+                    "csv": false
+                },
+                {
+                    "param": "current_prompts",
+                    "key": "current_prompts",
                     "csv": false
                 },
                 {

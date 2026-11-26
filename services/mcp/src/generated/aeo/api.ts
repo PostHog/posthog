@@ -842,6 +842,7 @@ export const AeoPromptsOverviewParams = () => zod.object({
 })
 
 export const aeoPromptsOverviewQueryBrandedDefault = `all`
+export const aeoPromptsOverviewQueryCurrentPromptsDefault = false
 export const aeoPromptsOverviewQueryDateFromMax = 32
 
 export const aeoPromptsOverviewQueryDateToMax = 32
@@ -856,6 +857,12 @@ export const AeoPromptsOverviewQueryParams = () => zod.object({
         .default(aeoPromptsOverviewQueryBrandedDefault)
         .describe(
             "Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n\* `all` - All\n\* `branded` - Branded\n\* `non_branded` - Non-branded"
+        ),
+    current_prompts: zod
+        .boolean()
+        .default(aeoPromptsOverviewQueryCurrentPromptsDefault)
+        .describe(
+            "Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count."
         ),
     date_from: zod
         .string()
@@ -900,6 +907,7 @@ export const AeoPromptsRankingsParams = () => zod.object({
 })
 
 export const aeoPromptsRankingsQueryBrandedDefault = `all`
+export const aeoPromptsRankingsQueryCurrentPromptsDefault = false
 export const aeoPromptsRankingsQueryDateFromMax = 32
 
 export const aeoPromptsRankingsQueryDateToMax = 32
@@ -914,6 +922,12 @@ export const AeoPromptsRankingsQueryParams = () => zod.object({
         .default(aeoPromptsRankingsQueryBrandedDefault)
         .describe(
             "Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n\* `all` - All\n\* `branded` - Branded\n\* `non_branded` - Non-branded"
+        ),
+    current_prompts: zod
+        .boolean()
+        .default(aeoPromptsRankingsQueryCurrentPromptsDefault)
+        .describe(
+            "Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count."
         ),
     date_from: zod
         .string()

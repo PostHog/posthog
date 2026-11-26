@@ -538,6 +538,23 @@ class TestAEOPromptAPI(APIBaseTest):
         assert [q["sql"] for q in repeated.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
         assert answers(after_write) == expected + 1
 
+    @parameterized.expand([("overview", "overview/"), ("rankings", "rankings/")])
+    def test_current_prompts_leaves_out_the_answers_to_archived_prompts(self, _name: str, path: str) -> None:
+        def answers(body: dict) -> int:
+            return body["current"]["checks"] if path == "overview/" else body["answers"]
+
+        create_own_brand(self.team, "example.com")
+        self.client.post(
+            f"{self.url}bulk_import/", {"prompts": [{"prompt": "archived?"}, {"prompt": "current?"}]}, format="json"
+        )
+        ids = {row["prompt"]: row["id"] for row in self.client.get(self.url).json()["results"]}
+        for prompt_id in ids.values():
+            self._record_check(prompt_id, "exa-answer", minutes_ago=30, cited_urls=["https://rival.io/a"])
+        AEOPrompt.objects.for_team(self.team.id).filter(id=ids["archived?"]).update(archived_at=timezone.now())
+
+        assert answers(self.client.get(f"{self.url}{path}").json()) == 2
+        assert answers(self.client.get(f"{self.url}{path}?current_prompts=true").json()) == 1
+
     def test_refresh_stores_the_views_the_page_opens_on(self) -> None:
         create_own_brand(self.team, "example.com")
         self._record_check(self._import_one_prompt(), "exa-answer", minutes_ago=30)

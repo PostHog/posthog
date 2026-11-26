@@ -83,10 +83,11 @@ export const aiVisibilityFirstResultsLogic = kea<aiVisibilityFirstResultsLogicTy
             {
                 loadFirstResults: async (_, breakpoint) => {
                     const teamId = String(values.currentTeamIdStrict)
+                    // Only the current prompts, so after a reset the answers to the previous site's prompts don't count.
                     const [nonBranded, branded, rankings, own] = await Promise.all([
-                        aeoPromptsOverview(teamId, { branded: 'non_branded' }),
-                        aeoPromptsOverview(teamId, { branded: 'branded' }),
-                        aeoPromptsRankings(teamId, { branded: 'non_branded' }),
+                        aeoPromptsOverview(teamId, { branded: 'non_branded', current_prompts: true }),
+                        aeoPromptsOverview(teamId, { branded: 'branded', current_prompts: true }),
+                        aeoPromptsRankings(teamId, { branded: 'non_branded', current_prompts: true }),
                         aeoBrandsList(teamId, { kind: 'own', status: 'confirmed', limit: 1 }),
                     ])
                     breakpoint()

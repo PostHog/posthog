@@ -705,34 +705,49 @@ def get_prompt_set_overview(
     branded: BrandedSegment = BrandedSegment.ALL,
     engine: str | None = None,
     topic: str | None = None,
+    current_prompts: bool = False,
     refresh: bool = False,
 ) -> PromptSetOverview:
     """Web-search checks across the whole prompt set from `date_from` to `date_to` in the team's timezone, the
     same counts for the window of the same length before, the current window split per engine and per topic, and
     how often each engine names the brand without search against with it. Raises InvalidDateRangeError.
     `branded` keeps the checks, and the active prompts, on one side of the branded split. `engine` and `topic`
-    keep the checks of one engine or one topic, and `topic` also keeps the active prompts that have it now."""
+    keep the checks of one engine or one topic, and `topic` also keeps the active prompts that have it now.
+    `current_prompts` leaves out the checks of archived prompts."""
     window = _window(timezone_name, date_from, date_to)
     return stored_result(
         team_id,
         # The name changes with the fields of `PromptSetOverview`, because a result stored by a release with
         # other fields loads without the new ones.
         "overview_v2",
-        _window_key(timezone_name, window, branded, engine, topic),
+        _window_key(timezone_name, window, branded, engine, topic, current_prompts),
         lambda: _compute_prompt_set_overview(
-            team_id, timezone_name=timezone_name, window=window, branded=branded, engine=engine, topic=topic
+            team_id,
+            timezone_name=timezone_name,
+            window=window,
+            branded=branded,
+            engine=engine,
+            topic=topic,
+            current_prompts=current_prompts,
         ),
         refresh=refresh,
     )
 
 
 def _window_key(
-    timezone_name: str, window: CheckWindow, branded: BrandedSegment, engine: str | None, topic: str | None
+    timezone_name: str,
+    window: CheckWindow,
+    branded: BrandedSegment,
+    engine: str | None,
+    topic: str | None,
+    current_prompts: bool = False,
 ) -> tuple[Any, ...]:
     """The `stored_result` parameters of a read over `window`. A relative range resolves to its days
     first, so a new day is a new result, and a default request and one that spells the same days out
     share one."""
-    return (timezone_name, window.window_from, window.window_to, branded.value, engine, topic)
+    key = (timezone_name, window.window_from, window.window_to, branded.value, engine, topic)
+    # Appended only when set, so the results stored before the option existed keep their keys.
+    return (*key, "current_prompts") if current_prompts else key
 
 
 def _compute_prompt_set_overview(
@@ -743,8 +758,9 @@ def _compute_prompt_set_overview(
     branded: BrandedSegment,
     engine: str | None,
     topic: str | None,
+    current_prompts: bool = False,
 ) -> PromptSetOverview:
-    scope = CheckScope(segment=branded, engine=engine, topic=topic)
+    scope = CheckScope(segment=branded, engine=engine, topic=topic, current_prompts=current_prompts)
     target_domains = catalog.own_domains(team_id)
     tz = ZoneInfo(timezone_name)
     counts = _check_counts(prompts=True)
@@ -850,23 +866,24 @@ def get_prompt_set_rankings(
     branded: BrandedSegment = BrandedSegment.ALL,
     engine: str | None = None,
     topic: str | None = None,
+    current_prompts: bool = False,
     refresh: bool = False,
 ) -> PromptSetRankings:
     """How often answers named the project against the brands behind the domains the engines cite
     most, from `date_from` to `date_to` in the team's timezone, with the domains and pages cited most.
     `branded`, `engine` and `topic` keep the checks on one side of the branded split, of one engine, or of
-    one topic. Raises InvalidDateRangeError."""
+    one topic, and `current_prompts` leaves out the checks of archived prompts. Raises InvalidDateRangeError."""
     window = _window(timezone_name, date_from, date_to)
     return stored_result(
         team_id,
         "rankings",
-        _window_key(timezone_name, window, branded, engine, topic),
+        _window_key(timezone_name, window, branded, engine, topic, current_prompts),
         lambda: rankings.get_rankings(
             team_id,
             target_domains=catalog.own_domains(team_id),
             timezone_name=timezone_name,
             window=window,
-            scope=CheckScope(segment=branded, engine=engine, topic=topic),
+            scope=CheckScope(segment=branded, engine=engine, topic=topic, current_prompts=current_prompts),
         ),
         refresh=refresh,
     )
