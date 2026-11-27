@@ -27,6 +27,7 @@ def _clone(source: Path, destination: Path) -> None:
     ("layout", "expected_freeable_files", "expected_allocated_files"),
     [
         ("own_file", 1, 1),
+        ("own_file_in_subfolder", 1, 1),
         ("hardlink_from_outside", 0, 1),
         ("both_hardlinks_inside", 1, 1),
         ("symlink_to_outside", 0, 0),
@@ -46,6 +47,8 @@ def test_counts_as_freeable_only_blocks_no_file_outside_the_paths_shares(
     deps.mkdir(parents=True)
     if layout == "own_file":
         _write_file(deps / "package.js")
+    elif layout == "own_file_in_subfolder":
+        _write_file(deps / "package" / "dist" / "index.js")
     elif layout == "hardlink_from_outside":
         os.link(store, deps / "package.js")
     elif layout == "both_hardlinks_inside":
