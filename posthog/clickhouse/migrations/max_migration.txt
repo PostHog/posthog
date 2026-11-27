@@ -1,1 +1,1 @@
-0395_web_dimensional_bounces_session_hosts
+0396_sessions_v2_pageview_prio_entry_url

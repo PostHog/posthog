@@ -186,6 +186,17 @@ def source_url_column(column_name: str, use_new: bool = False) -> str:
     return f"nullIf({source_string_column(column_name, use_new)}, '')"
 
 
+# The URL columns and the attribution columns come from the first or last pageview or screen, like in sessions v3.
+# Without one, they come from an event that has a URL. Other events, e.g. server-side events that carry a $session_id,
+# sort last. The aggregate states store a non-nullable String, so argMin and argMax cannot skip these by a NULL value.
+def pageview_prio_timestamp_min(use_new: bool = False) -> str:
+    return f"multiIf(event IN ('$pageview', '$screen'), timestamp, {source_string_column('$current_url', use_new)} != '', timestamp + toIntervalYear(1), timestamp + toIntervalYear(2))"
+
+
+def pageview_prio_timestamp_max(use_new: bool = False) -> str:
+    return f"multiIf(event IN ('$pageview', '$screen'), timestamp, {source_string_column('$current_url', use_new)} != '', timestamp - toIntervalYear(1), timestamp - toIntervalYear(2))"
+
+
 def source_int_column(column_name: str, use_new: bool = False) -> str:
     if use_new:
         return f"JSONExtractInt({source_string_column(column_name, use_new)})"
@@ -223,8 +234,8 @@ SELECT
 
     -- urls
     if({current_url} IS NOT NULL, [{current_url}], []) AS urls,
-    initializeAggregation('argMinState', {current_url_string}, timestamp) as entry_url,
-    initializeAggregation('argMaxState', {current_url_string}, timestamp) as end_url,
+    initializeAggregation('argMinState', {current_url_string}, {pageview_prio_timestamp_min}) as entry_url,
+    initializeAggregation('argMaxState', {current_url_string}, {pageview_prio_timestamp_max}) as end_url,
     initializeAggregation('argMaxState', {external_click_url}, timestamp) as last_external_click_url,
 
     -- device
@@ -244,30 +255,30 @@ SELECT
     initializeAggregation('argMinState', {geoip_time_zone}, timestamp) as initial_geoip_time_zone,
 
     -- attribution
-    initializeAggregation('argMinState', {referring_domain}, timestamp) as initial_referring_domain,
-    initializeAggregation('argMinState', {utm_source}, timestamp) as initial_utm_source,
-    initializeAggregation('argMinState', {utm_campaign}, timestamp) as initial_utm_campaign,
-    initializeAggregation('argMinState', {utm_medium}, timestamp) as initial_utm_medium,
-    initializeAggregation('argMinState', {utm_term}, timestamp) as initial_utm_term,
-    initializeAggregation('argMinState', {utm_content}, timestamp) as initial_utm_content,
-    initializeAggregation('argMinState', {gclid}, timestamp) as initial_gclid,
-    initializeAggregation('argMinState', {gad_source}, timestamp) as initial_gad_source,
-    initializeAggregation('argMinState', {gclsrc}, timestamp) as initial_gclsrc,
-    initializeAggregation('argMinState', {dclid}, timestamp) as initial_dclid,
-    initializeAggregation('argMinState', {gbraid}, timestamp) as initial_gbraid,
-    initializeAggregation('argMinState', {wbraid}, timestamp) as initial_wbraid,
-    initializeAggregation('argMinState', {fbclid}, timestamp) as initial_fbclid,
-    initializeAggregation('argMinState', {msclkid}, timestamp) as initial_msclkid,
-    initializeAggregation('argMinState', {twclid}, timestamp) as initial_twclid,
-    initializeAggregation('argMinState', {li_fat_id}, timestamp) as initial_li_fat_id,
-    initializeAggregation('argMinState', {mc_cid}, timestamp) as initial_mc_cid,
-    initializeAggregation('argMinState', {igshid}, timestamp) as initial_igshid,
-    initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
-    initializeAggregation('argMinState', {epik}, timestamp) as initial_epik,
-    initializeAggregation('argMinState', {qclid}, timestamp) as initial_qclid,
-    initializeAggregation('argMinState', {sccid}, timestamp) as initial_sccid,
-    initializeAggregation('argMinState', {kx}, timestamp) as initial__kx,
-    initializeAggregation('argMinState', {irclid}, timestamp) as initial_irclid,
+    initializeAggregation('argMinState', {referring_domain}, {pageview_prio_timestamp_min}) as initial_referring_domain,
+    initializeAggregation('argMinState', {utm_source}, {pageview_prio_timestamp_min}) as initial_utm_source,
+    initializeAggregation('argMinState', {utm_campaign}, {pageview_prio_timestamp_min}) as initial_utm_campaign,
+    initializeAggregation('argMinState', {utm_medium}, {pageview_prio_timestamp_min}) as initial_utm_medium,
+    initializeAggregation('argMinState', {utm_term}, {pageview_prio_timestamp_min}) as initial_utm_term,
+    initializeAggregation('argMinState', {utm_content}, {pageview_prio_timestamp_min}) as initial_utm_content,
+    initializeAggregation('argMinState', {gclid}, {pageview_prio_timestamp_min}) as initial_gclid,
+    initializeAggregation('argMinState', {gad_source}, {pageview_prio_timestamp_min}) as initial_gad_source,
+    initializeAggregation('argMinState', {gclsrc}, {pageview_prio_timestamp_min}) as initial_gclsrc,
+    initializeAggregation('argMinState', {dclid}, {pageview_prio_timestamp_min}) as initial_dclid,
+    initializeAggregation('argMinState', {gbraid}, {pageview_prio_timestamp_min}) as initial_gbraid,
+    initializeAggregation('argMinState', {wbraid}, {pageview_prio_timestamp_min}) as initial_wbraid,
+    initializeAggregation('argMinState', {fbclid}, {pageview_prio_timestamp_min}) as initial_fbclid,
+    initializeAggregation('argMinState', {msclkid}, {pageview_prio_timestamp_min}) as initial_msclkid,
+    initializeAggregation('argMinState', {twclid}, {pageview_prio_timestamp_min}) as initial_twclid,
+    initializeAggregation('argMinState', {li_fat_id}, {pageview_prio_timestamp_min}) as initial_li_fat_id,
+    initializeAggregation('argMinState', {mc_cid}, {pageview_prio_timestamp_min}) as initial_mc_cid,
+    initializeAggregation('argMinState', {igshid}, {pageview_prio_timestamp_min}) as initial_igshid,
+    initializeAggregation('argMinState', {ttclid}, {pageview_prio_timestamp_min}) as initial_ttclid,
+    initializeAggregation('argMinState', {epik}, {pageview_prio_timestamp_min}) as initial_epik,
+    initializeAggregation('argMinState', {qclid}, {pageview_prio_timestamp_min}) as initial_qclid,
+    initializeAggregation('argMinState', {sccid}, {pageview_prio_timestamp_min}) as initial_sccid,
+    initializeAggregation('argMinState', {kx}, {pageview_prio_timestamp_min}) as initial__kx,
+    initializeAggregation('argMinState', {irclid}, {pageview_prio_timestamp_min}) as initial_irclid,
 
     -- counts
     if(event='$pageview', 1, 0) as pageview_count,
@@ -293,6 +304,8 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull({session_id}, 'UUID')), 
         session_id=session_id_expr,
         current_url=source_url_column("$current_url", use_new),
         current_url_string=source_string_column("$current_url", use_new),
+        pageview_prio_timestamp_min=pageview_prio_timestamp_min(use_new),
+        pageview_prio_timestamp_max=pageview_prio_timestamp_max(use_new),
         external_click_url=source_string_column("$external_click_url", use_new),
         browser=source_string_column("$browser", use_new),
         browser_version=source_string_column("$browser_version", use_new),
@@ -347,8 +360,8 @@ SELECT
 
     -- urls
     groupUniqArray({current_url}) AS urls,
-    argMinState({current_url_string}, timestamp) as entry_url,
-    argMaxState({current_url_string}, timestamp) as end_url,
+    argMinState({current_url_string}, {pageview_prio_timestamp_min}) as entry_url,
+    argMaxState({current_url_string}, {pageview_prio_timestamp_max}) as end_url,
     argMaxState({external_click_url}, timestamp) as last_external_click_url,
 
     -- device
@@ -368,30 +381,30 @@ SELECT
     argMinState({geoip_time_zone}, timestamp) as initial_geoip_time_zone,
 
     -- attribution
-    argMinState({referring_domain}, timestamp) as initial_referring_domain,
-    argMinState({utm_source}, timestamp) as initial_utm_source,
-    argMinState({utm_campaign}, timestamp) as initial_utm_campaign,
-    argMinState({utm_medium}, timestamp) as initial_utm_medium,
-    argMinState({utm_term}, timestamp) as initial_utm_term,
-    argMinState({utm_content}, timestamp) as initial_utm_content,
-    argMinState({gclid}, timestamp) as initial_gclid,
-    argMinState({gad_source}, timestamp) as initial_gad_source,
-    argMinState({gclsrc}, timestamp) as initial_gclsrc,
-    argMinState({dclid}, timestamp) as initial_dclid,
-    argMinState({gbraid}, timestamp) as initial_gbraid,
-    argMinState({wbraid}, timestamp) as initial_wbraid,
-    argMinState({fbclid}, timestamp) as initial_fbclid,
-    argMinState({msclkid}, timestamp) as initial_msclkid,
-    argMinState({twclid}, timestamp) as initial_twclid,
-    argMinState({li_fat_id}, timestamp) as initial_li_fat_id,
-    argMinState({mc_cid}, timestamp) as initial_mc_cid,
-    argMinState({igshid}, timestamp) as initial_igshid,
-    argMinState({ttclid}, timestamp) as initial_ttclid,
-    argMinState({epik}, timestamp) as initial_epik,
-    argMinState({qclid}, timestamp) as initial_qclid,
-    argMinState({sccid}, timestamp) as initial_sccid,
-    argMinState({kx}, timestamp) as initial__kx,
-    argMinState({irclid}, timestamp) as initial_irclid,
+    argMinState({referring_domain}, {pageview_prio_timestamp_min}) as initial_referring_domain,
+    argMinState({utm_source}, {pageview_prio_timestamp_min}) as initial_utm_source,
+    argMinState({utm_campaign}, {pageview_prio_timestamp_min}) as initial_utm_campaign,
+    argMinState({utm_medium}, {pageview_prio_timestamp_min}) as initial_utm_medium,
+    argMinState({utm_term}, {pageview_prio_timestamp_min}) as initial_utm_term,
+    argMinState({utm_content}, {pageview_prio_timestamp_min}) as initial_utm_content,
+    argMinState({gclid}, {pageview_prio_timestamp_min}) as initial_gclid,
+    argMinState({gad_source}, {pageview_prio_timestamp_min}) as initial_gad_source,
+    argMinState({gclsrc}, {pageview_prio_timestamp_min}) as initial_gclsrc,
+    argMinState({dclid}, {pageview_prio_timestamp_min}) as initial_dclid,
+    argMinState({gbraid}, {pageview_prio_timestamp_min}) as initial_gbraid,
+    argMinState({wbraid}, {pageview_prio_timestamp_min}) as initial_wbraid,
+    argMinState({fbclid}, {pageview_prio_timestamp_min}) as initial_fbclid,
+    argMinState({msclkid}, {pageview_prio_timestamp_min}) as initial_msclkid,
+    argMinState({twclid}, {pageview_prio_timestamp_min}) as initial_twclid,
+    argMinState({li_fat_id}, {pageview_prio_timestamp_min}) as initial_li_fat_id,
+    argMinState({mc_cid}, {pageview_prio_timestamp_min}) as initial_mc_cid,
+    argMinState({igshid}, {pageview_prio_timestamp_min}) as initial_igshid,
+    argMinState({ttclid}, {pageview_prio_timestamp_min}) as initial_ttclid,
+    argMinState({epik}, {pageview_prio_timestamp_min}) as initial_epik,
+    argMinState({qclid}, {pageview_prio_timestamp_min}) as initial_qclid,
+    argMinState({sccid}, {pageview_prio_timestamp_min}) as initial_sccid,
+    argMinState({kx}, {pageview_prio_timestamp_min}) as initial__kx,
+    argMinState({irclid}, {pageview_prio_timestamp_min}) as initial_irclid,
 
     -- count
     sumIf(1, event='$pageview') as pageview_count,
@@ -420,6 +433,8 @@ GROUP BY
     database=settings.CLICKHOUSE_DATABASE,
     current_url=source_url_column("$current_url"),
     current_url_string=source_string_column("$current_url"),
+    pageview_prio_timestamp_min=pageview_prio_timestamp_min(),
+    pageview_prio_timestamp_max=pageview_prio_timestamp_max(),
     external_click_url=source_string_column("$external_click_url"),
     referring_domain=source_string_column("$referring_domain"),
     browser=source_string_column("$browser"),
