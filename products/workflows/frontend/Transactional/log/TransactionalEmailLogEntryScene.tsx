@@ -11,7 +11,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { emailWentOut } from './emailClicks'
 import { TransactionalEmailActivity } from './TransactionalEmailActivity'
 import { TransactionalEmailClickTimeline } from './TransactionalEmailClickTimeline'
 import { TransactionalEmailDeliveryProgress } from './TransactionalEmailDeliveryProgress'
@@ -41,6 +40,7 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
         emailFailed,
         emailPageUrl,
         impactUrl,
+        outcomesShown,
         outcomeRows,
         activityFailed,
         activityDenied,
@@ -108,7 +108,7 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                     <TransactionalEmailDeliveryProgress email={email} />
                     <div className="flex flex-col @3xl:flex-row gap-4 items-start">
                         <div className="w-full @3xl:flex-1 min-w-0 flex flex-col gap-4 order-last @3xl:order-none">
-                            {showTimeline && emailWentOut(email) && (
+                            {outcomesShown && (
                                 <TransactionalEmailClickTimeline
                                     rows={outcomeRows}
                                     failed={activityFailed && !activityLoading}

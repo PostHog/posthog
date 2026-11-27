@@ -35,7 +35,7 @@ const OWN_EVENT: Record<'delivered' | 'opened', string> = {
 }
 
 export function emailWentOut(email: Pick<TransactionalEmailLogDetailApi, 'timeline'>): boolean {
-    return email.timeline.some((step) => step.kind === 'sent')
+    return email.timeline.some((step) => step.kind !== 'queued' && step.kind !== 'failed')
 }
 
 function sameInstant(a: string, b: string): boolean {

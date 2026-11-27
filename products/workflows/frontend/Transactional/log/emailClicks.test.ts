@@ -3,7 +3,7 @@ import type {
     TransactionalEmailLogDetailApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
-import { emailOutcomeRows, emailWentOut, landingPath, linkLabel, sessionSummary } from './emailClicks'
+import { emailOutcomeRows, landingPath, linkLabel, sessionSummary } from './emailClicks'
 
 const SESSION: TransactionalEmailClickSessionApi = {
     session_id: 'session-1',
@@ -79,15 +79,6 @@ describe('emailClicks', () => {
             ['click', null],
             ['opened', null],
         ])
-    })
-
-    it.each([
-        ['went out without a stored copy', ['queued', 'sent', 'clicked'] as const, true],
-        ['failed before it went out', ['queued', 'failed'] as const, false],
-    ])('shows what a send led to when it %s', (_name, kinds, shown) => {
-        const timeline = kinds.map((kind) => ({ kind, at: '2026-06-15T09:00:00Z', reason: null }))
-
-        expect(emailWentOut({ timeline })).toBe(shown)
     })
 
     it.each([

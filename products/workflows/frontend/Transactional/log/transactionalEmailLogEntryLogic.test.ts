@@ -30,6 +30,10 @@ const OTHERS = [
     { message_id: 'msg-2', recipient: 'ada@example.com', created_at: '2026-03-12T00:00:00Z' },
 ]
 
+const steps = (
+    ...kinds: TransactionalEmailLogDetailApi['timeline'][number]['kind'][]
+): TransactionalEmailLogDetailApi['timeline'] => kinds.map((kind) => ({ kind, at: SENT, reason: null }))
+
 const PERSON_ROWS = [['person-1', '{"email":"ada@example.com"}', '2025-01-01T00:00:00Z']]
 const CLICK = {
     at: SENT,
@@ -140,7 +144,7 @@ describe('transactionalEmailLogEntryLogic', () => {
             distinct_id: '',
             recipient: '',
             clicked,
-            timeline: clicked ? [{ kind: 'clicked', at: SENT, reason: null }] : [],
+            timeline: clicked ? steps('sent', 'clicked') : steps('sent'),
         } as TransactionalEmailLogDetailApi
         activity = [200, { ...ACTIVITY, before: [], has_more_before: false, clicks: clicked ? [UNLINKED_CLICK] : [] }]
     }
@@ -151,12 +155,14 @@ describe('transactionalEmailLogEntryLogic', () => {
         ['a clicked send with the timeline', true, true, ['detail', 'activity'], ['click']],
     ])(
         'loads for %s with no distinct id or recipient only what its clicks need',
-        async (_name, clicked, timeline, endpoints, outcomeKinds) => {
+        async (_name, clicked, timeline, endpoints, shownKinds) => {
             timelineFlag(timeline)
             sendWithoutPerson(clicked)
             await open('msg-9')
             expect(served).toEqual(endpoints)
-            expect(logic.values.outcomeRows?.map((row) => row.kind) ?? null).toEqual(outcomeKinds)
+            expect(logic.values.outcomesShown ? logic.values.outcomeRows?.map((row) => row.kind) : null).toEqual(
+                shownKinds
+            )
         }
     )
 
@@ -167,14 +173,25 @@ describe('transactionalEmailLogEntryLogic', () => {
         timelineFlag(true)
         await expectLogic(logic).toFinishAllListeners()
         expect(served).toEqual(['detail', 'activity'])
-        expect(logic.values.outcomeRows?.map((row) => row.kind)).toEqual(['click'])
+        expect(logic.values).toMatchObject({ outcomesShown: true, outcomeRows: [{ kind: 'click', link: null }] })
+    })
+
+    it.each([
+        ['went out without a stored copy', { action_id: '', timeline: steps('queued', 'sent', 'clicked') }, true],
+        ['was delivered with no sent step recorded', { timeline: steps('delivered') }, true],
+        ['failed before it went out', { timeline: steps('queued', 'failed') }, false],
+    ])('shows what a send led to when it %s', async (_name, send, shown) => {
+        timelineFlag(true)
+        sends['msg-1'] = { ...SEND, ...send } as TransactionalEmailLogDetailApi
+        await open('msg-1')
+        expect(logic.values.outcomesShown).toBe(shown)
     })
 
     it.each([
         ['a click that came after the send loaded', false, ACTIVITY, ['click']],
         ['an activity response that predates clicks', true, { before: [], after: [] }, []],
     ])('lists what the activity found for %s', async (_name, clicked, response, outcomeKinds) => {
-        sends['msg-1'] = { ...SEND, clicked, timeline: [] } as TransactionalEmailLogDetailApi
+        sends['msg-1'] = { ...SEND, clicked, timeline: steps('sent') } as TransactionalEmailLogDetailApi
         activity = [200, response]
         await open('msg-1')
         expect(logic.values.outcomeRows?.map((row) => row.kind)).toEqual(outcomeKinds)

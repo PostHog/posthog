@@ -20,7 +20,7 @@ import type {
 import { templatePageUrl, transactionalEmailSendsUrl, transactionalEmailUrl } from '../transactionalEmailUrl'
 import { ActivityPerson, SendActivity } from './emailActivity'
 import { fetchActivityPerson, fetchOtherEmails, fetchSendActivity } from './emailActivityQueries'
-import { EmailOutcomeRow, emailOutcomeRows } from './emailClicks'
+import { EmailOutcomeRow, emailOutcomeRows, emailWentOut } from './emailClicks'
 
 export interface TransactionalEmailLogEntryLogicProps {
     messageId: string
@@ -46,6 +46,7 @@ export interface transactionalEmailLogEntryLogicValues {
     otherEmailsFailed: boolean
     otherEmailsLoading: boolean
     outcomeRows: EmailOutcomeRow[] | null
+    outcomesShown: boolean
     person: ActivityPerson | null | undefined
     personFailed: boolean
     personLoading: boolean
@@ -141,6 +142,10 @@ export interface transactionalEmailLogEntryLogicMeta {
             email: TransactionalEmailLogDetailApi | null | undefined,
             featureFlags: FeatureFlagsSet
         ) => string | null
+        outcomesShown: (
+            email: TransactionalEmailLogDetailApi | null | undefined,
+            featureFlags: FeatureFlagsSet
+        ) => boolean
         outcomeRows: (
             email: TransactionalEmailLogDetailApi | null | undefined,
             activity: SendActivity | null
@@ -294,6 +299,11 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
                     ? combineUrl(url, { tab: 'impact' }).url
                     : null
             },
+        ],
+        outcomesShown: [
+            (s) => [s.email, s.featureFlags],
+            (email: TransactionalEmailLogDetailApi | null | undefined, featureFlags: FeatureFlagsSet): boolean =>
+                !!email && !!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] && emailWentOut(email),
         ],
         outcomeRows: [
             (s) => [s.email, s.activity],
