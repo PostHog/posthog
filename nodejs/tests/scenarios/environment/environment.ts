@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, realpathSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
+import { pathToFileURL } from 'url'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
@@ -109,7 +110,10 @@ export type Actuation = FaultHold & { journal?(): FailoverJournal & { exit?: Rol
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
-const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
+const TSX_LOADER = path.join(NODEJS_DIR, 'node_modules', 'tsx', 'dist', 'loader.mjs')
+// Under the tsx CLI a role would have a parent that sends its own SIGKILL when the role's event loop is too busy to
+// answer a SIGTERM within milliseconds, ending it before the grace a terminate gives it.
+export const ROLE_COMMAND = { command: process.execPath, args: ['--import', pathToFileURL(TSX_LOADER).href] }
 const EDGE_PORT = 4566
 const EDGE = { port: EDGE_PORT, owner: 'provider edge' }
 const TEMPLATES_WITHIN_MS = 120_000
@@ -217,8 +221,8 @@ export function createEnvironment({
     let stateDir = defaultStateDir(env)
     const secrets = secretsOf(env)
     const supervisor = createSupervisor({
-        command: TSX,
-        args: ['src/index.ts'],
+        command: ROLE_COMMAND.command,
+        args: [...ROLE_COMMAND.args, 'src/index.ts'],
         cwd: NODEJS_DIR,
         logDir: stateDir,
         graceMs: STOP_GRACE_MS,
@@ -236,8 +240,8 @@ export function createEnvironment({
 
     return {
         async up(signal) {
-            if (!existsSync(TSX)) {
-                throw new Error(`No tsx at ${TSX}; install the nodejs package first.`)
+            if (!existsSync(TSX_LOADER)) {
+                throw new Error(`No tsx at ${TSX_LOADER}; install the nodejs package first.`)
             }
             mkdirSync(stateDir, { recursive: true })
             stateDir = realpathSync(stateDir)

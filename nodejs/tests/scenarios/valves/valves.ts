@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Definition } from '../cards/definitions'
 import { CdpRole, ValveEntry } from '../cards/schema'
 import type { RunManifest } from '../cloud/lease'
-import { Duration, durationMs } from '../duration'
+import { TerminationGrace, durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
 import type { RoleTermination } from '../environment/supervisor'
@@ -74,7 +74,7 @@ export const roleKill: ValveDefinition = {
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
 }
 
-const Grace = z.object({ grace: Duration.optional() }).strict()
+const Grace = z.object({ grace: TerminationGrace.optional() }).strict()
 
 const graceMsOf = (dose: unknown, { terminationGraceMs }: ValveContext): number => {
     const { grace } = Grace.parse(dose)

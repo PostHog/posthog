@@ -22,7 +22,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
-import { Environment, createEnvironment, proxiesOf } from './environment'
+import { Environment, ROLE_COMMAND, createEnvironment, proxiesOf } from './environment'
 import { nameOf } from './identity'
 import { startProbeProcess } from './probe-process'
 import * as processes from './processes'
@@ -1314,24 +1314,39 @@ describe('scenario environment', () => {
 
         const READY = "process.on('SIGTERM', ON_SIGTERM); console.log('ready'); setInterval(() => {}, 1000)"
 
+        const BUSY = 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)'
+
         it.each([
             [
                 'lets a role that stops on SIGTERM exit within its grace',
                 '() => setTimeout(() => process.exit(0), 100)',
                 { code: 0, signal: null },
+                1000,
+                false,
             ],
             [
                 'kills a role that outlasts its grace and records when the SIGKILL went out',
                 '() => {}',
                 { killedAt: expect.any(String), code: null, signal: 'SIGKILL' },
+                1000,
+                false,
+            ],
+            [
+                'lets a role launched as the environment launches it finish a SIGTERM that found its event loop busy',
+                '() => setTimeout(() => process.exit(0), 100)',
+                { code: 0, signal: null },
+                5000,
+                true,
             ],
         ])(
             'terminate %s, and records the exit as the valve',
-            async (_story, onSigterm, exit) => {
+            async (_story, onSigterm, exit, graceMs, launchedAsRole) => {
                 const logDir = mkdtempSync(path.join(tempRoot, 'logs-'))
+                const script = READY.replace('ON_SIGTERM', onSigterm)
                 const terminating = createSupervisor({
-                    command: process.execPath,
-                    args: ['-e', READY.replace('ON_SIGTERM', onSigterm)],
+                    ...(launchedAsRole
+                        ? { command: ROLE_COMMAND.command, args: [...ROLE_COMMAND.args, '-e', `${script}; ${BUSY}`] }
+                        : { command: process.execPath, args: ['-e', script] }),
                     cwd: os.tmpdir(),
                     logDir,
                     graceMs: 1000,
@@ -1346,7 +1361,7 @@ describe('scenario environment', () => {
                         20
                     )
 
-                    const termination = terminating.terminate(spec, 1000)
+                    const termination = terminating.terminate(spec, graceMs)
                     await termination.release()
 
                     expect(termination.journal()).toEqual({
@@ -1840,7 +1855,9 @@ describe('scenario environment', () => {
                 if (command.endsWith(path.join('bin', 'hogli')) && command !== path.join(fakes, 'hogli')) {
                     throw new Error('The up test reached the dev stack.')
                 }
-                if (!command.endsWith(path.join('node_modules', '.bin', 'tsx'))) {
+                const launchesRole =
+                    command === ROLE_COMMAND.command && ROLE_COMMAND.args.every((arg, i) => args[i] === arg)
+                if (!launchesRole) {
                     return realSpawn(command, args, options)
                 }
                 if (options.env?.PLUGIN_SERVER_MODE === unspawnable) {
