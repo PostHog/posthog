@@ -201,13 +201,7 @@ async def _ask_agent(
     since: datetime,
     zone: ZoneInfo,
 ) -> DailyFocusAgentOutput:
-    prompt = _prompt_template().render(
-        person=f"<@{slack_user_id}>",
-        since=since.astimezone(zone).strftime("%A %H:%M"),
-        zone=zone.key,
-        max_items_per_section=MAX_ITEMS_PER_SECTION,
-        max_suggestions=MAX_SUGGESTIONS,
-    )
+    prompt = render_prompt(slack_user_id, since=since, zone=zone)
     session, output = await MultiTurnSession.start(
         prompt=prompt,
         context=CustomPromptSandboxContext(
@@ -235,6 +229,19 @@ async def _ask_agent(
         return output
     finally:
         await session.end()
+
+
+def render_prompt(slack_user_id: str, *, since: datetime, zone: ZoneInfo, threads: str | None = None) -> str:
+    """The run's prompt. `threads` puts the Slack threads in the prompt in place of the Slack tools, so the eval
+    grades this prompt without a Slack workspace."""
+    return _prompt_template().render(
+        person=f"<@{slack_user_id}>",
+        since=since.astimezone(zone).strftime("%A %H:%M"),
+        zone=zone.key,
+        max_items_per_section=MAX_ITEMS_PER_SECTION,
+        max_suggestions=MAX_SUGGESTIONS,
+        threads=threads,
+    )
 
 
 @functools.cache
