@@ -809,7 +809,7 @@ describe('SesWebhookHandler', () => {
         const body = [
             // SES can report the recipient with its display name too. Only the address is stored.
             { mail, ...buildEvent(['"Recipient Name" <TO@example.com>', 'not-sent-to@example.org']) },
-            { mail, ...buildEvent(['not-sent-to@example.org']) },
+            { mail, ...buildEvent(['not-sent-to@example.org', 'to@example.com, not-sent-to@example.org']) },
         ]
         // Other tests in the process add to the counter, so read it as a delta.
         const notSentToCount = async (): Promise<number> => {
@@ -821,7 +821,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
 
         expect(result[arrayKey]).toEqual([expect.objectContaining({ teamId: '1', emailAddresses: ['TO@example.com'] })])
-        expect((await notSentToCount()) - countBefore).toBe(2)
+        expect((await notSentToCount()) - countBefore).toBe(3)
     })
 
     it('returns 200, no metrics and no logged payload if tracking code is missing from both carriers', async () => {
