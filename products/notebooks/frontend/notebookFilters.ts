@@ -15,6 +15,7 @@ import {
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
+    LegacyRecordingFilters,
     PropertyFilterType,
     PropertyGroupFilter,
     RecordingUniversalFilters,
@@ -122,10 +123,15 @@ export function getFilteredNotebookQuery(
     }
 }
 
+export interface NotebookPlaylistCollection {
+    ids: string[] | undefined
+    savedFilters: LegacyRecordingFilters | RecordingUniversalFilters
+}
+
 export function getFilteredNotebookPlaylist(
     authored: RecordingUniversalFilters,
     filters: NotebookFilters,
-    collection?: { ids: string[] | undefined; hasAuthoredDuration: boolean }
+    collection?: NotebookPlaylistCollection
 ): RecordingUniversalFilters | null {
     const existing = filtersFromUniversalFilterGroups(authored)
     if (
@@ -138,11 +144,17 @@ export function getFilteredNotebookPlaylist(
     const collectionIds = collection?.ids ?? []
     return {
         ...authored,
-        ...filters.dateRange,
         ...(collection && {
             session_ids: authored.session_ids?.filter((id) => collectionIds.includes(id)) ?? collectionIds,
-            duration: collection.hasAuthoredDuration ? authored.duration : [],
+            // An absent date_from would restore the API's three-day default for the events lookup.
+            date_from: collection.savedFilters.date_from ?? '',
+            date_to: collection.savedFilters.date_to ?? null,
+            duration:
+                'duration' in collection.savedFilters || collection.savedFilters.session_recording_duration
+                    ? authored.duration
+                    : [],
         }),
+        ...filters.dateRange,
         ...(filters.properties.length > 0 && {
             filter_group: {
                 type: FilterLogicalOperator.And,

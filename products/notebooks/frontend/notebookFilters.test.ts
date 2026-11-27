@@ -1,3 +1,4 @@
+import { toParams } from 'lib/utils/url'
 import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -81,7 +82,7 @@ describe('notebook filters', () => {
         const preview = getFilteredNotebookPlaylist(
             filters,
             { properties: [cohort] },
-            { ids: ['recording-a'], hasAuthoredDuration }
+            { ids: ['recording-a'], savedFilters: hasAuthoredDuration ? filters : { date_from: filters.date_from } }
         )
         expect(convertUniversalFiltersToRecordingsQuery(preview!)).toMatchObject({
             date_from: '-7d',
@@ -100,6 +101,27 @@ describe('notebook filters', () => {
     })
 
     it.each([
+        [undefined, ''],
+        [dateRange, '-30d'],
+    ] as const)('drops synthetic collection dates and respects the notebook date range %j', (range, expected) => {
+        const converted: RecordingUniversalFilters = {
+            date_from: '-3d',
+            date_to: null,
+            duration: [],
+            filter_group: { type: FilterLogicalOperator.And, values: [] },
+        }
+        const preview = getFilteredNotebookPlaylist(
+            converted,
+            { properties: [event], dateRange: range },
+            { ids: ['older-recording'], savedFilters: {} }
+        )
+        const request = new URLSearchParams(toParams(convertUniversalFiltersToRecordingsQuery(preview!)))
+        expect(request.get('date_from')).toBe(expected)
+        expect(JSON.parse(request.get('session_ids')!)).toEqual(['older-recording'])
+        expect(JSON.parse(request.get('properties')!)).toEqual([{ ...event, value: ['web'] }])
+    })
+
+    it.each([
         [['recording-a', 'recording-c'], ['recording-a']],
         [['recording-c'], []],
         [[], []],
@@ -112,7 +134,7 @@ describe('notebook filters', () => {
         const preview = getFilteredNotebookPlaylist(
             filters,
             { properties: [cohort] },
-            { ids: ['recording-a', 'recording-b'], hasAuthoredDuration: false }
+            { ids: ['recording-a', 'recording-b'], savedFilters: {} }
         )
         expect(convertUniversalFiltersToRecordingsQuery(preview!).session_ids).toEqual(expected)
     })

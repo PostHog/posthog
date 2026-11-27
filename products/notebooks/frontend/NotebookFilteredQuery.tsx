@@ -41,12 +41,26 @@ export function NotebookFilteredQuery({
         )
     }
     const key = notebookFilteredBlockKey(shortId, nodeId, filters)
+    const embeddedQuery = { ...filtered, full: false, embedded: true }
     return (
         <div className="flex h-full flex-col">
             <LemonTag className="self-start" type="highlight">
                 Notebook filters applied
             </LemonTag>
-            <Query key={key} uniqueKey={key} query={{ ...filtered, full: false, embedded: true }} embedded readOnly />
+            <Query
+                key={key}
+                uniqueKey={key}
+                query={embeddedQuery}
+                context={{
+                    insightProps: {
+                        dashboardItemId: `new-AdHoc.${key}`,
+                        query: embeddedQuery,
+                        retainResponseOnUnmount: true,
+                    },
+                }}
+                embedded
+                readOnly
+            />
         </div>
     )
 }

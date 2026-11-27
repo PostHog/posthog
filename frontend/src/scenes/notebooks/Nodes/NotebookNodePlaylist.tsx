@@ -27,7 +27,11 @@ import { urls } from 'scenes/urls'
 import { FilterType, RecordingUniversalFilters, SessionRecordingPlaylistType } from '~/types'
 
 import { notebookFilterLogic } from 'products/notebooks/frontend/notebookFilterLogic'
-import { getFilteredNotebookPlaylist, notebookFilteredBlockKey } from 'products/notebooks/frontend/notebookFilters'
+import {
+    getFilteredNotebookPlaylist,
+    notebookFilteredBlockKey,
+    type NotebookPlaylistCollection,
+} from 'products/notebooks/frontend/notebookFilters'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -44,11 +48,9 @@ const Component = ({
     return <NotebookPlaylistView attributes={attributes} updateAttributes={updateAttributes} />
 }
 
-interface NotebookCollectionStatus {
-    ids: string[] | undefined
+interface NotebookCollectionStatus extends NotebookPlaylistCollection {
     loading: boolean
     count?: number
-    hasAuthoredDuration: boolean
 }
 
 function collectionPreviewNotice({ loading, count, ids }: NotebookCollectionStatus): JSX.Element | null {
@@ -248,7 +250,7 @@ function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttrib
                           ids: pinned,
                           loading: pinnedRecordingsLoading,
                           count: playlist.recordings_counts?.collection?.count,
-                          hasAuthoredDuration: 'duration' in filters || !!filters.session_recording_duration,
+                          savedFilters: filters,
                       }
                     : undefined
             }
