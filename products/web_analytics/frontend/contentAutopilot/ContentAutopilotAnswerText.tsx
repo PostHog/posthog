@@ -1,18 +1,18 @@
 import clsx from 'clsx'
 import { Fragment } from 'react'
 
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+
 import { percentage } from 'lib/utils/numbers'
 
 import type { AEOBrandSentimentSentenceApi } from '../generated/api.schemas'
 import type { AnswerMentions, AnswerSegment } from './answerMentions'
 import { SENTIMENT_LABELS, answerSentimentBlocks } from './answerSentiment'
 
-// Mixed from the label's own token, because the ready-made highlight fills are too faint to read in dark mode.
 const SENTENCE_TINTS: Record<string, string> = {
-    positive: 'bg-[color-mix(in_oklab,var(--success)_22%,transparent)]',
-    neutral: 'bg-[color-mix(in_oklab,var(--color-text-tertiary)_22%,transparent)]',
-    negative: 'bg-[color-mix(in_oklab,var(--danger)_22%,transparent)]',
+    positive: 'bg-success',
+    neutral: 'bg-fill-selected',
+    negative: 'bg-destructive',
 }
 
 /** The engine's answer with our brand and confirmed competitors marked, so who the answer recommends reads at a
@@ -33,9 +33,13 @@ export const ContentAutopilotAnswerText = ({
                 key={key}
                 className={clsx(
                     'rounded-sm px-1 font-semibold',
-                    // Solid fills in the colors of the "You" and "Competitor" tags beside the answer. A span, not
-                    // <mark>, because the base styles force a pale background on every <mark>.
-                    ownKeys.has(segment.brandKey) ? 'bg-[var(--success)] text-white' : 'bg-[var(--warning)] text-black'
+                    // Solid fills in the hues of the "You" and "Competitor" tags beside the answer. The status
+                    // surfaces are the same pale tints as the sentence tints, so a brand inside a scored sentence
+                    // would vanish on them. A span, not <mark>, because the base styles force a pale background on
+                    // every <mark>.
+                    ownKeys.has(segment.brandKey)
+                        ? 'bg-success-foreground text-background'
+                        : 'bg-warning-foreground text-background'
                 )}
             >
                 {segment.text}
@@ -45,7 +49,7 @@ export const ContentAutopilotAnswerText = ({
         )
     return (
         <div
-            className="whitespace-pre-wrap break-words text-sm bg-surface-secondary rounded p-3 max-h-96 overflow-y-auto"
+            className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs text-foreground"
             data-attr="content-autopilot-prompt-answer-text"
         >
             {!text
@@ -53,19 +57,23 @@ export const ContentAutopilotAnswerText = ({
                 : answerSentimentBlocks(text, mentions?.segments ?? [{ text, brandKey: null }], sentences).map(
                       (block, index) =>
                           block.sentence ? (
-                              <Tooltip
-                                  key={index}
-                                  title={`${SENTIMENT_LABELS[block.sentence.label] ?? block.sentence.label} about you (${percentage(block.sentence.score, 0)} confidence)`}
-                              >
-                                  <span
-                                      className={clsx(
-                                          'rounded-sm box-decoration-clone py-0.5',
-                                          SENTENCE_TINTS[block.sentence.label] ?? SENTENCE_TINTS.neutral
-                                      )}
-                                      data-attr="content-autopilot-prompt-answer-sentence"
+                              <Tooltip key={index}>
+                                  <TooltipTrigger
+                                      render={
+                                          <span
+                                              className={clsx(
+                                                  'rounded-sm box-decoration-clone py-0.5',
+                                                  SENTENCE_TINTS[block.sentence.label] ?? SENTENCE_TINTS.neutral
+                                              )}
+                                              data-attr="content-autopilot-prompt-answer-sentence"
+                                          />
+                                      }
                                   >
                                       {block.segments.map(renderSegment)}
-                                  </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                      {`${SENTIMENT_LABELS[block.sentence.label] ?? block.sentence.label} about you (${percentage(block.sentence.score, 0)} confidence)`}
+                                  </TooltipContent>
                               </Tooltip>
                           ) : (
                               <Fragment key={index}>{block.segments.map(renderSegment)}</Fragment>

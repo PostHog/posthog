@@ -79,6 +79,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     measures_backlog_this_run,
     purge_buffer_prefix,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import (
+    close_buffer_write,
+    data_driven_load_enabled,
+    open_buffer_write,
+    proven_quiet,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
@@ -274,6 +280,7 @@ class CDCExtractActivity:
         self._buffer_writer: CDCBufferWriter | None = None
         self._buffer_file_index: dict[str, int] = {}
         self._buffer_cleaned_schemas: set[str] = set()
+        self._data_driven_load: bool | None = None
         # Table names whose changes this run writes to the buffer. Resolved once in _setup.
         self._buffered_table_names: set[str] = set()
         self._truncated_tables: list[str] = []
@@ -436,6 +443,8 @@ class CDCExtractActivity:
 
         schema_id = str(schema.id)
         if schema_id not in self._buffer_cleaned_schemas:
+            # Before the write, so a run that dies after the file lands still leaves the table owing a load.
+            self._update_schema_sync_type_config(schema, mutate=open_buffer_write)
             # First write this run: remove files a superseded attempt left at or
             # past where this run restarted (batch boundaries are not stable
             # across attempts — see buffer.py). The batch's min seq IS the
@@ -1673,11 +1682,29 @@ class CDCExtractActivity:
         quiet zero-event run still proves extraction is alive. Nothing reads these keys yet — an
         upcoming CDC health check and the status endpoint will — so this is a forward-looking
         breadcrumb, not an ExternalDataJob row per idle run.
+
+        The same write counts this run's buffer writes, because every one of them has landed by now.
         """
+        wrote = str(schema.id) in self._buffer_cleaned_schemas
         self._update_schema_sync_type_config(
             schema,
             updates={"cdc_last_run_at": run_at.isoformat(), "cdc_last_run_event_count": self.event_count},
+            mutate=lambda config: close_buffer_write(config, wrote=wrote),
+            extra_model_fields={"last_checked_at": run_at} if not wrote and self._stands_down(schema, run_at) else None,
         )
+
+    def _stands_down(self, schema: ExternalDataSchema, now: dt.datetime) -> bool:
+        """Whether this table's scheduled ticks stand down, so this run is the check that found nothing.
+
+        Stamping `last_checked_at` then keeps the table off the stalled-schedule sweep between the
+        consumer's periodic full runs.
+        """
+        if not proven_quiet(schema, now):
+            return False
+        if self._data_driven_load is None:
+            assert self.source is not None
+            self._data_driven_load = data_driven_load_enabled(self.source)
+        return self._data_driven_load
 
     def _record_healthy_run(self, schema: ExternalDataSchema, now: dt.datetime) -> None:
         """Record that extraction ran for this schema, without touching its status.

@@ -241,8 +241,6 @@ async def test_system_one_only_blocks_a_single_signal_that_cannot_fit() -> None:
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
     AI_GATEWAY_API_KEY="phs_shared_test",
-    LLM_GATEWAY_URL="https://gateway.example.com",
-    LLM_GATEWAY_API_KEY="shared-test-credential",
 )
 async def test_private_report_judge_keeps_the_trial_gateway_without_rollout_capture(mode: str) -> None:
     signal = SignalData(

@@ -4,6 +4,7 @@ import { capturePersonsModalForClick } from 'lib/components/ResultMenu/personsMo
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -265,5 +266,26 @@ describe('retentionModalLogic', () => {
         // Cleared, not just hidden: switching back must not restore the old cohort
         expect(logic.values.selectedInterval).toBeNull()
         expect(logic.values.selectedRow).toBeNull()
+    })
+
+    it('saves the cohort on the project cohorts route', async () => {
+        let createdCohort: unknown
+        useMocks({
+            post: {
+                '/api/projects/:team_id/cohorts/': async ({ request }) => {
+                    createdCohort = await request.json()
+                    return [201, { id: 42, name: 'Returning users' }]
+                },
+            },
+        })
+        cohortsModel.mount()
+        await loadResults(fourCohorts)
+        logic.actions.openModal(1)
+
+        await expectLogic(logic, () => {
+            logic.actions.saveAsCohort('Returning users')
+        }).toFinishAllListeners()
+
+        expect(createdCohort).toMatchObject({ name: 'Returning users', is_static: true })
     })
 })

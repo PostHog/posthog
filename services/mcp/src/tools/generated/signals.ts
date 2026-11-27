@@ -1922,7 +1922,51 @@ const scoutConfigList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/inbox')
+        const filtered = (
+            Array.isArray(result)
+                ? result.map((item: any) =>
+                      pickResponseFields(item, [
+                          'id',
+                          'skill_name',
+                          'display_name',
+                          'description',
+                          'scout_origin',
+                          'scout_role',
+                          'enabled',
+                          'status',
+                          'pause_reason',
+                          'emit',
+                          'run_interval_minutes',
+                          'run_cron_schedule',
+                          'last_run_at',
+                          'tags',
+                          'source_product',
+                      ])
+                  )
+                : {
+                      ...(result as any),
+                      results: ((result as any).results ?? []).map((item: any) =>
+                          pickResponseFields(item, [
+                              'id',
+                              'skill_name',
+                              'display_name',
+                              'description',
+                              'scout_origin',
+                              'scout_role',
+                              'enabled',
+                              'status',
+                              'pause_reason',
+                              'emit',
+                              'run_interval_minutes',
+                              'run_cron_schedule',
+                              'last_run_at',
+                              'tags',
+                              'source_product',
+                          ])
+                      ),
+                  }
+        ) as typeof result
+        return await withPostHogUrl(context, filtered, '/inbox')
     },
 })
 
@@ -1950,6 +1994,24 @@ const scoutConfigPrecheckTest = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/precheck_test/`,
             body,
+        })
+        return result
+    },
+})
+
+const ScoutConfigRetrieveSchema = () => {
+    const SignalsScoutConfigRetrieveParams = orvalSchemas.SignalsScoutConfigRetrieveParams()
+    return SignalsScoutConfigRetrieveParams.omit({ project_id: true })
+}
+
+const scoutConfigRetrieve = (): ToolBase<ReturnType<typeof ScoutConfigRetrieveSchema>, Schemas.SignalScoutConfig> => ({
+    name: 'scout-config-retrieve',
+    schema: ScoutConfigRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutConfig>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -2952,13 +3014,54 @@ const scoutRunsList = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 emitted: params.emitted,
+                exclude_skill_name: params.exclude_skill_name,
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,
                 text: params.text,
             },
         })
-        return await withPostHogUrl(context, result, '/inbox')
+        const filtered = (
+            Array.isArray(result)
+                ? result.map((item: any) =>
+                      pickResponseFields(item, [
+                          'run_id',
+                          'skill_name',
+                          'skill_version',
+                          'status',
+                          'created_at',
+                          'started_at',
+                          'completed_at',
+                          'summary_lead',
+                          'failure_reason',
+                          'emitted_count',
+                          'emitted_finding_ids',
+                          'emitted_report_ids',
+                          'edited_report_ids',
+                      ])
+                  )
+                : {
+                      ...(result as any),
+                      results: ((result as any).results ?? []).map((item: any) =>
+                          pickResponseFields(item, [
+                              'run_id',
+                              'skill_name',
+                              'skill_version',
+                              'status',
+                              'created_at',
+                              'started_at',
+                              'completed_at',
+                              'summary_lead',
+                              'failure_reason',
+                              'emitted_count',
+                              'emitted_finding_ids',
+                              'emitted_report_ids',
+                              'edited_report_ids',
+                          ])
+                      ),
+                  }
+        ) as typeof result
+        return await withPostHogUrl(context, filtered, '/inbox')
     },
 })
 
@@ -3112,6 +3215,7 @@ const scoutScratchpadSearch = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
                 content_max_chars: params.content_max_chars,
+                content_offset: params.content_offset,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
@@ -3125,6 +3229,42 @@ const scoutScratchpadSearch = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
+const ScoutSendMessageSchema = () => {
+    const SignalsScoutSendMessageBody = orvalSchemas.SignalsScoutSendMessageBody()
+    const SignalsScoutSendMessageParams = orvalSchemas.SignalsScoutSendMessageParams()
+    return SignalsScoutSendMessageParams.omit({ project_id: true }).extend(SignalsScoutSendMessageBody.shape)
+}
+
+const scoutSendMessage = (): ToolBase<ReturnType<typeof ScoutSendMessageSchema>, Schemas.SendScoutMessageResponse> => ({
+    name: 'scout-send-message',
+    schema: ScoutSendMessageSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutSendMessageSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.route !== undefined) {
+            body['route'] = params.route
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.body !== undefined) {
+            body['body'] = params.body
+        }
+        if (params.dedupe_key !== undefined) {
+            body['dedupe_key'] = params.dedupe_key
+        }
+        const result = await context.api.request<Schemas.SendScoutMessageResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/send_message/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -4075,6 +4215,7 @@ const signalsScoutRunsList = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 emitted: params.emitted,
+                exclude_skill_name: params.exclude_skill_name,
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,
@@ -4215,6 +4356,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
                 content_max_chars: params.content_max_chars,
+                content_offset: params.content_offset,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
@@ -4287,6 +4429,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-config-delete': scoutConfigDelete,
     'scout-config-list': scoutConfigList,
     'scout-config-precheck-test': scoutConfigPrecheckTest,
+    'scout-config-retrieve': scoutConfigRetrieve,
     'scout-config-sync': scoutConfigSync,
     'scout-config-update': scoutConfigUpdate,
     'scout-create': scoutCreate,
@@ -4320,6 +4463,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,
+    'scout-send-message': scoutSendMessage,
     'scout-trial-archive': scoutTrialArchive,
     'scout-trial-create': scoutTrialCreate,
     'scout-trial-get': scoutTrialGet,

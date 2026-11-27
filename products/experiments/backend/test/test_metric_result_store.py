@@ -477,6 +477,60 @@ class TestMetricResultStore(BaseTest):
         preserved = store.latest_daily_point(changed_config, since=_START, until=_WINDOW, preserve_history=stopped)
         assert _samples(preserved) == ([3] if stopped and history_shown else [])
 
+    @parameterized.expand(
+        [
+            ("no_result", [], False, None),
+            ("every_result_significant", [True, True, True], False, 0),
+            ("a_result_without_significance_ends_the_run", [True, False, True], False, 2),
+            ("a_result_without_an_analysis_ends_the_run", [True, None, True], False, 2),
+            ("not_significant_now", [True, True, False], False, None),
+            ("an_edit_of_the_metric_starts_over", [True, True, True], True, 2),
+        ]
+    )
+    def test_significance_history_counts_back_to_the_first_significant_result_of_the_run(
+        self, _name: str, significant: list[bool | None], edited_before_last: bool, since_index: int | None
+    ) -> None:
+        experiment = self._experiment()
+        store = MetricResultStore(experiment_id=experiment.id)
+        # Oldest first, one a day: daily points around a recalculation run, under the keys the metric has at the time.
+        windows = [_WINDOW - timedelta(days=len(significant) - 1 - index) for index in range(len(significant))]
+        for index, (window, is_significant) in enumerate(zip(windows, significant)):
+            if edited_before_last and index == len(significant) - 1:
+                experiment.metrics = [
+                    {
+                        "uuid": "m1",
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "signup"},
+                    }
+                ]
+                experiment.save()
+            config = get_metric_calculation_config(experiment, "m1")
+            assert config is not None
+            is_run = index == 1
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid="m1",
+                fingerprint=_recalc_fingerprint(config.calculation_key()) if is_run else config.calculation_key(),
+                display_key=_recalc_fingerprint(config.legacy_key()) if is_run else config.legacy_key(),
+                query_from=_START,
+                query_to=window,
+                status=ExperimentMetricResult.Status.COMPLETED,
+                result={
+                    "baseline": {"key": "control", "number_of_samples": 100},
+                    "variant_results": [{"key": "test", "number_of_samples": 100, "significant": is_significant}],
+                },
+                completed_at=window + timedelta(minutes=5),
+            )
+        current_config = get_metric_calculation_config(experiment, "m1")
+        assert current_config is not None
+
+        history = store.significance_history(current_config)
+
+        assert (None if history is None else (history.current_until, dict(history.significant_since))) == (
+            None if not significant else (windows[-1], {} if since_index is None else {"test": windows[since_index]})
+        )
+
     def test_legacy_result_is_displayable_but_not_reusable(self) -> None:
         experiment = self._experiment()
         config = get_metric_calculation_config(experiment, "m1")

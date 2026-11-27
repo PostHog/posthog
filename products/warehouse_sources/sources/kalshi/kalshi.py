@@ -38,6 +38,10 @@ _CANDLESTICK_PERIOD_SECONDS = CANDLESTICK_PERIOD_MINUTES * 60
 # per request, with no pagination, so a batch that could exceed the cap is split before it is sent.
 _MAX_TICKERS_PER_REQUEST = 100
 _MAX_CANDLESTICKS_PER_REQUEST = 10_000
+# The batch order book endpoint takes at most 100 tickers. Three batches per market page keep each
+# run of requests between yields short.
+_ORDERBOOK_MARKETS_PER_PAGE = 3 * _MAX_TICKERS_PER_REQUEST
+_ORDERBOOK_SIDES = (("yes", "yes_dollars"), ("no", "no_dollars"))
 
 # `from=0` reads as unset and falls back to the trailing 24 hours, so a full read starts at 1 ms.
 _WEATHER_INDEX_EARLIEST_MS = 1
@@ -263,6 +267,93 @@ def _candlestick_source(
     )
 
 
+def _orderbook_levels(book: dict[str, Any], fetched_at: datetime) -> Iterator[dict[str, Any]]:
+    orderbook = book.get("orderbook_fp") or {}
+    for side, key in _ORDERBOOK_SIDES:
+        for level in orderbook.get(key) or []:
+            if not isinstance(level, list | tuple) or len(level) < 2:
+                continue
+            yield {
+                "market_ticker": book.get("ticker"),
+                "side": side,
+                "price_dollars": level[0],
+                "count_fp": level[1],
+                "fetched_at": fetched_at,
+            }
+
+
+def _fetch_orderbooks(client: RESTClient, tickers: list[str], fetched_at: datetime) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for page in client.paginate(
+        path="/markets/orderbooks",
+        # Kalshi reads the tickers as a repeated `tickers` param, not a comma-separated list.
+        params={"tickers": tickers},
+        paginator=SinglePagePaginator(),
+        data_selector="orderbooks",
+        data_selector_required=True,
+    ):
+        for book in page:
+            rows.extend(_orderbook_levels(book, fetched_at))
+    return rows
+
+
+def _orderbook_rows(
+    client: RESTClient,
+    resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
+    fetched_at: datetime,
+) -> Iterator[list[dict[str, Any]]]:
+    page_cursor: Optional[str] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            page_cursor = resume.cursor
+
+    next_cursor: list[Optional[str]] = [None]
+
+    def remember_next_cursor(state: Optional[dict[str, Any]], has_next_page: bool) -> None:
+        next_cursor[0] = str(state["cursor"]) if has_next_page and state and state.get("cursor") else None
+
+    for markets in client.paginate(
+        path="/markets",
+        params={"limit": _ORDERBOOK_MARKETS_PER_PAGE, "status": "open", "mve_filter": "exclude"},
+        paginator=JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor"),
+        data_selector="markets",
+        data_selector_required=True,
+        initial_paginator_state={"cursor": page_cursor} if page_cursor else None,
+        page_state_hook=remember_next_cursor,
+    ):
+        # No row of this page is held yet, so resuming from the cursor that fetched it loses nothing.
+        resumable_source_manager.safe_point()
+
+        tickers = [str(market["ticker"]) for market in markets if market.get("ticker")]
+        rows: list[dict[str, Any]] = []
+        for start in range(0, len(tickers), _MAX_TICKERS_PER_REQUEST):
+            rows.extend(_fetch_orderbooks(client, tickers[start : start + _MAX_TICKERS_PER_REQUEST], fetched_at))
+
+        # The whole page is yielded at once, so the next page's cursor covers it and a resume does
+        # not write its levels twice into the full refresh.
+        if next_cursor[0]:
+            resumable_source_manager.save_state(KalshiResumeConfig(cursor=next_cursor[0]))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _orderbook_source(
+    config: KalshiEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
+) -> SourceResponse:
+    client = RESTClient(base_url=KALSHI_BASE_URL, headers={"Accept": "application/json"})
+    fetched_at = datetime.now(UTC)
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: _orderbook_rows(client, resumable_source_manager, fetched_at),
+        primary_keys=config.primary_keys,
+    )
+
+
 def _city_rows(
     client: RESTClient,
     config: KalshiEndpointConfig,
@@ -417,6 +508,8 @@ def _build_endpoint(config: KalshiEndpointConfig, should_use_incremental_field: 
         endpoint["paginator"] = JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor")
     else:
         endpoint["paginator"] = SinglePagePaginator()
+        if config.extra_params:
+            endpoint["params"] = {**config.extra_params}
 
     if config.supports_incremental and should_use_incremental_field:
         endpoint["incremental"] = {
@@ -444,6 +537,9 @@ def kalshi_source(
 
     if config.market_fan_out:
         return _candlestick_source(config, resumable_source_manager, last_value)
+
+    if config.orderbook_fan_out:
+        return _orderbook_source(config, resumable_source_manager)
 
     if config.city_fan_out:
         return _city_source(config, resumable_source_manager, last_value)

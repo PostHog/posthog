@@ -117,7 +117,7 @@ describe("AgentAuthAdapter", () => {
   describe("ensureGatewayProxy", () => {
     function withSource(getRoute: ReturnType<typeof vi.fn>) {
       const authProxy = {
-        start: vi.fn().mockResolvedValue("http://127.0.0.1:9999/legacy"),
+        start: vi.fn().mockResolvedValue("http://127.0.0.1:9999/forward"),
         startGatewaySession: vi
           .fn()
           .mockResolvedValue("http://127.0.0.1:9999/session"),
@@ -144,7 +144,7 @@ describe("AgentAuthAdapter", () => {
 
       const result = await withGo.ensureGatewayProxy(1);
 
-      expect(result.mode).toBe("go");
+      expect(result.proxyUrl).toBe("http://127.0.0.1:9999/session");
       expect(authProxy.startGatewaySession).toHaveBeenCalled();
       expect(authProxy.start).not.toHaveBeenCalled();
     });
@@ -158,10 +158,7 @@ describe("AgentAuthAdapter", () => {
       const result = await withGo.ensureGatewayProxy(1);
 
       expect(getRoute).toHaveBeenCalledWith(1, { awaitRecheck: true });
-      expect(result).toEqual({
-        proxyUrl: "http://127.0.0.1:9999/session",
-        mode: "go",
-      });
+      expect(result).toEqual({ proxyUrl: "http://127.0.0.1:9999/session" });
       expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
         projectId: 1,
         headers: undefined,
@@ -192,22 +189,16 @@ describe("AgentAuthAdapter", () => {
         }),
       ],
       ["a failing source", vi.fn().mockRejectedValue(new Error("boom"))],
-    ])(
-      "keeps a session target on %s, never legacy",
-      async (_label, getRoute) => {
-        const { withGo, authProxy } = withSource(getRoute);
+    ])("keeps a session target on %s", async (_label, getRoute) => {
+      const { withGo, authProxy } = withSource(getRoute);
 
-        const result = await withGo.ensureGatewayProxy(1);
+      const result = await withGo.ensureGatewayProxy(1);
 
-        expect(result).toEqual({
-          proxyUrl: "http://127.0.0.1:9999/session",
-          mode: "go",
-        });
-        expect(authProxy.start).not.toHaveBeenCalled();
-      },
-    );
+      expect(result).toEqual({ proxyUrl: "http://127.0.0.1:9999/session" });
+      expect(authProxy.start).not.toHaveBeenCalled();
+    });
 
-    it("refuses without a project and never starts a legacy proxy", async () => {
+    it("refuses without a project before starting any proxy", async () => {
       const { withGo, authProxy } = withSource(vi.fn());
 
       await expect(withGo.ensureGatewayProxy(null)).rejects.toThrow(
@@ -540,16 +531,14 @@ describe("AgentAuthAdapter", () => {
     expect(configuration.policies).toEqual([]);
   });
 
-  it("configures environment using the gateway proxy and current token", async () => {
+  it("configures environment using the current token", async () => {
     const pathBefore = process.env.PATH;
 
     await adapter.configureProcessEnv({
       credentials: baseCredentials,
-      proxyUrl: "http://127.0.0.1:9999",
       claudeCliPath: "/mock/claude-cli.js",
     });
 
-    expect(process.env.LLM_GATEWAY_URL).toBe("http://127.0.0.1:9999");
     expect(process.env.CLAUDE_CODE_EXECUTABLE).toBe("/mock/claude-cli.js");
     expect(process.env.POSTHOG_PROJECT_ID).toBe("1");
     // The node-shim era prepended a shim dir here; PATH must stay untouched.
@@ -584,7 +573,6 @@ describe("AgentAuthAdapter", () => {
 
       await adapter.configureProcessEnv({
         credentials: baseCredentials,
-        proxyUrl: "http://127.0.0.1:9999",
         claudeCliPath: "/mock/claude-cli.js",
         rtkEnabled,
       });

@@ -4738,7 +4738,23 @@ export const ErrorTrackingIssueStatusApi = {
     Suppressed: 'suppressed',
 } as const
 
+export type ErrorTrackingIssueTagColorApi =
+    (typeof ErrorTrackingIssueTagColorApi)[keyof typeof ErrorTrackingIssueTagColorApi]
+
+export const ErrorTrackingIssueTagColorApi = {
+    Blue: 'blue',
+    Teal: 'teal',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+    Pink: 'pink',
+    Purple: 'purple',
+} as const
+
 export interface ErrorTrackingIssueTagApi {
+    /** Named color of the tag, or null for a color picked from the label. */
+    color?: ErrorTrackingIssueTagColorApi | null
     /** What the tag means, for a tooltip. */
     description: string
     /** Key of the tag definition. */
@@ -6100,7 +6116,7 @@ export interface ExperimentBreakdownResultApi {
 export type ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows = { [key: string]: number } | null
 
 /**
- * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+ * Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values.
  */
 export type ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants = { [key: string]: number } | null
 
@@ -6109,7 +6125,9 @@ export interface ExperimentWarehouseNativeRowsLeftOutApi {
     empty_id?: number | null
     /** Exposed entities with no row of the metric query that counted, by variant. */
     exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows
-    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+    /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+    unknown_variant_rows?: number | null
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
     unknown_variants?: ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants
 }
 

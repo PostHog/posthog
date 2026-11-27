@@ -6,6 +6,7 @@ import {
     createEvaluationCondition,
 } from '~/ai-observability/_tests/fixtures'
 import { logger } from '~/common/utils/logger'
+import { ClickHouseTimestamp } from '~/types'
 
 import {
     EvaluationMatcher,
@@ -172,7 +173,7 @@ describe('Evaluation Scheduler', () => {
                     globals: expect.objectContaining({
                         event: '$ai_generation',
                         distinct_id: event.distinct_id,
-                        person: { properties: personProperties },
+                        person: { id: 'person-uuid-1', properties: personProperties },
                         properties: eventProperties,
                     }),
                 })
@@ -196,7 +197,7 @@ describe('Evaluation Scheduler', () => {
                 condition.bytecode,
                 expect.objectContaining({
                     globals: expect.objectContaining({
-                        person: { properties: {} },
+                        person: { id: 'person-uuid-1', properties: {} },
                     }),
                 })
             )
@@ -219,10 +220,64 @@ describe('Evaluation Scheduler', () => {
                 condition.bytecode,
                 expect.objectContaining({
                     globals: expect.objectContaining({
-                        person: { properties: {} },
+                        person: { id: 'person-uuid-1', properties: {} },
                     }),
                 })
             )
+        })
+    })
+
+    describe('checkConditionMatch with compiled event metadata filters', () => {
+        let mockExecHog: jest.Mock
+
+        beforeEach(() => {
+            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog.mockImplementation(jest.requireActual('~/cdp/utils/hog-exec').execHog)
+        })
+
+        afterEach(() => {
+            mockExecHog.mockReset()
+        })
+
+        it.each([
+            [
+                'timestamp is after 2026-01-01',
+                [
+                    '_H',
+                    1,
+                    32,
+                    '2026-01-01',
+                    2,
+                    'toDateTime',
+                    1,
+                    32,
+                    'timestamp',
+                    1,
+                    1,
+                    2,
+                    'toString',
+                    1,
+                    2,
+                    'toDateTime',
+                    1,
+                    13,
+                ],
+            ],
+            ['$group_0 is group-key-1', ['_H', 1, 32, 'group-key-1', 32, '$group_0', 1, 1, 11]],
+            ['group 0 plan is pro', ['_H', 1, 32, 'pro', 32, 'plan', 32, 'properties', 32, 'group_0', 1, 3, 11]],
+            [
+                'person_id is person-uuid-1, in a condition saved before the backend rejected it',
+                ['_H', 1, 32, 'person-uuid-1', 32, 'person_id', 1, 1, 11],
+            ],
+        ])('matches a condition on %s', async (_name, bytecode) => {
+            const event = createAiGenerationEvent(teamId, {
+                timestamp: '2026-11-25 12:00:00.000000' as ClickHouseTimestamp,
+                properties: JSON.stringify({ $ai_model: 'gpt-4', $group_0: 'group-key-1' }),
+                group0_properties: JSON.stringify({ plan: 'pro' }),
+            })
+            const condition = createEvaluationCondition({ bytecode, rollout_percentage: 100 })
+
+            await expect(checkConditionMatch(event, condition)).resolves.toBe(true)
         })
     })
 
@@ -361,9 +416,7 @@ describe('Evaluation Scheduler', () => {
                 ['_H', 1, 32, true],
                 expect.objectContaining({
                     globals: expect.objectContaining({
-                        person: {
-                            properties: personProperties,
-                        },
+                        person: { id: 'person-uuid-1', properties: personProperties },
                     }),
                 })
             )

@@ -122,6 +122,8 @@ class FakeSendGridState:
         self.export_status = "ready"
         self.exports: dict[str, dict[str, Any]] = {}
         self.next_url_host = "https://api.sendgrid.com"
+        # Every empty token-paged list answers `"result": null` rather than `[]`, as real Single Sends do.
+        self.null_when_empty = False
         self.lock = threading.Lock()
 
     def account_for(self, key: str) -> dict[str, Any]:
@@ -170,9 +172,10 @@ class _Handler(BaseHTTPRequestHandler):
                 state.requests.clear()
                 state.export_damage, state.export_pending_checks, state.export_status = None, 1, "ready"
                 state.export_shape = {}
+                state.null_when_empty = False
             state.account.update(body.get("account", {}))
             state.second_account.update(body.get("second_account", {}))
-            for name in ("export_damage", "export_pending_checks", "export_status", "export_shape"):
+            for name in ("export_damage", "export_pending_checks", "export_status", "export_shape", "null_when_empty"):
                 if name in body:
                     setattr(state, name, body[name])
             for name in body.get("grow", []):
@@ -452,6 +455,8 @@ class _Handler(BaseHTTPRequestHandler):
         if start + size < len(rows):
             host = self.server.state.next_url_host
             metadata["next"] = f"{host}{path}?page_size={size}&page_token={start + size}"
+        if not rows and self.server.state.null_when_empty:
+            return 200, {"result": None, "_metadata": metadata}, {}
         return 200, {"result": page, "_metadata": metadata}, {}
 
     def _templates(self, account: dict[str, Any], query: dict[str, str]) -> tuple[int, Any, dict[str, str]]:

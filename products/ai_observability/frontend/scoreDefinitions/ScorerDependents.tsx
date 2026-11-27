@@ -33,8 +33,8 @@ export function ScorerDependents({ definitionId, count }: { definitionId: string
                                         </LemonTag>
                                     </span>
                                     <span className="text-xs text-muted font-normal">
-                                        These composite scores keep using their selected version of this scorer until
-                                        you update them.
+                                        Item formulas use a pinned version. Experiment formulas can also use the
+                                        versions that scored items in each run.
                                     </span>
                                 </span>
                             ),

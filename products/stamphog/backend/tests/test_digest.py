@@ -1055,17 +1055,15 @@ def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() ->
     assert summary.headline == ""
 
 
-@override_settings(
-    AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="", LLM_GATEWAY_URL="http://llm-gateway.test", LLM_GATEWAY_API_KEY="phx_test"
-)
-def test_without_the_ai_gateway_the_digest_never_reaches_the_python_gateway() -> None:
-    # The legacy gateway has no stamphog route, so a process without the Go pair posts the plain list.
+@override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+def test_without_the_ai_gateway_the_digest_posts_the_plain_list() -> None:
     prs = [_pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1")]
 
     with patch("posthog.llm.gateway_client.Anthropic") as anthropic_sdk:
         summary = summarize_merged_prs(prs)
 
     assert summary.judged is False
+    assert [pr.pr_number for pr in summary.prs] == [1]
     anthropic_sdk.assert_not_called()
 
 

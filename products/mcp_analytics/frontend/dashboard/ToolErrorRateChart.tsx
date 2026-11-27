@@ -1,9 +1,13 @@
 import { type ValueDomain } from '@posthog/quill-charts'
+import { ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
-import { RankedToolBarChart, type RankedToolBarChartProps } from './RankedToolBarChart'
+import { formatNumber } from './formatters'
+import { RankedToolBarChart, type RankedToolBarChartProps, type RankedToolMetric } from './RankedToolBarChart'
+
+export type ErrorRanking = 'rate' | 'count'
 
 const formatErrorRate = (value: number): string => formatPercentage(value, { compact: true })
 
@@ -13,7 +17,11 @@ function errorRateDomain(maxRate: number): ValueDomain {
     return { min: 0, max: Math.min(100, Math.max(10, Math.ceil((maxRate * 1.4) / 10) * 10)) }
 }
 
+// Headroom past the top tool, which the axis then rounds up, so its value label fits.
+const errorCountDomain = (maxErrors: number): ValueDomain => ({ min: 0, include: [maxErrors * 1.2] })
+
 const errorRate = (row: ToolRow): number => row.error_rate_pct
+const errorCount = (row: ToolRow): number => row.errors
 
 const errorRateTooltipRows = (row: ToolRow): [string, string][] => [
     ['Error rate', formatErrorRate(row.error_rate_pct)],
@@ -21,24 +29,61 @@ const errorRateTooltipRows = (row: ToolRow): [string, string][] => [
     ['Calls', String(row.total_calls)],
 ]
 
+const TITLES: Record<ErrorRanking, string> = {
+    rate: 'Tools with the highest error rate',
+    count: 'Tools with the most errors',
+}
+
 export function ToolErrorRateChart({
-    title = 'Tools with the highest error rate',
+    title,
     theme,
+    by = 'rate',
+    onByChange,
+    dataAttr,
     ...props
-}: Omit<RankedToolBarChartProps, 'title'> & { title?: string }): JSX.Element {
+}: Omit<RankedToolBarChartProps, 'title'> & {
+    title?: string
+    by?: ErrorRanking
+    /** Adds a switch between ranking by error rate and by error count. */
+    onByChange?: (by: ErrorRanking) => void
+    dataAttr?: string
+}): JSX.Element {
+    const metric: RankedToolMetric = {
+        label: by === 'rate' ? 'Error rate' : 'Errors',
+        color: theme.colors[4],
+        value: by === 'rate' ? errorRate : errorCount,
+        formatValue: by === 'rate' ? formatErrorRate : formatNumber,
+        valueDomain: by === 'rate' ? errorRateDomain : errorCountDomain,
+        tooltipRows: errorRateTooltipRows,
+    }
     return (
         <RankedToolBarChart
             {...props}
-            title={title}
+            title={title ?? TITLES[by]}
             theme={theme}
-            metric={{
-                label: 'Error rate',
-                color: theme.colors[4],
-                value: errorRate,
-                formatValue: formatErrorRate,
-                valueDomain: errorRateDomain,
-                tooltipRows: errorRateTooltipRows,
-            }}
+            action={
+                onByChange ? (
+                    <div className="flex items-center gap-2">
+                        {props.action}
+                        <ToggleGroup
+                            className="-my-1"
+                            value={[by]}
+                            onValueChange={(next) => next[0] && onByChange(next[0] as ErrorRanking)}
+                            aria-label="Rank tools by"
+                        >
+                            <ToggleGroupItem value="rate" size="sm" data-attr={`${dataAttr}-by-rate`}>
+                                Error rate
+                            </ToggleGroupItem>
+                            <ToggleGroupItem value="count" size="sm" data-attr={`${dataAttr}-by-count`}>
+                                Total errors
+                            </ToggleGroupItem>
+                        </ToggleGroup>
+                    </div>
+                ) : (
+                    props.action
+                )
+            }
+            metric={metric}
         />
     )
 }

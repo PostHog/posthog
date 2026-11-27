@@ -1,10 +1,27 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { organizationsProjectsPartialUpdate } from '~/generated/core/api'
+import type { TeamWorkflowsConfigApi } from '~/generated/core/api.schemas'
 import { TeamPublicType, TeamType } from '~/types'
 
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
@@ -14,6 +31,7 @@ import {
     ImpactFunnelState,
     ImpactLift,
     ImpactStep,
+    LinkTagging,
     followedSendsNote,
     impactFunnelState,
     impactLift,
@@ -23,7 +41,10 @@ import {
 
 export interface EmailImpactLogicProps {
     workflowId: string
+    alwaysSensitive?: boolean
 }
+
+export type ConversionEventSource = 'event-bar' | 'funnel'
 
 export const IMPACT_DATE_RANGES = [
     { value: 1, label: 'Last 24 hours' },
@@ -35,6 +56,7 @@ export const IMPACT_DATE_RANGES = [
 export interface emailImpactLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
+    alwaysSensitive: boolean
     days: number
     event: string | null
     followedNote: string | null
@@ -43,7 +65,12 @@ export interface emailImpactLogicValues {
     impactError: string | null
     impactLoading: boolean
     lift: ImpactLift | null
+    linkTagging: LinkTagging
+    linkTrackingDisabledReason: string | null
+    linkTrackingSave: TeamWorkflowsConfigApi | null
+    linkTrackingSaveLoading: boolean
     replayEnabled: boolean
+    showsLinkTrackingPrompt: boolean
     steps: ImpactStep[] | null
     untrackedNote: string | null
 }
@@ -72,11 +99,36 @@ export interface emailImpactLogicActions {
         impact: TransactionalEmailImpactApi | null
         payload?: void
     }
+    pickEvent: (
+        event: string | null,
+        source: ConversionEventSource
+    ) => {
+        event: string | null
+        source: ConversionEventSource
+    }
+    setAlwaysSensitive: (alwaysSensitive: boolean) => {
+        alwaysSensitive: boolean
+    }
     setDays: (days: number) => {
         days: number
     }
     setEvent: (event: string | null) => {
         event: string | null
+    }
+    turnOnLinkTracking: () => any
+    turnOnLinkTrackingFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    turnOnLinkTrackingSuccess: (
+        linkTrackingSave: TeamWorkflowsConfigApi,
+        payload?: any
+    ) => {
+        linkTrackingSave: TeamWorkflowsConfigApi
+        payload?: any
     }
 }
 
@@ -89,7 +141,14 @@ export interface emailImpactLogicMeta {
             impactLoading: boolean,
             impactError: string | null
         ) => ImpactFunnelState
-        steps: (impact: TransactionalEmailImpactApi | null, event: string | null) => ImpactStep[] | null
+        linkTagging: (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean) => LinkTagging
+        linkTrackingDisabledReason: (currentTeam: TeamPublicType | TeamType | null) => string | null
+        steps: (
+            impact: TransactionalEmailImpactApi | null,
+            event: string | null,
+            linkTagging: LinkTagging
+        ) => ImpactStep[] | null
+        showsLinkTrackingPrompt: (funnelState: ImpactFunnelState, steps: ImpactStep[] | null) => boolean
         lift: (impact: TransactionalEmailImpactApi | null) => ImpactLift | null
         followedNote: (impact: TransactionalEmailImpactApi | null) => string | null
         untrackedNote: (impact: TransactionalEmailImpactApi | null) => string | null
@@ -143,9 +202,14 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     })),
     actions({
         setEvent: (event: string | null) => ({ event }),
+        pickEvent: (event: string | null, source: ConversionEventSource) => ({ event, source }),
         setDays: (days: number) => ({ days }),
+        setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
     }),
-    reducers({
+    reducers(({ props }) => ({
+        // A selector that reads props keeps its result while the store is unchanged, so a template's new
+        // sensitivity flag goes through the store.
+        alwaysSensitive: [!!props.alwaysSensitive, { setAlwaysSensitive: (_, { alwaysSensitive }) => alwaysSensitive }],
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
         impactError: [
@@ -156,8 +220,51 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 loadImpactFailure: (_, { errorObject }) => impactErrorMessage(errorObject),
             },
         ],
-    }),
+    })),
     loaders(({ props, values }) => ({
+        // Its own request rather than teamLogic's updateCurrentTeam, whose loader drops the answer of
+        // any project save still in flight when another one starts.
+        linkTrackingSave: [
+            null as TeamWorkflowsConfigApi | null,
+            {
+                turnOnLinkTracking: async () => {
+                    const team = values.currentTeam
+                    if (!team?.organization) {
+                        throw new Error('The project has not loaded yet.')
+                    }
+                    if (values.linkTrackingDisabledReason) {
+                        throw new Error(values.linkTrackingDisabledReason)
+                    }
+                    const project = await organizationsProjectsPartialUpdate(team.organization, team.id, {
+                        workflows_config: { email_workflow_run_link_tag_enabled: true },
+                    })
+                    if (project.workflows_config?.email_workflow_run_link_tag_enabled !== true) {
+                        lemonToast.error('Link tracking did not turn on. Try again.')
+                        throw new Error('The saved project still has link tracking off.')
+                    }
+                    // pinned: analytics event name - renaming breaks dashboards
+                    posthog.capture('transactional email impact link tracking turned on')
+                    // Leaving the Impact tab unmounts this logic mid-save, and its success listeners with it, so
+                    // the save hands its result to the always-mounted teamLogic here.
+                    // Only the saved field is merged, into the team as it is when the save answers, so a workflows
+                    // setting that changed while the save was in flight keeps its newer value.
+                    const currentTeam = teamLogic.values.currentTeam
+                    if (currentTeam) {
+                        teamLogic.actions.updateCurrentTeamSuccess(
+                            {
+                                ...currentTeam,
+                                workflows_config: {
+                                    ...currentTeam.workflows_config,
+                                    email_workflow_run_link_tag_enabled: true,
+                                },
+                            },
+                            { workflows_config: { email_workflow_run_link_tag_enabled: true } }
+                        )
+                    }
+                    return project.workflows_config
+                },
+            },
+        ],
         impact: [
             null as TransactionalEmailImpactApi | null,
             {
@@ -205,10 +312,36 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 impactError: string | null
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
+        linkTagging: [
+            (s) => [s.currentTeam, s.alwaysSensitive],
+            (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean): LinkTagging =>
+                alwaysSensitive
+                    ? 'sensitive-email'
+                    : (currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
+                      ? 'on'
+                      : 'off',
+        ],
+        linkTrackingDisabledReason: [
+            (s) => [s.currentTeam],
+            // The projects endpoint looks the id up as a project id. Only the main environment has the same id
+            // as its project, so a save from any other environment cannot find the project and fails.
+            (currentTeam: TeamPublicType | TeamType | null): string | null =>
+                currentTeam?.project_id && currentTeam.id !== currentTeam.project_id
+                    ? "Link tracking can't be turned on in this environment yet."
+                    : null,
+        ],
         steps: [
-            (s) => [s.impact, s.event],
-            (impact: TransactionalEmailImpactApi | null, event: string | null): ImpactStep[] | null =>
-                impact ? impactSteps(impact, event) : null,
+            (s) => [s.impact, s.event, s.linkTagging],
+            (
+                impact: TransactionalEmailImpactApi | null,
+                event: string | null,
+                linkTagging: LinkTagging
+            ): ImpactStep[] | null => (impact ? impactSteps(impact, event, linkTagging) : null),
+        ],
+        showsLinkTrackingPrompt: [
+            (s) => [s.funnelState, s.steps],
+            (funnelState: ImpactFunnelState, steps: ImpactStep[] | null): boolean =>
+                funnelState === 'ready' && !!steps?.some((step) => step.missingFixedByLinkTagging),
         ],
         lift: [
             (s) => [s.impact],
@@ -229,6 +362,11 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     }),
     listeners(({ actions, values }) => ({
         setEvent: () => actions.loadImpact(),
+        pickEvent: ({ event, source }) => {
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('transactional email impact event picked', { source, cleared: !event })
+            actions.setEvent(event)
+        },
         setDays: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
             if (!values.impact && !values.impactLoading) {
@@ -242,10 +380,16 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     has_event: !!values.event,
                     days: values.days,
                     has_untracked_sends: impact.untracked > 0,
+                    shows_link_tracking_prompt: values.showsLinkTrackingPrompt,
                     has_clicks_untracked_sends: (impact.clicks_untracked ?? 0) > 0,
                 })
             }
         },
     })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!!props.alwaysSensitive !== !!oldProps.alwaysSensitive) {
+            actions.setAlwaysSensitive(!!props.alwaysSensitive)
+        }
+    }),
     afterMount(({ actions }) => actions.loadImpact()),
 ])
