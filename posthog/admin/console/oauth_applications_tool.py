@@ -5,7 +5,6 @@ from uuid import UUID
 
 from django import forms
 from django.conf import settings
-from django.core.paginator import Paginator
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpRequest
 
@@ -32,11 +31,11 @@ from posthog.admin.console.tools import (
     Notice,
     Output,
     Page,
-    Paging,
     Row,
     Stat,
     Stats,
     Table,
+    paginate,
 )
 from posthog.api.oauth.provisioning_review import (
     PARTNER_NOTE_STEP,
@@ -335,12 +334,7 @@ class OAuthApplicationsTool(ConsoleTool):
     def _list_page(self, request: HttpRequest) -> Page:
         form = ApplicationFilterForm(request.GET or None)
         applications = _filtered_applications(form)
-        page = Paginator(applications, APPLICATIONS_PER_PAGE).get_page(request.GET.get("page"))
-        query = request.GET.copy()
-
-        def page_url(number: int) -> str:
-            query["page"] = str(number)
-            return f"?{query.urlencode()}"
+        paged = paginate(request, applications, noun="application", per_page=APPLICATIONS_PER_PAGE)
 
         return Page(
             blocks=(
@@ -361,22 +355,10 @@ class OAuthApplicationsTool(ConsoleTool):
                 ),
                 Table(
                     columns=("App", "Kind", "Provisioning", "Review", "Evidence", "Created"),
-                    rows=tuple(_application_row(app) for app in page.object_list),
+                    rows=tuple(_application_row(app) for app in paged.rows),
                     empty_text="No OAuth applications match.",
                 ),
-                *(
-                    (
-                        Paging(
-                            number=page.number,
-                            num_pages=page.paginator.num_pages,
-                            summary=f"{page.paginator.count} applications",
-                            previous_url=page_url(page.previous_page_number()) if page.has_previous() else None,
-                            next_url=page_url(page.next_page_number()) if page.has_next() else None,
-                        ),
-                    )
-                    if page.paginator.count
-                    else ()
-                ),
+                *((paged.paging,) if paged.paging else ()),
             )
         )
 

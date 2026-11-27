@@ -89,6 +89,7 @@ from posthog.admin.console.tools import (
     Table,
     TableSelect,
     ToolOperation,
+    paginate,
 )
 from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
@@ -755,6 +756,30 @@ class TestAdminConsoleLongFacts(SimpleTestCase):
 
         assert ("Show all" in html) == collapsed
         assert fact.value in html
+
+
+class TestAdminConsolePaging(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("first_page", "", [0, 1], 1, None, "?status=open&status=draft&page=2"),
+            ("past_the_end", "&page=99", [4], 3, "?status=open&status=draft&page=2", None),
+            ("not_a_number", "&page=x", [0, 1], 1, None, "?status=open&status=draft&page=2"),
+        ]
+    )
+    def test_a_page_keeps_its_filters_and_never_shows_rows_of_another_page(
+        self, _name: str, page_query: str, rows: list[int], number: int, previous_url: str | None, next_url: str | None
+    ) -> None:
+        request = RequestFactory().get(f"/admin/console/tools/report/?status=open&status=draft{page_query}")
+
+        paged = paginate(request, range(5), noun="team", per_page=2)
+
+        assert paged.rows == rows
+        assert paged.paging == Paging(
+            number=number, num_pages=3, summary="5 teams", previous_url=previous_url, next_url=next_url
+        )
+
+    def test_an_empty_list_has_no_pager(self) -> None:
+        assert paginate(RequestFactory().get("/"), [], noun="team").paging is None
 
 
 class TestAdminConsoleFormField(SimpleTestCase):

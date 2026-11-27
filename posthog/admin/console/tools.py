@@ -1,9 +1,11 @@
 import re
 import dataclasses
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, ClassVar, Protocol
 from urllib.parse import urlencode
 
 from django import forms
+from django.core.paginator import Paginator
 from django.urls import reverse
 
 from posthog.admin.console.panels import Gate, Owner, Tone, check_danger, is_internal_path
@@ -11,7 +13,7 @@ from posthog.admin.console.records import RECORD_TYPES
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from django.db.models import Model
+    from django.db.models import Model, QuerySet
     from django.forms.boundfield import BoundField
     from django.http import HttpRequest, HttpResponse
 
@@ -135,14 +137,65 @@ class Output:
     text: str
 
 
+PAGE_PARAM = "page"
+ROWS_PER_PAGE = 50
+
+
 @frozen
 class Paging:
+    """The pager under a list. Build it with `paginate`, or with `Paging.build` for a page a facade already cut."""
+
     kind: ClassVar[str] = "paging"
     number: int
     num_pages: int
     summary: str
     previous_url: str | None
     next_url: str | None
+
+    @classmethod
+    def build(
+        cls, request: "HttpRequest", *, number: int, num_pages: int, count: int, noun: str, plural: str | None = None
+    ) -> "Paging":
+        query = request.GET.copy()
+
+        def url(page_number: int) -> str:
+            query[PAGE_PARAM] = str(page_number)
+            return f"?{query.urlencode()}"
+
+        return cls(
+            number=number,
+            num_pages=num_pages,
+            summary=f"{count:,} {noun if count == 1 else (plural or f'{noun}s')}",
+            previous_url=url(number - 1) if number > 1 else None,
+            next_url=url(number + 1) if number < num_pages else None,
+        )
+
+
+@frozen
+class PagedRows[T]:
+    rows: list[T]
+    paging: Paging | None
+
+
+def paginate[T](
+    request: "HttpRequest",
+    rows: "QuerySet[Model, T] | Sequence[T]",
+    *,
+    noun: str,
+    plural: str | None = None,
+    per_page: int = ROWS_PER_PAGE,
+) -> PagedRows[T]:
+    """The rows of the page that `?page=` asks for. A page number past the end shows the last page."""
+    page = Paginator(rows, per_page).get_page(request.GET.get(PAGE_PARAM))
+    count = page.paginator.count
+    paging = (
+        Paging.build(
+            request, number=page.number, num_pages=page.paginator.num_pages, count=count, noun=noun, plural=plural
+        )
+        if count
+        else None
+    )
+    return PagedRows(rows=list(page.object_list), paging=paging)
 
 
 @frozen

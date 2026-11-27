@@ -1,11 +1,10 @@
 from django import forms
-from django.core.paginator import Paginator
 from django.db.models import Model
 from django.http import HttpRequest
 from django.urls import reverse
 
 from posthog.admin.console.records import RECORD_TYPES, RecordType, Relation
-from posthog.admin.console.tools import Cell, FieldGroup, Filters, Page, Paging, Row, Table
+from posthog.admin.console.tools import Cell, FieldGroup, Filters, Page, Row, Table, paginate
 from posthog.dataclasses import frozen
 
 RELATED_PREVIEW_SIZE = 5
@@ -81,24 +80,11 @@ class RelatedRecords:
             search = search_form.cleaned_data["search"].strip()
         if search and relation.search is not None:
             rows = relation.search(rows, search)
-        page = Paginator(rows, RELATED_PER_PAGE).get_page(request.GET.get("page"))
-        query = request.GET.copy()
-
-        def page_url(number: int) -> str:
-            query["page"] = str(number)
-            return f"?{query.urlencode()}"
-
+        paged = paginate(request, rows, noun=RECORD_TYPES[relation.target].label.lower(), per_page=RELATED_PER_PAGE)
         table = Table(
             columns=(RECORD_TYPES[relation.target].label, "ID", *relation.columns),
-            rows=tuple(self._row(relation, row) for row in page.object_list),
+            rows=tuple(self._row(relation, row) for row in paged.rows),
             empty_text="Nothing matches the search." if search else "None.",
-        )
-        paging = Paging(
-            number=page.number,
-            num_pages=page.paginator.num_pages,
-            summary=f"{page.paginator.count:,} in all",
-            previous_url=page_url(page.previous_page_number()) if page.has_previous() else None,
-            next_url=page_url(page.next_page_number()) if page.has_next() else None,
         )
         filters = (
             (
@@ -112,7 +98,7 @@ class RelatedRecords:
             if search_form is not None
             else ()
         )
-        return Page(blocks=(*filters, table, *((paging,) if page.paginator.count else ())))
+        return Page(blocks=(*filters, table, *((paged.paging,) if paged.paging else ())))
 
     @classmethod
     def _row(cls, relation: Relation, row: Model) -> Row:
