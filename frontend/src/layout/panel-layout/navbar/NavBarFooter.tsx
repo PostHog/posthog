@@ -8,7 +8,6 @@ import { PostHogErrorBoundary } from '@posthog/react'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
-import { NavSwitchCard } from 'lib/components/NavSwitch/NavSwitchCard'
 import { NotificationsMenu } from 'lib/components/NotificationsMenu/NotificationsMenu'
 import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -55,8 +54,6 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                     </PostHogErrorBoundary>
                 </div>
             )}
-
-            {!isLayoutNavCollapsed && <NavSwitchCard />}
 
             <div
                 className={cn('flex flex-col gap-px w-full', {

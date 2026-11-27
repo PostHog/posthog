@@ -40,6 +40,17 @@ class ExportAssetResult:
     error: Optional[ExportError] = None
 
 
+@dataclasses.dataclass(frozen=True)
+class ExportAssetsBatchActivityInputs:
+    exported_asset_ids: list[int]
+    source: Optional[str] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class ExportAssetsBatchResult:
+    settled: list[ExportAssetResult]
+
+
 def is_user_query_export_error(error: ExportError) -> bool:
     if error.failure_details is not None:
         return error.failure_details["failure_category"] == SLO_FAILURE_CATEGORY_QUERY

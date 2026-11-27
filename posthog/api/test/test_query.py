@@ -609,9 +609,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
-    def test_argument_type_error_names_the_function(self):
-        query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
-
+    @parameterized.expand(
+        [
+            (
+                {"kind": "EventsQuery", "select": ["timestamp + 'string'"]},
+                "`plus` cannot combine DateTime64 and String",
+            ),
+            ({"kind": "HogQLQuery", "query": "SELECT [1] > 7"}, "The > operator cannot compare Array"),
+        ]
+    )
+    def test_argument_type_error_names_the_operation(self, query: dict[str, object], detail: str) -> None:
         with time_machine.travel("2024-10-16 22:10:29.691212", tick=False):
             response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
             self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
@@ -620,10 +627,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response["type"], "validation_error")
             self.assertEqual(response["code"], "illegal_type_of_argument")
             self.assertEqual(response["attr"], None)
-            self.assertIn(
-                "`plus` cannot combine DateTime64 and String",
-                response["detail"],
-            )
+            self.assertIn(detail, response["detail"])
 
     def test_hogql_error_is_enriched_with_metadata(self):
         query = {"kind": "HogQLQuery", "query": "SELECT user_id FROM events LIMIT 1"}

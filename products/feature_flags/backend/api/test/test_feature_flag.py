@@ -7995,6 +7995,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert viewable_flag.active is True
         assert viewable_flag.archived is False
 
+        remote_config_flag = self._create_encrypted_flag(
+            stored_payload=flag_payload_codec().encrypt(b'{"secret": "value"}').decode("utf-8")
+        )
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=remote_config_flag.id, team=self.team, access_level="none"
+        )
+        for flag_ref in (remote_config_flag.id, remote_config_flag.key):
+            remote_config_response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag_ref}/remote_config"
+            )
+            assert remote_config_response.status_code == status.HTTP_403_FORBIDDEN, flag_ref
+
+        # A personal API key is the path that decrypts the payload.
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=user2, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
+        self.client.logout()
+        remote_config_response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/{remote_config_flag.key}/remote_config",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert remote_config_response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_org_admin_can_list_flag_with_default_none_after_grantee_removed(self) -> None:
         # Regression: a flag with a team-wide "none" default plus a single explicit
         # editor grant becomes invisible to everyone once the grantee is removed

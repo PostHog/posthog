@@ -35,7 +35,8 @@ from products.aeo.backend.facade.contracts import (
     RankedDomain,
     RankedPage,
 )
-from products.aeo.backend.models import AEOBrand, AEOCitationCheck
+from products.aeo.backend.models import AEOBrand, AEOCheckBrand, AEOCitationCheck
+from products.aeo.backend.page_urls import page_url_sql
 from products.aeo.backend.scope import (
     NAMED_SCOPE_SQL,
     SCOPE_SQL,
@@ -44,6 +45,7 @@ from products.aeo.backend.scope import (
     scope_filter,
     scope_sql_params,
 )
+from products.aeo.backend.sentiment import SENTIMENT_LABELS
 from products.aeo.backend.window import CheckWindow
 
 # Registrable names of sites answers cite whatever the brand, so they are never a competitor.
@@ -111,18 +113,18 @@ _DOMAIN_ANSWERS_SQL = f"""
     GROUP BY citation.domain
 """
 _DOMAIN_URLS_SQL = f"""
-    SELECT citation.domain, count(DISTINCT citation.url)
+    SELECT citation.domain, count(DISTINCT {page_url_sql("citation.url")})
     {_CITED_FROM_SQL}
         AND citation.domain = ANY(%s) AND citation.url <> ''
     GROUP BY citation.domain
 """
 # A URL without a host has no domain to rank under, and a host cited after the stored URLs has no URL.
 _PAGES_SQL = f"""
-    SELECT citation.url, citation.domain, count(DISTINCT citation.citation_check_id)
+    SELECT {page_url_sql("citation.url")} AS page, citation.domain, count(DISTINCT citation.citation_check_id)
     {_CITED_FROM_SQL}
         AND citation.domain <> '' AND citation.url <> ''
-    GROUP BY citation.url, citation.domain
-    ORDER BY count(DISTINCT citation.citation_check_id) DESC, citation.url
+    GROUP BY 1, citation.domain
+    ORDER BY count(DISTINCT citation.citation_check_id) DESC, page
     LIMIT %s
 """
 
@@ -193,6 +195,9 @@ def get_rankings(
         scope=scope,
     )
     positive_share = _positive_share(answered) if target_domain else None
+    brand_positive_shares = _brand_positive_shares(
+        team_id, answered, [ids[0] for _, ids, is_target in brands if not is_target]
+    )
 
     ranked_brands = sorted(
         (
@@ -203,9 +208,9 @@ def get_rankings(
                 answers_mentioning=brand_days.current[domain][1],
                 visibility=_share(*brand_days.current[domain]),
                 previous_visibility=comparable_previous_share(brand_days.current[domain], brand_days.previous[domain]),
-                positive_share=positive_share if is_target else None,
+                positive_share=positive_share if is_target else brand_positive_shares.get(ids[0]),
             )
-            for domain, _, is_target in brands
+            for domain, ids, is_target in brands
         ),
         key=lambda brand: (-(brand.visibility or 0), brand.domain),
     )
@@ -382,6 +387,22 @@ def _positive_share(answered: QuerySet[AEOCitationCheck]) -> float | None:
         positive=Count("id", filter=Q(brand_sentiment="positive")),
     )
     return counts["positive"] / counts["scored"] if counts["scored"] else None
+
+
+def _brand_positive_shares(
+    team_id: int, answered: QuerySet[AEOCitationCheck], brand_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, float]:
+    """Per competitor, the share of the answers naming it whose sentences about it were scored positive.
+    A brand with no scored answer is left out, so it reads as not scored rather than as 0%."""
+    if not brand_ids:
+        return {}
+    rows = (
+        AEOCheckBrand.objects.for_team(team_id)
+        .filter(brand_id__in=brand_ids, citation_check_id__in=answered.values("id"), sentiment__in=SENTIMENT_LABELS)
+        .values("brand_id")
+        .annotate(scored=Count("id"), positive=Count("id", filter=Q(sentiment="positive")))
+    )
+    return {row["brand_id"]: row["positive"] / row["scored"] for row in rows}
 
 
 def _brand_name(domain: str) -> str:

@@ -6,7 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { HORIZON_PRESETS, autoresearchNewLogic } from '../autoresearchNewLogic'
+import { HORIZON_PRESETS, autoresearchNewLogic, isTargetRefusal } from '../autoresearchNewLogic'
 import { PopulationPicker } from './PopulationPicker'
 
 function formatDays(days: number): string {
@@ -14,14 +14,15 @@ function formatDays(days: number): string {
 }
 
 export function DefinitionSentence(): JSX.Element {
-    const { newPipeline, newPipelineErrors, resolvedTemplate } = useValues(autoresearchNewLogic)
+    const { newPipeline, newPipelineErrors, resolvedTemplate, validationRefusal } = useValues(autoresearchNewLogic)
     const { setNewPipelineValues } = useActions(autoresearchNewLogic)
     const hasTemplate = newPipeline.template_key !== null
     const definitionError =
         newPipelineErrors.population_choice ??
         newPipelineErrors.target_event ??
         newPipelineErrors.target_action_id ??
-        newPipelineErrors.horizon_days
+        newPipelineErrors.horizon_days ??
+        (isTargetRefusal(validationRefusal) ? validationRefusal?.message : undefined)
 
     return (
         <div className="flex flex-col gap-2">

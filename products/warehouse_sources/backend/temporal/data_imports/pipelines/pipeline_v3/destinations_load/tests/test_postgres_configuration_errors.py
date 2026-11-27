@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ACCESS_RULE_DETAIL,
     AUTHENTICATION_FAILED_DETAIL,
     CONNECT_TIMEOUT_DETAIL,
+    CONNECTION_CLOSED_DETAIL,
     HOST_NOT_FOUND_DETAIL,
     IPV6_ONLY_HOST_DETAIL,
     NETWORK_UNREACHABLE_DETAIL,
@@ -301,6 +302,24 @@ class TestWriterClient:
                 5,
                 CONNECT_TIMEOUT_DETAIL,
             ),
+            (
+                "closed_connection_keeps_its_retries_and_hides_the_host",
+                psycopg.OperationalError(_attempt_failed("server closed the connection unexpectedly")),
+                PostgreSQLConnectionError,
+                5,
+                CONNECTION_CLOSED_DETAIL,
+            ),
+            (
+                "closed_connection_only_on_an_earlier_attempt_keeps_the_client_message",
+                psycopg.OperationalError(
+                    _attempt_failed("FATAL:  sorry, too many clients already")
+                    + "\nMultiple connection attempts failed. All failures were:\n- "
+                    + _attempt_failed("server closed the connection unexpectedly", V6)
+                ),
+                PostgreSQLConnectionError,
+                5,
+                None,
+            ),
         ],
     )
     @pytest.mark.asyncio
@@ -323,6 +342,9 @@ class TestWriterClient:
         assert connect.call_count == expected_attempts
         if expected_message is not None:
             assert str(caught.value) == expected_message
+            assert HOST not in str(caught.value)
+        else:
+            assert str(caught.value) not in (CONNECT_TIMEOUT_DETAIL, CONNECTION_CLOSED_DETAIL)
 
     @pytest.mark.asyncio
     async def test_an_error_inside_the_connection_is_not_reclassified(self) -> None:

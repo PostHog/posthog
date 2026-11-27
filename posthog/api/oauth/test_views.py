@@ -56,7 +56,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scopes.ceilings import MIN_SCOPES_BEFORE_TRUNCATION
 from posthog.scopes.exposure import ALL_SCOPES, UNPRIVILEGED_SCOPES
-from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE, OAUTH_SCOPES_SUPPORTED
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
@@ -6486,7 +6486,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         response = self.client.get("/.well-known/oauth-authorization-server")
         agent_auth = response.json()["agent_auth"]
 
-        self.assertTrue(agent_auth["skill"].endswith("/auth.md"))
+        self.assertEqual(agent_auth["skill"], "https://posthog.com/auth.md")
         self.assertTrue(agent_auth["identity_endpoint"].endswith("/oauth/token/"))
         self.assertEqual(agent_auth["identity_types_supported"], ["identity_assertion"])
         self.assertEqual(
@@ -6559,38 +6559,13 @@ class TestOpenIDProviderMetadataEndpoint(APIBaseTest):
 
 
 class TestOAuthClientManifest(APIBaseTest):
-    """Tests for the auth.md agent-registration manifest."""
-
-    def test_returns_markdown(self):
-        response = self.client.get("/auth.md")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("text/markdown", response["Content-Type"])
-
-    def test_manifest_describes_identity_flow(self):
-        response = self.client.get("/auth.md")
-        body = response.content.decode()
-
-        self.assertIn("# PostHog", body)
-        self.assertIn("/oauth/token/", body)
-        self.assertIn("urn:ietf:params:oauth:token-type:id-jag", body)
-        self.assertIn("/.well-known/oauth-protected-resource", body)
-
-    def test_manifest_lists_scopes(self):
-        response = self.client.get("/auth.md")
-        body = response.content.decode()
-
-        for scope in OAUTH_SCOPES_SUPPORTED:
-            with self.subTest(scope=scope):
-                self.assertIn(f"`{scope}`", body)
-                # A scope with no description falls back to its own name, so an
-                # advertised scope nobody wrote a line for reads as "`x`: x".
-                self.assertNotIn(f"`{scope}`: {scope}", body)
-
-    def test_manifest_accessible_without_authentication(self):
+    def test_service_root_manifest_redirects_to_the_shared_copy(self):
         self.client.logout()
 
         response = self.client.get("/auth.md")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
+        self.assertEqual(response["Location"], "https://posthog.com/auth.md")
 
 
 class TestOAuthProtectedResourceMetadata(APIBaseTest):

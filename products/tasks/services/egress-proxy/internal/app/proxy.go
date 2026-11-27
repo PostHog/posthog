@@ -23,6 +23,7 @@ type proxyState struct {
 	transport     *http.Transport
 	git           *gitread.Adapter
 	gitTransports []*http.Transport
+	expirations   map[string]time.Time
 }
 
 func (s *proxyState) close() {
@@ -45,6 +46,7 @@ func NewProxy(config ProxyConfig, audit *telemetry.Audit, metrics *telemetry.Met
 	if err := p.Reload(); err != nil {
 		return nil, err
 	}
+	metrics.BindCertificates(func() map[string]time.Time { return p.state.Load().expirations })
 	return p, nil
 }
 
@@ -53,9 +55,17 @@ func (p *Proxy) Reload() error {
 	if err != nil {
 		return err
 	}
-	clientCAs, err := roots(p.config.ClientCAFile)
-	if err != nil || clientCAs == nil {
+	clientCAs, err := loadRoots(p.config.ClientCAFile)
+	if err != nil || clientCAs.pool == nil {
 		return errors.New("client CA bundle required")
+	}
+	expirations := map[string]time.Time{"server": cert.Leaf.NotAfter, "client_ca": clientCAs.expires}
+	serverCAs, err := loadRoots(p.config.ServerCAFile)
+	if err != nil {
+		return err
+	}
+	if serverCAs.pool != nil {
+		expirations["server_ca"] = serverCAs.expires
 	}
 	keyData, err := readFile(p.config.VerificationKeysFile)
 	if err != nil {
@@ -69,13 +79,16 @@ func (p *Proxy) Reload() error {
 	if err != nil {
 		return err
 	}
-	registryCAs, err := roots(p.config.RegistryCAFile)
+	registryCAs, err := loadRoots(p.config.RegistryCAFile)
 	if err != nil {
 		return err
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: registryCAs}
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: registryCAs.pool}
+	if registryCAs.pool != nil {
+		expirations["registry_ca"] = registryCAs.expires
+	}
 	client, err := registry.New(registry.Config{
 		AllowClusterHTTP: p.config.RegistryAllowClusterHTTP,
 		BaseURL:          p.config.RegistryURL, Region: p.config.RegistryRegion, SigningKey: strings.TrimSpace(string(signingKey)),
@@ -97,14 +110,14 @@ func (p *Proxy) Reload() error {
 	if err != nil {
 		return err
 	}
-	state := &proxyState{verifier: verifier, transport: transport, tls: &tls.Config{
+	state := &proxyState{verifier: verifier, transport: transport, expirations: expirations, tls: &tls.Config{
 		MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert},
-		ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: clientCAs,
+		ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: clientCAs.pool,
 		NextProtos: []string{"h2", "http/1.1"},
 	}}
 	if p.config.GitRead != nil {
 		state.git, state.gitTransports, err = newGitRead(*p.config.GitRead, p.config.RegistryRegion,
-			time.Duration(p.config.LookupTimeoutSeconds)*time.Second, p.config.requestTimeout())
+			time.Duration(p.config.LookupTimeoutSeconds)*time.Second, p.config.requestTimeout(), expirations)
 		if err != nil {
 			state.close()
 			return err

@@ -1,13 +1,17 @@
 import re
 import dataclasses
 from typing import TYPE_CHECKING, ClassVar, Protocol
+from urllib.parse import urlencode
 
 from django import forms
+from django.urls import reverse
 
 from posthog.admin.console.panels import Gate, Owner, Tone, check_danger, is_internal_path
+from posthog.admin.console.records import RECORD_TYPES
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from django.db.models import Model
     from django.forms.boundfield import BoundField
     from django.http import HttpRequest, HttpResponse
 
@@ -25,6 +29,28 @@ class Cell:
 @frozen
 class Row:
     cells: tuple[Cell, ...]
+    # On a table with a TableSelect, what this row's checkbox submits. Empty for a row that staff cannot pick.
+    select_value: str = ""
+
+
+@frozen
+class TableSelect:
+    """A checkbox on each row of a Table, and a button that opens the tool operation `operation_key` with the
+    ticked rows in its field `field`, a multiple choice field.
+
+    The button opens the operation's form by GET, so staff still review it and give a reason before anything runs.
+    `values` go along as hidden fields, for example the filters, so the way back keeps them. Only a tool page holds
+    a selectable table, for an operation the tool offers.
+    """
+
+    operation_key: str
+    field: str
+    label: str
+    values: dict[str, str] = dataclasses.field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.field in self.values:
+            raise ValueError(f"TableSelect values must not set {self.field!r}, which the checkboxes set")
 
 
 @frozen
@@ -82,6 +108,7 @@ class Table:
     # For a long table above something staff must reach. It scrolls inside its card instead of growing the page.
     scrolls: bool = False
     progress: Progress | None = None
+    select: TableSelect | None = None
 
 
 @frozen
@@ -286,6 +313,8 @@ def _check_table(table: Table) -> None:
     for row in table.rows:
         if isinstance(row, Row) and len(row.cells) != len(table.columns):
             raise ValueError(f"A table row has {len(row.cells)} cells for {len(table.columns)} columns")
+        if isinstance(row, Row) and row.select_value and table.select is None:
+            raise ValueError("A table row has a select_value, but its table has no select")
 
 
 @frozen
@@ -300,20 +329,34 @@ class Page:
             inner = block.block if isinstance(block, Live) else block
             if isinstance(inner, Table):
                 _check_table(inner)
+            # A refresh replaces the table, which would clear the rows staff ticked.
+            if isinstance(block, Live) and isinstance(inner, Table) and inner.select is not None:
+                raise ValueError(f"Live block {block.key!r} holds a selectable table. Put it outside the Live block.")
 
-    def check_decisions(self, operations: "list[ToolOperation]") -> "Page":
-        """Refuses a Decision whose buttons would post to an operation the tool does not offer, or to one that needs
-        a reason and a confirm page, which a single click skips."""
+    def check_operations(self, operations: "list[ToolOperation]") -> "Page":
+        """Refuses a block that would open an operation the tool does not offer.
+
+        A Decision posts at once, so it also needs a form and no danger, which would ask for a reason and a confirm
+        page that a single click skips. A selectable table needs the multiple choice field it fills.
+        """
         offered = {operation.key: operation for operation in operations}
         for block in self.blocks:
-            if not isinstance(block, Decision):
-                continue
-            operation = offered.get(block.operation_key)
-            if operation is None or operation.form_class is None or operation.danger:
-                raise ValueError(
-                    f"Decision {block.title!r} runs {block.operation_key!r}, which the tool must offer with a form "
-                    "and without danger"
-                )
+            if isinstance(block, Decision):
+                operation = offered.get(block.operation_key)
+                if operation is None or operation.form_class is None or operation.danger:
+                    raise ValueError(
+                        f"Decision {block.title!r} runs {block.operation_key!r}, which the tool must offer with a "
+                        "form and without danger"
+                    )
+            elif isinstance(block, Table) and block.select is not None:
+                operation = offered.get(block.select.operation_key)
+                form_class = operation.form_class if operation else None
+                field = form_class.base_fields.get(block.select.field) if form_class else None
+                if not isinstance(field, forms.MultipleChoiceField):
+                    raise ValueError(
+                        f"A table selects for {block.select.operation_key!r}, which the tool must offer with a "
+                        f"multiple choice field {block.select.field!r}"
+                    )
         return self
 
     def refuse_secrets(self, where: str) -> "Page":
@@ -374,7 +417,8 @@ class ToolOperation:
     preview: PreviewHandler | None = None
     # The run button shows this until the next page loads, for an operation that takes a while.
     pending_label: str = ""
-    # False for an operation that a Decision block runs, so the Actions card does not offer its form as well.
+    # False for an operation that a Decision block or a selectable table opens, so the Actions card does not offer
+    # its form as well.
     listed: bool = True
 
     def __post_init__(self) -> None:
@@ -398,6 +442,25 @@ class ConsoleTool:
     owner: ClassVar[Owner | None]
     group: ClassVar[str]
     description: ClassVar[str] = ""
+    # The RECORD_TYPES key of the one record a tool is about. The tool reads the record from the query parameter of the
+    # same name, for example ?team=7, and its breadcrumb runs through that record.
+    subject: ClassVar[str | None] = None
+
+    def subject_of(self, request: "HttpRequest") -> "Model | None":
+        if self.subject is None:
+            return None
+        # The breadcrumb, page() and live() each ask for the record, so one request looks it up once.
+        found: dict[tuple[str, str], Model | None] = request.__dict__.setdefault("console_subjects", {})
+        key = (self.subject, request.GET.get(self.subject, ""))
+        if key not in found:
+            found[key] = RECORD_TYPES[self.subject].find(key[1])
+        return found[key]
+
+    @classmethod
+    def url_for(cls, obj: "Model") -> str:
+        if cls.subject is None:
+            raise ValueError(f"Tool {cls.key!r} has no subject, so it has no page for one record")
+        return f"{reverse('admin_console_tool', kwargs={'tool_key': cls.key})}?{urlencode({cls.subject: obj.pk})}"
 
     def page(self, request: "HttpRequest") -> Page:
         raise NotImplementedError

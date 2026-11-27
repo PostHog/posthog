@@ -1,6 +1,6 @@
 import type { AEOPromptSetRankingsApi } from '../generated/api.schemas'
 import { EXAMPLE_PROMPT_SET_RANKINGS } from './contentAutopilotStoryFixtures'
-import { rankingsChart, visibilityChange } from './rankingsReport'
+import { rankingsChart } from './rankingsReport'
 
 describe('rankingsReport', () => {
     it('aligns each brand to every day of the window and breaks the line on days without answers', () => {
@@ -43,14 +43,5 @@ describe('rankingsReport', () => {
             ['example.com', 0],
             ['rival.example.org', 2],
         ])
-    })
-
-    it.each([
-        [0.41, 0.371, 3.9],
-        [0.2, 0.25, -5],
-        [0.4, null, null],
-        [null, 0.4, null],
-    ])('reports %s against %s as %s points', (visibility, previous, expected) => {
-        expect(visibilityChange(visibility, previous)).toEqual(expected)
     })
 })

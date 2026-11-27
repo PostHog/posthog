@@ -2,7 +2,7 @@ import { IconRedo, IconUndo } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { AddTileMenu } from '../../tiles/menu/AddTileMenu'
-import { useDashboard } from '../dashboardContext'
+import { useDashboard } from '../core/dashboardContext'
 import { AutoRefreshButton } from './AutoRefreshButton'
 import { DashboardMenu } from './DashboardMenu'
 

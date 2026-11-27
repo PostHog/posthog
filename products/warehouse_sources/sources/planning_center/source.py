@@ -71,7 +71,8 @@ class PlanningCenterSource(ResumableSource[PlanningCenterSourceConfig, PlanningC
             label="Planning Center",
             keywords=["pco", "church management"],
             caption=(
-                "Import your People, Groups, Giving, Check-Ins, Services and Calendar data from Planning Center. "
+                "Import your People, Groups, Giving, Check-Ins, Services, Calendar, Registrations and Publishing "
+                "data from Planning Center. "
                 "Create a personal access token in your "
                 "[Planning Center developer account](https://api.planningcenteronline.com/oauth/applications), "
                 "then enter its application ID and secret below.\n\n"

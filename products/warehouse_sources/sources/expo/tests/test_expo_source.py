@@ -6,7 +6,7 @@ from unittest import mock
 from products.warehouse_sources.sources.expo._config import ExpoSourceConfig
 from products.warehouse_sources.sources.expo.expo import ExpoAPIError, get_rows
 from products.warehouse_sources.sources.expo.source import ExpoSource
-from products.warehouse_sources.sources.sdk.testing import error_message_matches
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, error_message_matches
 
 _SOURCE = "products.warehouse_sources.sources.expo.source"
 _MODULE = "products.warehouse_sources.sources.expo.expo"
@@ -69,3 +69,16 @@ class TestExpoSourceClass:
         error = _sync_error({"errors": [{"message": message}]})
 
         assert not error_message_matches(error, ExpoSource().get_non_retryable_errors().keys())
+
+    @pytest.mark.parametrize(
+        "status, retryable",
+        [(500, True), (502, True), (503, True), (504, True), (400, False), (403, False), (404, False)],
+    )
+    def test_only_an_http_server_error_is_retryable(self, status: int, retryable: bool) -> None:
+        source = ExpoSource()
+        config = ExpoSourceConfig(access_token="token", project_id="app-1")
+
+        result = SourceDriver(source, config).run("builds", always(ScriptedResponse(status=status)))
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), source.get_retryable_errors()) is retryable
