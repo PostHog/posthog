@@ -211,7 +211,7 @@ describe('measurements', () => {
         [
             'a role that needed the SIGKILL',
             [{ killedAt: at(15_000), exitedAt: at(15_200), signal: 'SIGKILL' }],
-            [{ key: 'sigkill', value: 10_200 }],
+            [{ value: null, censored: true, unmeasured: 'a SIGKILL exit is not measured in this release' }],
         ],
         [
             'a role that exited on its own as its grace ran out',
@@ -239,7 +239,7 @@ describe('measurements', () => {
                 {
                     value: null,
                     censored: true,
-                    unmeasured: 'cdp-cyclotron-worker-email died of a SIGKILL its terminate did not send',
+                    unmeasured: 'a SIGKILL exit is not measured in this release',
                 },
             ],
         ],
@@ -346,7 +346,7 @@ describe('measurements', () => {
                     unmeasured: 'the truth could not be read: the edge did not answer',
                 },
             ],
-            { unread: 'the edge did not answer' },
+            { unread: 'the edge did not answer', converged: true },
         ],
     ])('resent_invocations %s', (_story, truth, measured, overrides) => {
         expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ truth, ...overrides }))).toEqual(
