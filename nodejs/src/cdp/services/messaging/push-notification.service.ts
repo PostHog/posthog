@@ -377,10 +377,16 @@ export class PushNotificationService {
         const deliveredPlatforms = new Set<string>()
         // Filled before device failures collapse into one error per channel, so a retry carries every key that works.
         const apnsAcceptedKeys = new Set(metadata.apnsAcceptedKeys ?? [])
+        // A transactional push token is for the run's person, so its step never reaches anyone else, also after an edit.
+        const pushesSomeoneElse =
+            invocation.state.globals.event?.event === TRANSACTIONAL_PUSH_EVENT &&
+            !!invocation.state.actionId &&
+            invocation.hogFunction.template_id === NATIVE_PUSH_TEMPLATE_ID &&
+            !!pushRecipientOtherThanRunPerson(params.distinctId, invocation.state.globals)
         // Resolved once for the send: every channel reads the same person's tokens.
         let recipient: PushRecipient | null
         try {
-            recipient = await this.resolveRecipient(invocation, params, recipientWaits > 0)
+            recipient = pushesSomeoneElse ? null : await this.resolveRecipient(invocation, params, recipientWaits > 0)
         } catch (error) {
             // The person service is down or slow. Nothing was sent yet, so retry later instead of dropping the push.
             if (tries >= this.fetchUtils.maxRetries) {
@@ -472,6 +478,7 @@ export class PushNotificationService {
         const recipientMissing = successCount === 0 && errorCount === 0 && skippedCount > 0 && unregisteredCount === 0
         if (
             recipientMissing &&
+            !pushesSomeoneElse &&
             !isTest &&
             invocation.state.globals.event?.event === TRANSACTIONAL_PUSH_EVENT &&
             recipientWaits < RECIPIENT_WAIT_DELAYS_MS.length
@@ -493,7 +500,10 @@ export class PushNotificationService {
             return result
         }
 
-        if (!recipient) {
+        if (pushesSomeoneElse) {
+            addLog('warn', 'This push names someone other than the person its request named, so it was not sent.')
+            pushNotificationSkippedCounter.labels({ platform: 'unknown', reason: 'other_person' }).inc()
+        } else if (!recipient) {
             addLog('warn', `No person found for distinct_id: ${params.distinctId.trim()}; push notification skipped.`)
             pushNotificationSkippedCounter.labels({ platform: 'unknown', reason: 'no_person' }).inc()
         }

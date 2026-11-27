@@ -6946,6 +6946,11 @@ describe('CDP API', () => {
                 (id) => mintToken(id, {}, { expiresIn: '20m' }),
             ],
             ['a token that never expires', 'transactional_push', (id) => mintToken(id, {}, { expiresIn: null })],
+            [
+                'a token whose expiry, with the clock tolerance, outlives the record of its use',
+                'transactional_push',
+                (id) => mintToken(id, {}, { expiresIn: '590s' }),
+            ],
         ])('refuses %s', async (_name, route, tokenFor) => {
             const hogFlow = await insertHogFlow(pushFlow())
 
@@ -7005,6 +7010,13 @@ describe('CDP API', () => {
                 1,
             ],
             ['a push step without a recipient', 'active', 'function_push', {}, 1],
+            [
+                'a push step whose recipient is a literal in its templating mode',
+                'active',
+                'function_push',
+                { distinctId: { value: '{event.distinct_id}', templating: 'liquid' } },
+                1,
+            ],
             ['a workflow with two push steps', 'active', 'function_push', toRequestPerson, 2],
         ])('refuses %s', async (_name, status, stepType, inputs, pushSteps) => {
             const hogFlow = await insertHogFlow(pushFlow(status as HogFlow['status'], stepType, inputs, pushSteps))
