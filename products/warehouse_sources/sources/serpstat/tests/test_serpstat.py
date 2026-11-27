@@ -139,8 +139,8 @@ def drive(
             {
                 "query": "example.com",
                 "searchType": "domain_with_subdomains",
-                "sort": "domain_from",
-                "order": "asc",
+                "sort": "domain_rank",
+                "order": "desc",
                 "size": 100,
                 "page": 1,
             },
@@ -178,8 +178,8 @@ def drive(
                 "page": 1,
                 "dateFrom": "2026-09-29",
                 "dateTo": "2026-10-05",
-                "sort": "domain",
-                "order": "asc",
+                "sort": "sum_traffic",
+                "order": "desc",
             },
             {
                 "data": {

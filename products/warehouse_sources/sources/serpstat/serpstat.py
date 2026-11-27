@@ -102,7 +102,7 @@ def serpstat_resource(
     if endpoint == "backlinks":
         params.update(searchType="domain_with_subdomains", sort="add", order="desc")
     if endpoint == "ref_domains":
-        params.update(searchType="domain_with_subdomains", sort="domain_from", order="asc")
+        params.update(searchType="domain_with_subdomains", sort="domain_rank", order="desc")
     if endpoint == "lost_backlinks":
         params.update(searchType="domain_with_subdomains", sort="check", order="desc")
     if endpoint == "top_competitors_history":
@@ -110,8 +110,8 @@ def serpstat_resource(
             projectRegionId=int(config.project_region_id),
             dateFrom=(date.fromisoformat(date_to) - timedelta(days=POSITION_HISTORY_DAYS - 1)).isoformat(),
             dateTo=date_to,
-            sort="domain",
-            order="asc",
+            sort="sum_traffic",
+            order="desc",
         )
 
     rest_config: RESTAPIConfig = {

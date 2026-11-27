@@ -143,7 +143,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "ref_domains": {
-        "description": "Domains that link to the configured domain and its subdomains.",
+        "description": "Domains that link to the configured domain and its subdomains, highest Serpstat Domain Rank first.",
         "docs_url": ENDPOINTS["ref_domains"].docs_url,
         "columns": {
             "domain_from": "The referring domain.",
@@ -181,7 +181,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "top_competitors_history": {
-        "description": "Daily metrics for the domains in the top 20 for project keywords in the configured project region, for the last seven days.",
+        "description": "Daily metrics for the domains in the top 20 for project keywords in the configured project region, for the last seven days, highest traffic share first.",
         "docs_url": ENDPOINTS["top_competitors_history"].docs_url,
         "columns": {
             "project_id": "The configured project identifier.",
