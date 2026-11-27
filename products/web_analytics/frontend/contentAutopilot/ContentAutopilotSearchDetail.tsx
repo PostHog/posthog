@@ -14,7 +14,7 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { pluralize } from 'lib/utils/strings'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
@@ -83,12 +83,13 @@ const SearchDetail = ({
     const lookupWindow = { dateFrom: detail.window_from, dateTo: detail.window_to, branded }
     return (
         <div className="flex flex-col gap-2 px-3 py-2" data-attr="content-autopilot-search-detail">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <Text size="xs" variant="muted" className="m-0">
-                    {pluralize(detail.answers, 'answer')} · {pluralize(detail.prompts, 'prompt')}
-                </Text>
+            <div className="flex flex-wrap items-center gap-1">
+                <LabelledChip label="Answers">{humanFriendlyNumber(detail.answers)}</LabelledChip>
+                <LabelledChip label="Prompts">{humanFriendlyNumber(detail.prompts)}</LabelledChip>
                 {detail.keywords.map((keyword) => (
-                    <AiVisibilityTag key={keyword}>{keyword}</AiVisibilityTag>
+                    <LabelledChip key={keyword} label="Keyword">
+                        {keyword}
+                    </LabelledChip>
                 ))}
             </div>
             <Tabs value={tab} onValueChange={(value: SearchDetailTab) => setTab(value)}>
@@ -182,6 +183,12 @@ const ShareHeader = ({ label, tooltip }: { label: string; tooltip: string }): JS
             </Tooltip>
         </span>
     </li>
+)
+
+const LabelledChip = ({ label, children }: { label: string; children: React.ReactNode }): JSX.Element => (
+    <AiVisibilityTag>
+        <span className="text-muted-foreground">{label}</span> {children}
+    </AiVisibilityTag>
 )
 
 const ShareRow = ({ share, children }: { share: number; children: React.ReactNode }): JSX.Element => (
