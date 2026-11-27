@@ -1,5 +1,7 @@
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { aggregateDifference, type ComparisonRun, type ComparisonScoreRow } from './offlineComparison'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import { OfflineExperimentScoreValue } from './OfflineExperimentScoreValue'
@@ -16,26 +18,42 @@ export function OfflineComparisonScoreCell({
 }): JSX.Element {
     const { experiment } = run
     if (experiment.visible_scorer_version_count === null) {
-        return <span className="text-muted">Scores unavailable</span>
+        return <span className="text-xs text-muted">Scores unavailable</span>
     }
     if (row.kind === 'experiment') {
         const score = row.scores.get(experiment.id)
         return score ? (
             <OfflineExperimentScoreValue score={score} />
         ) : (
-            <span className="text-muted">No score with this formula</span>
+            <span className="text-xs text-muted">No score with this formula</span>
         )
     }
     const summary = row.scores.get(experiment.id)
     if (!summary) {
-        return <span className="text-muted">No results for this version</span>
+        return <span className="text-xs text-muted">No results for this version</span>
     }
     const counts = summary.status_counts
     const difference = experiment.id === baselineId ? null : aggregateDifference(summary, row.scores.get(baselineId))
     return (
-        <div className="space-y-1">
-            <OfflineSummaryMetrics summary={summary} />
-            {difference && <div className="text-xs tabular-nums">{difference}</div>}
+        <div className="flex flex-col items-start gap-0.5">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <div className="text-sm">
+                    <OfflineSummaryMetrics summary={summary} showMetricLabel={false} />
+                </div>
+                {difference && (
+                    <span
+                        className={cn(
+                            'text-xs tabular-nums whitespace-nowrap',
+                            difference.outcome === 'better' && 'font-semibold text-success',
+                            difference.outcome === 'worse' && 'font-semibold text-danger',
+                            difference.outcome === 'neutral' && 'text-muted'
+                        )}
+                    >
+                        {difference.label}
+                        {difference.outcome !== 'neutral' && ` ${difference.outcome}`}
+                    </span>
+                )}
+            </div>
             <Tooltip
                 title={[
                     `${counts.ok} successful`,
@@ -48,10 +66,14 @@ export function OfflineComparisonScoreCell({
             >
                 <Link
                     to={offlineExperimentUrl({ experiment, summary })}
+                    target="_blank"
+                    targetBlankIcon
                     data-attr="offline-comparison-inspect-items"
-                    className="text-xs tabular-nums"
+                    className="text-[11px] leading-4 tabular-nums hover:underline [&_svg]:text-muted"
                 >
-                    {counts.ok.toLocaleString()} of {summary.observed_item_count.toLocaleString()} items scored
+                    <span className="text-muted">
+                        {counts.ok.toLocaleString()} of {summary.observed_item_count.toLocaleString()} scored
+                    </span>
                 </Link>
             </Tooltip>
         </div>

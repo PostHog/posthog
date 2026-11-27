@@ -21,15 +21,31 @@ describe('offline experiment comparison', () => {
         ])
     })
 
-    it('compares numeric zero as a score and uses percentage points for a pass rate', () => {
-        expect(aggregateDifference(candidate.summary, baseline.summary)).toBe('+0.25 vs. baseline')
-        const scorer = { ...baseline.summary.scorer, kind: 'boolean' as const }
+    it('compares numeric zero without assuming a direction and treats a lower pass rate as worse for inverted booleans', () => {
+        expect(aggregateDifference(candidate.summary, baseline.summary)).toEqual({ label: '+0.25', outcome: 'neutral' })
+        const scorer = { ...baseline.summary.scorer, kind: 'boolean' as const, config: { true_is_failure: true } }
         expect(
             aggregateDifference(
                 { ...candidate.summary, scorer, pass_rate: 0 },
                 { ...baseline.summary, scorer, pass_rate: 0.25 }
             )
-        ).toBe('−25 pp vs. baseline')
+        ).toEqual({ label: '−25 pp', outcome: 'worse' })
+    })
+
+    it.each([
+        ['gte', 0.75, '+0.25', 'better'],
+        ['gte', 0.25, '−0.25', 'worse'],
+        ['lte', 0.75, '+0.25', 'worse'],
+        ['lte', 0.25, '−0.25', 'better'],
+        ['lte', 0.5, 'Unchanged', 'neutral'],
+    ] as const)('uses the %s passing rule to interpret a candidate mean of %s', (operator, mean, label, outcome) => {
+        const scorer = { ...baseline.summary.scorer, config: { passing_rule: { operator, threshold: 0.8 } } }
+        expect(
+            aggregateDifference({ ...candidate.summary, mean, scorer }, { ...baseline.summary, mean: 0.5, scorer })
+        ).toEqual({
+            label,
+            outcome,
+        })
     })
 
     it('keeps disjoint experiment formulas separate even when their names and version numbers match', () => {

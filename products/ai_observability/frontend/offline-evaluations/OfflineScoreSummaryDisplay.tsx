@@ -19,7 +19,7 @@ function SummaryMetric({
     title,
     passed,
 }: {
-    label: string
+    label?: string
     value: string
     percent: number | null
     color?: string
@@ -39,7 +39,7 @@ function SummaryMetric({
                     {passed != null && <span className="sr-only">{passed ? ' Passed' : ' Failed'}</span>}
                 </strong>
             </Tooltip>
-            <span className="text-xs text-muted break-words min-w-0">{label}</span>
+            {label && <span className="text-xs text-muted break-words min-w-0">{label}</span>}
         </div>
     )
 }
@@ -47,9 +47,11 @@ function SummaryMetric({
 export function OfflineSummaryMetrics({
     summary,
     compact = false,
+    showMetricLabel = true,
 }: {
     summary: OfflineScoreSummary
     compact?: boolean
+    showMetricLabel?: boolean
 }): JSX.Element {
     const { scorer, mean, pass_rate, categories } = summary
     if (!summary.status_counts.ok) {
@@ -121,7 +123,7 @@ export function OfflineSummaryMetrics({
     }
     return (
         <SummaryMetric
-            label={offlineScoreMetricLabel(scorer)}
+            label={showMetricLabel ? offlineScoreMetricLabel(scorer) : undefined}
             passed={passed}
             value={formatOfflineScore(summary)}
             percent={

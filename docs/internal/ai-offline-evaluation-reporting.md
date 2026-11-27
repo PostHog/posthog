@@ -920,8 +920,12 @@ Select two to four experiments in the experiments list and choose **Compare expe
 Each row represents one pinned scorer version. **Shared scores only** shows the versions present in every selected run.
 Runs can have different item scorers and can omit the overall experiment score.
 Numeric means and boolean pass rates show the difference from the selected baseline for that version.
+Higher pass rates are better. For numeric means, the pinned passing rule determines whether an increase or decrease is better.
+Numeric scorers without a passing rule show a neutral difference.
 These are whole-run aggregates, so check the dataset revision and coverage when the runs contain different cases or numbers of trials.
-Select a coverage count to inspect that scorer's items in the experiment. The comparison URL preserves the runs, baseline, and shared-score filter.
+Experiment names, scorer names, and coverage counts open in a new tab so the comparison stays open.
+Select a scorer name for its pinned version's history, or a coverage count to inspect that scorer's items in the experiment.
+The comparison URL preserves the runs, baseline, and shared-score filter.
 
 An experiment shows whole-run scorer summaries and an item table with every observed scorer version.
 Scroll horizontally to reach additional scorer columns.

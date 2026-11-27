@@ -4,6 +4,7 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentScoreApi, OfflineExperimentReadApi, OfflineScorerSummaryApi } from '../generated/api.schemas'
+import { offlineNumericPassingRule } from './offlineScoreInterpretation'
 
 export const MAX_COMPARISON_RUNS = 4
 
@@ -74,7 +75,7 @@ export function comparisonScoreRows(runs: ComparisonRun[]): ComparisonScoreRow[]
 export function aggregateDifference(
     current: OfflineScorerSummaryApi,
     baseline?: OfflineScorerSummaryApi
-): string | null {
+): { label: string; outcome: 'better' | 'worse' | 'neutral' } | null {
     if (
         !baseline ||
         current.scorer.id !== baseline.scorer.id ||
@@ -91,8 +92,13 @@ export function aggregateDifference(
     }
     const delta = (left - right) * (rate ? 100 : 1)
     if (delta === 0) {
-        return 'Same as baseline'
+        return { label: 'Unchanged', outcome: 'neutral' }
     }
     const magnitude = Math.abs(delta).toLocaleString(undefined, { maximumSignificantDigits: 3 })
-    return `${delta > 0 ? '+' : '−'}${magnitude}${rate ? ' pp' : ''} vs. baseline`
+    const label = `${delta > 0 ? '+' : '−'}${magnitude}${rate ? ' pp' : ''}`
+    const operator = rate ? 'gte' : offlineNumericPassingRule(current.scorer)?.operator
+    if (!operator) {
+        return { label, outcome: 'neutral' }
+    }
+    return { label, outcome: (operator === 'gte' ? delta > 0 : delta < 0) ? 'better' : 'worse' }
 }

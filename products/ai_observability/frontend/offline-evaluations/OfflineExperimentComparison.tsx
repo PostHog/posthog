@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
@@ -13,6 +13,8 @@ import { comparisonScoreRows, comparisonUrl, type ComparisonScoreRow } from './o
 import { offlineComparisonLogic, type OfflineComparisonProps } from './offlineComparisonLogic'
 import { OfflineComparisonScoreCell } from './OfflineComparisonScoreCell'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
+import { OFFLINE_ALL_UPLOAD_STATES } from './offlineOverviewState'
+import { offlineScoreMetricLabel } from './offlineScoreTrends'
 
 type ComparisonRow = { kind: 'coverage'; id: string } | { kind: 'dataset'; id: string } | ComparisonScoreRow
 
@@ -37,14 +39,29 @@ export function OfflineExperimentComparison(props: OfflineComparisonProps): JSX.
         {
             title: 'Measure',
             key: 'measure',
-            className: 'min-w-32',
+            className: 'min-w-32 align-top',
             render: (_, row) => {
                 if (row.kind === 'item' || row.kind === 'experiment') {
                     return (
-                        <div className="space-y-1">
-                            <ScorerLabel scorer={row.scorer} />
+                        <div className="flex flex-col items-start gap-0.5">
+                            <Link
+                                to={
+                                    combineUrl(urls.aiObservabilityOfflineScorerHistory(row.scorer.definition_id), {
+                                        version: row.id,
+                                        date_from: 'all',
+                                        statuses: OFFLINE_ALL_UPLOAD_STATES,
+                                        tags: [],
+                                    }).url
+                                }
+                                target="_blank"
+                                targetBlankIcon
+                                className="inline-flex max-w-full items-center gap-0.5 font-semibold"
+                                data-attr="offline-comparison-open-scorer"
+                            >
+                                <ScorerLabel scorer={row.scorer} />
+                            </Link>
                             <span className="text-xs text-muted">
-                                {row.kind === 'experiment' ? 'Experiment score' : 'Item score'}
+                                {row.kind === 'experiment' ? 'Experiment score' : offlineScoreMetricLabel(row.scorer)}
                             </span>
                         </div>
                     )
@@ -56,17 +73,20 @@ export function OfflineExperimentComparison(props: OfflineComparisonProps): JSX.
             const { experiment } = run
             return {
                 key: experiment.id,
+                className: 'align-top',
                 title: (
-                    <div className="min-w-40 max-w-72 space-y-1 normal-case whitespace-normal">
+                    <div className="min-w-40 max-w-72 space-y-0.5 normal-case tracking-normal whitespace-normal">
                         <Link
                             to={urls.aiObservabilityOfflineEvaluationExperiment(experiment.id)}
+                            target="_blank"
+                            targetBlankIcon
                             data-attr="offline-comparison-open-experiment"
-                            className="break-words"
+                            className="break-words font-semibold text-sm"
                         >
                             {experiment.name}
                         </Link>
                         <div className="text-xs text-muted font-normal">
-                            {experiment.id === baselineId && <strong>Baseline · </strong>}
+                            {experiment.id === baselineId && 'Baseline · '}
                             <TZLabel time={experiment.started_at} />
                         </div>
                     </div>
@@ -147,8 +167,7 @@ export function OfflineExperimentComparison(props: OfflineComparisonProps): JSX.
                 <>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-muted mb-0">
-                            Runs can contain different items. Each item score summarizes successful results for that
-                            scorer version within its run.
+                            Each run can contain different items. Score changes are relative to the selected baseline.
                         </p>
                         {shared.length > 0 && shared.length < scores.length && (
                             <LemonSwitch
