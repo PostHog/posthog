@@ -31,6 +31,7 @@ class ContractResponseSerializer(DataclassSerializer[Any]):
     _serializers_by_dataclass: ClassVar[dict[Any, type["ContractResponseSerializer"]]] = {}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Register the contract's serializer. A second one would make a nested component depend on import order."""
         super().__init_subclass__(**kwargs)
         meta = cls.__dict__.get("Meta")
         dataclass_type = getattr(meta, "dataclass", None)
@@ -41,8 +42,6 @@ class ContractResponseSerializer(DataclassSerializer[Any]):
             cls.__module__,
             cls.__qualname__,
         ):
-            # A nested contract finds its serializer by its type, so two serializers for one type
-            # would make the schema component depend on import order.
             raise ImproperlyConfigured(
                 f"{cls.__qualname__} and {registered.__qualname__} both render {dataclass_type}."
             )
@@ -50,13 +49,11 @@ class ContractResponseSerializer(DataclassSerializer[Any]):
 
     @cached_property
     def dataclass_definition(self) -> DataclassDefinition[Any]:
+        """Put a generic contract's type arguments in place of its type variables, which the library reads as bounds."""
         dataclass_type = getattr(getattr(self, "Meta", None), "dataclass", None)
         origin = typing.get_origin(dataclass_type)
         if dataclass_type is None or origin is None:
             return super().dataclass_definition
-        # rest_framework_dataclasses reads a type variable as its bound, so a `Section[Payload]`
-        # would render the payload field as the bound and not as `Payload`. Put the type arguments
-        # in place of the type variables.
         definition = get_dataclass_definition(origin)
         arguments = dict(zip(origin.__parameters__, typing.get_args(dataclass_type)))
         field_types = {
@@ -66,15 +63,13 @@ class ContractResponseSerializer(DataclassSerializer[Any]):
         return DataclassDefinition(dataclass_type, definition.fields, field_types)
 
     def get_default_field_names(self, declared_fields: Iterable[str]) -> list[str]:
-        # The library puts declared fields first. Keep the contract's order, because it sets the
-        # order of the schema properties and of the keys in the response.
+        """Keep the contract's field order, the schema and response order. The library puts declared fields first."""
         contract_fields = list(self.dataclass_definition.fields)
         return contract_fields + [name for name in declared_fields if name not in self.dataclass_definition.fields]
 
     def get_fields(self) -> dict[str, serializers.Field]:
+        """Give each declared field the contract's help text, so a declared field only picks a field class."""
         fields = super().get_fields()
-        # A field declared on the serializer only picks a field class. Its documentation stays on
-        # the contract, so a response field is documented in one place.
         for name in self._declared_fields:
             contract_field = self.dataclass_definition.fields.get(name)
             help_text = (
@@ -92,10 +87,8 @@ class ContractResponseSerializer(DataclassSerializer[Any]):
     def build_typed_field(
         self, field_name: str, type_info: TypeInfo, extra_kwargs: KWArgs
     ) -> SerializerFieldDefinition:
+        """Keep a field with a dataclass default required: a response renders every field. Wrong for a request body."""
         field_class, field_kwargs = super().build_typed_field(field_name, type_info, extra_kwargs)
-        # The library makes a field with a dataclass default optional. A response renders every
-        # field of the instance, so the field stays required in the schema. This is the rule that
-        # makes the class wrong for a request body.
         field_kwargs.pop("required", None)
         return field_class, field_kwargs
 
@@ -103,18 +96,16 @@ class ContractResponseSerializer(DataclassSerializer[Any]):
         return self._serializer_for(type_info.base_type), {}
 
     def build_standard_field(self, field_name: str, type_info: TypeInfo) -> SerializerFieldDefinition:
-        # A parameterized generic contract is not a class, so the library sends it here and not to
-        # build_dataclass_field.
+        """Resolve a parameterized generic contract, which the library sends here because it is not a class."""
         if dataclasses.is_dataclass(typing.get_origin(type_info.base_type)):
             return self._serializer_for(type_info.base_type), {}
         return super().build_standard_field(field_name, type_info)
 
     @staticmethod
     def _serializer_for(dataclass_type: Any) -> type["ContractResponseSerializer"]:
+        """Find a nested contract's serializer. The library's fallback would name the component after the dataclass."""
         serializer_class = ContractResponseSerializer._serializers_by_dataclass.get(dataclass_type)
         if serializer_class is None:
-            # The library would nest an anonymous serializer, which drf-spectacular names after the
-            # dataclass. Refuse it, so every component keeps the name of a serializer class.
             raise ImproperlyConfigured(f"No ContractResponseSerializer renders {dataclass_type}.")
         return serializer_class
 
@@ -123,13 +114,10 @@ class ContractResponseSerializerExtension(LabeledEnumDataclassSerializerExtensio
     target_class = "posthog.api.contract_serializer.ContractResponseSerializer"
     priority = 2
 
-    # drf-spectacular's two base classes declare get_name with different signatures, and this
-    # signature fits both.
     def get_name(self, *args: Any, **kwargs: Any) -> str | None:
-        # None falls back to the serializer class name, the way a hand-written serializer is named.
+        """None names the component after the serializer class, as for a hand-written serializer."""
         return None
 
-    # None identifies the component by its serializer, the same as its name, so drf-spectacular
-    # still warns when two serializer classes publish the same component name.
     def get_identity(self, auto_schema: AutoSchema, direction: Direction) -> Any:
+        """None identifies the component by its serializer, so two serializers sharing a name still get a warning."""
         return None
