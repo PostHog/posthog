@@ -22,7 +22,10 @@ export interface ErrorsTableColumnsOptions {
     /** The order the list is sorted by, or null before the list knows it. */
     order: AiObservabilityErrorsListOrder | null
     onOrder: (order: AiObservabilityErrorsListOrder) => void
+    onOpen: (item: ErrorListItemApi) => void
     firstSeen: CellLoads<ErrorFirstSeen>
+    /** The project's timezone, which first seen dates are shown in. */
+    timezone: string
     'data-attr': string
 }
 
@@ -30,7 +33,9 @@ export function errorsTableColumns({
     maxOccurrences,
     order,
     onOrder,
+    onOpen,
     firstSeen,
+    timezone,
     'data-attr': dataAttr,
 }: ErrorsTableColumnsOptions): LemonTableColumns<ErrorListItemApi> {
     const sortable = sortableColumn<ErrorListItemApi, AiObservabilityErrorsListOrder>({
@@ -43,7 +48,7 @@ export function errorsTableColumns({
         {
             title: 'Error',
             key: 'message',
-            render: (_, { message }) => <ErrorMessageCell message={message} />,
+            render: (_, item) => <ErrorMessageCell message={item.message} onOpen={() => onOpen(item)} />,
         },
         {
             ...sortable('Occurrences', AiObservabilityErrorsListOrder.Occurrences),
@@ -100,7 +105,7 @@ export function errorsTableColumns({
         {
             title: 'First seen',
             key: 'first_seen',
-            render: (_, { key }) => <FirstSeenCell load={firstSeen.get(key)} />,
+            render: (_, { key }) => <FirstSeenCell load={firstSeen.get(key)} timezone={timezone} />,
         },
         {
             ...sortable('Last seen', AiObservabilityErrorsListOrder.LastSeen),
