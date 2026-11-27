@@ -28,6 +28,22 @@
     }
 }
 
+/* A narrow header has no room for the description's text next to the title, so it goes back to the icon there. */
+.SectionTile__description-narrow-icon {
+    display: none;
+}
+
+@container (width < 30rem) {
+    /* An image leaves the icon out, so it keeps the text. */
+    .SectionTile__description-text:not(.dash-capturing *) {
+        display: none;
+    }
+
+    .SectionTile__description-narrow-icon {
+        display: inline-flex;
+    }
+}
+
 /* Quill shades an expanded button as an open menu's trigger. The toggle's chevron already shows its state. */
 .SectionTile__toggle[aria-expanded='true']:not(:hover) {
     background-color: transparent;
