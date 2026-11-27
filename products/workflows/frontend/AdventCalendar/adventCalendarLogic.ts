@@ -88,6 +88,31 @@ export interface AdventTicketFlight {
     landed: number
 }
 
+function withChange(
+    state: Record<string, AdventProgress>,
+    stored: unknown,
+    userUuid: string,
+    change: AdventProgress
+): Record<string, AdventProgress> {
+    const latest = cleanProgressByUser(stored)
+    const cached = cleanProgressByUser(state)
+    const uuids = new Set([...Object.keys(latest), ...Object.keys(cached), userUuid])
+    return Object.fromEntries(
+        [...uuids].map((uuid) => [
+            uuid,
+            [cached[uuid], uuid === userUuid ? change : undefined].reduce<AdventProgress>(
+                (merged, next) => (next ? mergeAdventProgress(merged, next) : merged),
+                latest[uuid] ?? EMPTY_ADVENT_PROGRESS
+            ),
+        ])
+    )
+}
+
+function withoutTicket({ onTime = [], ...progress }: AdventProgress, day: number): AdventProgress {
+    const kept = onTime.filter((onTimeDay) => onTimeDay !== day)
+    return { ...progress, ...(kept.length ? { onTime: kept } : {}) }
+}
+
 function prefersReducedMotion(): boolean {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
@@ -210,6 +235,16 @@ export interface adventCalendarLogicActions {
     refreshClock: () => {
         localDate: number
     }
+    settleTicket: (
+        userUuid: string,
+        day: number,
+        isOnTime: boolean
+    ) => {
+        day: number
+        isOnTime: boolean
+        stored: unknown
+        userUuid: string
+    }
     savePollAnswer: (answer: AdventCalendarAnswerApi) => AdventCalendarAnswerApi
     savePollAnswerFailure: (
         error: string,
@@ -295,6 +330,12 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             stored: storedProgressByUser(),
         }),
         landTicket: true,
+        settleTicket: (userUuid: string, day: number, isOnTime: boolean) => ({
+            userUuid,
+            day,
+            isOnTime,
+            stored: storedProgressByUser(),
+        }),
         refreshClock: () => {
             const now = new Date()
             return { localDate: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() }
@@ -329,27 +370,21 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             {} as Record<string, AdventProgress>,
             { persist: true, storageKey: PROGRESS_STORAGE_KEY },
             {
-                openDoor: (state, { userUuid, day, optionId, isOnTime, stored, isLive }) => {
-                    if (!isLive) {
-                        return state
-                    }
-                    const latest = cleanProgressByUser(stored)
-                    const cached = cleanProgressByUser(state)
-                    const change = {
+                openDoor: (state, { userUuid, day, optionId, isOnTime, stored, isLive }) =>
+                    isLive
+                        ? withChange(state, stored, userUuid, {
+                              opened: [day],
+                              answers: optionId ? { [day]: optionId } : {},
+                              onTime: isOnTime ? [day] : [],
+                          })
+                        : state,
+                settleTicket: (state, { userUuid, day, isOnTime, stored }) => {
+                    const settled = withChange(state, stored, userUuid, {
                         opened: [day],
-                        answers: optionId ? { [day]: optionId } : {},
+                        answers: {},
                         onTime: isOnTime ? [day] : [],
-                    }
-                    const uuids = new Set([...Object.keys(latest), ...Object.keys(cached), userUuid])
-                    return Object.fromEntries(
-                        [...uuids].map((uuid) => [
-                            uuid,
-                            [cached[uuid], uuid === userUuid ? change : undefined].reduce<AdventProgress>(
-                                (merged, next) => (next ? mergeAdventProgress(merged, next) : merged),
-                                latest[uuid] ?? EMPTY_ADVENT_PROGRESS
-                            ),
-                        ])
-                    )
+                    })
+                    return isOnTime ? settled : { ...settled, [userUuid]: withoutTicket(settled[userUuid], day) }
                 },
             },
         ],
@@ -397,6 +432,8 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             null as AdventTicketFlight | null,
             {
                 openDoor: (state, { day, isOnTime }) => (isOnTime ? { day, total: 1, landed: 0 } : state),
+                settleTicket: (state, { day, isOnTime }) =>
+                    isOnTime ? { day, total: 1, landed: 0 } : state?.day === day ? null : state,
                 landTicket: (state) =>
                     state && state.landed + 1 < state.total ? { ...state, landed: state.landed + 1 } : null,
             },
@@ -536,17 +573,31 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     actions.startReveal(door.id)
                 }
             },
-            openDoor: ({ day, isLive, isOnTime }) => {
+            openDoor: ({ userUuid, day, isLive, isOnTime }) => {
                 posthog.capture(EVENTS.doorOpened, { day, on_time: isLive && isOnTime })
                 const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
-                if (hoggy && values.isLive) {
-                    void api
-                        .workflowAdventCalendarOpen(String(values.currentProjectId), {
-                            day,
-                            hoggy: hoggy.id,
-                            utc_offset_minutes: -new Date().getTimezoneOffset(),
-                        })
-                        .catch(() => null)
+                // The draw reads the server's first open of each door, so its reply settles the ticket the local clock guessed.
+                const settle = (isOnServerDay: boolean): void => {
+                    if (isOnServerDay !== isOnTime) {
+                        actions.settleTicket(userUuid, day, isOnServerDay)
+                    }
+                }
+                if (isLive) {
+                    const utcOffsetMinutes = -new Date().getTimezoneOffset()
+                    if (hoggy) {
+                        void api
+                            .workflowAdventCalendarOpen(String(values.currentProjectId), {
+                                day,
+                                hoggy: hoggy.id,
+                                utc_offset_minutes: utcOffsetMinutes,
+                            })
+                            .then(
+                                (open) => settle(adventOpenedOnItsDay(day, new Date(open.opened_at), utcOffsetMinutes)),
+                                () => settle(false)
+                            )
+                    } else {
+                        settle(false)
+                    }
                 }
                 actions.preloadImages()
             },
