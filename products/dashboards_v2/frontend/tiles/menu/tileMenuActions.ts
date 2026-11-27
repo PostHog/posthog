@@ -1,8 +1,18 @@
 import posthog from 'posthog-js'
 
+// TODO(2026-11-27): Replace with quill once it can; the app does not mount quill's ToastProvider yet.
+// oxlint-disable-next-line no-restricted-imports
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { imageActions } from '../../dashboard/actions/dashboardImage'
 import { useDashboard } from '../../dashboard/core/dashboardContext'
-import { type SectionPanel, gridTabs, panelRef } from '../../dashboard/document/dashboardTypes'
+import {
+    type SectionPanel,
+    type Tile,
+    gridTabs,
+    isSectionPanel,
+    panelRef,
+} from '../../dashboard/document/dashboardTypes'
 import { everyTile } from '../../dashboard/document/tileTree'
 import type { DashboardEdit } from '../../dashboard/edits/dashboardEdits'
 import type { MenuAction } from '../../menu/menuAction'
@@ -135,6 +145,13 @@ export function useContentTilePlacementActions(id: string, panel: SavedPanel): M
 
 const NO_ACTIONS: MenuAction[] = []
 
+function leftOutMessage(leftOut: Tile[]): string {
+    const names = leftOut.map((tile) => tile.panel.title || 'an untitled tile').join(', ')
+    const what =
+        leftOut.length === 1 ? "1 tile that can't be duplicated" : `${leftOut.length} tiles that can't be duplicated`
+    return `Section duplicated without ${what}: ${names}.`
+}
+
 // pinned: `dashboard-v2-tile-parts` data-attrs shipped before border joined this menu.
 const TILE_SHOW = { key: 'parts', label: 'Show', dataAttr: 'dashboard-v2-tile-parts' }
 const TILE_BACKGROUND_COLOR = {
@@ -149,7 +166,7 @@ function useTileImageActions(id: string): MenuAction[] {
         downloadLabel: 'Download as image',
         copyLabel: 'Copy as image',
         dataAttrPrefix: 'dashboard-v2-tile',
-        busy: downloadingImage,
+        making: downloadingImage,
         download: (format) => downloadImage(format, id),
         copy: () => copyImage(id),
     })
@@ -200,8 +217,17 @@ export function useSectionActions(id: string, panel: SectionPanel, onStartRename
 
 /** `onConfirmRemove` asks the person first. It is called for a section that holds tiles, which go with it. */
 export function useSectionPlacementActions(id: string, panel: SectionPanel, onConfirmRemove: () => void): MenuAction[] {
-    const { disabledReasonFor, onEdit, tilePlacementActions } = useDashboard()
+    const { panels, disabledReasonFor, onEdit, tilePlacementActions } = useDashboard()
     const empty = panel.tiles.length === 0
+    const duplicate = (): void => {
+        const leftOut = everyTile(panel.tiles).filter(
+            ({ panel: inner }) => !isSectionPanel(inner) && findPanel(panels, inner.type)?.duplicable(inner) === false
+        )
+        onEdit({ edit: 'duplicateTile', id, without: leftOut.map((tile) => tile.id) })
+        if (leftOut.length > 0) {
+            lemonToast.info(leftOutMessage(leftOut))
+        }
+    }
     const actions: MenuAction[] = [
         {
             key: 'duplicate',
@@ -209,7 +235,7 @@ export function useSectionPlacementActions(id: string, panel: SectionPanel, onCo
             dataAttr: 'dashboard-v2-section-duplicate',
             group: 'dashboard',
             disabledReason: disabledReasonFor('duplicateTile'),
-            onSelect: () => onEdit({ edit: 'duplicateTile', id }),
+            onSelect: duplicate,
         },
         {
             key: 'remove',

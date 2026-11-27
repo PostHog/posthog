@@ -30,9 +30,10 @@ export type LayoutEdit =
     | { edit: 'addToGrid'; id: string; grid: string }
     /**
      * Puts a copy under the tile, in the same grid. The copy has its own content, so a change to one leaves the other.
-     * A section is copied with every tile in it.
+     * A section is copied with every tile in it, except the ones in `without`, such as tiles whose panel type does not
+     * allow a copy.
      */
-    | { edit: 'duplicateTile'; id: string }
+    | { edit: 'duplicateTile'; id: string; without?: string[] }
     | { edit: 'autoLayout'; grid: string; columns: number }
     | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionPanel, 'title'>> }
     /** With `href`, the new tab is a link elsewhere and holds no tiles. */
@@ -220,9 +221,11 @@ function gridIdOf(dashboard: Dashboard, id: string): string | null {
     return tab?.id ?? section?.id ?? null
 }
 
-function copyOf(tile: Tile, nextId: (prefix: string) => string): Tile {
+function copyOf(tile: Tile, nextId: (prefix: string) => string, without: string[]): Tile {
     if (isSectionPanel(tile.panel)) {
-        const tiles = tile.panel.tiles.map((inner) => copyOf(inner, nextId))
+        const tiles = tile.panel.tiles
+            .filter((inner) => !without.includes(inner.id))
+            .map((inner) => copyOf(inner, nextId, without))
         return { ...tile, id: nextId('section'), panel: { ...tile.panel, tiles } }
     }
     const { ref: _shared, ...panel } = tile.panel
@@ -236,7 +239,7 @@ function duplicateTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit
         return dashboard
     }
     const y = tile.place.y + tile.place.h
-    const copy = { ...copyOf(tile, newIds(dashboard)), place: { ...tile.place, y } }
+    const copy = { ...copyOf(tile, newIds(dashboard), edit.without ?? []), place: { ...tile.place, y } }
     // Everything from the copy's row down moves by its height, and settling brings back up what it did not need to push.
     return changeGrid(dashboard, grid, (tiles) => [
         ...tiles.map((other) =>

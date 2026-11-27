@@ -291,6 +291,14 @@ describe('dashboardEdits', () => {
         ])
     })
 
+    it('leaves the named tiles out of a duplicated section', () => {
+        const board = dashboard([section('s', 0, 0, 24, [text('a', 0, 0, 8, 8), text('b', 8, 0, 8, 8)])])
+        const duplicated = applyEdit(board, { edit: 'duplicateTile', id: 's', without: ['a'] }, sizeOf)
+        const copy = gridTabs(duplicated)[0].tiles[1]
+
+        expect(isSection(copy) && copy.panel.tiles.map((tile) => tile.panel)).toEqual([findTile(board, 'b')?.panel])
+    })
+
     it('keeps the last tab with tiles when only link tabs would be left', () => {
         const board: Dashboard = {
             ...dashboard([text('a', 0, 0, 8, 8)]),
