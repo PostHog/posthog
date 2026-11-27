@@ -71,14 +71,17 @@ describe('learnedLibrariesLogic', () => {
     })
 
     it('saves a second receiving library and unlocks the first one', async () => {
-        expect(logic.values.lastReceivingLibraryId).toBe(LEARNED.id)
+        expect(logic.values.libraryRows.map((row) => row.disabledReason)).toEqual([
+            'At least one library must receive learned sources',
+            undefined,
+        ])
 
         logic.actions.setReceivesLearnedSources(SUPPORT.id, true)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(receivingIds(saved)).toEqual([LEARNED.id, SUPPORT.id])
         expect(receivingIds(logic.values.libraries)).toEqual([LEARNED.id, SUPPORT.id])
-        expect(logic.values.lastReceivingLibraryId).toBeNull()
+        expect(logic.values.libraryRows.map((row) => row.disabledReason)).toEqual([undefined, undefined])
         expect(logic.values.savingLibraryIds).toEqual([])
     })
 

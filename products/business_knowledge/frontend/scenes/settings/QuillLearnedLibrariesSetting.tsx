@@ -7,8 +7,7 @@ import { learnedLibrariesLogic } from './learnedLibrariesLogic'
 import { QuillRetryText } from './QuillRetryText'
 
 export function QuillLearnedLibrariesSetting(): JSX.Element | null {
-    const { libraries, librariesLoading, sortedLibraries, savingLibraryIds, lastReceivingLibraryId } =
-        useValues(learnedLibrariesLogic)
+    const { libraries, librariesLoading, libraryRows } = useValues(learnedLibrariesLogic)
     const { setReceivesLearnedSources, loadLibraries } = useActions(learnedLibrariesLogic)
     const { settings } = useValues(businessKnowledgeSettingsLogic)
 
@@ -32,27 +31,21 @@ export function QuillLearnedLibrariesSetting(): JSX.Element | null {
                 <Skeleton className="h-6 w-60" />
             ) : !libraries ? (
                 <QuillRetryText message="Couldn't load your libraries." onRetry={() => loadLibraries()} />
-            ) : sortedLibraries.length === 0 ? (
+            ) : libraryRows.length === 0 ? (
                 <Text size="xs" variant="muted" render={<p className="m-0" />}>
                     You have no libraries yet. The first source learned from a ticket creates a library named Learned.
                 </Text>
             ) : (
                 <div className="flex flex-col gap-2">
-                    {sortedLibraries.map((library) => (
+                    {libraryRows.map((row) => (
                         <Checkbox
-                            key={library.id}
-                            checked={library.is_default}
-                            onCheckedChange={(checked: boolean) => setReceivesLearnedSources(library.id, checked)}
-                            disabledReason={
-                                savingLibraryIds.includes(library.id)
-                                    ? 'Saving'
-                                    : library.id === lastReceivingLibraryId
-                                      ? 'At least one library must receive learned sources'
-                                      : undefined
-                            }
+                            key={row.id}
+                            checked={row.receivesLearnedSources}
+                            onCheckedChange={(checked: boolean) => setReceivesLearnedSources(row.id, checked)}
+                            disabledReason={row.disabledReason}
                             data-attr="business-knowledge-learned-sources-library"
                         >
-                            {library.name}
+                            {row.name}
                         </Checkbox>
                     ))}
                 </div>

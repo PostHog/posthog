@@ -6,8 +6,7 @@ import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic
 import { learnedLibrariesLogic } from './learnedLibrariesLogic'
 
 export function LearnedLibrariesSetting(): JSX.Element | null {
-    const { libraries, librariesLoading, sortedLibraries, savingLibraryIds, lastReceivingLibraryId } =
-        useValues(learnedLibrariesLogic)
+    const { libraries, librariesLoading, libraryRows } = useValues(learnedLibrariesLogic)
     const { setReceivesLearnedSources, loadLibraries } = useActions(learnedLibrariesLogic)
     const { settings } = useValues(businessKnowledgeSettingsLogic)
 
@@ -31,25 +30,19 @@ export function LearnedLibrariesSetting(): JSX.Element | null {
                 <p className="m-0">
                     Couldn't load your libraries. <Link onClick={() => loadLibraries()}>Try again</Link>
                 </p>
-            ) : sortedLibraries.length === 0 ? (
+            ) : libraryRows.length === 0 ? (
                 <p className="m-0 text-secondary">
                     You have no libraries yet. The first source learned from a ticket creates a library named Learned.
                 </p>
             ) : (
                 <div className="flex flex-col gap-1">
-                    {sortedLibraries.map((library) => (
+                    {libraryRows.map((row) => (
                         <LemonCheckbox
-                            key={library.id}
-                            checked={library.is_default}
-                            onChange={(checked) => setReceivesLearnedSources(library.id, checked)}
-                            label={library.name}
-                            disabledReason={
-                                savingLibraryIds.includes(library.id)
-                                    ? 'Saving'
-                                    : library.id === lastReceivingLibraryId
-                                      ? 'At least one library must receive learned sources'
-                                      : undefined
-                            }
+                            key={row.id}
+                            checked={row.receivesLearnedSources}
+                            onChange={(checked) => setReceivesLearnedSources(row.id, checked)}
+                            label={row.name}
+                            disabledReason={row.disabledReason}
                             data-attr="business-knowledge-learned-sources-library"
                         />
                     ))}

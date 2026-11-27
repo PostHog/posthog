@@ -13,6 +13,7 @@ export interface learnedLibrariesLogicValues {
     lastReceivingLibraryId: string | null
     libraries: KnowledgeLibraryApi[] | null
     librariesLoading: boolean
+    libraryRows: LearnedLibraryRow[]
     savingLibraryIds: string[]
     sortedLibraries: KnowledgeLibraryApi[]
 }
@@ -53,6 +54,11 @@ export interface learnedLibrariesLogicActions {
 export interface learnedLibrariesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sortedLibraries: (libraries: KnowledgeLibraryApi[] | null) => KnowledgeLibraryApi[]
+        libraryRows: (
+            sortedLibraries: KnowledgeLibraryApi[],
+            savingLibraryIds: string[],
+            lastReceivingLibraryId: string | null
+        ) => LearnedLibraryRow[]
         lastReceivingLibraryId: (libraries: KnowledgeLibraryApi[] | null) => string | null
     }
 }
@@ -63,6 +69,14 @@ export type learnedLibrariesLogicType = MakeLogicType<
     Record<string, any>,
     learnedLibrariesLogicMeta
 >
+
+export interface LearnedLibraryRow {
+    id: string
+    name: string
+    receivesLearnedSources: boolean
+    /** Set while the row saves, and on the last receiving library, which cannot be cleared. */
+    disabledReason: string | undefined
+}
 
 export const learnedLibrariesLogic = kea<learnedLibrariesLogicType>([
     path(['products', 'business_knowledge', 'frontend', 'settings', 'learnedLibrariesLogic']),
@@ -110,6 +124,24 @@ export const learnedLibrariesLogic = kea<learnedLibrariesLogicType>([
             (s) => [s.libraries],
             (libraries: KnowledgeLibraryApi[] | null): KnowledgeLibraryApi[] =>
                 [...(libraries ?? [])].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+        ],
+        libraryRows: [
+            (s) => [s.sortedLibraries, s.savingLibraryIds, s.lastReceivingLibraryId],
+            (
+                sortedLibraries: KnowledgeLibraryApi[],
+                savingLibraryIds: string[],
+                lastReceivingLibraryId: string | null
+            ): LearnedLibraryRow[] =>
+                sortedLibraries.map((library) => ({
+                    id: library.id,
+                    name: library.name,
+                    receivesLearnedSources: library.is_default,
+                    disabledReason: savingLibraryIds.includes(library.id)
+                        ? 'Saving'
+                        : library.id === lastReceivingLibraryId
+                          ? 'At least one library must receive learned sources'
+                          : undefined,
+                })),
         ],
         lastReceivingLibraryId: [
             (s) => [s.libraries],
