@@ -54,6 +54,29 @@ class _Side:
         self.early_exit = self._filters.get("early_exit") is True
         multivariate = self._filters.get("multivariate")
         self.split = parse_variants(multivariate.get("variants") if isinstance(multivariate, Mapping) else None)
+        self.open_audiences = self._open_audiences()
+
+    def _open_audiences(self) -> dict[int | None, bool]:
+        blocked_by: dict[int | None, bool] = {}
+        ended_group_types: set[int] = set()
+        partial_audiences: set[int | None] = set()
+        for condition in self.conditions:
+            audience = condition_aggregation(condition, self.flag_aggregation)
+            if audience in ended_group_types:
+                continue
+            rollout = condition_rollout_percentage(condition)
+            open_to_everyone = not condition.get("properties") and rollout >= 100
+            if open_to_everyone and audience not in blocked_by:
+                blocked_by[audience] = self.early_exit and (
+                    bool(partial_audiences) if audience is None else bool(partial_audiences & {audience, None})
+                )
+            if rollout < 100:
+                partial_audiences.add(audience)
+            if not condition.get("properties") and (open_to_everyone or self.early_exit):
+                if audience is None:
+                    break
+                ended_group_types.add(audience)
+        return blocked_by
 
     @property
     def is_on(self) -> bool:
@@ -71,68 +94,27 @@ class _Side:
     def runtime_restricted(self) -> bool:
         return self._side.evaluation_runtime not in (None, "all")
 
-    def _aggregation(self, condition: Mapping[str, Any]) -> int | None:
-        return condition_aggregation(condition, self.flag_aggregation)
-
-    def _audiences(self) -> set[int | None]:
-        return {self._aggregation(condition) for condition in self.conditions}
-
-    def _open_condition(self, audience: int | None) -> int | None:
-        return next(
-            (
-                index
-                for index, condition in enumerate(self.conditions)
-                if not condition.get("properties")
-                and condition_rollout_percentage(condition) >= 100
-                and self._aggregation(condition) == audience
-            ),
-            None,
-        )
-
     @property
-    def person_catch_all(self) -> int | None:
-        return self._open_condition(None)
-
-    def _reachable(self, conditions: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-        ended_group_types: set[int] = set()
-        reachable: list[Mapping[str, Any]] = []
-        for condition in conditions:
-            group_type = self._aggregation(condition)
-            if group_type in ended_group_types:
-                continue
-            reachable.append(condition)
-            if not condition.get("properties") and (condition_rollout_percentage(condition) >= 100 or self.early_exit):
-                if group_type is None:
-                    break
-                ended_group_types.add(group_type)
-        return reachable
-
-    def gives_false_ahead_of(self, index: int, audience: int | None = None) -> bool:
-        return self.early_exit and any(
-            condition_rollout_percentage(condition) < 100
-            for condition in self._reachable(self.conditions[:index])
-            if audience is None or self._aggregation(condition) in (audience, None)
-        )
+    def conditions_reach_everyone(self) -> bool:
+        return self.open_audiences.get(None) is False
 
     def reaches_everyone(self) -> bool:
-        catch_all = self.person_catch_all
         return (
             self.is_on
-            and catch_all is not None
+            and self.conditions_reach_everyone
             and not self.has_holdout
             and not self.has_enrollment
             and not self.runtime_restricted
-            and not self.gives_false_ahead_of(catch_all)
         )
+
+    def is_staged(self) -> bool:
+        return self.has_enrollment or not self.conditions_reach_everyone
 
     def open_parts(self) -> set[tuple[str, int | None]]:
         parts: set[tuple[str, int | None]] = set()
-        for audience in self._audiences():
-            index = self._open_condition(audience)
-            if index is None:
-                continue
+        for audience, blocked in self.open_audiences.items():
             parts.add(("open", audience))
-            if not self.gives_false_ahead_of(index, audience):
+            if not blocked:
                 parts.add(("unblocked", audience))
         for part, is_open in (
             ("on", self.is_on),
@@ -144,27 +126,20 @@ class _Side:
                 parts.add((part, None))
         return parts
 
-    def is_staged(self) -> bool:
-        return self.has_enrollment or any(
-            condition.get("properties") or condition_rollout_percentage(condition) < 100
-            for condition in self._reachable(self.conditions)
-        )
-
 
 def _is_candidate(old: _Side, new: _Side) -> bool:
-    opened = new.open_parts() - old.open_parts()
     return (
         new.is_on
-        and any(part == "open" for part, _ in new.open_parts())
+        and bool(new.open_audiences)
         and not old.reaches_everyone()
-        and bool(opened)
+        and bool(new.open_parts() - old.open_parts())
     )
 
 
 def _reason(old: _Side, new: _Side) -> LaunchReason | None:
     if new.split:
         return LaunchReason.MULTIVARIATE
-    if new.person_catch_all is None:
+    if None not in new.open_audiences:
         return LaunchReason.GROUP
     if new.has_holdout:
         return LaunchReason.HOLDOUT
@@ -172,7 +147,7 @@ def _reason(old: _Side, new: _Side) -> LaunchReason | None:
         return LaunchReason.ENROLLMENT
     if new.runtime_restricted:
         return LaunchReason.RUNTIME_RESTRICTED
-    if new.gives_false_ahead_of(new.person_catch_all):
+    if not new.conditions_reach_everyone:
         return LaunchReason.EARLY_EXIT
     if not old.is_staged():
         return LaunchReason.NOT_STAGED_BEFORE

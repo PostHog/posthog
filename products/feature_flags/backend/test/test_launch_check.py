@@ -199,6 +199,12 @@ class TestCheckLaunch(TestCase):
                 _not_qualified(LaunchReason.GROUP, ReleasePath.CONDITIONS),
             ),
             (
+                "re_enabled_flag_with_partial_condition_above_fallback",
+                _flag(_condition(100, aggregation=0), _condition(50), _condition(100), active=False),
+                _flag(_condition(100, aggregation=0), _condition(50), _condition(100)),
+                _not_qualified(LaunchReason.NOT_STAGED_BEFORE, ReleasePath.ENABLED),
+            ),
+            (
                 "variant_rolled_out_from_staged_flag",
                 _flag(_condition(50), variants=SPLIT_50_50),
                 _flag(_condition(100), variants=SPLIT_ALL_A),
@@ -260,6 +266,11 @@ class TestCheckLaunch(TestCase):
                 "person_fallback_removed_under_early_exit",
                 _flag(_condition(100, aggregation=0), _condition(50, aggregation=1), _condition(100), early_exit=True),
                 _flag(_condition(100, aggregation=0), _condition(50, aggregation=1), early_exit=True),
+            ),
+            (
+                "group_condition_opened_behind_ending_person_condition",
+                _flag(_condition(100, aggregation=0), _condition(25), _condition(50, aggregation=1), early_exit=True),
+                _flag(_condition(100, aggregation=0), _condition(25), _condition(100, aggregation=1), early_exit=True),
             ),
             (
                 "variant_split_change_on_full_flag",
