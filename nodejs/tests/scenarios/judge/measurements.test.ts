@@ -493,7 +493,8 @@ describe('measurements', () => {
     const UNSETTLED_REMAINDER = 'a write after the last whole minute of the valve failed or passed the bar'
     const UNSAMPLED_REMAINDER = 'the remainder after the last whole minute of the valve went unsampled'
     const IN_FLIGHT_AT_END = 'a write probe was in flight at the valve end'
-    const SPLIT_SCRAPES = 'a scrape interval that crosses a minute boundary cannot say which side its pickups fell on'
+    const UNBOUNDED_PICKUPS = "scrape windows cannot bound a minute's pickups"
+    const NO_WHOLE_MINUTE = 'the valve phase holds no whole minute'
 
     it.each<
         [
@@ -573,16 +574,28 @@ describe('measurements', () => {
             (second) => !between(752, 768)(second),
         ],
         [
-            'counts a probe that fails after a minute boundary in both minutes it overlaps',
-            (second) => (between(700, 758)(second) ? 400 : second === 759 ? { failedAfterMs: 2000 } : 10),
+            'counts a probe that fails after a minute boundary in the minute it ends',
+            (second) => (second === 759 ? { failedAfterMs: 2000 } : 10),
             THREE_MINUTE_VALVE,
             [
                 { key: 'baseline', value: 10 },
                 { key: 'bar', value: 20 },
-                { key: 't0', value: 400 },
+                { key: 't0', value: 10 },
                 { key: 't60', value: 10 },
                 { key: 't120', value: 10 },
                 { key: 'recovery_seconds', value: 120 },
+            ],
+            (second) => second !== 760,
+        ],
+        [
+            'emits one censored valve point when the valve holds no whole minute',
+            () => 10,
+            [{ ...VALVE, releasedAt: isoAt(745) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: null, censored: true, unmeasured: NO_WHOLE_MINUTE },
+                { key: 'recovery_seconds', value: null, censored: true },
             ],
         ],
         [
@@ -643,6 +656,20 @@ describe('measurements', () => {
                 { key: 't60', value: 10 },
                 { key: 't120', value: 10 },
                 { key: 'recovery_seconds', value: 0 },
+            ],
+            (second) => second !== 881 && second !== 882,
+        ],
+        [
+            'leaves recovery unknown when the writer idles long enough to hide a timed-out write in the remainder',
+            (second) => (second === 883 ? { startsLateMs: 500, latencyMs: 10 } : 10),
+            [{ ...VALVE, releasedAt: isoAt(885.39) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSAMPLED_REMAINDER },
             ],
             (second) => second !== 881 && second !== 882,
         ],
@@ -779,26 +806,20 @@ describe('measurements', () => {
 
     const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
 
-    const pickedEvery5s = (
-        slow: (second: number) => boolean,
-        { offsetS = 0, slowCount = 10, pastLargest = false } = {}
-    ): MetricSample[] => {
+    const pickedEvery5s = (slow: (second: number) => boolean, { offsetS = 0, slowCount = 10 } = {}): MetricSample[] => {
         let fast = 0
         let late = 0
-        let past = 0
         return everySecondOf(0, 1500 - offsetS, 5).map((start) => {
             const second = start + offsetS
-            if (!slow(second)) {
-                fast += 10
-            } else if (pastLargest) {
-                past += slowCount
-            } else {
+            if (slow(second)) {
                 late += slowCount
+            } else {
+                fast += 10
             }
             return {
                 ...sample(second, 0, 1),
                 role: HOGFLOW,
-                lateness: { hogflow: { '0.5': fast, '5': fast + late, '+Inf': fast + late + past } },
+                lateness: { hogflow: { '0.5': fast, '5': fast + late, '+Inf': fast + late } },
             }
         })
     }
@@ -820,109 +841,21 @@ describe('measurements', () => {
             }
         })
     }
-    const LAST_MINUTE_SCRAPES = between(822, 877)
+
+    const censoredPickupPoints = ['t0', 't60', 't120'].map((offset) => ({
+        key: `hogflow_${offset}`,
+        value: null,
+        censored: true,
+        unmeasured: UNBOUNDED_PICKUPS,
+    }))
 
     it.each<[string, MetricSample[], Omit<Measurement, 'name' | 'unit'>[]]>([
         [
-            'reads a slow pickup in the last minute as not recovered, though fast pickups after the valve end share its closing interval',
-            pickedWith((second) =>
-                between(707, 757)(second)
-                    ? [0, 10]
-                    : second === 872
-                      ? [0, 1]
-                      : LAST_MINUTE_SCRAPES(second)
-                        ? [0, 0]
-                        : second === 882
-                          ? [100, 0]
-                          : [10, 0]
-            ),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'reads 99 fast pickups of 101 in the last minute as not recovered when the closing interval could hold its second slow one',
-            pickedWith((second) =>
-                between(707, 757)(second)
-                    ? [0, 10]
-                    : second === 877
-                      ? [0, 1]
-                      : between(822, 872)(second)
-                        ? [9, 0]
-                        : second === 882
-                          ? [100, 1]
-                          : [10, 0]
-            ),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'censors the last minute when a counter drops across the valve end with an unchanged start time',
-            [
-                ...pickedWith((second) => (between(872, 882)(second) ? [0, 0] : [10, 0])),
-                ...pickedWith((second) => (between(822, 867)(second) ? [0, 1] : [0, 0]), {
-                    replica: 1,
-                    slowFrom: 100,
-                }).map((scrape) =>
-                    scrape.at >= atS(882)
-                        ? { ...scrape, lateness: { hogflow: { '0.5': 0, '5': 99, '+Inf': 99 } } }
-                        : scrape
-                ),
-            ],
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 0.5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: null, censored: true, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'keeps the last minute at or under the bar when every pickup in its closing interval is fast',
-            pickedWith((second) => (between(707, 757)(second) ? [0, 10] : [10, 0])),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'keeps every later minute of a queue at or under twice its baseline p99',
+            'publishes the baseline and bar, and censors every valve minute',
             pickedEvery5s(between(705, 760)),
             [
                 { key: 'hogflow_baseline', value: 0.5 },
                 { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'censors a queue still slow in the last minute',
-            pickedEvery5s((second) => second >= 705),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 5 },
-                { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -931,117 +864,16 @@ describe('measurements', () => {
             [
                 { key: 'hogflow_baseline', value: 0.5 },
                 { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
-            'counts the scrape interval that straddles the valve end in the last minute, so late pickups at its tail stay',
-            pickedEvery5s((second) => between(705, 760)(second) || second === 882, { offsetS: 2, slowCount: 50 }),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'marks the last minute incomplete and not recovered when no scrape closes the valve end',
-            pickedEvery5s(between(705, 760), { offsetS: 2 }).filter(({ at }) => at <= atS(877)),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 0.5, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'censors the last minute when the worker restarts before a scrape closes the valve end',
-            [
-                ...pickedEvery5s(between(705, 760), { offsetS: 2 }).filter(({ at }) => at <= atS(877)),
-                {
-                    ...sample(882, 881, 1),
-                    role: HOGFLOW,
-                    lateness: { hogflow: { '0.5': 10, '5': 10, '+Inf': 10 } },
-                },
-            ],
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: null, censored: true, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'censors a minute whose p99 is past the largest bucket',
-            pickedEvery5s(between(705, 760), { pastLargest: true }),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5, censored: true },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'censors a middle minute whose counters drop with an unchanged start time',
-            pickedEvery5s(() => false).map((scrape) =>
-                scrape.at === atS(785) ? { ...scrape, lateness: { hogflow: { '0.5': 0, '5': 0, '+Inf': 0 } } } : scrape
-            ),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 0.5 },
-                { key: 'hogflow_t60', value: null, censored: true, incomplete: true },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'censors a middle minute whose worker restarts between two scrapes',
-            pickedEvery5s(() => false).map((scrape) =>
-                scrape.at >= atS(785)
-                    ? {
-                          ...scrape,
-                          startedAt: FROM / 1000 + 784,
-                          lateness: {
-                              hogflow: Object.fromEntries(
-                                  Object.entries(scrape.lateness.hogflow).map(([le, count]) => [le, count - 1500])
-                              ),
-                          },
-                      }
-                    : scrape
-            ),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 0.5 },
-                { key: 'hogflow_t60', value: null, censored: true, incomplete: true },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'censors the whole series when a counter drops in the baseline',
+            'censors the baseline when a counter drops in it',
             pickedEvery5s(between(705, 760)).map((scrape) =>
                 scrape.at === atS(650) ? { ...scrape, lateness: { hogflow: { '0.5': 0, '5': 0, '+Inf': 0 } } } : scrape
             ),
             [
                 { key: 'hogflow_baseline', value: null, censored: true },
                 { key: 'hogflow_bar', value: null, censored: true },
-                { key: 'hogflow_t0', value: 5, censored: true },
-                { key: 'hogflow_t60', value: 0.5, censored: true },
-                { key: 'hogflow_t120', value: 0.5, censored: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -1055,14 +887,10 @@ describe('measurements', () => {
             [
                 { key: 'hogflow_baseline', value: null, censored: true },
                 { key: 'hogflow_bar', value: null, censored: true },
-                { key: 'hogflow_t0', value: 0.5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
-            'censors the whole series when a counter drops in the baseline, though another replica went unscraped there',
+            'censors the baseline when a counter drops in it, though another replica went unscraped there',
             [
                 ...pickedWith(() => [0, 0], { replica: 1 }).filter(({ at }) => at < atS(105) || at > atS(685)),
                 ...pickedWith(() => [10, 0]).map((scrape) =>
@@ -1074,10 +902,6 @@ describe('measurements', () => {
             [
                 { key: 'hogflow_baseline', value: null, censored: true },
                 { key: 'hogflow_bar', value: null, censored: true },
-                { key: 'hogflow_t0', value: 0.5, censored: true },
-                { key: 'hogflow_t60', value: 0.5, censored: true },
-                { key: 'hogflow_t120', value: 0.5, censored: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -1088,10 +912,6 @@ describe('measurements', () => {
             [
                 { key: 'hogflow_baseline', value: 0.5 },
                 { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -1100,105 +920,29 @@ describe('measurements', () => {
             [
                 { key: 'hogflow_baseline', value: null, censored: true },
                 { key: 'hogflow_bar', value: null, censored: true },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
-        [
-            'marks an empty last minute incomplete when no scrape closes the valve end',
-            pickedWith((second) =>
-                between(707, 757)(second) ? [0, 10] : between(822, 877)(second) ? [0, 0] : [10, 0]
-            ).filter(({ at }) => at <= atS(877)),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 5 },
-                { key: 'hogflow_t60', value: 0.5 },
-                { key: 'hogflow_t120', value: null, censored: true, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-        [
-            'marks a minute whose worker went unscraped as incomplete and not recovered',
-            pickedEvery5s(() => false).filter(({ at }) => at < atS(770) || at > atS(800)),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-                { key: 'hogflow_t0', value: 0.5 },
-                { key: 'hogflow_t60', value: null, censored: true, incomplete: true },
-                { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
-            ],
-        ],
-    ])('pickup p99 %s', (_story, samples, measured) => {
-        const names = ['pickup_p99_seconds', 'pickup_recovery_seconds']
-        const recovery = measured.filter(({ key }) => key?.endsWith('_recovery_seconds'))
-
+    ])('pickup p99 %s', (_story, samples, baseline) => {
         expect(
             measure(
-                names.map((name) => ({ name, params: {} })),
+                ['pickup_p99_seconds', 'pickup_recovery_seconds'].map((name) => ({ name, params: {} })),
                 evidence({ samples, drive: DRIVE, timeline: THREE_MINUTE_VALVE })
             )
         ).toEqual([
-            ...measured
-                .filter((value) => !recovery.includes(value))
-                .map((value) => ({ name: names[0], unit: 's', ...value })),
-            ...recovery.map(({ key, ...value }) => ({
-                name: names[1],
+            ...[...baseline, ...censoredPickupPoints].map((value) => ({
+                name: 'pickup_p99_seconds',
                 unit: 's',
-                key: key!.replace('_recovery_seconds', ''),
                 ...value,
             })),
+            {
+                name: 'pickup_recovery_seconds',
+                unit: 's',
+                key: 'hogflow',
+                value: null,
+                censored: true,
+                unmeasured: UNBOUNDED_PICKUPS,
+            },
         ])
-    })
-
-    it('never reads the last minute pickup p99 under the p99 of any share of the closing pickups that falls inside it', () => {
-        const p99Bound = ([fast, slow, past]: number[]): number => {
-            const rank = Math.ceil(0.99 * (fast + slow + past))
-            return rank <= fast ? 0.5 : rank <= fast + slow ? 5 : Infinity
-        }
-        const upTo = (count: number): number[] => Array.from({ length: count + 1 }, (_, i) => i)
-        const combinations = (...choices: number[][]): number[][] =>
-            choices.reduce<number[][]>((sets, options) => sets.flatMap((set) => options.map((n) => [...set, n])), [[]])
-        for (const inside of combinations([0, 1, 98, 99, 100], [0, 1, 2], [0, 1])) {
-            for (const closing of combinations([0, 1, 100], [0, 1, 2], [0, 1])) {
-                const total = [0, 0, 0]
-                const samples = everySecondOf(2, 1497, 5).map((second): MetricSample => {
-                    const picked =
-                        second === 872
-                            ? inside
-                            : second === 882
-                              ? closing
-                              : between(822, 877)(second)
-                                ? [0, 0, 0]
-                                : [10, 0, 0]
-                    picked.forEach((count, bucket) => (total[bucket] += count))
-                    const [fast, slow, past] = total
-                    return {
-                        ...sample(second, 0, 1),
-                        role: HOGFLOW,
-                        lateness: { hogflow: { '0.5': fast, '5': fast + slow, '+Inf': fast + slow + past } },
-                    }
-                })
-                const worst = Math.max(
-                    ...combinations(...closing.map(upTo))
-                        .map((share) => inside.map((count, bucket) => count + share[bucket]))
-                        .filter((counts) => counts.some((count) => count > 0))
-                        .map(p99Bound)
-                )
-                const last = measure(
-                    [{ name: 'pickup_p99_seconds', params: {} }],
-                    evidence({ samples, drive: DRIVE, timeline: THREE_MINUTE_VALVE })
-                ).find(({ key }) => key === 'hogflow_t120')!
-                expect({ inside, closing, holds: last.censored === true || last.value! >= worst }).toEqual({
-                    inside,
-                    closing,
-                    holds: true,
-                })
-            }
-        }
     })
 
     it('never recovers writes in a minute that a failed probe overlaps, and keeps a probe that fails after T0 out of the baseline', () => {
@@ -1215,7 +959,10 @@ describe('measurements', () => {
                     const measured = measure(
                         names.map((name) => ({ name, params: {} })),
                         evidence({
-                            writer: [...latencyWriter(() => 10), failed].sort((a, b) => a.at - b.at),
+                            writer: [
+                                ...latencyWriter(() => 10).filter(({ at: start }) => start < at || start >= endedAt),
+                                failed,
+                            ].sort((a, b) => a.at - b.at),
                             drive: DRIVE,
                             timeline: THREE_MINUTE_VALVE,
                         })

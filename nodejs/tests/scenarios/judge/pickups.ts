@@ -34,12 +34,8 @@ export function pickupsBetween(
     roles: readonly string[],
     { from, to }: { from: number; to: number },
     { straddlesEnd = true, fetchedBefore }: { straddlesEnd?: boolean; fetchedBefore?: number } = {}
-):
-    | { picked: Record<string, Buckets>; closing: Record<string, Buckets>; unobservedTail?: true; reset?: true }
-    | { unread: string; reset?: true } {
+): { picked: Record<string, Buckets>; reset?: true } | { unread: string; reset?: true } {
     const picked: Record<string, Buckets> = {}
-    const closing: Record<string, Buckets> = {}
-    let unobservedTail = false
     let reset = false
     const unscraped = roles.find((role) => !samples.some((sample) => sample.role === role))
     if (unscraped) {
@@ -66,39 +62,24 @@ export function pickupsBetween(
         // never pass into the next step's larger volume unjudged.
         const last = inside.at(-1)!
         const next = sorted.find(({ at }) => at > to)
-        const straddles = straddlesEnd && last.at < to
-        const closed = straddles && next !== undefined && next.at - last.at <= SCRAPE_GAP_MS
-        unobservedTail ||= straddles && (!closed || next.startedAt !== last.startedAt || dropped(last, next))
-        const covered = closed ? [...inside, next] : inside
+        const covered =
+            straddlesEnd && last.at < to && next && next.at - last.at <= SCRAPE_GAP_MS ? [...inside, next] : inside
         covered.slice(1).forEach((sample, i) => {
             const previous = covered[i]
-            const before = sample.startedAt === previous.startedAt ? previous.lateness : {}
             reset ||= sample.startedAt !== previous.startedAt || dropped(previous, sample)
-            add(picked, sample.lateness, before)
-            if (sample === next) {
-                add(closing, sample.lateness, before)
-            }
+            add(picked, sample.lateness, sample.startedAt === previous.startedAt ? previous.lateness : {})
         })
     }
     if (unread !== undefined) {
         return reset ? { unread, reset: true } : { unread }
     }
-    return {
-        picked,
-        closing,
-        ...(unobservedTail ? { unobservedTail: true as const } : {}),
-        ...(reset ? { reset: true as const } : {}),
-    }
+    return reset ? { picked, reset: true } : { picked }
 }
 
 const dropped = (from: MetricSample, to: MetricSample): boolean =>
     Object.entries(from.lateness).some(([queue, buckets]) =>
         Object.entries(buckets).some(([le, count]) => (to.lateness[queue]?.[le] ?? 0) < count)
     )
-
-export function withoutBuckets(all: Buckets, part: Buckets): Buckets {
-    return Object.fromEntries(Object.entries(all).map(([le, count]) => [le, count - (part[le] ?? 0)]))
-}
 
 export function p99Of(buckets: Buckets): { value: number; beyond: boolean } {
     const total = buckets['+Inf'] ?? 0
@@ -107,19 +88,5 @@ export function p99Of(buckets: Buckets): { value: number; beyond: boolean } {
         .map(Number)
         .sort((a, b) => a - b)
     const within = bounds.find((le) => (buckets[String(le)] ?? 0) >= P99 * total)
-    return within === undefined ? { value: bounds.at(-1) ?? 0, beyond: true } : { value: within, beyond: false }
-}
-
-export function worstP99Of(window: Buckets, closing: Buckets): { value: number; beyond: boolean } {
-    const bounds = Object.keys(window)
-        .filter((le) => le !== '+Inf')
-        .map(Number)
-        .sort((a, b) => a - b)
-    const total = window['+Inf'] ?? 0
-    const closingTotal = closing['+Inf'] ?? 0
-    const within = bounds.find((le) => {
-        const at = String(le)
-        return (window[at] ?? 0) >= P99 * (total + closingTotal - (closing[at] ?? 0))
-    })
     return within === undefined ? { value: bounds.at(-1) ?? 0, beyond: true } : { value: within, beyond: false }
 }
