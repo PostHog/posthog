@@ -7280,10 +7280,7 @@ export interface ExperimentExposureHealthCheck {
     values?: Record<string, string | number | boolean | null>
     /** How the check decides, the same for every experiment. Null for a check without a numeric rule. Missing on an answer cached before the field existed. */
     rule?: ExperimentExposureHealthCheckRule | null
-    /**
-     * The end of the data that the check read, in UTC: the end of the window that the exposures count, or the time of the check for a check that reads only settings. A cached answer keeps the time of its calculation. Missing on an answer cached before the field existed.
-     * @format date-time
-     */
+    /** The end of the data that the check read, in UTC: the end of the window that the exposures count, or the time of the check for a check that reads only settings. A cached answer keeps the time of its calculation. Missing on an answer cached before the field existed. @format date-time */
     as_of?: string
 }
 

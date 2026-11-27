@@ -21,7 +21,6 @@ from products.experiments.backend.health.context import (
     PrimaryMetric,
 )
 
-# The other context fields are settings. Checking the name first keeps every other attribute read cheap.
 _WINDOWED_INPUTS = frozenset({"condition_set_traffic", "exposures", "latest_calculation", "primary_metric"})
 
 # A context variable, not an attribute of the context, because a check can build a new context with `replace`, and the

@@ -524,7 +524,6 @@ class LatestCalculation:
     # The hours from launch to the end of the data of this calculation. None when no calculation has finished. The
     # page can show a calculation from days ago until its refresh finishes.
     hours_of_data: float | None = None
-    # The end of the data of this calculation. None when no calculation has finished.
     data_until: datetime | None = None
 
 
