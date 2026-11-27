@@ -31,6 +31,7 @@ import {
 } from './adventGraph'
 import { adventHasWorkflows } from './adventHasWorkflows'
 import { cleanProgressByUser, PROGRESS_STORAGE_KEY, storedProgressByUser } from './adventProgressStorage'
+import { adventOpenedOnItsDay, adventTicketDays } from './adventTickets'
 import { adventToday } from './adventToday'
 
 // pinned: analytics event names and property keys. Usage insights query them, so a rename breaks them.
@@ -81,6 +82,12 @@ export interface AdventSnowPuff extends AdventPoint {
     id: string
 }
 
+export interface AdventTicketFlight {
+    day: number
+    total: number
+    landed: number
+}
+
 function prefersReducedMotion(): boolean {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
@@ -118,6 +125,10 @@ export interface adventCalendarLogicValues {
     selectedDoor: AdventDoor | null
     selectedDoorId: string | null
     snowPuffs: AdventSnowPuff[]
+    ticketDays: number[]
+    ticketFlight: AdventTicketFlight | null
+    tickets: number
+    ticketsShown: number
     today: number
 }
 
@@ -173,14 +184,19 @@ export interface adventCalendarLogicActions {
         pollResults: AdventCalendarResultsApi | null
         payload?: any
     }
+    landTicket: () => {
+        value: true
+    }
     openDoor: (
         userUuid: string,
         day: number,
         optionId: string | null,
-        isLive: boolean
+        isLive: boolean,
+        isOnTime: boolean
     ) => {
         day: number
         isLive: boolean
+        isOnTime: boolean
         optionId: string | null
         stored: unknown
         userUuid: string
@@ -237,6 +253,9 @@ export interface adventCalendarLogicMeta {
         graph: (progress: AdventProgress, today: number, rewards: AdventRewards) => AdventGraph
         pollShares: (pollResults: AdventCalendarResultsApi | null, progress: AdventProgress) => AdventPollShares
         openCount: (graph: AdventGraph) => number
+        ticketDays: (progress: AdventProgress) => number[]
+        tickets: (ticketDays: number[]) => number
+        ticketsShown: (tickets: number, ticketFlight: AdventTicketFlight | null) => number
         selectedDoor: (graph: AdventGraph, selectedDoorId: string | null) => AdventDoor | null
         revealingDoor: (graph: AdventGraph, revealingDoorId: string | null) => AdventDoor | null
     }
@@ -267,13 +286,15 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
     actions({
         activateDoor: (doorId: string) => ({ doorId }),
         answerDoor: (doorId: string, optionId: string) => ({ doorId, optionId }),
-        openDoor: (userUuid: string, day: number, optionId: string | null, isLive: boolean) => ({
+        openDoor: (userUuid: string, day: number, optionId: string | null, isLive: boolean, isOnTime: boolean) => ({
             userUuid,
             day,
             optionId,
             isLive,
+            isOnTime,
             stored: storedProgressByUser(),
         }),
+        landTicket: true,
         refreshClock: () => {
             const now = new Date()
             return { localDate: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() }
@@ -308,13 +329,17 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             {} as Record<string, AdventProgress>,
             { persist: true, storageKey: PROGRESS_STORAGE_KEY },
             {
-                openDoor: (state, { userUuid, day, optionId, stored, isLive }) => {
+                openDoor: (state, { userUuid, day, optionId, isOnTime, stored, isLive }) => {
                     if (!isLive) {
                         return state
                     }
                     const latest = cleanProgressByUser(stored)
                     const cached = cleanProgressByUser(state)
-                    const change = { opened: [day], answers: optionId ? { [day]: optionId } : {} }
+                    const change = {
+                        opened: [day],
+                        answers: optionId ? { [day]: optionId } : {},
+                        onTime: isOnTime ? [day] : [],
+                    }
                     const uuids = new Set([...Object.keys(latest), ...Object.keys(cached), userUuid])
                     return Object.fromEntries(
                         [...uuids].map((uuid) => [
@@ -331,10 +356,14 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         previewProgress: [
             EMPTY_ADVENT_PROGRESS,
             {
-                openDoor: (state, { day, optionId, isLive }) =>
+                openDoor: (state, { day, optionId, isLive, isOnTime }) =>
                     isLive
                         ? EMPTY_ADVENT_PROGRESS
-                        : mergeAdventProgress(state, { opened: [day], answers: optionId ? { [day]: optionId } : {} }),
+                        : mergeAdventProgress(state, {
+                              opened: [day],
+                              answers: optionId ? { [day]: optionId } : {},
+                              onTime: isOnTime ? [day] : [],
+                          }),
             },
         ],
         localDate: [
@@ -362,6 +391,14 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             {
                 puffSnow: (_, { puffs }) => puffs,
                 clearSnowPuffs: () => [],
+            },
+        ],
+        ticketFlight: [
+            null as AdventTicketFlight | null,
+            {
+                openDoor: (state, { day, isOnTime }) => (isOnTime ? { day, total: 1, landed: 0 } : state),
+                landTicket: (state) =>
+                    state && state.landed + 1 < state.total ? { ...state, landed: state.landed + 1 } : null,
             },
         ],
     }),
@@ -416,6 +453,22 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             ): AdventPollShares => sharesOfAnswered(pollResults, progress.answers),
         ],
         openCount: [(s) => [s.graph], (graph: adventCalendarLogicValues['graph']): number => openDoors(graph).length],
+        ticketDays: [
+            (s) => [s.progress],
+            (progress: adventCalendarLogicValues['progress']): number[] =>
+                adventTicketDays(progress.opened, progress.onTime ?? []),
+        ],
+        tickets: [
+            (s) => [s.ticketDays],
+            (ticketDays: adventCalendarLogicValues['ticketDays']): number => ticketDays.length,
+        ],
+        ticketsShown: [
+            (s) => [s.tickets, s.ticketFlight],
+            (
+                tickets: adventCalendarLogicValues['tickets'],
+                ticketFlight: adventCalendarLogicValues['ticketFlight']
+            ): number => tickets - (ticketFlight ? ticketFlight.total - ticketFlight.landed : 0),
+        ],
         selectedDoor: [
             (s) => [s.graph, s.selectedDoorId],
             (
@@ -440,11 +493,15 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             const door = values.graph.doors.find((candidate) => candidate.id === doorId)
             return door?.status === 'ready' ? door : null
         }
+        const isOnTime = (day: number): boolean => {
+            const now = new Date()
+            return !values.isLive || adventOpenedOnItsDay(day, now, -now.getTimezoneOffset())
+        }
         return {
             activateDoor: ({ doorId }) => {
                 const door = readyDoor(doorId)
                 if (door && !door.question) {
-                    actions.openDoor(values.user?.uuid ?? '', door.day, null, values.isLive)
+                    actions.openDoor(values.user?.uuid ?? '', door.day, null, values.isLive, isOnTime(door.day))
                     if (!prefersReducedMotion()) {
                         actions.startReveal(door.id)
                     }
@@ -459,7 +516,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 const uuid = values.user?.uuid ?? ''
                 const storedPick = cleanProgressByUser(storedProgressByUser())[uuid]?.answers[door.day]
                 if (storedPick) {
-                    actions.openDoor(uuid, door.day, storedPick, values.isLive)
+                    actions.openDoor(uuid, door.day, storedPick, values.isLive, isOnTime(door.day))
                     return
                 }
                 const notTaken = index === 0 ? 'lower' : 'upper'
@@ -467,7 +524,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     (candidate) => adventQuestionBefore(candidate.day) === door.day && candidate.id.endsWith(notTaken)
                 )
                 posthog.capture(EVENTS.answerPicked, { day: door.day, option: optionId })
-                actions.openDoor(uuid, door.day, optionId, values.isLive)
+                actions.openDoor(uuid, door.day, optionId, values.isLive, isOnTime(door.day))
                 const answer = pollAnswerOf(door.day, optionId)
                 if (answer && values.isLive) {
                     actions.savePollAnswer(answer)
@@ -479,8 +536,8 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     actions.startReveal(door.id)
                 }
             },
-            openDoor: ({ day }) => {
-                posthog.capture(EVENTS.doorOpened, { day })
+            openDoor: ({ day, isLive, isOnTime }) => {
+                posthog.capture(EVENTS.doorOpened, { day, on_time: isLive && isOnTime })
                 const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
                 if (hoggy && values.isLive) {
                     void api

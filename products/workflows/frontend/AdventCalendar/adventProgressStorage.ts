@@ -16,12 +16,14 @@ function isAdventAnswer(answer: [string, unknown]): answer is [string, string] {
     return !!ADVENT_QUESTIONS[Number(answer[0])]?.options.some((option) => option.id === answer[1])
 }
 
-function cleanProgress(opened: unknown[], answers: unknown): AdventProgress {
+function cleanProgress(opened: unknown[], answers: unknown, onTime: unknown): AdventProgress {
     const answered = Object.fromEntries(Object.entries(isRecord(answers) ? answers : {}).filter(isAdventAnswer))
     const unanswered = ADVENT_QUESTION_DAYS.find((day) => opened.includes(day) && !answered[day])
+    const onTimeDays = Array.isArray(onTime) ? [...new Set(onTime.filter(isAdventDay))] : []
     return {
         opened: [...new Set(opened.filter(isAdventDay))].filter((day) => unanswered === undefined || day < unanswered),
         answers: answered,
+        ...(onTimeDays.length ? { onTime: onTimeDays } : {}),
     }
 }
 
@@ -37,7 +39,7 @@ export function cleanProgressByUser(value: unknown): Record<string, AdventProgre
     return Object.fromEntries(
         Object.entries(isRecord(value) ? value : {}).flatMap(([uuid, progress]) =>
             isRecord(progress) && Array.isArray(progress.opened)
-                ? [[uuid, cleanProgress(progress.opened, progress.answers)]]
+                ? [[uuid, cleanProgress(progress.opened, progress.answers, progress.onTime)]]
                 : []
         )
     )
