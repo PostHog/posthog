@@ -5,17 +5,18 @@ import { decodeParams } from 'kea-router'
 
 import api from 'lib/api'
 import { promiseResolveReject } from 'lib/utils/async'
+import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import { useMocks } from '~/mocks/jest'
 import * as queryRunner from '~/queries/query'
-import { HogQLQueryResponse } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import * as notebookApi from '../generated/api'
 import { emptyAppLayout } from './notebookAppLayout'
 import { restorePublishedResults, savedQueryResult } from './notebookAppPublishedResults'
 import { notebookAppViewerLogic } from './notebookAppViewerLogic'
-import { notebookAppViewLink } from './notebookAppViewLink'
+import { notebookAppViewLink, restoreAppInputs } from './notebookAppViewLink'
 
 describe('published viewer refreshes', () => {
     beforeEach(() => initKeaTests())
@@ -136,7 +137,8 @@ describe('published viewer refreshes', () => {
         })
         jest.spyOn(notebookApi, 'notebooksAppQueriesCreate').mockResolvedValue(plans)
         const pending = new Map<string, { signal: AbortSignal; finish: () => void }>()
-        jest.spyOn(queryRunner, 'performQuery').mockImplementation((_query, options, _refresh, id) => {
+        jest.spyOn(queryRunner, 'performQuery').mockImplementation((query, options, _refresh, id) => {
+            expect(query.tags?.productKey).toBe(ProductKey.NOTEBOOKS)
             const { promise, resolve, reject } = promiseResolveReject<HogQLQueryResponse>()
             pending.set(id!, { signal: options!.signal!, finish: () => resolve({ columns: ['n'], results: [[1]] }) })
             options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
@@ -227,4 +229,31 @@ it('restores the pinned run for connected SQL and distinguishes complete, partia
     } finally {
         run.mockRestore()
     }
+})
+
+it('restores compatible published input values at the same character and calendar bounds as the API', () => {
+    const variables: NotebookVariable[] = [
+        { name: 'names', type: 'list', value: [] },
+        { name: 'start', type: 'date', value: null },
+        { name: 'limit', type: 'number', value: 5 },
+        { name: 'region', type: 'string', value: 'north' },
+    ]
+    const blocks = variables.map(({ name }) => ({
+        id: name,
+        kind: 'input' as const,
+        variable: name,
+        tab_id: 'overview',
+        ...(name === 'limit' && { input_kind: 'slider' as const, min: 1, max: 9, step: 2 }),
+        ...(name === 'region' && { input_kind: 'select' as const, options: ['north', 'south'] }),
+    }))
+    const names = ['🦔'.repeat(600), 'a'.repeat(400)]
+    const inputs = { names, start: '2024-02-29 09:30:00Z', limit: 7, region: 'south' }
+    expect(restoreAppInputs(variables, inputs, blocks).map((v) => v.value)).toEqual(Object.values(inputs))
+    expect(
+        restoreAppInputs(
+            variables,
+            { names: [...names, 'x'], start: '2026-02-30', limit: 6, region: 'unknown' },
+            blocks
+        )
+    ).toEqual(variables)
 })
