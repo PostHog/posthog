@@ -341,6 +341,12 @@ describe('RequestStateResolver MCP client contexts', () => {
                         reason: { code: 'condition_match' },
                         metadata: { id: 1, version: 1, payload: JSON.stringify({ label: 'Guidance copy' }) },
                     },
+                    [MCP_INTENT_PROMPT_FLAG]: {
+                        key: MCP_INTENT_PROMPT_FLAG,
+                        value: true,
+                        reason: { code: 'condition_match' },
+                        metadata: { id: 2, version: 1, payload: JSON.stringify({ prompt: 'Not guidance' }) },
+                    },
                 },
                 errorsWhileComputingFlags: false,
                 requestId: 'request-1',
