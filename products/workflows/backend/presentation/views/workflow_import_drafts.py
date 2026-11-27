@@ -346,7 +346,7 @@ def _cohort_triggers_unavailable(team: Team, user: User) -> str:
     """Why workflows here can't use realtime cohorts, or an empty string when they can."""
     # The draft's checks refuse a cohort trigger without both, so a cohort used anyway would only fail the draft.
     if not realtime_cohorts_available(team_id=team.id):
-        return "Realtime cohorts aren't available in this project yet."
+        return "Real-time cohorts aren't available in this project yet."
     if not cohort_conditions_rolled_out(user, str(team.organization_id)):
         return "Cohort triggers aren't available in this organization yet."
     return ""
