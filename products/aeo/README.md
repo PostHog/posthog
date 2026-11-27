@@ -23,14 +23,17 @@ Enable a tool for a new route only after the route is deployed, so MCP never ser
 
 Environment (all default empty — the runner is a no-op until configured):
 
-| Variable                                   | Purpose                                                                                                                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
-| `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
-| `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
-| `AEO_SETUP_MODEL`                          | Model for setup's site research and prompt writing (default `claude-haiku-5-5`, faster than the engines' model).               |
-| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
-| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
+| Variable                                                      | Purpose                                                                                                                                                                                                           |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`                       | Existing gateway settings; enable the Claude + OpenAI engines.                                                                                                                                                    |
+| `EXA_API_KEY`                                                 | Enables the Exa engine.                                                                                                                                                                                           |
+| `AEO_PERPLEXITY_ENABLED`                                      | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine).                                                                                    |
+| `AEO_SETUP_MODEL`                                             | Model for setup's site research and prompt writing (default `claude-haiku-5-5`, faster than the engines' model).                                                                                                  |
+| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL`                    | Engine model overrides.                                                                                                                                                                                           |
+| `AEO_PERPLEXITY_MODEL`                                        | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).                                                                                         |
+| `AEO_JEV_KEYWORDS` / `AEO_JEV_COMPETITORS` / `AEO_JEV_TOPICS` | Default false. Each lets the decision model (`AEO_DECISION_MODEL`, default `posthog/hogference/jeeves-0.1`) pick that setup step's options instead of the generative model, with fallback to the generative path. |
+| `AEO_DECISION_CONCURRENCY`                                    | Decision requests in flight per process (default 2); the model runs on a shared GPU and the client backs off on 429.                                                                                              |
+| `AEO_DECISION_SHADOW`                                         | Default false. After a competitor suggestions read, runs the models the live path did not use and captures each model's decisions as `$ai_generation` events.                                                     |
 
 The scheduled tasks cover the teams with active prompts whose organization is active, not pending deletion, and approved AI data processing.
 The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls, so only those users can add or turn on prompts.
