@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, MakeLogicType, path, selectors } from 'kea'
 import { router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,6 +29,32 @@ export interface adventCalendarAccessLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasCalendar: (featureFlags: FeatureFlagsSet) => boolean
         flagsSettled: (receivedFeatureFlags: boolean, featureFlagsTimedOut: boolean) => boolean
+    }
+    __keaTypeGenInternalReducerActions: {
+        'location changed (kea.router)': ({
+            method,
+            pathname,
+            search,
+            searchParams,
+            hash,
+            hashParams,
+            initial,
+            url,
+            routerState,
+        }: LocationChangedPayload) => {
+            payload: {
+                hash: string
+                hashParams: Record<string, any>
+                initial: boolean
+                method: 'POP' | 'PUSH' | 'REPLACE'
+                pathname: string
+                routerState: Record<string, any>
+                search: string
+                searchParams: Record<string, any>
+                url: string
+            }
+            type: 'location changed (kea.router)'
+        }
     }
 }
 
@@ -68,17 +95,18 @@ export const adventCalendarAccessLogic = kea<adventCalendarAccessLogicType>([
             ): boolean => receivedFeatureFlags || featureFlagsTimedOut,
         ],
     }),
-    listeners(({ values, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         leaveWithoutCalendar: async (_, breakpoint) => {
-            const stillOnCalendar = (): boolean =>
-                calendarRoute(router.values.location.pathname) === calendarRoute(cache.calendarPath)
-            if (!stillOnCalendar()) {
-                return
-            }
             await posthog.featureFlags?.reloadFeatureFlagsAsync()
             breakpoint()
-            if (!values.hasCalendar && stillOnCalendar()) {
+            const stillOnCalendar = calendarRoute(router.values.location.pathname) === calendarRoute(cache.calendarPath)
+            if (!values.hasCalendar && stillOnCalendar) {
                 router.actions.replace(urls.workflows())
+            }
+        },
+        [router.actionTypes.locationChanged]: () => {
+            if (values.flagsSettled && !values.hasCalendar) {
+                actions.leaveWithoutCalendar()
             }
         },
     })),

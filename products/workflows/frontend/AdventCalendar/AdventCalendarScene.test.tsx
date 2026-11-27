@@ -81,15 +81,16 @@ describe('AdventCalendarScene', () => {
         unmount()
     })
 
-    it('leaves a visitor who navigated on before the flag turned off where they went', async () => {
-        setCalendarFlag(true)
+    it('sends a visitor who went back to the calendar during the flag load to Workflows', async () => {
         const { unmount } = render(<AdventCalendarScene />)
-        act(() => router.actions.push(urls.insights()))
         setCalendarFlag(false)
-
+        act(() => router.actions.push(urls.insights()))
         await finishFlagLoad('loaded')
 
-        expect(pathname()).toMatch(/\/insights$/)
+        act(() => router.actions.push(urls.workflowsAdventCalendar()))
+        await finishFlagLoad('loaded')
+
+        expect(pathname()).toMatch(/\/workflows$/)
         unmount()
     })
 
