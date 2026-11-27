@@ -58,15 +58,15 @@ from products.experiments.backend.temporal.models import (
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalculation.activities import calculate_experiment_metric_for_recalculation
+from products.experiments.backend.temporal.recalculation.discovery import _discover_experiment_metrics_sync
 from products.experiments.backend.temporal.recalculation.logic import (
-    RECALCULATION_PAUSED_ERROR_TYPE,
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
     _capacity_retry_delay_seconds,
-    _discover_experiment_metrics_sync,
     _record_metric_out_of_time_failure_sync,
-    _update_recalculation_progress_sync,
 )
+from products.experiments.backend.temporal.recalculation.progress import _update_recalculation_progress_sync
+from products.experiments.backend.temporal.recalculation.run_state import RECALCULATION_PAUSED_ERROR_TYPE
 from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.experiments.stats.shared.statistics import StatisticError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -84,12 +84,12 @@ def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
 
 
 def _discover(recalculation_id: str):
-    with patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"):
+    with patch("products.experiments.backend.temporal.recalculation.discovery.close_old_connections"):
         return _discover_raw(recalculation_id)
 
 
 def _update(update: RecalculationProgressUpdate):
-    with patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"):
+    with patch("products.experiments.backend.temporal.recalculation.progress.close_old_connections"):
         return _update_raw(update)
 
 
@@ -294,7 +294,7 @@ class TestRecalculationActivities(BaseTest):
                 side_effect=Exception("boom") if route_check_fails else ExperimentQueryRunner,
             ) as runner,
             patch(
-                "products.experiments.backend.temporal.recalculation.logic.get_or_create_team_extension",
+                "products.experiments.backend.temporal.recalculation.discovery.get_or_create_team_extension",
                 wraps=get_or_create_team_extension,
             ) as config_read,
         ):
@@ -1828,7 +1828,7 @@ class TestCalculateActivityCancellation:
             with (
                 patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"),
                 patch(
-                    "products.experiments.backend.temporal.recalculation.logic._get_recalc_state",
+                    "products.experiments.backend.temporal.recalculation.run_state._get_recalc_state",
                     return_value=SimpleNamespace(team_id=1),
                 ),
                 patch(
@@ -1919,7 +1919,7 @@ def _record_captures():
         captured.append(kwargs)
 
     with patch(
-        "products.experiments.backend.temporal.recalculation.logic.posthoganalytics.capture",
+        "products.experiments.backend.temporal.recalculation.analytics.posthoganalytics.capture",
         _fake_capture,
     ):
         yield captured
