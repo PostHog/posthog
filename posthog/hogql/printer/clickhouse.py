@@ -201,6 +201,19 @@ _JSON_KEY_PATH_FUNCTIONS = frozenset(
 _JSON_FUNCTIONS_WITH_TRAILING_TYPE = frozenset({"JSONExtract", "JSONExtractKeysAndValues"})
 
 
+# The channel dictionary has no row for an empty domain, so a NULL key always misses. The `if` skips the lookups
+# for a NULL key, because ClickHouse evaluates an `if` branch only for the rows that take it. Most sessions have no
+# UTM source or medium, so this skips most lookups.
+def _channel_source_lookup(channel_dict: str, attribute: str, key: str) -> str:
+    exact = f"dictGetOrNull('{channel_dict}', '{attribute}', (coalesce({key}, ''), 'source'))"
+    subdomain = f"dictGetOrNull('{channel_dict}', '{attribute}', (cutToFirstSignificantSubdomain(coalesce({key}, '')), 'source'))"
+    return f"if(isNull({key}), NULL, coalesce({exact}, {subdomain}))"
+
+
+def _channel_medium_lookup(channel_dict: str, attribute: str, key: str) -> str:
+    return f"if(isNull({key}), NULL, dictGetOrNull('{channel_dict}', '{attribute}', (coalesce({key}, ''), 'medium')))"
+
+
 def _group_type_index_of_blob(column_name: str) -> int | None:
     group_column_match = re.fullmatch(r"group(\d+)_properties", column_name)
     return int(group_column_match.group(1)) if group_column_match else None
@@ -477,17 +490,13 @@ class ClickHousePrinter(BasePrinter):
             channel_dict = get_channel_definition_dict()
             return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
         elif node.name == "lookupPaidSourceType":
-            channel_dict = get_channel_definition_dict()
-            return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+            return _channel_source_lookup(get_channel_definition_dict(), "type_if_paid", args[0])
         elif node.name == "lookupPaidMediumType":
-            channel_dict = get_channel_definition_dict()
-            return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
+            return _channel_medium_lookup(get_channel_definition_dict(), "type_if_paid", args[0])
         elif node.name == "lookupOrganicSourceType":
-            channel_dict = get_channel_definition_dict()
-            return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+            return _channel_source_lookup(get_channel_definition_dict(), "type_if_organic", args[0])
         elif node.name == "lookupOrganicMediumType":
-            channel_dict = get_channel_definition_dict()
-            return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+            return _channel_medium_lookup(get_channel_definition_dict(), "type_if_organic", args[0])
         elif node.name == "convertCurrency":
             # convertCurrency(from_currency, to_currency, amount, timestamp?)
             from_currency, to_currency, amount, *_rest = args
