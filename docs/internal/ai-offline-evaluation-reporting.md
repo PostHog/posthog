@@ -923,6 +923,7 @@ Runs can have different item scorers and can omit the overall experiment score.
 Numeric means and boolean pass rates show the difference from the selected baseline for that version.
 Categorical item scorers show each category's share. When the version defines passing categories, the row also shows the pass rate and its change in percentage points. For a multi-select result, every selected category must belong to the passing set.
 Higher pass rates are better. For numeric means, the pinned passing rule determines whether an increase or decrease is better.
+Hover over a score bar or focus it with the keyboard to see the pinned passing rule. Numeric bars show whether the mean meets the threshold, boolean bars show how many scored items passed, and category bars show how many scored items include that category.
 Numeric item scorers without a passing rule show a neutral difference.
 Overall experiment scores can also be compared when both runs produced a result from the same formula version with a passing rule. Numeric formulas show the signed score difference in the direction defined by the rule. Boolean and categorical formulas show whether the run now passes, now fails, or kept the same verdict.
 These are whole-run aggregates, so check the dataset revision and coverage when the runs contain different cases or numbers of trials.
