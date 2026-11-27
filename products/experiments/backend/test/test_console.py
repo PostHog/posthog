@@ -67,10 +67,13 @@ class TestExperimentsConsole(BaseTest):
             f"/admin/console/tools/experiment-recalculations/?run={run.pk}": "timeout in ClickHouse",
             f"/admin/console/tools/experiment-recalculations/live/run-failures/?run={run.pk}": "timeout in ClickHouse",
         }
+        team_url = f"/admin/console/teams/{self.team.pk}/"
         for url, expected in pages.items():
             response = self.client.get(url)
             assert response.status_code == 200, url
             assert expected in response.content.decode(), url
+            if "?" in url and "/live/" not in url:
+                assert team_url in [crumb.href for crumb in response.context["place_crumbs"]], url
 
         experiment_page = self.client.get(f"/admin/console/tools/experiments/?experiment={self.experiment.pk}")
         content = experiment_page.content.decode()
