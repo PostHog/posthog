@@ -22,7 +22,7 @@ from products.slack_app.backend.services.slack_messages import (
     reply_footer_block,
     viewer_has_code_access,
 )
-from products.tasks.backend.facade.billing import TaskComputeCost, TaskUsage
+from products.tasks.backend.facade.billing import TaskComputeCost
 from products.tasks.backend.facade.contracts import ComputeBillingMeter
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
@@ -169,7 +169,7 @@ class TestLoadRunFooter(SimpleTestCase):
         ]
     )
     @patch("products.tasks.backend.facade.billing.get_task_compute_cost")
-    @patch("products.tasks.backend.facade.billing.get_task_usage")
+    @patch("products.tasks.backend.facade.billing.get_task_token_cost")
     @patch("products.tasks.backend.facade.api.get_task_run")
     def test_thread_cost_adds_the_compute_that_ai_credits_bill(
         self,
@@ -178,7 +178,7 @@ class TestLoadRunFooter(SimpleTestCase):
         billed_compute: Decimal,
         expected: Decimal | None,
         mock_get_run,
-        mock_usage,
+        mock_token_cost,
         mock_compute,
     ) -> None:
         mock_get_run.return_value = SimpleNamespace(
@@ -189,7 +189,7 @@ class TestLoadRunFooter(SimpleTestCase):
             created_by_id=None,
             task_created_at=datetime(2026, 11, 1, tzinfo=UTC),
         )
-        mock_usage.return_value = TaskUsage(token_cost_usd=Decimal("1.00"), compute_cost_usd=Decimal(0))
+        mock_token_cost.return_value = Decimal("1.00")
         mock_compute.return_value = TaskComputeCost(
             cost_usd=billed_compute, billing_meter=ComputeBillingMeter.AI_CREDITS if billed_compute else None
         )
