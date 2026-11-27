@@ -4,6 +4,27 @@ import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/N
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 
+function dateInputValue(value: NotebookVariableValue): string {
+    if (typeof value !== 'string') {
+        return ''
+    }
+    const date = value.trim()
+    const calendar = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(date)
+    if (calendar) {
+        return calendar.slice(1).join('-')
+    }
+    const weekDate = /^(\d{4})-?W(\d{2})(?:-?([1-7]))?/.exec(date)
+    if (!weekDate) {
+        return ''
+    }
+    const [, year, week, weekday = '1'] = weekDate
+    const januaryFourth = new Date(0)
+    januaryFourth.setUTCFullYear(Number(year), 0, 4)
+    const monday = 4 - ((januaryFourth.getUTCDay() + 6) % 7)
+    januaryFourth.setUTCDate(monday + 7 * (Number(week) - 1) + Number(weekday) - 1)
+    return januaryFourth.toISOString().slice(0, 10)
+}
+
 export function NotebookAppDateRange({
     block,
     variables,
@@ -20,8 +41,8 @@ export function NotebookAppDateRange({
     if (!start || !end || start === end) {
         return <LemonBanner type="warning">Choose two different date variables for this range.</LemonBanner>
     }
-    const startDate = String(start.value ?? '').slice(0, 10)
-    const endDate = String(end.value ?? '').slice(0, 10)
+    const startDate = dateInputValue(start.value)
+    const endDate = dateInputValue(end.value)
     return (
         <fieldset disabled={disabled} className="border-0 p-0 m-0 min-w-0">
             <legend className="font-semibold mb-2">{block.title || 'Date range'}</legend>
