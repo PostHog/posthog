@@ -23,7 +23,7 @@ import { SCAN_POLL_INTERVAL_MS, afterClickingScanLogic } from './afterClickingSc
 
 const WORKFLOW_ID = '0192c3a4-5b6c-7d8e-9f01-23456789abcd'
 const REQUEST_ID = '01a21d51-012a-7d3d-a576-b38b7254d78a'
-const NO_SKIPS = { busy: 0, quota: 0 }
+const NO_SKIPS = { busy: 0, quota: 0, failed: 0 }
 
 function setScannerAccess(level: AccessControlLevel): void {
     window.POSTHOG_APP_CONTEXT = {
@@ -150,7 +150,7 @@ describe('afterClickingScanLogic', () => {
                     200,
                     scanRequest('completed', [
                         scanSession('session-a', SUCCEEDED),
-                        scanSession('session-b', { state: 'failed', scan_outcome: 'failed' }),
+                        scanSession('session-b', { state: 'failed' }),
                     ]),
                 ],
             ]
@@ -230,7 +230,19 @@ describe('afterClickingScanLogic', () => {
                     scanSession('session-b', { state: 'skipped', scan_outcome: 'skipped_scanner_limit' }),
                 ]),
             ],
-            state: { kind: 'finished', withResult: 1, scanned: 1, skipped: { busy: 1, quota: 0 } },
+            state: { kind: 'finished', withResult: 1, scanned: 1, skipped: { busy: 1, quota: 0, failed: 0 } },
+            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
+        },
+        {
+            name: 'a scan fails to start',
+            answer: [
+                202,
+                scanRequest('completed', [
+                    scanSession('session-a', SUCCEEDED),
+                    scanSession('session-b', { state: 'failed', scan_outcome: 'failed' }),
+                ]),
+            ],
+            state: { kind: 'finished', withResult: 1, scanned: 1, skipped: { busy: 0, quota: 0, failed: 1 } },
             finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
         },
         {
@@ -277,35 +289,46 @@ describe('afterClickingScanLogic', () => {
         expect(logic.values.scanState).toEqual(failed)
     })
 
-    it("ends the new scan after its own failed polls, even when an old scan's poll answers late", async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
-        logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
-        await expectLogic(logic).toFinishAllListeners()
+    test.each([
+        { name: 'answers while the new scan still polls', oldAnswer: [200, null], failedBeforeIt: 4 },
+        { name: 'fails after the new scan stopped', oldAnswer: [503, {}], failedBeforeIt: 5 },
+    ] as { name: string; oldAnswer: [number, unknown]; failedBeforeIt: number }[])(
+        "ends the new scan after its own five failed polls when an old scan's poll $name",
+        async ({ oldAnswer, failedBeforeIt }) => {
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+            logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
+            await expectLogic(logic).toFinishAllListeners()
 
-        let answerOldPoll: () => void = () => {}
-        retrieveGate = new Promise((resolve) => (answerOldPoll = resolve))
-        retrieveAnswers = [[200, scanRequest('running', [scanSession('session-a'), scanSession('session-b')])]]
-        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
-        expect(retrievedPaths).toHaveLength(1)
+            let answerOldPoll: () => void = () => {}
+            retrieveGate = new Promise((resolve) => (answerOldPoll = resolve))
+            retrieveAnswers = [
+                oldAnswer[1] === null
+                    ? [200, scanRequest('running', [scanSession('session-a'), scanSession('session-b')])]
+                    : oldAnswer,
+            ]
+            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
+            expect(retrievedPaths).toHaveLength(1)
 
-        logic.actions.setDays(1)
-        await expectLogic(logic).toDispatchActions(['loadSessionsSuccess'])
-        retrieveGate = Promise.resolve()
-        retrieveAnswers = Array(5).fill([503, { detail: 'Service unavailable' }])
-        logic.actions.askQuestion('Do people find the pricing page?', null)
-        await expectLogic(logic).toDispatchActions(['startScanSuccess'])
-        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * 4)
-        expect(retrievedPaths).toHaveLength(5)
+            logic.actions.setDays(1)
+            await waitFor(() =>
+                expect(logic.values.scanState).toEqual({ kind: 'questions', sessionCount: 2, hasMore: false })
+            )
+            retrieveGate = Promise.resolve()
+            retrieveAnswers = Array(5).fill([503, { detail: 'Service unavailable' }])
+            logic.actions.askQuestion('Do people find the pricing page?', null)
+            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * failedBeforeIt)
+            expect(retrievedPaths).toHaveLength(1 + failedBeforeIt)
 
-        answerOldPoll()
-        await expectLogic(logic).toDispatchActions(['refreshScanSuccess'])
-        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
-        expect(logic.values.scanState).toEqual({
-            kind: 'scan-error',
-            message: "Replay vision couldn't scan these sessions. Try again.",
-        })
-    })
+            answerOldPoll()
+            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * (5 - failedBeforeIt + 3))
+            expect(retrievedPaths).toHaveLength(6)
+            expect(logic.values.scanState).toEqual({
+                kind: 'scan-error',
+                message: "Replay vision couldn't scan these sessions. Try again.",
+            })
+        }
+    )
 
     it('starts the scan again with the same idempotency key on retry', async () => {
         await expectLogic(logic).toFinishAllListeners()

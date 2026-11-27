@@ -47,6 +47,7 @@ export type ScanFailure = { kind: 'ai-analysis-not-allowed' } | { kind: 'scan-er
 export interface ScanSkips {
     busy: number
     quota: number
+    failed: number
 }
 
 export type ScanBlockedState =
@@ -114,9 +115,17 @@ function isSkipped(session: ObservationRequestSessionApi): boolean {
     )
 }
 
+function neverStarted(session: ObservationRequestSessionApi): boolean {
+    return isSkipped(session) || session.scan_outcome === 'failed'
+}
+
 function scanSkips(request: ObservationRequestApi): ScanSkips {
     const quota = request.sessions.filter((session) => session.scan_outcome === 'skipped_quota').length
-    return { busy: request.sessions.filter(isSkipped).length - quota, quota }
+    return {
+        busy: request.sessions.filter(isSkipped).length - quota,
+        quota,
+        failed: request.sessions.filter((session) => session.scan_outcome === 'failed').length,
+    }
 }
 
 function scanRequestState(request: ObservationRequestApi): AfterClickingScanState {
@@ -124,7 +133,7 @@ function scanRequestState(request: ObservationRequestApi): AfterClickingScanStat
     if (total > 0 && request.sessions.every((session) => session.scan_outcome === 'skipped_quota')) {
         return { kind: 'credits-used-up' }
     }
-    const started = request.sessions.filter((session) => !isSkipped(session))
+    const started = request.sessions.filter((session) => !neverStarted(session))
     const skipped = scanSkips(request)
     if (request.status === 'completed') {
         const withResult = started.filter((session) => session.state === 'succeeded').length
@@ -204,7 +213,7 @@ export interface afterClickingScanLogicActions {
         sessions: TransactionalEmailImpactSessionsApi
         payload?: void
     }
-    refreshScan: () => any
+    refreshScan: (_: void) => void
     refreshScanFailure: (
         error: string,
         errorObject?: any
@@ -214,10 +223,10 @@ export interface afterClickingScanLogicActions {
     }
     refreshScanSuccess: (
         scanRequest: ObservationRequestApi | null,
-        payload?: any
+        payload?: void
     ) => {
         scanRequest: ObservationRequestApi | null
-        payload?: any
+        payload?: void
     }
     resetScan: () => any
     resetScanFailure: (
@@ -240,7 +249,7 @@ export interface afterClickingScanLogicActions {
     setCustomQuestion: (customQuestion: string) => {
         customQuestion: string
     }
-    startScan: () => any
+    startScan: (_: void) => void
     startScanFailure: (
         error: string,
         errorObject?: any
@@ -250,10 +259,10 @@ export interface afterClickingScanLogicActions {
     }
     startScanSuccess: (
         scanRequest: ObservationRequestApi | null,
-        payload?: any
+        payload?: void
     ) => {
         scanRequest: ObservationRequestApi | null
-        payload?: any
+        payload?: void
     }
 }
 
@@ -349,19 +358,22 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                         throw error
                     }
                 },
-                refreshScan: async () => {
+                refreshScan: async (_: void, breakpoint) => {
                     const current = values.scanRequest
                     if (!current) {
                         return null
                     }
                     try {
                         const request = await visionRequestsRetrieve(String(values.currentTeamId), current.id)
+                        breakpoint()
                         if (values.scanRequest !== current) {
                             return values.scanRequest
                         }
                         cache.pollFailures = 0
                         return request
                     } catch (error) {
+                        // A newer poll or retry already took over, so this answer belongs to nobody.
+                        breakpoint()
                         if (values.scanRequest !== current) {
                             return values.scanRequest
                         }
@@ -447,7 +459,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                         kind: 'scanning',
                         done: 0,
                         total: sessions?.sessions.length ?? 0,
-                        skipped: { busy: 0, quota: 0 },
+                        skipped: { busy: 0, quota: 0, failed: 0 },
                     }
                 }
                 if (sessionsFailed) {
@@ -486,7 +498,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
             posthog.capture('transactional email impact scan finished', {
                 sessions: request.sessions.length,
                 sessions_with_result: state.kind === 'finished' ? state.withResult : 0,
-                sessions_skipped: skipped.busy + skipped.quota,
+                sessions_skipped: skipped.busy + skipped.quota + skipped.failed,
                 credits_used_up: skipped.quota > 0,
             })
         }
