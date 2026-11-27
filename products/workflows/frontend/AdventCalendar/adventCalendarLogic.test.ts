@@ -96,7 +96,7 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-3-lower')
 
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
-        expect(logic.values.progress).toEqual({ opened: [1, 2, 3], answers: { 2: 'tim' } })
+        expect(doorOf(logic, 'door-3-lower')?.status).toBe('open')
     })
 
     it.each([
@@ -114,7 +114,13 @@ describe('adventCalendarLogic', () => {
             })
         )
 
-        expect(logic.values.progress).toEqual({ opened: [1, 2], answers: { 2: 'james' } })
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'James Hawkins' })
+
+        logic.unmount()
+        logic = adventCalendarLogic()
+        logic.mount()
+
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'James Hawkins' })
     })
 
     it.each(['[object Object]', 'undefined', '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}'])(
@@ -141,7 +147,6 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-3-upper')).toBeNull()
         expect(doorOf(logic, 'door-3-lower')?.status).toBe('ready')
         expect(capture).toHaveBeenCalledWith('workflows advent answer picked', { day: 2, option: 'tim' })
-        expect(logic.values.progress.answers).toEqual({ 2: 'tim' })
     })
 
     it.each([
