@@ -30,6 +30,9 @@ export interface CitationsLookup {
     /** The last day, or null for today. A report passes its own `window_to`. */
     dateTo: string | null
     branded: BrandedSegmentEnumApi
+    /** Whether a `url` lookup is a page on your site, from a report that knows. A report lists a page without its
+     *  tracking parameters, and the answers' target URLs keep them, so the answers alone can miss it. */
+    isOwnPage?: boolean
 }
 
 export interface CitationsPage {
@@ -212,7 +215,8 @@ export const contentAutopilotCitationsModalLogic = kea<contentAutopilotCitations
             (s) => [s.lookup, s.citations],
             (lookup: CitationsLookup | null, citations: CitationsPage | null): boolean =>
                 lookup?.kind === 'url' &&
-                !!citations?.results.some((citation) => citation.target_urls.includes(lookup.value)),
+                (lookup.isOwnPage ??
+                    !!citations?.results.some((citation) => citation.target_urls.includes(lookup.value))),
         ],
     }),
     listeners(({ actions }) => ({
