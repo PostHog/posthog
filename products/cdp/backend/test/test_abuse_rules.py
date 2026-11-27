@@ -872,6 +872,11 @@ class TestAbuseRules(SimpleTestCase):
             ("address_in_the_query", post_to("https://api.example.com/go?to=169.254.169.254"), False),
             ("public_address_in_the_query", post_to("https://api.example.com/go?to=203.0.113.7"), False),
             ("encoded_url_in_the_query", post_to("https://api.example.com/go?to=http%3A%2F%2F10.0.0.1%2F"), False),
+            (
+                "url_encoded_past_the_decoding_passes_in_the_query",
+                post_to("https://api.example.com/go?to=http%2525253A%2525252F%2525252Flocaltest%2525252Eme%2525252Fx"),
+                False,
+            ),
             ("hex_address_in_the_path", post_to("https://api.example.com/0x7f000001/x"), False),
             ("ipv6_address_in_the_query", post_to("https://api.example.com/go?to=[::1]"), False),
             ("internal_name_in_the_query", post_to("https://api.example.com/go?to=metadata.google.internal"), False),

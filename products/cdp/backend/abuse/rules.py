@@ -325,9 +325,11 @@ def _is_literal_public_url(url: str) -> bool:
         return False
     if _is_internal(host) or _resolves_to_its_address(host):
         return False
-    return not any(
-        _names_an_address(text) for layer in _decoded_layers(url) for text in (layer, _parsed_host_form(layer))
-    )
+    layers = list(_decoded_layers(url))
+    # Text still encoded past the last decoding pass can hide any host, such as a redirect target encoded four times.
+    if unquote(layers[-1]) != layers[-1]:
+        return False
+    return not any(_names_an_address(text) for layer in layers for text in (layer, _parsed_host_form(layer)))
 
 
 def _parsed_host_form(text: str) -> str:
