@@ -12,6 +12,11 @@ export function AreaViz({ frames }: { frames: DataFrame[]; options: NoOptions })
         (): TimeSeriesComboChartConfig => ({ ...baseConfig, defaultSeriesType: 'area' }),
         [baseConfig]
     )
-    const onDateRangeZoom = useZoomToTimeRange(labels)
-    return <TimeSeriesComboChart series={series} labels={labels} config={config} onDateRangeZoom={onDateRangeZoom} />
+    const onDateRangeZoom = useZoomToTimeRange(labels, frames[0]?.meta?.interval)
+    // A drag on the plot zooms, so it must not also move a headerless tile.
+    return (
+        <div className={onDateRangeZoom ? 'TileGrid__zoomable contents' : 'contents'}>
+            <TimeSeriesComboChart series={series} labels={labels} config={config} onDateRangeZoom={onDateRangeZoom} />
+        </div>
+    )
 }

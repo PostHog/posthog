@@ -13,6 +13,16 @@ export function ComboViz({ frames }: { frames: DataFrame[]; options: NoOptions }
         () => series.map((one, index) => ({ ...one, type: index === 0 ? 'bar' : 'line' }) as const),
         [series]
     )
-    const onDateRangeZoom = useZoomToTimeRange(labels)
-    return <TimeSeriesComboChart series={mixed} labels={labels} config={baseConfig} onDateRangeZoom={onDateRangeZoom} />
+    const onDateRangeZoom = useZoomToTimeRange(labels, frames[0]?.meta?.interval)
+    // A drag on the plot zooms, so it must not also move a headerless tile.
+    return (
+        <div className={onDateRangeZoom ? 'TileGrid__zoomable contents' : 'contents'}>
+            <TimeSeriesComboChart
+                series={mixed}
+                labels={labels}
+                config={baseConfig}
+                onDateRangeZoom={onDateRangeZoom}
+            />
+        </div>
+    )
 }

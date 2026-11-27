@@ -40,9 +40,9 @@ const ALL_HANDLES: LayoutItem['resizeHandles'] = ['n', 'nw', 'ne', 'w', 'e', 's'
 const MARGIN: [number, number] = [GRID.gapPx, GRID.gapPx]
 const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too. Text marked
-// `TileGrid__text` selects instead, and the space around it still drags.
+// `TileGrid__text` selects instead, and the space around it still drags. A drag on a zoomable chart zooms it.
 const DRAG_CANCEL =
-    '.SectionTile__body, .dash-ContentTile__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
+    '.SectionTile__body, .dash-ContentTile__footer, .TileGrid__text, .TileGrid__zoomable, button, a, input, textarea, [role="menuitem"]'
 
 /**
  * A resize handle sits over the tile's edge, so a right-click there would miss the tile's menu. Sends the event on to
