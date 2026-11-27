@@ -349,6 +349,47 @@ tools:
         title: List error tracking recommendations
         description_file: ./prompts/error-tracking-recommendations-list.md
         system_prompt_hint: Error tracking setup recommendations and how to act on each (error-tracking category)
+    error-tracking-releases-hash-retrieve:
+        operation: error_tracking_releases_hash_retrieve
+        enabled: true
+        title: Get error tracking release by hash
+        description: >
+            Get an error tracking release by its `hash_id`, the client-supplied identifier set at upload (often a git
+            commit SHA). Git metadata, when uploaded, is in `metadata.git` (`commit_id`, `branch`, `repo_name`,
+            `remote_url`).
+    error-tracking-releases-list:
+        operation: error_tracking_releases_list
+        enabled: true
+        list: true
+        title: List error tracking releases
+        description: >
+            List error tracking releases for the current project, newest first, with pagination. Each release has a
+            `version`, a `project`, a `hash_id`, and free-form `metadata`. Git metadata, when uploaded, is in
+            `metadata.git` (`commit_id`, `branch`, `repo_name`, `remote_url`).
+        response:
+            include:
+                - id
+                - hash_id
+                - version
+                - project
+                - created_at
+                - metadata
+    error-tracking-releases-retrieve:
+        operation: error_tracking_releases_retrieve
+        enabled: true
+        title: Get error tracking release
+        description: >
+            Get an error tracking release by ID, including its free-form `metadata`. Git metadata, when uploaded, is in
+            `metadata.git` (`commit_id`, `branch`, `repo_name`, `remote_url`). Use this to find the commit and branch a
+            release was built from.
+        response:
+            include:
+                - id
+                - hash_id
+                - version
+                - project
+                - created_at
+                - metadata
     error-tracking-settings-get:
         operation: error_tracking_settings_retrieve_settings_retrieve
         enabled: true
