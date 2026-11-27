@@ -12,6 +12,8 @@ from posthog.hogql_queries.utils.event_usage import (
     EVENT_USAGE_APP_SOURCE,
     MAX_EVENTS_LOGGED_PER_QUERY,
     MAX_PROPERTIES_LOGGED_PER_QUERY,
+    PROPERTY_USAGE_APP_SOURCE,
+    fetch_event_property_usage,
     fetch_most_used_event_names,
     log_event_usage_from_query_metadata,
 )
@@ -123,6 +125,9 @@ class TestUsageReaders(ClickhouseTestMixin, BaseTest):
             (self.team.pk, EVENT_USAGE_APP_SOURCE, "event:paid", 4, recent),
             (self.team.pk, EVENT_USAGE_APP_SOURCE, "event:retired", 50, recent - timedelta(days=40)),
             (other_team_id, EVENT_USAGE_APP_SOURCE, "event:elsewhere", 99, recent),
+            (self.team.pk, PROPERTY_USAGE_APP_SOURCE, "property:event:amount", 7, recent),
+            (self.team.pk, PROPERTY_USAGE_APP_SOURCE, "property:person:amount", 100, recent),
+            (other_team_id, PROPERTY_USAGE_APP_SOURCE, "property:event:amount", 100, recent),
         ]:
             create_app_metric2(
                 team_id=team_id,
@@ -137,3 +142,7 @@ class TestUsageReaders(ClickhouseTestMixin, BaseTest):
             fetch_most_used_event_names(self.team, limit=10, workload=Workload.OFFLINE), ["signed_up", "paid"]
         )
         self.assertEqual(fetch_most_used_event_names(self.team, limit=1, workload=Workload.OFFLINE), ["signed_up"])
+        self.assertEqual(
+            fetch_event_property_usage(self.team, ["amount", "never_queried"], workload=Workload.OFFLINE),
+            {"amount": 7},
+        )

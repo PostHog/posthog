@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Optional
 
 from posthog.clickhouse.client import sync_execute
@@ -189,3 +190,31 @@ def fetch_most_used_event_names(team: "Team", *, limit: int, workload: Workload)
         workload=workload,
     )
     return [instance_id.removeprefix("event:") for (instance_id,) in rows or []]
+
+
+def fetch_event_property_usage(team: "Team", property_names: Sequence[str], *, workload: Workload) -> dict[str, int]:
+    """How many times queries referenced each event property in the last 30 days. Unused names are left out."""
+    if not property_names:
+        return {}
+    names_by_instance_id = {property_usage_instance_id("event", name): name for name in property_names}
+    rows = sync_execute(
+        """
+        SELECT instance_id, sum(count)
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+          AND app_source = %(app_source)s
+          AND metric_name = 'viewed'
+          AND timestamp >= toDateTime64(%(after)s, 6)
+          AND instance_id IN %(instance_ids)s
+        GROUP BY instance_id
+        """,
+        {
+            "team_id": team.pk,
+            "app_source": PROPERTY_USAGE_APP_SOURCE,
+            "after": _usage_window_start(team),
+            "instance_ids": list(names_by_instance_id),
+        },
+        team_id=team.pk,
+        workload=workload,
+    )
+    return {names_by_instance_id[instance_id]: int(total) for instance_id, total in rows or []}
