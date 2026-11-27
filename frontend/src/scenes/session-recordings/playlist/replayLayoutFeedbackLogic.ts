@@ -95,10 +95,10 @@ export interface replayLayoutFeedbackLogicActions {
 export interface replayLayoutFeedbackLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         layoutEventProperties: (
-            featureFlags: any,
-            replayLayout: any,
-            newLayoutVisitDays: any,
-            firstNewLayoutDay: any
+            featureFlags: FeatureFlagsSet,
+            replayLayout: ReplayLayout,
+            newLayoutVisitDays: number,
+            firstNewLayoutDay: string | null
         ) => Properties
     }
 }
