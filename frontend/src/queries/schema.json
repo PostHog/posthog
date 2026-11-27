@@ -29642,7 +29642,8 @@
                 "test_account_filter_removes_exposures",
                 "unserved_variant_exposures",
                 "events_billing_limit",
-                "feature_flags_billing_limit"
+                "feature_flags_billing_limit",
+                "exposure_rows_left_out"
             ],
             "type": "string"
         },
@@ -29775,7 +29776,8 @@
                 "test_account_filter_removes_exposures",
                 "unserved_variant_exposures",
                 "events_billing_limit",
-                "feature_flags_billing_limit"
+                "feature_flags_billing_limit",
+                "exposure_rows_left_out"
             ],
             "type": "string"
         },
@@ -29820,7 +29822,10 @@
                 "exposed_without_test_account_filter_count",
                 "kept_by_test_account_filter_percentage",
                 "unserved_exposed_count",
-                "unserved_exposed_percentage"
+                "unserved_exposed_percentage",
+                "left_out_row_count",
+                "unknown_variant_row_count",
+                "empty_id_row_count"
             ],
             "type": "string"
         },
@@ -31443,11 +31448,15 @@
                     "description": "Exposed entities with no row of the metric query that counted, by variant.",
                     "type": "object"
                 },
+                "unknown_variant_rows": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out."
+                },
                 "unknown_variants": {
                     "additionalProperties": {
                         "$ref": "#/definitions/integer"
                     },
-                    "description": "Exposure rows whose variant is not one the flag serves, counted by the value seen.",
+                    "description": "Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values.",
                     "type": "object"
                 }
             },
