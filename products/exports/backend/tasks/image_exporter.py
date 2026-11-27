@@ -14,14 +14,12 @@ import structlog
 import posthoganalytics
 from playwright.sync_api import (
     Browser,
-    BrowserContext,
     Error as PlaywrightError,
     Page,
     Playwright,
     Request,
     Response,
     TimeoutError as PlaywrightTimeoutError,
-    ViewportSize,
     sync_playwright,
 )
 from prometheus_client import Counter, Histogram
@@ -640,7 +638,6 @@ class BrowserlessRenderSession:
         self._exit_stack = contextlib.ExitStack()
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
-        self._contexts: dict[int, BrowserContext] = {}
         self._connection_failures = 0
 
     def __enter__(self) -> "BrowserlessRenderSession":
@@ -680,12 +677,6 @@ class BrowserlessRenderSession:
         self._close_browser()
 
     def _close_browser(self) -> None:
-        for context in self._contexts.values():
-            try:
-                context.close()
-            except Exception:
-                pass
-        self._contexts = {}
         if self._browser is None:
             return
         try:
@@ -693,25 +684,6 @@ class BrowserlessRenderSession:
         except Exception:
             pass
         self._browser = None
-
-    def _forget_page_state(self, page: Page, device_scale_factor: int) -> None:
-        context = self._contexts.get(device_scale_factor)
-        if self._mode != "batched" or context is None:
-            return
-        try:
-            page.evaluate("() => { window.localStorage.clear(); window.sessionStorage.clear() }")
-            context.clear_cookies()
-        except PlaywrightError:
-            pass
-
-    def _new_page(self, browser: Browser, device_scale_factor: int, viewport: ViewportSize) -> Page:
-        context = self._contexts.get(device_scale_factor)
-        if context is None:
-            context = browser.new_context(device_scale_factor=device_scale_factor)
-            self._contexts[device_scale_factor] = context
-        page = context.new_page()
-        page.set_viewport_size(viewport)
-        return page
 
     def render(
         self,
@@ -731,11 +703,14 @@ class BrowserlessRenderSession:
         stages = _RenderStages(content=_RENDER_STAGE_CONTENT.get(str(wait_for_css_selector), "other"))
         browser = self._connected_browser(stages)
 
+        context = None
         page = None
         try:
-            page = self._new_page(
-                browser, device_scale_factor, {"width": screenshot_width, "height": screenshot_height}
+            context = browser.new_context(
+                device_scale_factor=device_scale_factor,
+                viewport={"width": screenshot_width, "height": screenshot_height},
             )
+            page = context.new_page()
             failed_stylesheets = _watch_failed_stylesheets(page) if read_site_style else []
             posthoganalytics.tag("url_to_render", url_to_render)
 
@@ -817,10 +792,9 @@ class BrowserlessRenderSession:
 
             raise
         finally:
-            if page is not None:
-                self._forget_page_state(page, device_scale_factor)
+            if context is not None:
                 try:
-                    page.close()
+                    context.close()
                 except Exception:
                     pass
 

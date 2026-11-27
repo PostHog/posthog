@@ -1228,6 +1228,7 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
 
         assert connect.call_count == 2
         assert rendered == ["after.png", "first.png", "second.png"]
+        assert first_browser.new_context.return_value.close.call_count == first_browser.new_context.call_count == 3
         first_browser.close.assert_called_once()
         second_browser.close.assert_called_once()
 
