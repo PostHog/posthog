@@ -95,6 +95,7 @@ export function imageActions({
             submenu: IMAGE_FORMATS.filter(({ format }) => canWriteImage(format)).map(({ format, label }) => ({
                 key: format,
                 label,
+                section: 'Image',
                 dataAttr: `${dataAttr}-${format}`,
                 disabledReason: waiting.disabledReason,
                 onSelect: () => download(format),
