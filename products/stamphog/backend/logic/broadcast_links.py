@@ -277,7 +277,8 @@ def open_from_link(post: LinkPost) -> LinkAsk | None:
             ask,
             channel_id=post.channel_id,
             thread_ts=post.message_ts,
-            stamphog_approval_live=stamphog_approval_live(reviews),
+            # Only an approval that GitHub shows answers a teammate's ask, so an unknown answer opens the request.
+            stamphog_approval_live=stamphog_approval_live(reviews) is True,
             using=db,
         )
     return _answer(post, target, asked)

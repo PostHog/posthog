@@ -194,15 +194,14 @@ class LinkAsk:
     permalink: str = ""
 
 
-def stamphog_approval_live(reviews: list[dict[str, Any]]) -> bool:
+def stamphog_approval_live(reviews: list[dict[str, Any]]) -> bool | None:
     """Whether GitHub still shows an approval by this App. GitHub reports a dismissed review as ``DISMISSED``.
 
-    True when the App slug is not configured, because no review can then be identified as this App's, and the
-    product DB is the only record left.
+    None when the App slug is not configured, because no review can then be identified as this App's.
     """
     own_login = expected_app_bot_login()
     if own_login is None:
-        return True
+        return None
     return any(
         (review.get("user") or {}).get("login") == own_login and review.get("state") == "APPROVED" for review in reviews
     )
@@ -549,7 +548,8 @@ def _next_state(
     reviews = client.get_pr_reviews(pull_request.repo_config.repository, pull_request.pr_number)
     if status == BroadcastRequestStatus.STAMPHOG_APPROVED:
         # The product DB misses a maintainer dismissing the approval on GitHub, so GitHub must still show it.
-        if stamphog_approval_live(reviews):
+        # Without the App slug nothing can be checked, so the DB record stands, as it does for a new approval.
+        if stamphog_approval_live(reviews) is not False:
             return _NextState(status=status, approved_by_login="", run=run)
         status, run = BroadcastRequestStatus.OPEN, None
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
