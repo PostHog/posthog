@@ -158,6 +158,12 @@ export const HogFunctionsCreateBody = () => zod.object({
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             filter_test_accounts: zod.boolean().optional(),
+            filter_group: zod
+                .unknown()
+                .optional()
+                .describe(
+                    'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                ),
             bytecode_contract: zod.string().optional(),
         })
         .optional()
@@ -268,6 +274,12 @@ export const HogFunctionsCreateBody = () => zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        filter_group: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                            ),
                         bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
@@ -421,6 +433,12 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             filter_test_accounts: zod.boolean().optional(),
+            filter_group: zod
+                .unknown()
+                .optional()
+                .describe(
+                    'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                ),
             bytecode_contract: zod.string().optional(),
         })
         .optional()
@@ -531,6 +549,12 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        filter_group: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                            ),
                         bytecode_contract: zod.string().optional(),
                     })
                     .optional(),

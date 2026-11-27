@@ -140,6 +140,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             bytecode: zod.unknown().optional(),
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            filter_group: zod
+                .unknown()
+                .optional()
+                .describe(
+                    'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                ),
             bytecode_error: zod.string().optional(),
             bytecode_contract: zod.string().optional(),
         })
@@ -262,6 +268,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         bytecode: zod.unknown().optional(),
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        filter_group: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                            ),
                         bytecode_error: zod.string().optional(),
                         bytecode_contract: zod.string().optional(),
                     })
@@ -422,6 +434,12 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
             bytecode: zod.unknown().optional(),
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            filter_group: zod
+                .unknown()
+                .optional()
+                .describe(
+                    'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                ),
             bytecode_error: zod.string().optional(),
             bytecode_contract: zod.string().optional(),
         })
@@ -544,6 +562,12 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                         bytecode: zod.unknown().optional(),
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        filter_group: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                            ),
                         bytecode_error: zod.string().optional(),
                         bytecode_contract: zod.string().optional(),
                     })
@@ -704,6 +728,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             bytecode: zod.unknown().optional(),
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            filter_group: zod
+                .unknown()
+                .optional()
+                .describe(
+                    'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                ),
             bytecode_error: zod.string().optional(),
             bytecode_contract: zod.string().optional(),
         })
@@ -826,6 +856,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         bytecode: zod.unknown().optional(),
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        filter_group: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                            ),
                         bytecode_error: zod.string().optional(),
                         bytecode_contract: zod.string().optional(),
                     })
@@ -990,6 +1026,12 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
             bytecode: zod.unknown().optional(),
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            filter_group: zod
+                .unknown()
+                .optional()
+                .describe(
+                    'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                ),
             bytecode_error: zod.string().optional(),
             bytecode_contract: zod.string().optional(),
         })
@@ -1118,6 +1160,12 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                         bytecode: zod.unknown().optional(),
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        filter_group: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                            ),
                         bytecode_error: zod.string().optional(),
                         bytecode_contract: zod.string().optional(),
                     })
@@ -1363,6 +1411,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     bytecode: zod.unknown().optional(),
                     transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
+                    filter_group: zod
+                        .unknown()
+                        .optional()
+                        .describe(
+                            'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                        ),
                     bytecode_error: zod.string().optional(),
                     bytecode_contract: zod.string().optional(),
                 })
@@ -1493,6 +1547,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 bytecode: zod.unknown().optional(),
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
+                                filter_group: zod
+                                    .unknown()
+                                    .optional()
+                                    .describe(
+                                        'Log transformations only. An AND\/OR tree of log property filters; only matching records are transformed.'
+                                    ),
                                 bytecode_error: zod.string().optional(),
                                 bytecode_contract: zod.string().optional(),
                             })

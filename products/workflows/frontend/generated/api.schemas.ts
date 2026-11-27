@@ -185,6 +185,8 @@ export interface HogFunctionFiltersApi {
     bytecode?: unknown
     transpiled?: unknown
     filter_test_accounts?: boolean
+    /** Log transformations only. An AND/OR tree of log property filters; only matching records are transformed. */
+    filter_group?: unknown
     bytecode_error?: string
     bytecode_contract?: string
 }

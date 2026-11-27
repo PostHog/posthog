@@ -1419,7 +1419,11 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
-    filter_group = serializers.JSONField(required=False, allow_null=True)
+    filter_group = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Log transformations only. An AND/OR tree of log property filters; only matching records are transformed.",
+    )
     bytecode_error = serializers.CharField(required=False)
     bytecode_contract = serializers.CharField(required=False)
 
