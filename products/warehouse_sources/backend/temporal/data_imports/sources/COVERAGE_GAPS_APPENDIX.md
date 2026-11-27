@@ -10418,18 +10418,18 @@ Re-audited 2026-11-19 against <https://www.ncei.noaa.gov/cdo-web/webservices/v2>
 
 ## NoCRM — gaps
 
-Today (13): `activities`, `categories`, `client_folders`, `fields`, `follow_ups`, `lead_action_histories`, `lead_comments`, `leads`, `pipelines`, `steps`, `tags`, `teams`, `users`
+Today (16): `activities`, `categories`, `client_folders`, `fields`, `follow_ups`, `lead_action_histories`, `lead_attachments`, `lead_comments`, `leads`, `pipelines`, `spreadsheet_rows`, `spreadsheets`, `steps`, `tags`, `teams`, `users`
 
 Diffed against: <https://www.nocrm.io/api>
 
 - [x] `leads/{lead_id}/action_histories` — per-lead action and step-change history - the state-transition table needed for pipeline velocity and conversion timing (high). Added as `lead_action_histories` (fan-out over `leads`).
 - [x] `follow_ups` — scheduled follow-up tasks/reminders on leads, the core activity object driving rep workload analysis (high). Added as `follow_ups` (fan-out over `users`, since the endpoint requires a `lead_id` or `user_id`).
 - [x] `leads/{lead_id}/comments` — comment thread per lead, the narrative activity stream alongside activities (medium). Added as `lead_comments` (fan-out over `leads`).
-- [ ] `spreadsheets` — prospecting lists - the top-of-funnel container that leads are created from, with no equivalent table today (medium)
-- [ ] `spreadsheets/{spreadsheet_id}/rows` — prospect rows inside prospecting lists, plus their conversion-to-lead linkage (medium)
+- [x] `spreadsheets` — prospecting lists - the top-of-funnel container that leads are created from, with no equivalent table today (medium). Added as `spreadsheets`.
+- [x] `spreadsheets/{spreadsheet_id}/rows` — prospect rows inside prospecting lists, plus their conversion-to-lead linkage (medium). Added as `spreadsheet_rows` (fan-out over `spreadsheets`): the API has no GET list for rows, so each row is read from the `spreadsheet_rows` array of `GET /spreadsheets/{id}`.
 - [x] `follow_ups/{follow_up_id}/tasks` — individual tasks within a follow-up sequence, the completion-level detail (medium). Skipped: the API has no list endpoint for tasks, only `PUT /follow_ups/{follow_up_id}/tasks/{task_id}`; `follow_ups` rows carry `tasks_count` and `tasks_done_count`.
-- [ ] `spreadsheets/{spreadsheet_id}/comments` — comments on prospecting lists and rows, engagement history before a lead exists (low)
-- [ ] `leads/{lead_id}/attachments` — attachment metadata per lead (counts/types, not file bytes) (low)
+- [ ] `spreadsheets/{spreadsheet_id}/comments` — comments on prospecting lists and rows, engagement history before a lead exists (low). Skipped: the API documents only POST (create) for list and prospect comments, no GET list; rows carry `comment_count`.
+- [x] `leads/{lead_id}/attachments` — attachment metadata per lead (counts/types, not file bytes) (low). Added as `lead_attachments` (fan-out over `leads`).
 
 Note: The API reference is a single large HTML page; extracted all /api/v2/\* paths from it. Core CRM objects are covered (leads, activities, steps, pipelines, users, teams, clients->client_folders, predefined_tags->tags, categories, fields). The gaps are all lead sub-resources and the prospecting-list side of the product.
 
