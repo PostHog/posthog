@@ -11,12 +11,14 @@ import { cn } from 'lib/utils/css-classes'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
+import { notebooksAppComputeCreate, notebooksAppDraftComputeCreate } from '../generated/api'
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
 import { WidgetFrameSessionContext } from '../NotebookNodeGeneratedWidget/widgetFrameSession'
 import { NotebookAppOutputControlsContext } from './NotebookAppBlock'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { appSourceCells } from './notebookAppLayout'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
+import { privateWidgetSourceNames } from './privateWidgetSources'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
 import { ViewerComputeControls, ViewerComputeResult } from './ViewerComputeCell'
@@ -65,6 +67,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
     const { variables, results, privateCells, publishedResults, refreshFailed: error } = useValues(logic)
     const { changeInput } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
+    const privateSources = useMemo(() => privateWidgetSourceNames(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
     const chartInputFilters = Object.fromEntries(
         variables.map((v) => [
@@ -115,7 +118,35 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
             />
             <WidgetFrameSessionContext.Provider
-                value={(nodeId, versionId) => viewerWidgetSession(results?.outputs ?? {}, nodeId, versionId)}
+                value={(nodeId, versionId) => ({
+                    ...viewerWidgetSession(results?.outputs ?? {}, nodeId, versionId),
+                    privateInputs: versionId
+                        ? {
+                              key: JSON.stringify([release.revision, variables]),
+                              sourceNames: privateSources,
+                              compute: async (slots, signal) => {
+                                  const request = {
+                                      node_id: nodeId,
+                                      revision: release.revision,
+                                      variables,
+                                      widget_input: { version_id: versionId, slots },
+                                  }
+                                  const result = viewer.draft
+                                      ? await notebooksAppDraftComputeCreate(
+                                            viewer.project,
+                                            shortId,
+                                            { ...request, layout },
+                                            { signal }
+                                        )
+                                      : await notebooksAppComputeCreate(viewer.project, shortId, request, { signal })
+                                  if (!result.widget_frames) {
+                                      throw new Error('The calculation did not return a dataframe.')
+                                  }
+                                  return result.widget_frames
+                              },
+                          }
+                        : undefined,
+                })}
             >
                 <NotebookAppCanvas
                     layout={layout}

@@ -9,3 +9,4 @@ from ..app_viewer import (
     plan_draft_queries as plan_draft_queries,
     plan_viewer_queries as plan_viewer_queries,
 )
+from ..app_widget_compute import run_widget_cells as run_widget_cells

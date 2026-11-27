@@ -82,6 +82,7 @@ from products.notebooks.backend.facade.app_releases import (
     record_release,
     review_release,
     run_app_cell,
+    run_widget_cells,
 )
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
@@ -345,7 +346,21 @@ class NotebookAppDraftQueryRequestSerializer(NotebookAppViewerRequestSerializer)
     layout = NotebookAppLayoutSerializer()
 
 
+class NotebookAppComputeWidgetInputSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField()
+    slot = serializers.CharField(max_length=128, required=False)
+    slots = serializers.ListField(
+        child=serializers.CharField(max_length=128), min_length=1, max_length=20, required=False
+    )
+
+    def validate(self, attrs):
+        if ("slot" in attrs) == ("slots" in attrs):
+            raise serializers.ValidationError("Choose one slot or a list of slots.")
+        return attrs
+
+
 class NotebookAppComputeRequestSerializer(NotebookAppViewerRequestSerializer):
+    widget_input = NotebookAppComputeWidgetInputSerializer(required=False)
     node_id = serializers.CharField(max_length=200)
 
 
@@ -354,6 +369,8 @@ class NotebookAppDraftComputeRequestSerializer(NotebookAppComputeRequestSerializ
 
 
 class NotebookAppComputeResultSerializer(serializers.Serializer):
+    widget_frame = WidgetFrameSerializer(required=False)
+    widget_frames = WidgetFrameSerializer(many=True, required=False)
     text = serializers.CharField(required=False, allow_blank=True)
     columns = serializers.ListField(child=serializers.CharField(), required=False)
     rows = serializers.ListField(child=serializers.ListField(child=serializers.JSONField()), required=False)
@@ -1031,16 +1048,32 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         params.is_valid(raise_exception=True)
         data = params.validated_data
         inputs = {v["name"]: v.get("value") for v in data["variables"]}
+
         try:
-            result = run_app_cell(
-                notebook.team_id,
-                notebook.pk,
-                user,
-                data["revision"],
-                data["node_id"],
-                inputs,
-                draft_layout=data.get("layout"),
-            )
+            source = data.get("widget_input")
+            if source:
+                result = run_widget_cells(
+                    notebook.team_id,
+                    notebook.pk,
+                    user,
+                    data["revision"],
+                    data["node_id"],
+                    inputs,
+                    draft_layout=data.get("layout"),
+                    widget_input=(source["version_id"], source.get("slots") or source["slot"]),
+                )
+            else:
+                result = run_app_cell(
+                    notebook.team_id,
+                    notebook.pk,
+                    user,
+                    data["revision"],
+                    data["node_id"],
+                    inputs,
+                    draft_layout=data.get("layout"),
+                )
+        except WidgetError as error:
+            return self._widget_error_response(error)
         except (ExposedHogQLError, KernelSandboxLimitExceeded) as error:
             raise ValidationError(str(error)) from error
         return Response(NotebookAppComputeResultSerializer(result).data)

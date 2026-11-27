@@ -29,7 +29,11 @@ import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
-import { WidgetArtifactFrame } from './WidgetArtifactFrame'
+import {
+    PrivateWidgetArtifactFrame,
+    PrivateWidgetDataControls,
+    usePrivateWidgetFrames,
+} from './PrivateWidgetDataControls'
 import { WidgetFrameSessionContext } from './widgetFrameSession'
 import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_OPTIONS, isWidgetModel, type WidgetModel } from './widgetModels'
 
@@ -165,6 +169,13 @@ function ExpandedWidget({
         selectedVersionId === status?.current_version_id
             ? (status?.security_review ?? null)
             : (selectedVersion?.security_review ?? null)
+
+    const privateFrames = usePrivateWidgetFrames(selectedVersionId, frameSession.privateInputs)
+    const privateNames = activeFrameNames.filter((slot) => {
+        const mapped = status?.input_bindings?.[slot]?.source
+        const declared = status?.input_contract?.find((input) => input.slot === slot)?.sourceName
+        return frameSession.privateInputs?.sourceNames.has(mapped || declared || slot)
+    })
 
     useEffect(() => {
         setMenuItems([
@@ -317,6 +328,15 @@ function ExpandedWidget({
                             The widget status couldn't be refreshed. The preview below is the last confirmed version.
                         </LemonBanner>
                     ) : null}
+                    <PrivateWidgetDataControls
+                        enabled={!!frameSession.privateInputs}
+                        names={privateNames}
+                        data={privateFrames}
+                        onRun={() => {
+                            setRuntimeError(null)
+                            void privateFrames.run(privateNames)
+                        }}
+                    />
                     {runtimeError ? (
                         <LemonBanner
                             type="warning"
@@ -348,8 +368,8 @@ function ExpandedWidget({
                                 Loading widget…
                             </div>
                         ) : null}
-                        <WidgetArtifactFrame
-                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}-${frameSession.revision}`}
+                        <PrivateWidgetArtifactFrame
+                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}-${frameSession.revision}-${privateFrames.generation}`}
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}
@@ -371,7 +391,11 @@ function ExpandedWidget({
                                             signal
                                         )
                                 )
-                                return applyReusableWidgetBinding(
+                                return frame
+                            }}
+                            privatePage={privateFrames.page}
+                            mapFrame={(frame, name) =>
+                                applyReusableWidgetBinding(
                                     frame,
                                     name,
                                     getReusableWidgetInputBinding(status?.input_bindings ?? {}, name),
@@ -379,7 +403,7 @@ function ExpandedWidget({
                                         .find((input) => input.slot === name)
                                         ?.columns?.map((column) => column.name) ?? []
                                 )
-                            }}
+                            }
                             onArtifactUnavailable={markArtifactUnavailable}
                             onError={(message) =>
                                 setRuntimeError(

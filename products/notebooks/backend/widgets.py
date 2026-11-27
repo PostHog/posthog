@@ -14,6 +14,8 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from pydantic import JsonValue
+
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
@@ -1811,6 +1813,17 @@ def _bounded_rows(
         "offset": offset,
         "nextOffset": next_offset,
         "truncated": end_offset < total_row_count,
+    }
+
+
+def widget_frame_from_rows(
+    *, source_node_id: str, name: str, run_id: UUID, columns: list[dict[str, str]], rows: list[JsonValue]
+) -> dict:
+    return {
+        "sourceNodeId": source_node_id,
+        **_bounded_rows(
+            name=name, run_id=run_id, columns=columns, candidates=rows, total_row_count=len(rows), offset=0
+        ),
     }
 
 

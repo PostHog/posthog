@@ -974,15 +974,30 @@ export interface PatchedNotebookApi {
     _create_in_folder?: string
 }
 
+export interface NotebookAppComputeWidgetInputApi {
+    version_id: string
+    /** @maxLength 128 */
+    slot?: string
+    /**
+     * @minItems 1
+     * @maxItems 20
+     * @items.maxLength 128
+     */
+    slots?: string[]
+}
+
 export interface NotebookAppComputeRequestApi {
     /** @minimum 0 */
     revision: number
     variables: NotebookVariableApi[]
+    widget_input?: NotebookAppComputeWidgetInputApi
     /** @maxLength 200 */
     node_id: string
 }
 
 export interface NotebookAppComputeResultApi {
+    widget_frame?: WidgetFrameApi
+    widget_frames?: WidgetFrameApi[]
     text?: string
     columns?: string[]
     rows?: unknown[][]
@@ -992,6 +1007,7 @@ export interface NotebookAppDraftComputeRequestApi {
     /** @minimum 0 */
     revision: number
     variables: NotebookVariableApi[]
+    widget_input?: NotebookAppComputeWidgetInputApi
     /** @maxLength 200 */
     node_id: string
     layout: NotebookAppLayoutApi
