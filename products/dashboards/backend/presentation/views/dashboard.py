@@ -219,6 +219,7 @@ from products.dashboards.backend.presentation.run_insights_output import (
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
     RUN_INSIGHTS_MIN_TILE_CHARS,
+    bound_error_message,
     bound_formatted_result,
     parse_max_result_chars,
     parse_tile_ids,
@@ -4466,6 +4467,9 @@ class DashboardsViewSet(
                     )
                     insight_data["result"] = formatted
                     used_chars += len(formatted)
+                if isinstance(insight_data.get("error"), str):
+                    insight_data["error"] = bound_error_message(insight_data["error"], used_chars)
+                    used_chars += len(insight_data["error"])
 
             tile_results.append(tile_data)
 
