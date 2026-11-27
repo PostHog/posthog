@@ -497,6 +497,17 @@ class TestClickHouseSourceRetryableErrors:
                 "cloudflare_tunnel_down",
                 "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://host:8443)",
             ),
+            (
+                # QUOTA_EXCEEDED (code 201): a server-side quota on the connecting user was
+                # exceeded. The quota clears on its own once its interval ends, so this must stay
+                # retryable rather than disable the schema (which would leave it off long after
+                # the quota had already cleared).
+                "quota_exceeded",
+                "Received ClickHouse exception, code: 201, server response: Code: 201. DB::Exception: Quota for "
+                "user `play` for 3600s has been exceeded: execution_time = 601.308620926/600. Interval will end "
+                "at 2026-11-26 04:30:52. Name of quota template: `explorer`. (QUOTA_EXCEEDED) "
+                "(version 26.12.1.396 (official build)) (for url https://play.clickhouse.com:443)",
+            ),
         ],
     )
     def test_bare_gateway_status_is_classified_as_retryable(self, source, _name, error_msg):
@@ -504,6 +515,17 @@ class TestClickHouseSourceRetryableErrors:
         # exception noise on every occurrence instead of silently retried.
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
+
+    def test_quota_exceeded_does_not_disable_the_schema(self, source):
+        # A quota-exceeded error must not also appear in get_non_retryable_errors, or
+        # `_handle_import_error` (which consults that dict first) would disable the schema
+        # even though the quota clears on its own.
+        error_msg = (
+            "Received ClickHouse exception, code: 201, server response: Code: 201. DB::Exception: Quota for "
+            "user `play` for 3600s has been exceeded: execution_time = 601.308620926/600. (QUOTA_EXCEEDED)"
+        )
+        non_retryable = source.get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable)
 
     def test_arrow_stream_flatbuffer_error_is_classified_as_retryable(self, source):
         # pyarrow raises `OSError("Invalid flatbuffers message.")` from its own IPC framing when
