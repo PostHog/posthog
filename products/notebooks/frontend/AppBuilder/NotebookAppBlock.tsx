@@ -10,9 +10,10 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { NOTEBOOK_MARKDOWN_REGISTRY } from 'scenes/notebooks/Notebook/markdownNotebookRegistry'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
+import { NotebookAppDateRange } from 'products/notebooks/frontend/AppBuilder/NotebookAppDateRange'
+
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import type { AppChoices } from './notebookAppChoices'
-import { NotebookAppDateRange } from './NotebookAppDateRange'
 import { NotebookAppInput } from './NotebookAppInput'
 import { appCellMarkdown } from './notebookAppLayout'
 

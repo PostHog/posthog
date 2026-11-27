@@ -16,8 +16,6 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 Choose **Dropdown from query** to fill an input from a native SQL cell. Select the cell and the column that contains the choices. The cell can stay off the app canvas. Reference another input in its SQL to create cascading choices. The dropdown shows up to 100 distinct values from the available rows. A viewer can replace or clear a selection that falls outside the refreshed choices.
 
-Choose **Date range** on an input bound to a date variable and choose a second date variable for the end. In a query, reference the two variables as the lower and upper bounds. Each viewer can change or clear either date.
-
 To filter on several values, add a **List of text** notebook variable, then bind an app input to it. Choose **Multi-select dropdown** and enter one option per line. The variable holds the selected strings, including an empty list when cleared. For a variable named `regions`, use `WHERE region IN {regions}` in a native SQL cell. To show all regions when the selection is empty, use `WHERE empty({regions}) OR region IN {regions}`. A Python cell receives `regions` as a list.
 
 Choose **Review and publish** to check the sources and default inputs against the draft layout. The preview lists missing sources, failed or stale calculations, and outputs still waiting to save. **Run all** refreshes the notebook's calculations. The preview checks them again after the notebook saves.
@@ -35,6 +33,8 @@ SQL inputs read the completed query's cached rows, rather than only its saved pr
 Each visitor to a published app starts with its published defaults. Changing an input updates affected native HogQL outputs for that browser view using the visitor's query permissions. Selecting a point on a SQL line or bar chart can set the input named by its x-axis column. Turn off **Auto-update results** to apply several changes together. A failed refresh keeps the last successful outputs visible. Python, directly connected SQL, saved insights, and generated widgets retain their existing output or source bindings.
 
 When you publish a SQL result, the app keeps up to 300 cached rows. Published results share an 8 MiB limit per release. If the original query cache expired before publication or a result exceeds the remaining space, the viewer shows the saved first page and labels it as partial. Reading these rows requires access to the notebook, queries, and any connected data source.
+
+Choose **Date range** on an input bound to a date variable and choose a second date variable for the end. In a query, reference the two variables as the lower and upper bounds. Each viewer can change or clear either date.
 
 In the notebook editor, inputs change the shared notebook variables. A widget becomes stale when one of its SQL or Python inputs, including upstream dependencies, becomes stale. A successful notebook run refreshes the widget's preview with the latest dataframe snapshots. If Run all fails or is interrupted after one of the widget's source cells succeeds, the preview still refreshes when all its inputs are current. Individual source-cell runs refresh the widget once its dependencies are current. This does not change the selected widget version or grant preview approval for generated code.
 
