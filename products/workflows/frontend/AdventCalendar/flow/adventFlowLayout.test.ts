@@ -58,7 +58,9 @@ const onRun = (point: Point, [from, to]: [Point, Point]): boolean =>
 
 const segments = (points: Point[]): [Point, Point][] => points.slice(1).map((point, index) => [points[index], point])
 
-const cases = ORIENTATIONS.flatMap((orientation) => Object.keys(STATES).map((state) => [orientation, state]))
+const cases: [AdventFlowOrientation, string][] = ORIENTATIONS.flatMap((orientation) =>
+    Object.keys(STATES).map((state): [AdventFlowOrientation, string] => [orientation, state])
+)
 
 describe('adventFlowLayout', () => {
     it.each(ORIENTATIONS)('places the trigger, every door and the exit once in %s', (orientation) => {
@@ -71,7 +73,7 @@ describe('adventFlowLayout', () => {
     })
 
     it.each(cases)('keeps every tile and caption apart and on the canvas in %s with %s', (orientation, state) => {
-        const layout = layoutOf(state, orientation as AdventFlowOrientation)
+        const layout = layoutOf(state, orientation)
         const footprints = layout.nodes.flatMap((node) => [
             { id: `${node.id} tile`, rect: node.tile },
             { id: `${node.id} caption`, rect: node.caption },
@@ -93,7 +95,7 @@ describe('adventFlowLayout', () => {
     it.each(cases)(
         'routes each edge from tile edge to tile edge, square, through no tile or caption in %s with %s',
         (orientation, state) => {
-            const layout = layoutOf(state, orientation as AdventFlowOrientation)
+            const layout = layoutOf(state, orientation)
             const byId = new Map(layout.nodes.map((node) => [node.id, node]))
             const footprints = layout.nodes.flatMap((node) => [node.tile, node.caption])
 
@@ -124,9 +126,13 @@ describe('adventFlowLayout', () => {
         const before = layoutOf('nothing open', orientation)
         const after = layoutOf('every door open', orientation)
         const placeOf = new Map(before.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }]))
+        const routeOf = new Map(before.edges.map((edge) => [edge.id, edge.points]))
 
         expect(after.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }])).toEqual(
             after.nodes.map((node) => [node.id, placeOf.get(node.id)])
+        )
+        expect(after.edges.map((edge) => [edge.id, edge.points])).toEqual(
+            after.edges.map((edge) => [edge.id, routeOf.get(edge.id)])
         )
         expect([after.width, after.height]).toEqual([before.width, before.height])
     })
@@ -150,9 +156,10 @@ describe('adventFlowLayout', () => {
     it.each(ORIENTATIONS)(
         'labels each branch with its option and share on the run into its lane in %s',
         (orientation) => {
-            const layout = adventFlowLayout(
-                buildAdventGraph({ opened: [1], answers: {} }, 2, REWARDS),
-                { 2: { james: 60, tim: 40 } },
+            const layout = adventFlowLayout(buildAdventGraph({ opened: [1], answers: {} }, 2, REWARDS), {}, orientation)
+            const answered = adventFlowLayout(
+                buildAdventGraph({ opened: [1, 2], answers: { 2: 'tim' } }, 3, REWARDS),
+                { 2: { james: 38, tim: 62 } },
                 orientation
             )
             const tileOf = (id: string): AdventFlowRect | undefined => layout.nodes.find((node) => node.id === id)?.tile
@@ -164,9 +171,14 @@ describe('adventFlowLayout', () => {
             })
 
             expect(branches.map((edge) => [edge.target, edge.label, edge.share])).toEqual([
-                ['door-3-upper', 'James', 60],
-                ['door-3-lower', 'Tim', 40],
+                ['door-3-upper', 'James', null],
+                ['door-3-lower', 'Tim', null],
             ])
+            expect(
+                answered.edges
+                    .filter((edge) => edge.source === 'door-2')
+                    .map((edge) => [edge.target, edge.label, edge.share])
+            ).toEqual([['door-3-lower', 'Tim', 62]])
             expect(lastRunHolds).toEqual([true, true])
             const [upper, lower] = [tileOf('door-3-upper'), tileOf('door-3-lower')]
             expect(upper && lower && (orientation === 'rows' ? upper.y < lower.y : upper.x < lower.x)).toBe(true)
