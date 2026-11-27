@@ -4218,11 +4218,25 @@ export interface TaskRunCommandResponseApi {
     error?: TaskRunCommandResponseApiError
 }
 
+/**
+ * * `posthog_code` - PostHog Desktop credits
+ * * `ai_credits` - PostHog AI credits
+ */
+export type ComputeBillingMeterEnumApi = (typeof ComputeBillingMeterEnumApi)[keyof typeof ComputeBillingMeterEnumApi]
+
+export const ComputeBillingMeterEnumApi = {
+    PosthogCode: 'posthog_code',
+    AiCredits: 'ai_credits',
+} as const
+
 export interface TaskRunComputeUsageResponseApi {
-    /** Estimated sandbox compute cost of this run that bills to PostHog Desktop credits, in US dollars. */
-    posthog_code_compute_cost_usd: number
-    /** Estimated sandbox compute cost of this run that bills to PostHog AI credits, in US dollars. Zero unless the task's origin is one whose compute PostHog AI credits bill. */
-    ai_credits_compute_cost_usd: number
+    /** Estimated sandbox compute cost of this run that billing_meter bills, in US dollars. Zero when billing_meter is null. */
+    compute_cost_usd: number
+    /** Credits meter that bills this run's compute: posthog_code is PostHog Desktop credits, ai_credits is PostHog AI credits. Null when no meter bills compute for the task's origin.
+     *
+     * * `posthog_code` - PostHog Desktop credits
+     * * `ai_credits` - PostHog AI credits */
+    billing_meter: ComputeBillingMeterEnumApi | null
 }
 
 /**

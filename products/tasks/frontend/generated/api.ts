@@ -2017,7 +2017,7 @@ export const getTasksRunsComputeUsageRetrieveUrl = (projectId: string, taskId: s
 }
 
 /**
- * Return the estimated sandbox compute cost of a task run, split by the meter that bills it. Unlike the task usage endpoint, it does not read model spend.
+ * Return the estimated sandbox compute cost of a task run and the credits meter that bills it. Unlike the task usage endpoint, it does not read model spend.
  * @summary Get task run compute usage
  */
 export const tasksRunsComputeUsageRetrieve = async (

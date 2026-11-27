@@ -13,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
+from products.tasks.backend.facade.contracts import ComputeBillingMeter
 from products.tasks.backend.logic.services import task_usage
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard
 from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
@@ -331,8 +332,12 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
                 task_id=self.task.id,
                 task_created_at=self.task.created_at,
             )
+            compute = task_usage.get_task_compute_cost(team_id=self.team.id, task_id=self.task.id)
 
         assert usage.compute_cost_usd == Decimal("0.60")
+        assert compute == task_usage.TaskComputeCost(
+            cost_usd=Decimal("0.60"), billing_meter=ComputeBillingMeter.POSTHOG_CODE
+        )
 
     @parameterized.expand(
         [
@@ -382,8 +387,10 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
             run_compute = task_usage.get_task_compute_cost(team_id=self.team.id, task_id=task.id, run_id=run.id)
             other_run_compute = task_usage.get_task_compute_cost(team_id=self.team.id, task_id=task.id, run_id=uuid4())
 
-        assert run_compute == task_usage.TaskComputeCost(posthog_code_usd=Decimal(0), ai_credits_usd=expected)
-        assert other_run_compute.ai_credits_usd == 0
+        assert run_compute == task_usage.TaskComputeCost(
+            cost_usd=expected, billing_meter=ComputeBillingMeter.AI_CREDITS if billed_origins else None
+        )
+        assert other_run_compute.cost_usd == 0
         # PostHog Desktop reads the task usage, so it must not show compute that the AI credits meter bills.
         assert usage.compute_cost_usd == 0
 

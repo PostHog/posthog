@@ -3015,7 +3015,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Get task run compute usage",
-        description="Return the estimated sandbox compute cost of a task run, split by the meter that bills it. "
+        description="Return the estimated sandbox compute cost of a task run and the credits meter that bills it. "
         "Unlike the task usage endpoint, it does not read model spend.",
     )
     @action(detail=True, methods=["get"], url_path="compute_usage", required_scopes=["task:read"])
@@ -3025,8 +3025,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             TaskRunComputeUsageResponseSerializer(
                 {
-                    "posthog_code_compute_cost_usd": compute.posthog_code_usd,
-                    "ai_credits_compute_cost_usd": compute.ai_credits_usd,
+                    "compute_cost_usd": compute.cost_usd,
+                    "billing_meter": compute.billing_meter,
                 }
             ).data
         )

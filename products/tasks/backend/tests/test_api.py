@@ -16560,7 +16560,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_post.assert_not_called()
 
     @override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=["slack"])
-    def test_compute_usage_returns_only_the_requested_runs_compute_by_meter(self):
+    def test_compute_usage_returns_only_the_requested_runs_compute_and_its_meter(self):
         rate_start = datetime(2026, 8, 1, tzinfo=UTC)
         rate_card = ComputeRateCard(
             version="test",
@@ -16595,7 +16595,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{runs[0].id}/compute_usage/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"posthog_code_compute_cost_usd": 0.0, "ai_credits_compute_cost_usd": 0.2})
+        self.assertEqual(response.json(), {"compute_cost_usd": 0.2, "billing_meter": "ai_credits"})
 
     def test_empty_task_session_returns_read_only_storage_access(self):
         task = self.create_task(runtime=Task.Runtime.PI)
