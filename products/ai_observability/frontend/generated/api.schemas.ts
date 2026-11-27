@@ -2351,6 +2351,8 @@ export interface TraceNodeDetailEventApi {
     name: string
     uuid: string
     timestamp: string
+    slackChannelId?: string | null
+    slackThreadTs?: string | null
 }
 
 export type TraceMessageRoleEnumApi = (typeof TraceMessageRoleEnumApi)[keyof typeof TraceMessageRoleEnumApi]

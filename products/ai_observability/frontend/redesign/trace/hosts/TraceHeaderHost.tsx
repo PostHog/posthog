@@ -25,7 +25,7 @@ export function TraceHeaderHost({
 }: TraceHeaderHostProps): JSX.Element | null {
     const { trace, overview } = useValues(traceViewLogic({ traceId, timestampHint }))
     const viewModel = traceViewModelLogic({ hostId, traceId, timestampHint })
-    const { searchBox } = useValues(viewModel)
+    const { searchBox, nodes } = useValues(viewModel)
     const { setQuery, stepMatch } = useActions(viewModel)
     const exportLogic = traceExportLogic({ traceId, timestampHint })
     const { traceExportLoading, traceCopying } = useValues(exportLogic)
@@ -35,6 +35,22 @@ export function TraceHeaderHost({
     const { loadReviewStatus } = useActions(reviewLogic)
     const { distributedTraceId } = useValues(traceDistributedTraceLogic({ traceId, timestampHint }))
     const openTraceDialog = useOpenTraceDialog()
+
+    const slackSource = [...nodes.values()].find((load) => {
+        if (load.status !== 'ready') {
+            return false
+        }
+        return load.node.event?.slackChannelId && load.node.event.slackThreadTs
+    })
+    const slackChannelId = slackSource?.status === 'ready' ? slackSource.node.event?.slackChannelId : null
+    const slackThreadTs = slackSource?.status === 'ready' ? slackSource.node.event?.slackThreadTs : null
+    const slackThreadUrl =
+        typeof slackChannelId === 'string' &&
+        /^[A-Za-z0-9]+$/.test(slackChannelId) &&
+        typeof slackThreadTs === 'string' &&
+        /^\d+\.\d+$/.test(slackThreadTs)
+            ? `https://app.slack.com/archives/${slackChannelId}/p${slackThreadTs.replace('.', '')}`
+            : null
 
     if (!overview) {
         return null
@@ -83,7 +99,16 @@ export function TraceHeaderHost({
             copyAction={{ loading: traceCopying, onCopy: copyTrace, disabledReason }}
             exportAction={{ loading: traceExportLoading, onExport: exportTrace, disabledReason }}
             distributedTraceAction={distributedTraceAction}
-            actions={reviewActions}
+            actions={
+                <>
+                    {reviewActions}
+                    {slackThreadUrl ? (
+                        <a href={slackThreadUrl} target="_blank" rel="noreferrer" className="font-medium text-link">
+                            Open in Slack
+                        </a>
+                    ) : null}
+                </>
+            }
         />
     )
 }
