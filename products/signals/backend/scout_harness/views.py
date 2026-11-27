@@ -1609,7 +1609,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             400: OpenApiResponse(
                 description=(
                     "The run is not in progress, the route is unknown, the report is missing, not in this project "
-                    "or not written or edited by this run, the report is not surfaced, or a field is malformed. "
+                    "or not written or edited by this run, the report is not surfaced, the safety judge rejected the "
+                    "title or body, or a field is malformed. "
                     "The message says what to fix."
                 )
             ),

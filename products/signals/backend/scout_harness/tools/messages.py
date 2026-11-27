@@ -14,6 +14,10 @@ queued message.
 Limits are enforced here, under a lock on the scout's lane: at most `MAX_MESSAGES_PER_SCOUT_PER_WINDOW` per scout
 in any rolling `MESSAGE_CAP_WINDOW`, and no message whose route and `dedupe_key` were sent in the last
 `DEDUPE_WINDOW`. A refusal is an outcome, not an error, and is recorded on the run's metadata.
+
+The title and body pass the report safety judge before the message is queued. The report a message
+points at was judged on its own text, and the scout writes the message text separately, so text the
+judge would withhold from a report must not reach a person through a message instead.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 import posthoganalytics
+from asgiref.sync import async_to_sync
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -43,6 +48,7 @@ from products.signals.backend.scout_harness.message_routes import (
     lock_scout_message_lane,
     scout_send_message_enabled,
 )
+from products.signals.backend.scout_report.judge import judge_edited_report_content
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +71,8 @@ class SendMessageOutcome(models.TextChoices):
 
 class InvalidMessageError(ValueError):
     """The call cannot be accepted as sent: the feature is off, the route is unknown, the report is
-    not this run's, or a field is malformed. The scout can fix the call and retry."""
+    not this run's, the safety judge rejected the text, or a field is malformed. The scout can fix
+    the call and retry."""
 
 
 @frozen
@@ -104,6 +111,10 @@ def send_message_sync(
 
     dry_run = config is not None and not config.emit
     report = None if dry_run else _resolve_report(team=team, run=run, report_id=report_id)
+    # Outside the queue transaction: the judge is a model call and must not hold the lane lock.
+    safety = async_to_sync(judge_edited_report_content)(team_id=team.id, title=title, summary=body)
+    if not safety.choice:
+        raise InvalidMessageError(f"Message rejected by the safety judge: {safety.explanation}")
 
     result = _queue(
         team=team,

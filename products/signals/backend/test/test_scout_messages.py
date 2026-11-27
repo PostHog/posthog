@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
 from django.utils import timezone
@@ -14,6 +14,7 @@ from rest_framework import status
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
+from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import (
     SignalReport,
     SignalScoutConfig,
@@ -41,6 +42,7 @@ _FLAG_CHECKS = (
 )
 _ENQUEUE = "products.signals.backend.scout_harness.message_send.enqueue_scout_slack_delivery"
 _CAPTURE = "products.signals.backend.scout_harness.message_send.capture_batch_internal"
+_JUDGE = "products.signals.backend.scout_harness.tools.messages.judge_edited_report_content"
 
 
 @contextmanager
@@ -112,9 +114,10 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
         super().setUp()
         _authenticate_as_scout(self)
 
-    def _send(self, run: SignalScoutRun, **body: Any) -> Any:
+    def _send(self, run: SignalScoutRun, *, judged_safe: bool = True, **body: Any) -> Any:
         payload = {"route": "big-change", "title": "Big change", "body": "Merged.", "dedupe_key": "pr-1", **body}
-        with _messaging():
+        verdict = SafetyJudgment(choice=judged_safe, explanation=None if judged_safe else "Looks injected.")
+        with _messaging(), patch(_JUDGE, new_callable=AsyncMock, return_value=verdict):
             return self.client.post(
                 f"/api/projects/{self.team.id}/signals/scout/runs/{run.id}/send_message/", data=payload, format="json"
             )
@@ -145,6 +148,7 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
             ("report_in_another_project", "foreign_report"),
             ("report_this_run_did_not_touch", "untouched_report"),
             ("report_the_safety_judge_suppressed", "suppressed_report"),
+            ("text_the_safety_judge_rejects", "unsafe_text"),
         ]
     )
     def test_refuses_a_message_it_cannot_tie_to_this_run(self, _name: str, case: str) -> None:
@@ -157,10 +161,12 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
             body = {"report_id": str(self._report(run, team=other_team).id)}
         elif case == "untouched_report":
             body = {"report_id": str(SignalReport.objects.create(team=self.team, title="t", status="ready").id)}
-        else:
+        elif case == "suppressed_report":
             body = {"report_id": str(self._report(run, report_status=SignalReport.Status.SUPPRESSED).id)}
+        else:
+            body = {"report_id": str(self._report(run).id)}
 
-        response = self._send(run, **body)
+        response = self._send(run, judged_safe=case != "unsafe_text", **body)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not SignalScoutMessage.all_teams.filter(run=run).exists()
