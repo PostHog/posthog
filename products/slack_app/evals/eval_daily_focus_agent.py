@@ -56,10 +56,6 @@ PEOPLE_NAMES = [member.name for member in slack_workspace.MEMBERS if not member.
 ZONE = ZoneInfo("UTC")
 SINCE = slack_workspace.DAY_START - timedelta(minutes=1)
 MAX_TOKENS = 8192
-# The agent runs on daily_focus_agent.AGENT_MODEL, but the AI gateway rejects that model for the key a local or CI
-# eval calls with. The eval grades the prompt on a small model of the same class, so a pass does not prove the
-# agent model behaves the same.
-EVAL_MODEL = "claude-haiku-4-5-20251001"
 
 
 def _day(
@@ -173,7 +169,7 @@ def _ask(team_id: int, case: BaseEvalCase) -> dict:
     )
     client = build_anthropic_client(ai_product="slack_app", team_id=team_id, distinct_id=team_distinct_id(team_id))
     response = client.messages.create(
-        model=EVAL_MODEL,
+        model=daily_focus_agent.AGENT_MODEL,
         max_tokens=MAX_TOKENS,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -213,7 +209,7 @@ def _ask(team_id: int, case: BaseEvalCase) -> dict:
 
 async def eval_daily_focus_agent(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
-        model = EVAL_MODEL
+        model = daily_focus_agent.AGENT_MODEL
         if task_ctx.demo_data is None:
             return {"agent_model": model, "items": [], "offers": [], "error": "No demo data team to bill the call to"}
         try:

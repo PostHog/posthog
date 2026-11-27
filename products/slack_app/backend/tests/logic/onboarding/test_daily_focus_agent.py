@@ -176,7 +176,8 @@ def test_only_the_agent_dm_shows_its_summary_in_two_sections(agent: bool) -> Non
     assert lines[1:] == expected
 
 
-@pytest.mark.parametrize("model, kept", [("zai-org/glm-5.3-flash", False), ("claude-haiku-4-5", True)])
+# DeepSeek V4 Flash stays reserved for other products, so the slack_app pin refuses it.
+@pytest.mark.parametrize("model, kept", [("deepseek-ai/deepseek-v4-flash-0731", False), ("claude-haiku-4-5", True)])
 @pytest.mark.django_db
 def test_a_model_the_gateway_refuses_keeps_the_person_on_the_pipeline(model, kept, org_team_user, link_user) -> None:
     _, team, user = org_team_user
