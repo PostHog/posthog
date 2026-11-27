@@ -273,7 +273,7 @@ describe('soak measurements', () => {
 
     })
 
-    it('names each autovacuum setting that differs from the profile in any spelling, and each relation with storage options apart from them', () => {
+    it('names each autovacuum setting that differs from the profile in any spelling', () => {
         const vacuumSettings = {
             settings: {
                 autovacuum: 'on',
@@ -302,7 +302,6 @@ describe('soak measurements', () => {
         expect(measured('autovacuum_settings_differ', { vacuumSettings, autovacuumProfile })).toEqual([
             { key: 'count', value: 1 },
             { key: 'autovacuum_vacuum_scale_factor', value: 1 },
-            { key: 'storage_cyclotron_jobs_pkey', value: 1 },
         ])
         expect(
             measured('autovacuum_settings_differ', {
@@ -318,7 +317,6 @@ describe('soak measurements', () => {
                 censored: true,
                 unmeasured: 'PostgreSQL has no setting autovacuum_nap_time',
             },
-            { key: 'storage_cyclotron_jobs_pkey', value: 1 },
         ])
         expect(measured('autovacuum_settings_differ', { vacuumSettings })).toEqual([
             { value: null, censored: true, unmeasured: 'the profile names no autovacuum settings' },

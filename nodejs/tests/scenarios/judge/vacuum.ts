@@ -161,11 +161,6 @@ const UNIT_SCALE: Record<string, number> = {
     d: 86_400_000,
 }
 
-const scaleOf = (unit: string): number | undefined => {
-    const [, count, name] = /^(\d*)([a-zA-Z]+)$/.exec(unit) ?? []
-    return name in UNIT_SCALE ? (count ? Number(count) : 1) * UNIT_SCALE[name] : undefined
-}
-
 // PostgreSQL takes one value in many spellings: 60s and 1min, 5 in a setting whose unit is s, true and on.
 function settingValueOf(value: string, { unit, vartype }: SettingType): string {
     const text = value.trim()
@@ -181,7 +176,7 @@ function settingValueOf(value: string, { unit, vartype }: SettingType): string {
     if (number === undefined || (vartype !== 'integer' && vartype !== 'real')) {
         return text
     }
-    const scale = suffix ? scaleOf(suffix) : unit ? scaleOf(unit) : 1
+    const scale = suffix ? UNIT_SCALE[suffix] : unit ? UNIT_SCALE[unit] : 1
     return scale === undefined ? text : String(Number(number) * scale)
 }
 
@@ -320,23 +315,18 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                 unmeasured(`the autovacuum settings were not read${vacuumSettings ? `: ${vacuumSettings.error}` : ''}`),
             ]
         }
-        const { settings, types, storage } = vacuumSettings
-        const typeOf = (name: string): SettingType => types[name] ?? { unit: null, vartype: 'string' }
+        const { settings, types } = vacuumSettings
         const named = Object.keys(autovacuumProfile).sort()
         const unread = named.filter((name) => !(name in settings))
         const differ = named.filter(
             (name) =>
                 name in settings &&
-                settingValueOf(settings[name], typeOf(name)) !== settingValueOf(autovacuumProfile[name], typeOf(name))
+                settingValueOf(settings[name], types[name]) !== settingValueOf(autovacuumProfile[name], types[name])
         )
         return [
             { key: 'count', value: differ.length, ...(unread.length > 0 && { incomplete: true as const }) },
             ...differ.map((key) => ({ key, value: 1 })),
             ...unread.map((key) => ({ key, ...unmeasured(`PostgreSQL has no setting ${key}`) })),
-            ...Object.entries(storage)
-                .flatMap(([relation, options]) => (options === null ? [] : [{ relation, options }]))
-                .sort((a, b) => a.relation.localeCompare(b.relation))
-                .map(({ relation, options }) => ({ key: `storage_${relation}`, value: options.length })),
         ]
     }),
     seriesMeasure('writer_cpu_percent', '%', (evidence, params) => {
