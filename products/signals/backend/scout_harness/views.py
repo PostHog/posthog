@@ -2892,8 +2892,14 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
         canonical_team = self.team.parent_team or self.team
-        team_slug = (validated.get("team") or "").strip().lstrip("@").rsplit("/", 1)[-1].lower() or None
-        roster = list_project_members(canonical_team, search=validated.get("search") or None, team_slug=team_slug)
+        raw_team = (validated.get("team") or "").strip() or None
+        team_slug = raw_team.lstrip("@").rsplit("/", 1)[-1].lower() if raw_team else None
+        roster = list_project_members(
+            canonical_team,
+            search=validated.get("search") or None,
+            team_slug=team_slug,
+            team_query=raw_team,
+        )
         if team_slug is not None and roster.membership_read_failed:
             raise _TeamRosterUnavailable
         if team_slug is not None and not roster.membership_synced:

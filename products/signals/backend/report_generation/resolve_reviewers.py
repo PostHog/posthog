@@ -43,6 +43,8 @@ from products.signals.backend.report_generation.team_membership import (
     MembershipRoster,
     MemberTeam,
     resolve_membership_roster,
+    resolve_role_team,
+    resolve_user_mapped_teams,
 )
 from products.signals.backend.scout_harness.scout_naming import prettify_scout_skill_name
 
@@ -1043,8 +1045,24 @@ class ProjectMemberRoster:
     team_is_covered: bool
 
 
+def _merge_member_teams(primary: tuple[MemberTeam, ...], secondary: tuple[MemberTeam, ...]) -> tuple[MemberTeam, ...]:
+    if not secondary:
+        return primary
+    if not primary:
+        return secondary
+    by_slug: dict[str, MemberTeam] = {team.slug: team for team in primary}
+    for team in secondary:
+        by_slug.setdefault(team.slug, team)
+    return tuple(sorted(by_slug.values(), key=lambda item: item.slug))
+
+
 def list_project_members(
-    team: Team, *, search: str | None = None, team_slug: str | None = None, limit: int = MAX_PROJECT_MEMBERS
+    team: Team,
+    *,
+    search: str | None = None,
+    team_slug: str | None = None,
+    team_query: str | None = None,
+    limit: int = MAX_PROJECT_MEMBERS,
 ) -> ProjectMemberRoster:
     """Members with access to ``team`` — their UUID/email/name, resolved GitHub login, and teams.
 
@@ -1059,11 +1077,12 @@ def list_project_members(
     large org can't push its whole directory into the scout's context in one call.
 
     ``team_slug`` narrows to the people on one team and puts its maintainers first, so a caller that
-    takes the first few entries takes the people most likely to own the work. Teams are matched on
-    the GitHub login, so a member with no linked GitHub identity carries no teams and never matches
-    a filter. Search and the filter compose, and the cap applies after both.
+    takes the first few entries takes the people most likely to own the work. Resolves through a
+    mapped or matching PostHog role first, falling back to the synced GitHub team roster. Search and
+    the filter compose, and the cap applies after both.
     """
     roster = resolve_membership_roster(team)
+    role_team = resolve_role_team(team, team_query or team_slug, slug=team_slug) if team_slug is not None else None
     users = team.all_users_with_access()
     if search:
         # Match the search against email, each name part, AND the concatenated full name, so a
@@ -1078,13 +1097,34 @@ def list_project_members(
     users = users.prefetch_related(*_github_identity_prefetches()).order_by("id")
     if team_slug is None:
         users = users[:limit]
+    elif role_team is not None:
+        users = users.filter(id__in=role_team.user_ids)
     else:
         # Narrowed in SQL, so a team filter never pulls a whole org's roster into memory to keep a
         # handful of rows. The cap waits for the maintainer ordering, which needs the whole team.
         users = _users_holding_logins(users, team, _logins_on_team(roster, team_slug))
+
+    loaded_users = _with_team_github_integrations(users)
+    mapped_teams_by_user = (
+        resolve_user_mapped_teams(team, [user.id for user in loaded_users]) if team_slug is None else {}
+    )
+    role_member_team = (
+        (
+            MemberTeam(
+                provider=role_team.provider,
+                slug=role_team.slug,
+                name=role_team.role_name,
+                is_maintainer=False,
+            ),
+        )
+        if role_team is not None
+        else ()
+    )
+
     members: list[ProjectMemberIdentity] = []
-    for user in _with_team_github_integrations(users):
+    for user in loaded_users:
         login = raw.lower() if (raw := user.get_github_login()) else None
+        extra_teams = role_member_team if team_slug is not None else mapped_teams_by_user.get(user.id, ())
         members.append(
             ProjectMemberIdentity(
                 user_uuid=str(user.uuid),
@@ -1092,13 +1132,21 @@ def list_project_members(
                 first_name=user.first_name,
                 last_name=user.last_name,
                 github_login=login,
-                teams=roster.teams_for(login),
+                teams=_merge_member_teams(roster.teams_for(login), extra_teams),
             )
         )
     if team_slug is not None:
-        members = [member for member in members if _team_membership(member, team_slug) is not None]
+        if role_team is None:
+            members = [member for member in members if _team_membership(member, team_slug) is not None]
         # Stable, so members keep their id order inside each group and only the maintainer split moves.
         members.sort(key=lambda member: not _is_maintainer_of(member, team_slug))
+    if role_team is not None:
+        return ProjectMemberRoster(
+            members=tuple(members[:limit]),
+            membership_synced=True,
+            membership_read_failed=False,
+            team_is_covered=True,
+        )
     return ProjectMemberRoster(
         members=tuple(members[:limit]),
         membership_synced=roster.synced,

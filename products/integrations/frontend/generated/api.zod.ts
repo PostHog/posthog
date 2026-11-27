@@ -71,6 +71,89 @@ export const RoleExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
     role: zod.uuid().describe('PostHog role UUID this external role maps to.'),
 })
 
+export const roleExternalReferencesUpdateBodyProviderMax = 32
+
+export const roleExternalReferencesUpdateBodyProviderOrganizationIdMax = 255
+
+export const roleExternalReferencesUpdateBodyProviderRoleIdMax = 255
+
+export const roleExternalReferencesUpdateBodyProviderRoleSlugMax = 255
+
+export const roleExternalReferencesUpdateBodyProviderRoleNameMax = 255
+
+export const RoleExternalReferencesUpdateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .string()
+        .max(roleExternalReferencesUpdateBodyProviderMax)
+        .describe('Integration kind (e.g., github, linear, jira, slack).'),
+    provider_organization_id: zod
+        .string()
+        .max(roleExternalReferencesUpdateBodyProviderOrganizationIdMax)
+        .describe('Provider organization\/workspace\/site identifier.'),
+    provider_role_id: zod
+        .string()
+        .max(roleExternalReferencesUpdateBodyProviderRoleIdMax)
+        .describe('Stable provider role identifier.'),
+    provider_role_slug: zod
+        .string()
+        .max(roleExternalReferencesUpdateBodyProviderRoleSlugMax)
+        .nullish()
+        .describe('Human-friendly provider role identifier.'),
+    provider_role_name: zod
+        .string()
+        .max(roleExternalReferencesUpdateBodyProviderRoleNameMax)
+        .describe('Display name of the provider role.'),
+    role: zod.uuid().describe('PostHog role UUID this external role maps to.'),
+})
+
+export const roleExternalReferencesPartialUpdateBodyProviderMax = 32
+
+export const roleExternalReferencesPartialUpdateBodyProviderOrganizationIdMax = 255
+
+export const roleExternalReferencesPartialUpdateBodyProviderRoleIdMax = 255
+
+export const roleExternalReferencesPartialUpdateBodyProviderRoleSlugMax = 255
+
+export const roleExternalReferencesPartialUpdateBodyProviderRoleNameMax = 255
+
+export const RoleExternalReferencesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .string()
+        .max(roleExternalReferencesPartialUpdateBodyProviderMax)
+        .optional()
+        .describe('Integration kind (e.g., github, linear, jira, slack).'),
+    provider_organization_id: zod
+        .string()
+        .max(roleExternalReferencesPartialUpdateBodyProviderOrganizationIdMax)
+        .optional()
+        .describe('Provider organization\/workspace\/site identifier.'),
+    provider_role_id: zod
+        .string()
+        .max(roleExternalReferencesPartialUpdateBodyProviderRoleIdMax)
+        .optional()
+        .describe('Stable provider role identifier.'),
+    provider_role_slug: zod
+        .string()
+        .max(roleExternalReferencesPartialUpdateBodyProviderRoleSlugMax)
+        .nullish()
+        .describe('Human-friendly provider role identifier.'),
+    provider_role_name: zod
+        .string()
+        .max(roleExternalReferencesPartialUpdateBodyProviderRoleNameMax)
+        .optional()
+        .describe('Display name of the provider role.'),
+    role: zod.uuid().optional().describe('PostHog role UUID this external role maps to.'),
+})
+
+export const RoleExternalReferencesApplySyncCreateBody = /* @__PURE__ */ zod.object({
+    mode: zod
+        .enum(['once', 'auto', 'manual'])
+        .describe('\* `once` - Sync once\n\* `auto` - Keep in sync\n\* `manual` - Manual only')
+        .describe(
+            'Sync operation to apply: `once` (reconcile members now), `auto` (keep in sync), or `manual` (pause automatic sync).\n\n\* `once` - Sync once\n\* `auto` - Keep in sync\n\* `manual` - Manual only'
+        ),
+})
+
 export const IntegrationsCreateBody = /* @__PURE__ */ zod
     .object({
         kind: zod

@@ -97,6 +97,37 @@ export interface OrganizationIntegrationApi {
     readonly created_by: UserBasicApi
 }
 
+/**
+ * * `manual` - Manual
+ * * `proposed` - Proposed
+ * * `auto` - Auto
+ */
+export type SyncModeEnumApi = (typeof SyncModeEnumApi)[keyof typeof SyncModeEnumApi]
+
+export const SyncModeEnumApi = {
+    Manual: 'manual',
+    Proposed: 'proposed',
+    Auto: 'auto',
+} as const
+
+export interface RoleExternalReferenceDriftApi {
+    /** Whether the PostHog role's current members differ from the external team's resolved PostHog members. */
+    readonly has_drift: boolean
+    /** Organization members on the external team who are not yet in the PostHog role. */
+    readonly to_add_count: number
+    /** Current PostHog role members who are not on the external team. */
+    readonly to_remove_count: number
+    /**
+     * Total handles on the external team at last sync, or null when never synced.
+     * @nullable
+     */
+    readonly provider_member_count: number | null
+    /** External team handles matched to PostHog organization members. */
+    readonly matched_posthog_member_count: number
+    /** Current valid member count on the PostHog role. */
+    readonly current_role_member_count: number
+}
+
 export interface RoleExternalReferenceApi {
     readonly id: string
     /**
@@ -127,6 +158,26 @@ export interface RoleExternalReferenceApi {
     provider_role_name: string
     /** PostHog role UUID this external role maps to. */
     role: string
+    /** How membership updates from the external team apply (`manual`, `proposed`, or `auto`).
+     *
+     * * `manual` - Manual
+     * * `proposed` - Proposed
+     * * `auto` - Auto */
+    readonly sync_mode: SyncModeEnumApi
+    /** Whether the linked PostHog role was originally created by external team ingestion. */
+    readonly role_created_by_sync: boolean
+    /**
+     * Timestamp when the external team disappeared on the provider while keeping the PostHog role.
+     * @nullable
+     */
+    readonly orphaned_at: string | null
+    /**
+     * Timestamp of the most recent external team sync.
+     * @nullable
+     */
+    readonly last_synced_at: string | null
+    /** Membership drift summary comparing the PostHog role against the last synced external team roster. */
+    readonly drift: RoleExternalReferenceDriftApi
     readonly created_at: string
     readonly created_by: UserBasicApi
 }
@@ -140,9 +191,98 @@ export interface PaginatedRoleExternalReferenceListApi {
     results: RoleExternalReferenceApi[]
 }
 
+export interface PatchedRoleExternalReferenceApi {
+    readonly id?: string
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @maxLength 32
+     */
+    provider?: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @maxLength 255
+     */
+    provider_organization_id?: string
+    /**
+     * Stable provider role identifier.
+     * @maxLength 255
+     */
+    provider_role_id?: string
+    /**
+     * Human-friendly provider role identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    provider_role_slug?: string | null
+    /**
+     * Display name of the provider role.
+     * @maxLength 255
+     */
+    provider_role_name?: string
+    /** PostHog role UUID this external role maps to. */
+    role?: string
+    /** How membership updates from the external team apply (`manual`, `proposed`, or `auto`).
+     *
+     * * `manual` - Manual
+     * * `proposed` - Proposed
+     * * `auto` - Auto */
+    readonly sync_mode?: SyncModeEnumApi
+    /** Whether the linked PostHog role was originally created by external team ingestion. */
+    readonly role_created_by_sync?: boolean
+    /**
+     * Timestamp when the external team disappeared on the provider while keeping the PostHog role.
+     * @nullable
+     */
+    readonly orphaned_at?: string | null
+    /**
+     * Timestamp of the most recent external team sync.
+     * @nullable
+     */
+    readonly last_synced_at?: string | null
+    /** Membership drift summary comparing the PostHog role against the last synced external team roster. */
+    readonly drift?: RoleExternalReferenceDriftApi
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+}
+
+/**
+ * * `once` - Sync once
+ * * `auto` - Keep in sync
+ * * `manual` - Manual only
+ */
+export type RoleSyncActionModeEnumApi = (typeof RoleSyncActionModeEnumApi)[keyof typeof RoleSyncActionModeEnumApi]
+
+export const RoleSyncActionModeEnumApi = {
+    Once: 'once',
+    Auto: 'auto',
+    Manual: 'manual',
+} as const
+
+export interface RoleExternalReferenceApplySyncApi {
+    /** Sync operation to apply: `once` (reconcile members now), `auto` (keep in sync), or `manual` (pause automatic sync).
+     *
+     * * `once` - Sync once
+     * * `auto` - Keep in sync
+     * * `manual` - Manual only */
+    mode: RoleSyncActionModeEnumApi
+}
+
 export interface RoleLookupResponseApi {
     /** Matching reference, or null if none exists. */
     reference: RoleExternalReferenceApi | null
+}
+
+export interface GitHubRoleSyncResponseApi {
+    /** New PostHog roles created from GitHub teams. */
+    readonly created_roles: number
+    /** Existing GitHub role references refreshed. */
+    readonly updated_roles: number
+    /** Pre-existing manual PostHog roles matched as sync proposals without mutating members. */
+    readonly proposed_roles: number
+    /** Previously synced references marked orphaned because their GitHub team was deleted. */
+    readonly orphaned_references: number
+    /** True when at least one GitHub organization installation lacked `members: read` permission. */
+    readonly skipped_missing_members_permission: boolean
 }
 
 /**
@@ -1334,6 +1474,20 @@ export type RoleExternalReferencesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Filter references by integration kind (e.g., github, linear, jira, slack).
+     * @minLength 1
+     */
+    provider?: string
+    /**
+     * Filter references by provider organization/workspace/site identifier.
+     * @minLength 1
+     */
+    provider_organization_id?: string
+    /**
+     * Filter references mapped to a specific PostHog role UUID.
+     */
+    role_id?: string
 }
 
 export type RoleExternalReferencesLookupRetrieveParams = {

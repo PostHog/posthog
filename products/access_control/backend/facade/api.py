@@ -25,7 +25,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -49,7 +49,9 @@ from products.access_control.backend.activity_logging import (
     get_access_control_log_entry,
     resolve_access_rule_names,
 )
+from products.access_control.backend.likely_role import ExternalReferenceCandidate, RoleCandidate, RoleMatcher
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.models.role_external_reference import RoleExternalReference
 from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 
 from ..models.access_control import AccessControl
@@ -754,6 +756,231 @@ def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
     )
 
 
+def valid_role_member_user_ids_by_role(*, role_ids: Collection[UUID]) -> dict[UUID, frozenset[int]]:
+    """Ids of the users each role grants access to, resolved in one query."""
+    if not role_ids:
+        return {}
+    members_by_role: dict[UUID, set[int]] = defaultdict(set)
+    rows = (
+        RoleMembership.objects.filter(role_id__in=role_ids).valid_for_authorization().values_list("role_id", "user_id")
+    )
+    for role_id, user_id in rows:
+        members_by_role[role_id].add(user_id)
+    return {role_id: frozenset(members_by_role.get(role_id, set())) for role_id in role_ids}
+
+
+def _resolve_organization_id(*, organization_id: UUID | str | None, team_id: int | None) -> UUID | None:
+    if (organization_id is None) == (team_id is None):
+        raise ValueError("Provide exactly one of organization_id or team_id.")
+    if organization_id is not None:
+        return organization_id if isinstance(organization_id, UUID) else UUID(str(organization_id))
+    return Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+
+
+def _load_role_matcher(*, org_id: UUID, provider: str) -> RoleMatcher:
+    references = [
+        ExternalReferenceCandidate(
+            provider_organization_id=provider_org_id,
+            provider_role_id=provider_role_id,
+            provider_role_slug=provider_role_slug,
+            role_id=role_id,
+            role_name=role_name,
+        )
+        for provider_org_id, provider_role_id, provider_role_slug, role_id, role_name in (
+            RoleExternalReference.objects.filter(organization_id=org_id, provider=provider)
+            .order_by(F("orphaned_at").asc(nulls_first=True), "created_at", "id")
+            .values_list(
+                "provider_organization_id",
+                "provider_role_id",
+                "provider_role_slug",
+                "role_id",
+                "role__name",
+            )
+        )
+    ]
+    roles = [
+        RoleCandidate(id=role_id, name=role_name)
+        for role_id, role_name in Role.objects.filter(organization_id=org_id)
+        .order_by("name", "id")
+        .values_list("id", "name")
+    ]
+    return RoleMatcher(references=references, roles=roles)
+
+
+def likely_role(
+    team_name: str,
+    *,
+    organization_id: UUID | str | None = None,
+    team_id: int | None = None,
+    provider: str = "github",
+    provider_organization_id: str | None = None,
+) -> contracts.LikelyRole | None:
+    """Resolve an external team handle or slug (for example ``@org/team-slug``) to a PostHog role.
+
+    Checks explicit ``RoleExternalReference`` mappings first and falls back to unambiguous role-name
+    matching within the organization.
+    """
+    org_id = _resolve_organization_id(organization_id=organization_id, team_id=team_id)
+    if org_id is None or not team_name or not team_name.strip():
+        return None
+    matcher = _load_role_matcher(org_id=org_id, provider=provider)
+    return matcher.match(team_name, default_organization=provider_organization_id)
+
+
+def likely_roles(
+    team_names: Sequence[str],
+    *,
+    organization_id: UUID | str | None = None,
+    team_id: int | None = None,
+    provider: str = "github",
+    provider_organization_id: str | None = None,
+) -> dict[str, contracts.LikelyRole]:
+    """Batch counterpart of ``likely_role``, keyed by each matched input string."""
+    org_id = _resolve_organization_id(organization_id=organization_id, team_id=team_id)
+    if org_id is None or not team_names:
+        return {}
+    matcher = _load_role_matcher(org_id=org_id, provider=provider)
+    resolved: dict[str, contracts.LikelyRole] = {}
+    for name in dict.fromkeys(team_names):
+        match = matcher.match(name, default_organization=provider_organization_id)
+        if match is not None:
+            resolved[name] = match
+    return resolved
+
+
+def list_external_role_references(
+    *,
+    organization_id: UUID | str,
+    provider: str | None = "github",
+) -> list[contracts.ExternalRoleReference]:
+    """Explicit external team/group mappings configured for an organization."""
+    from products.access_control.backend.github_role_sync_service import (  # noqa: PLC0415 - keep GitHub integration imports off facade module import path
+        to_external_role_reference_dto,
+    )
+
+    org_id = organization_id if isinstance(organization_id, UUID) else UUID(str(organization_id))
+    qs = RoleExternalReference.objects.filter(organization_id=org_id).select_related("role")
+    if provider is not None:
+        qs = qs.filter(provider=provider)
+    return [
+        to_external_role_reference_dto(row)
+        for row in qs.order_by("provider", "provider_organization_id", "provider_role_slug", "id")
+    ]
+
+
+class ExternalRoleReferenceNotFoundError(LookupError):
+    """Raised when an external role reference UUID is absent or belongs to another organization."""
+
+
+def sync_organization_github_roles(
+    *,
+    organization_id: UUID | str,
+    interactive: bool = False,
+) -> contracts.GitHubRoleSyncOutcome:
+    """Ingest and reconcile all GitHub organization teams into PostHog roles for an organization."""
+    from posthog.egress.limiter.policies import Priority  # noqa: PLC0415 - keep egress off startup import path
+
+    from products.access_control.backend.github_role_sync_service import (  # noqa: PLC0415 - keep GitHub integration imports off facade module import path
+        sync_organization_github_roles as _sync_org,
+    )
+
+    org_id = organization_id if isinstance(organization_id, UUID) else UUID(str(organization_id))
+    priority = Priority.NORMAL if interactive else Priority.BATCH
+    return _sync_org(organization_id=org_id, priority=priority)
+
+
+def sync_single_github_team_webhook(
+    *,
+    installation_id: str,
+    action: str,
+    github_org_login: str,
+    github_team_id: int,
+    github_team_slug: str,
+    github_team_name: str,
+) -> None:
+    """Reconcile a single GitHub team or team-membership webhook event across linked organizations."""
+    from products.access_control.backend.github_role_sync_service import (  # noqa: PLC0415 - keep GitHub integration imports off facade module import path
+        sync_single_github_team_webhook as _sync_single,
+    )
+
+    _sync_single(
+        installation_id=installation_id,
+        action=action,
+        github_org_login=github_org_login,
+        github_team_id=github_team_id,
+        github_team_slug=github_team_slug,
+        github_team_name=github_team_name,
+    )
+
+
+def enqueue_github_team_role_webhook(
+    *,
+    installation_id: str,
+    action: str,
+    github_org_login: str,
+    github_team_id: int,
+    github_team_slug: str,
+    github_team_name: str,
+) -> None:
+    """Enqueue async reconciliation for a GitHub team or team-membership webhook delivery."""
+    from products.access_control.backend.tasks.tasks import (  # noqa: PLC0415 - keep Celery task imports off facade module import path
+        process_github_team_role_webhook,
+    )
+
+    process_github_team_role_webhook.delay(
+        installation_id=installation_id,
+        action=action,
+        github_org_login=github_org_login,
+        github_team_id=github_team_id,
+        github_team_slug=github_team_slug,
+        github_team_name=github_team_name,
+    )
+
+
+def apply_role_external_reference_sync(
+    *,
+    organization_id: UUID | str,
+    reference_id: UUID | str,
+    mode: contracts.RoleSyncActionMode,
+) -> contracts.ExternalRoleReference:
+    """Apply a user-chosen sync mode (``once``, ``auto``, or ``manual``) to an external role reference."""
+    from products.access_control.backend.github_role_sync_service import (  # noqa: PLC0415 - keep GitHub integration imports off facade module import path
+        ExternalRoleReferenceNotFoundError as _ServiceNotFoundError,
+        apply_role_external_reference_sync as _apply_sync,
+    )
+
+    org_id = organization_id if isinstance(organization_id, UUID) else UUID(str(organization_id))
+    ref_id = reference_id if isinstance(reference_id, UUID) else UUID(str(reference_id))
+    try:
+        return _apply_sync(organization_id=org_id, reference_id=ref_id, mode=mode)
+    except _ServiceNotFoundError as exc:
+        raise ExternalRoleReferenceNotFoundError(str(ref_id)) from exc
+
+
+def compute_role_reference_drifts(
+    *,
+    organization_id: UUID | str,
+    reference_ids: Sequence[UUID | str],
+) -> dict[UUID, contracts.RoleMembershipDrift]:
+    """Compute membership drift against cached GitHub logins for a batch of references."""
+    from products.access_control.backend.github_role_sync_service import (  # noqa: PLC0415 - keep GitHub integration imports off facade module import path
+        compute_drift_by_reference_id,
+    )
+
+    org_id = organization_id if isinstance(organization_id, UUID) else UUID(str(organization_id))
+    normalized_ids = [item if isinstance(item, UUID) else UUID(str(item)) for item in reference_ids]
+    return compute_drift_by_reference_id(organization_id=org_id, reference_ids=normalized_ids)
+
+
+def list_organizations_with_github_team_sync_candidates() -> list[UUID]:
+    """Organizations with at least one GitHub org installation capable of team sync."""
+    from products.access_control.backend.github_role_sync_service import (  # noqa: PLC0415 - keep GitHub integration imports off facade module import path
+        list_organizations_with_github_team_sync_candidates as _list_candidates,
+    )
+
+    return _list_candidates()
+
+
 def list_user_roles(*, user_id: int, organization_id: UUID) -> list[contracts.UserRole]:
     """Organization roles the user belongs to, ordered by role name."""
     rows = (
@@ -1244,15 +1471,25 @@ def connect_access_change_receivers(
 
 
 __all__ = [
-    "connect_access_change_receivers",
-    "stored_property_rule_floor",
+    "ExternalRoleReferenceNotFoundError",
     "InvalidPropertyAccessControlTargetError",
     "PropertyAccessControlRuleNotFoundError",
     "PropertyAccessLevel",
     "PropertyDefinitionNotFoundError",
+    "apply_role_external_reference_sync",
     "available_access_levels",
+    "compute_role_reference_drifts",
+    "connect_access_change_receivers",
     "delete_property_access_control",
     "get_property_access_state",
+    "likely_role",
+    "likely_roles",
+    "list_external_role_references",
+    "list_organizations_with_github_team_sync_candidates",
     "list_property_access_controls",
+    "stored_property_rule_floor",
+    "sync_organization_github_roles",
+    "sync_single_github_team_webhook",
     "upsert_property_access_control",
+    "valid_role_member_user_ids_by_role",
 ]

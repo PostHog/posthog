@@ -10,6 +10,12 @@ import structlog
 
 from posthog.github.installations import installation_team_ids
 
+from products.signals.backend.codeowners_teams import (
+    CodeownersTeam as CodeownersTeam,
+    CodeownersTeamsScan as CodeownersTeamsScan,
+    InvalidCodeownersRepositoryError as InvalidCodeownersRepositoryError,
+    scan_team_codeowners as scan_team_codeowners,
+)
 from products.signals.backend.models import SignalReportPullRequest
 from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.report_assignments import update_assignments_for_pull_request

@@ -6,6 +6,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { signalsConfigCreate, signalsConfigList } from '../../generated/api'
 import type { SignalTeamConfigApi } from '../../generated/api.schemas'
+import { captureInboxSettingsChanged } from '../inboxAnalytics'
 
 export const STEERING_FIELDS = {
     scout: 'scout_instructions',
@@ -223,11 +224,43 @@ export const agentSteeringLogic = kea<agentSteeringLogicType>([
             }
             actions.saveSteeringInstructions({ role: values.selectedRole, instructions: values.instructions })
         },
-        saveSteeringInstructionsSuccess: () => {
+        saveSteeringInstructionsSuccess: ({ payload }) => {
             lemonToast.success('Steering instructions saved')
+            if (payload) {
+                captureInboxSettingsChanged({
+                    setting: STEERING_FIELDS[payload.role],
+                    newValue: Boolean(payload.instructions.trim()),
+                    success: true,
+                    scope: 'team',
+                })
+            }
         },
-        saveCustomImageSuccess: () => {
+        saveSteeringInstructionsFailure: () => {
+            captureInboxSettingsChanged({
+                setting: STEERING_FIELDS[values.selectedRole],
+                newValue: Boolean(values.instructions.trim()),
+                success: false,
+                scope: 'team',
+            })
+        },
+        saveCustomImageSuccess: ({ payload }) => {
             lemonToast.success('Default image saved')
+            if (payload) {
+                captureInboxSettingsChanged({
+                    setting: CUSTOM_IMAGE_FIELDS[payload.role],
+                    newValue: Boolean(payload.imageId),
+                    success: true,
+                    scope: 'team',
+                })
+            }
+        },
+        saveCustomImageFailure: () => {
+            captureInboxSettingsChanged({
+                setting: CUSTOM_IMAGE_FIELDS[values.selectedRole],
+                newValue: Boolean(values.storedCustomImageId),
+                success: false,
+                scope: 'team',
+            })
         },
     })),
     afterMount(({ actions }) => actions.loadSteeringConfig()),

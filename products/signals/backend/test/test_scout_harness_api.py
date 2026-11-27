@@ -6285,6 +6285,54 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert [row["teams"] for row in response.json()] == [[]]
 
+    @parameterized.expand([("explicit_reference", True), ("heuristic_name_match", False)])
+    def test_team_filter_resolves_posthog_role_without_synced_warehouse_roster(
+        self, _name: str, explicit_reference: bool
+    ) -> None:
+        from products.access_control.backend.models.role import Role, RoleMembership
+        from products.access_control.backend.models.role_external_reference import RoleExternalReference
+
+        role_member = User.objects.create_and_join(
+            self.organization, "rolemember@posthog.com", None, first_name="RoleMember"
+        )
+        User.objects.create_and_join(self.organization, "outsider@posthog.com", None, first_name="Outsider")
+        role = Role.objects.create(
+            name="Error Tracking" if explicit_reference else "Desktop",
+            organization=self.organization,
+        )
+        RoleMembership.objects.create(
+            role=role,
+            user=role_member,
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=role_member),
+        )
+        if explicit_reference:
+            RoleExternalReference.objects.create(
+                organization=self.organization,
+                role=role,
+                provider="github",
+                provider_organization_id="posthog",
+                provider_role_id="team-cymbal",
+                provider_role_slug="team-cymbal",
+                provider_role_name="@posthog/team-cymbal",
+            )
+
+        query_team = "@PostHog/team-cymbal" if explicit_reference else "@PostHog/team-desktop"
+        with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
+            response = self.client.get(self._url(), data={"team": query_team})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()
+        assert [row["email"] for row in rows] == ["rolemember@posthog.com"]
+        assert rows[0]["github_login"] is None
+        assert rows[0]["teams"] == [
+            {
+                "provider": "github" if explicit_reference else "posthog_role",
+                "slug": "team-cymbal" if explicit_reference else "team-desktop",
+                "name": role.name,
+                "is_maintainer": False,
+            }
+        ]
+
     @parameterized.expand([("session", None), ("public_read_token", "read_only")])
     def test_non_scout_auth_cannot_list_members(self, _name: str, scopes: PosthogMcpScopes | None) -> None:
         # The roster (member PII) is gated on the internal `signal_scout_internal` scope object, so neither

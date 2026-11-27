@@ -72,6 +72,12 @@ const sceneMocks = mswDecorator({
         ],
         // Must precede the `:taskId` handler, which would otherwise swallow this path.
         '/api/projects/:id/tasks/repo_routing_rules/': () => [200, []],
+        '/api/organizations/:id/roles/': () => [200, { results: [], count: 0 }],
+        '/api/organizations/:id/role_external_references/': () => [200, { results: [], count: 0 }],
+        '/api/projects/:id/signals/codeowners_teams/': () => [
+            200,
+            { teams: [], scanned_repository_count: 0, total_repository_count: 0 },
+        ],
         '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string)],
         '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
         '/api/projects/:id/signals/config': () => [200, mockTeamConfig],

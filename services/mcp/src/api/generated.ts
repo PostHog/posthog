@@ -30907,6 +30907,58 @@ export namespace Schemas {
     }
 
     /**
+     * * `external_reference` - External reference
+     * * `name_match` - Name match
+     */
+    export type RoleMatchSourceEnum = typeof RoleMatchSourceEnum[keyof typeof RoleMatchSourceEnum];
+
+
+    export const RoleMatchSourceEnum = {
+      ExternalReference: 'external_reference',
+      NameMatch: 'name_match',
+    } as const;
+
+    export interface CodeownersTeam {
+      /** Lowercased GitHub organization or owner login from the CODEOWNERS entry. */
+      readonly provider_organization_id: string;
+      /** Lowercased GitHub team slug from the CODEOWNERS entry. */
+      readonly team_slug: string;
+      /** Canonical `@organization/team-slug` handle. */
+      readonly handle: string;
+      /** Connected repositories whose CODEOWNERS file named this team. */
+      readonly repositories: readonly string[];
+      /**
+         * PostHog role UUID resolved by `likely_role`, or null when no role matched.
+         * @nullable
+         */
+      readonly likely_role_id: string | null;
+      /**
+         * Display name of the resolved PostHog role, or null when no role matched.
+         * @nullable
+         */
+      readonly likely_role_name: string | null;
+      /** How `likely_role` resolved the PostHog role: `external_reference` or `name_match`.
+       *
+       * * `external_reference` - External reference
+       * * `name_match` - Name match */
+      readonly match_source: RoleMatchSourceEnum | null;
+    }
+
+    export interface CodeownersTeamsError {
+      /** Why the request failed. */
+      detail: string;
+    }
+
+    export interface CodeownersTeamsResponse {
+      /** GitHub teams discovered in CODEOWNERS across the scanned repositories. */
+      readonly teams: readonly CodeownersTeam[];
+      /** Number of connected repositories whose CODEOWNERS files were checked. */
+      readonly scanned_repository_count: number;
+      /** Total connected non-archived repositories available to scan. */
+      readonly total_repository_count: number;
+    }
+
+    /**
      * * `connected` - Connected
      * * `reauth_required` - Reauth Required
      * * `not_connected` - Not Connected
@@ -59323,6 +59375,19 @@ export namespace Schemas {
       available: boolean;
     }
 
+    export interface GitHubRoleSyncResponse {
+      /** New PostHog roles created from GitHub teams. */
+      readonly created_roles: number;
+      /** Existing GitHub role references refreshed. */
+      readonly updated_roles: number;
+      /** Pre-existing manual PostHog roles matched as sync proposals without mutating members. */
+      readonly proposed_roles: number;
+      /** Previously synced references marked orphaned because their GitHub team was deleted. */
+      readonly orphaned_references: number;
+      /** True when at least one GitHub organization installation lacked `members: read` permission. */
+      readonly skipped_missing_members_permission: boolean;
+    }
+
     export interface GitHubSource {
       /** Source id: pass back as `source_id` (with `repo`) to read this repository. */
       id: string;
@@ -85474,6 +85539,38 @@ export namespace Schemas {
       results: ReviewRun[];
     }
 
+    /**
+     * * `manual` - Manual
+     * * `proposed` - Proposed
+     * * `auto` - Auto
+     */
+    export type SyncModeEnum = typeof SyncModeEnum[keyof typeof SyncModeEnum];
+
+
+    export const SyncModeEnum = {
+      Manual: 'manual',
+      Proposed: 'proposed',
+      Auto: 'auto',
+    } as const;
+
+    export interface RoleExternalReferenceDrift {
+      /** Whether the PostHog role's current members differ from the external team's resolved PostHog members. */
+      readonly has_drift: boolean;
+      /** Organization members on the external team who are not yet in the PostHog role. */
+      readonly to_add_count: number;
+      /** Current PostHog role members who are not on the external team. */
+      readonly to_remove_count: number;
+      /**
+         * Total handles on the external team at last sync, or null when never synced.
+         * @nullable
+         */
+      readonly provider_member_count: number | null;
+      /** External team handles matched to PostHog organization members. */
+      readonly matched_posthog_member_count: number;
+      /** Current valid member count on the PostHog role. */
+      readonly current_role_member_count: number;
+    }
+
     export interface RoleExternalReference {
       readonly id: string;
       /**
@@ -85504,6 +85601,26 @@ export namespace Schemas {
       provider_role_name: string;
       /** PostHog role UUID this external role maps to. */
       role: string;
+      /** How membership updates from the external team apply (`manual`, `proposed`, or `auto`).
+       *
+       * * `manual` - Manual
+       * * `proposed` - Proposed
+       * * `auto` - Auto */
+      readonly sync_mode: SyncModeEnum;
+      /** Whether the linked PostHog role was originally created by external team ingestion. */
+      readonly role_created_by_sync: boolean;
+      /**
+         * Timestamp when the external team disappeared on the provider while keeping the PostHog role.
+         * @nullable
+         */
+      readonly orphaned_at: string | null;
+      /**
+         * Timestamp of the most recent external team sync.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+      /** Membership drift summary comparing the PostHog role against the last synced external team roster. */
+      readonly drift: RoleExternalReferenceDrift;
       readonly created_at: string;
       readonly created_by: UserBasic;
     }
@@ -99884,6 +100001,60 @@ export namespace Schemas {
       /** Members assigned to this role */
       readonly members?: readonly PatchedRoleMembersItem[];
       readonly is_default?: boolean;
+    }
+
+    export interface PatchedRoleExternalReference {
+      readonly id?: string;
+      /**
+         * Integration kind (e.g., github, linear, jira, slack).
+         * @maxLength 32
+         */
+      provider?: string;
+      /**
+         * Provider organization/workspace/site identifier.
+         * @maxLength 255
+         */
+      provider_organization_id?: string;
+      /**
+         * Stable provider role identifier.
+         * @maxLength 255
+         */
+      provider_role_id?: string;
+      /**
+         * Human-friendly provider role identifier.
+         * @maxLength 255
+         * @nullable
+         */
+      provider_role_slug?: string | null;
+      /**
+         * Display name of the provider role.
+         * @maxLength 255
+         */
+      provider_role_name?: string;
+      /** PostHog role UUID this external role maps to. */
+      role?: string;
+      /** How membership updates from the external team apply (`manual`, `proposed`, or `auto`).
+       *
+       * * `manual` - Manual
+       * * `proposed` - Proposed
+       * * `auto` - Auto */
+      readonly sync_mode?: SyncModeEnum;
+      /** Whether the linked PostHog role was originally created by external team ingestion. */
+      readonly role_created_by_sync?: boolean;
+      /**
+         * Timestamp when the external team disappeared on the provider while keeping the PostHog role.
+         * @nullable
+         */
+      readonly orphaned_at?: string | null;
+      /**
+         * Timestamp of the most recent external team sync.
+         * @nullable
+         */
+      readonly last_synced_at?: string | null;
+      /** Membership drift summary comparing the PostHog role against the last synced external team roster. */
+      readonly drift?: RoleExternalReferenceDrift;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
     }
 
     /**
@@ -117142,6 +117313,29 @@ export namespace Schemas {
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
       revoked_count: number;
+    }
+
+    /**
+     * * `once` - Sync once
+     * * `auto` - Keep in sync
+     * * `manual` - Manual only
+     */
+    export type RoleSyncActionModeEnum = typeof RoleSyncActionModeEnum[keyof typeof RoleSyncActionModeEnum];
+
+
+    export const RoleSyncActionModeEnum = {
+      Once: 'once',
+      Auto: 'auto',
+      Manual: 'manual',
+    } as const;
+
+    export interface RoleExternalReferenceApplySync {
+      /** Sync operation to apply: `once` (reconcile members now), `auto` (keep in sync), or `manual` (pause automatic sync).
+       *
+       * * `once` - Sync once
+       * * `auto` - Keep in sync
+       * * `manual` - Manual only */
+      mode: RoleSyncActionModeEnum;
     }
 
     export interface RoleLookupResponse {
@@ -139374,6 +139568,20 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter references by integration kind (e.g., github, linear, jira, slack).
+     * @minLength 1
+     */
+    provider?: string;
+    /**
+     * Filter references by provider organization/workspace/site identifier.
+     * @minLength 1
+     */
+    provider_organization_id?: string;
+    /**
+     * Filter references mapped to a specific PostHog role UUID.
+     */
+    role_id?: string;
     };
 
     export type RoleExternalReferencesLookupRetrieveParams = {
@@ -153355,6 +153563,14 @@ export namespace Schemas {
       Number45: 45,
       Number90: 90,
     } as const;
+
+    export type SignalsCodeownersTeamsListParams = {
+    /**
+     * Optional GitHub repository in `organization/repository` form to scan. When omitted, scans up to 10 non-archived connected repositories.
+     * @maxLength 200
+     */
+    repository?: string;
+    };
 
     export type SignalsProcessingListParams = {
     /**

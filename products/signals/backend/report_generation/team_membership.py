@@ -15,13 +15,21 @@ Two properties every caller has to carry:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from uuid import UUID
 
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.api import (
+    likely_role,
+    list_external_role_references,
+    valid_role_member_user_ids,
+    valid_role_member_user_ids_by_role,
+)
+from products.access_control.backend.facade.contracts import RoleMatchSource
 from products.engineering_analytics.backend.facade.api import get_github_team_roster
 
 logger = structlog.get_logger(__name__)
@@ -29,6 +37,7 @@ logger = structlog.get_logger(__name__)
 
 # Matches the vocabulary ``RoleExternalReference.provider`` uses for the same external-group idea.
 GITHUB_PROVIDER = "github"
+POSTHOG_ROLE_PROVIDER = "posthog_role"
 
 
 @frozen
@@ -106,3 +115,62 @@ def resolve_membership_roster(team: Team) -> MembershipRoster:
         },
         covered_slugs=frozenset(covered_slugs),
     )
+
+
+@frozen
+class RoleTeamResolution:
+    role_id: UUID
+    role_name: str
+    provider: str
+    slug: str
+    user_ids: frozenset[int]
+
+
+def resolve_role_team(team: Team, team_query: str, *, slug: str) -> RoleTeamResolution | None:
+    """Resolve a team query or CODEOWNERS slug to a PostHog role and its valid member user IDs."""
+    try:
+        matched = likely_role(team_query, organization_id=team.organization_id, provider=GITHUB_PROVIDER)
+        if matched is None:
+            return None
+        user_ids = frozenset(valid_role_member_user_ids(role_id=matched.id))
+    except Exception:
+        logger.warning("signals.team_membership.role_lookup_failed", team_id=team.pk, exc_info=True)
+        return None
+    provider = GITHUB_PROVIDER if matched.source == RoleMatchSource.EXTERNAL_REFERENCE else POSTHOG_ROLE_PROVIDER
+    return RoleTeamResolution(
+        role_id=matched.id,
+        role_name=matched.name,
+        provider=provider,
+        slug=slug,
+        user_ids=user_ids,
+    )
+
+
+def resolve_user_mapped_teams(team: Team, user_ids: Sequence[int]) -> dict[int, tuple[MemberTeam, ...]]:
+    """Explicitly mapped GitHub teams per user from ``RoleExternalReference``, without warehouse sync."""
+    if not user_ids:
+        return {}
+    try:
+        references = list_external_role_references(organization_id=team.organization_id, provider=GITHUB_PROVIDER)
+        if not references:
+            return {}
+        members_by_role = valid_role_member_user_ids_by_role(role_ids={ref.role_id for ref in references})
+    except Exception:
+        logger.warning("signals.team_membership.mapped_teams_read_failed", team_id=team.pk, exc_info=True)
+        return {}
+
+    wanted_users = set(user_ids)
+    teams_by_user: dict[int, list[MemberTeam]] = {}
+    for ref in references:
+        slug = (ref.provider_role_slug or ref.provider_role_id).strip().lower()
+        if not slug:
+            continue
+        member_team = MemberTeam(
+            provider=GITHUB_PROVIDER,
+            slug=slug,
+            name=ref.role_name,
+            is_maintainer=False,
+        )
+        for user_id in members_by_role.get(ref.role_id, frozenset()) & wanted_users:
+            teams_by_user.setdefault(user_id, []).append(member_team)
+    return {user_id: tuple(sorted(teams, key=lambda item: item.slug)) for user_id, teams in teams_by_user.items()}

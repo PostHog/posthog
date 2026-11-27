@@ -973,6 +973,57 @@ export interface AnomalySearchResponseApi {
 }
 
 /**
+ * * `external_reference` - External reference
+ * * `name_match` - Name match
+ */
+export type RoleMatchSourceEnumApi = (typeof RoleMatchSourceEnumApi)[keyof typeof RoleMatchSourceEnumApi]
+
+export const RoleMatchSourceEnumApi = {
+    ExternalReference: 'external_reference',
+    NameMatch: 'name_match',
+} as const
+
+export interface CodeownersTeamApi {
+    /** Lowercased GitHub organization or owner login from the CODEOWNERS entry. */
+    readonly provider_organization_id: string
+    /** Lowercased GitHub team slug from the CODEOWNERS entry. */
+    readonly team_slug: string
+    /** Canonical `@organization/team-slug` handle. */
+    readonly handle: string
+    /** Connected repositories whose CODEOWNERS file named this team. */
+    readonly repositories: readonly string[]
+    /**
+     * PostHog role UUID resolved by `likely_role`, or null when no role matched.
+     * @nullable
+     */
+    readonly likely_role_id: string | null
+    /**
+     * Display name of the resolved PostHog role, or null when no role matched.
+     * @nullable
+     */
+    readonly likely_role_name: string | null
+    /** How `likely_role` resolved the PostHog role: `external_reference` or `name_match`.
+     *
+     * * `external_reference` - External reference
+     * * `name_match` - Name match */
+    readonly match_source: RoleMatchSourceEnumApi | null
+}
+
+export interface CodeownersTeamsResponseApi {
+    /** GitHub teams discovered in CODEOWNERS across the scanned repositories. */
+    readonly teams: readonly CodeownersTeamApi[]
+    /** Number of connected repositories whose CODEOWNERS files were checked. */
+    readonly scanned_repository_count: number
+    /** Total connected non-archived repositories available to scan. */
+    readonly total_repository_count: number
+}
+
+export interface CodeownersTeamsErrorApi {
+    /** Why the request failed. */
+    detail: string
+}
+
+/**
  * Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch.
  */
 export type SignalTeamConfigApiAutostartBaseBranches = { [key: string]: string }
@@ -14373,6 +14424,14 @@ export const SignalsAnomaliesSearchRetrieveViewedWithinDays = {
     Number45: 45,
     Number90: 90,
 } as const
+
+export type SignalsCodeownersTeamsListParams = {
+    /**
+     * Optional GitHub repository in `organization/repository` form to scan. When omitted, scans up to 10 non-archived connected repositories.
+     * @maxLength 200
+     */
+    repository?: string
+}
 
 export type SignalsProcessingListParams = {
     /**
