@@ -23,18 +23,20 @@ describe('ScoutSuggestionsStrip', () => {
         initKeaTests()
     }
 
-    // The strip opens collapsed, so a press from the collapsed line is the common path for Refresh,
-    // not an edge case.
-    it('shows how the scan is going when Refresh is pressed from the collapsed line', async () => {
+    // The strip opens collapsed, so the labeled button is the way in, and Refresh sits in the header
+    // menu once the rows are open.
+    it('opens from the collapsed bar and shows how a refresh is going', async () => {
         useSetupMocks(mockScoutSuggestions)
-        const { findByText, getByText } = render(<ScoutSuggestionsStrip />)
+        const { findByText, getByText, getByLabelText } = render(<ScoutSuggestionsStrip />)
         await findByText(/Watch signup drop-off by plan/)
 
-        fireEvent.click(getByText('Refresh'))
+        fireEvent.click(getByText('Show suggestions'))
+        fireEvent.click(getByLabelText('Suggested scouts options'))
+        fireEvent.click(await findByText('Refresh suggestions'))
 
         expect(await findByText(/less than a minute so far/)).toBeTruthy()
         expect(getByText(/You can leave this page/)).toBeTruthy()
-        expect(getByText(/Watch signup drop-off by plan/)).toBeTruthy()
+        expect(getByText('Investigates sudden drops in completed signups, split by plan.')).toBeTruthy()
     })
 
     it('still says a scan is running when there are no picks left to name', async () => {
