@@ -185,8 +185,16 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         control = next(series for series in response.timeseries if series.variant == "control")
         assert control.exposure_counts == [0, 3, 4, 4, 4, 4, 4]
         assert response.exposed_by_library is None
-        # The exposure health checks read flag calls and exposure events, which a warehouse has neither of.
-        assert {check.status for check in response.health_checks} == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+        # The rows the run left out become a finding. The other exposure health checks read flag calls and exposure
+        # events, which a warehouse has neither of.
+        statuses = {check.key: check.status for check in response.health_checks}
+        assert statuses.pop(ExperimentExposureHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT) == (
+            ExperimentExposureHealthCheckStatus.FINDING
+        )
+        assert set(statuses.values()) == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+        assert [(finding.code, finding.subcode) for finding in response.health_findings] == [
+            (ExperimentExposureHealthFindingCode.EXPOSURE_ROWS_LEFT_OUT, "unknown_variant")
+        ]
 
     def test_a_failing_diagnostic_keeps_the_exposures(self):
         connection = ExternalDataSource.objects.create(
@@ -215,6 +223,12 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         assert response.total_exposures["control"] == 3
         assert response.rows_left_out is None
+        left_out = next(
+            check
+            for check in response.health_checks
+            if check.key == ExperimentExposureHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT
+        )
+        assert (left_out.status, response.health_findings) == (ExperimentExposureHealthCheckStatus.NOT_CHECKED, [])
 
     def test_publishing_and_shared_links_need_access_to_the_connection(self):
         connection = ExternalDataSource.objects.create(

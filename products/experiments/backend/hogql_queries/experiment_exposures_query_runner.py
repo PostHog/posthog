@@ -83,6 +83,7 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.exposure_gate import load_split_history
 from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
+    WAREHOUSE_NATIVE_EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
     not_checked_health,
 )
@@ -130,7 +131,7 @@ HEALTH_QUERY_TIMEOUT_SECONDS = 60
 # The page recalculates the exposures on a forced refresh, and on every entry while few users are exposed. The queries
 # that explain a finding must not repeat their scan each time.
 HEALTH_QUERY_CACHE_SECONDS = 60 * 60
-# The exposure health checks read the flag's calls and the exposure events. A warehouse has neither.
+# Most exposure health checks read the flag's calls and the exposure events. A warehouse has neither.
 NOT_ON_WAREHOUSE_NATIVE = "Couldn't check because the exposures come from a warehouse, which isn't supported yet"
 
 
@@ -497,6 +498,20 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             context = replace(context, exposures=replace(exposures, exposed_without_test_account_filter=exposed))
         return evaluate_health(context, EXPOSURE_HEALTH_CHECKS)
 
+    def _evaluate_warehouse_native_health(self, exposures: ExposureTotals) -> ExperimentHealth:
+        """The checks that read the counts of a warehouse-native run. The other exposure checks keep "not checked",
+        in the order of the list, so the page shows every check once."""
+        if self._rule is not None:
+            return not_checked_health(EXPOSURE_HEALTH_CHECKS, NOT_ON_FLAG_RULE)
+        # The query's criteria ran, so the context says so even when the stored criteria differ.
+        context = replace(load_health_context(self.experiment, exposures), warehouse_native_exposures=True)
+        checked = evaluate_health(context, WAREHOUSE_NATIVE_EXPOSURE_HEALTH_CHECKS)
+        unchecked = {
+            check.key: check for check in not_checked_health(EXPOSURE_HEALTH_CHECKS, NOT_ON_WAREHOUSE_NATIVE).checks
+        }
+        unchecked.update({check.key: check for check in checked.checks})
+        return ExperimentHealth(findings=checked.findings, checks=tuple(unchecked.values()))
+
     def _segments(
         self, exposure_params: ExposureQueryParams, first_exposed_after: date | None
     ) -> tuple[ExposureSegment, ...] | None:
@@ -796,26 +811,23 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures, multiple_variant_handling)
+        exposures = ExposureTotals(
+            total_exposures=total_exposures,
+            multiple_variant_handling=multiple_variant_handling,
+            sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
+            sample_ratio_expected=sample_ratio_mismatch.expected if sample_ratio_mismatch else {},
+            daily_exposures=daily_exposures,
+            hours_since_launch=self.experiment.hours_since_launch(read_activity_log=self._can_read_flag_history()),
+            counts_groups=aggregates_by_group(self.group_type_index),
+            filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
+            has_positive_test_account_filter=has_positive_test_account_filter(self.team),
+            reads_precomputed_exposures=self._reads_precomputed_exposures,
+            rows_left_out=self._rows_left_out,
+        )
         if exposure_params is None:
-            health = not_checked_health(EXPOSURE_HEALTH_CHECKS, NOT_ON_WAREHOUSE_NATIVE)
+            health = self._evaluate_warehouse_native_health(exposures)
         else:
-            health = self._evaluate_health(
-                ExposureTotals(
-                    total_exposures=total_exposures,
-                    multiple_variant_handling=multiple_variant_handling,
-                    sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
-                    sample_ratio_expected=sample_ratio_mismatch.expected if sample_ratio_mismatch else {},
-                    daily_exposures=daily_exposures,
-                    hours_since_launch=self.experiment.hours_since_launch(
-                        read_activity_log=self._can_read_flag_history()
-                    ),
-                    counts_groups=aggregates_by_group(self.group_type_index),
-                    filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
-                    has_positive_test_account_filter=has_positive_test_account_filter(self.team),
-                    reads_precomputed_exposures=self._reads_precomputed_exposures,
-                ),
-                exposure_params,
-            )
+            health = self._evaluate_health(exposures, exposure_params)
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,

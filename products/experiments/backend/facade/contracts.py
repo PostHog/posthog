@@ -264,6 +264,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     RESULT_READY = "result_ready"
     FLAG_SHARED = "flag_shared"
     STALE_EXPERIMENT = "stale_experiment"
+    EXPOSURE_ROWS_LEFT_OUT = "exposure_rows_left_out"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -340,6 +341,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     EVENTS_BILLING_LIMIT = "events_billing_limit"
     FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
+    EXPOSURE_ROWS_LEFT_OUT = "exposure_rows_left_out"
 
 
 @frozen
@@ -584,6 +586,18 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     FILTERS_TEST_ACCOUNTS = (
         "filters_test_accounts",
         "Whether the counts leave out internal and test users, because the experiment applies the test account filters",
+    )
+    LEFT_OUT_ROW_COUNT = (
+        "left_out_row_count",
+        "Rows of the warehouse-native exposure query that the exposures leave out, for any reason",
+    )
+    UNKNOWN_VARIANT_ROW_COUNT = (
+        "unknown_variant_row_count",
+        "Rows of the warehouse-native exposure query whose variant is none of the experiment's variants",
+    )
+    EMPTY_ID_ROW_COUNT = (
+        "empty_id_row_count",
+        "Rows of the warehouse-native exposure query whose entity_id is empty",
     )
 
 

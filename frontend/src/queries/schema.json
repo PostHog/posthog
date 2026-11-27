@@ -29642,7 +29642,8 @@
                 "test_account_filter_removes_exposures",
                 "unserved_variant_exposures",
                 "events_billing_limit",
-                "feature_flags_billing_limit"
+                "feature_flags_billing_limit",
+                "exposure_rows_left_out"
             ],
             "type": "string"
         },
@@ -29775,7 +29776,8 @@
                 "test_account_filter_removes_exposures",
                 "unserved_variant_exposures",
                 "events_billing_limit",
-                "feature_flags_billing_limit"
+                "feature_flags_billing_limit",
+                "exposure_rows_left_out"
             ],
             "type": "string"
         },
@@ -29820,7 +29822,10 @@
                 "exposed_without_test_account_filter_count",
                 "kept_by_test_account_filter_percentage",
                 "unserved_exposed_count",
-                "unserved_exposed_percentage"
+                "unserved_exposed_percentage",
+                "left_out_row_count",
+                "unknown_variant_row_count",
+                "empty_id_row_count"
             ],
             "type": "string"
         },
