@@ -1,6 +1,8 @@
 import { cn } from 'lib/utils/css-classes'
 
+import { ADVENT_LAST_DAY } from './adventContent'
 import { adventDayColor, AdventDoor } from './adventGraph'
+import { AdventPresent } from './AdventPresent'
 import { AdventRewardArt } from './AdventRewardArt'
 import { AdventSparkles } from './AdventSparkles'
 import type { AdventRevealPhase } from './useAdventReveal'
@@ -18,15 +20,23 @@ export function AdventRevealBurst({ door, phase }: { door: AdventDoor; phase: Ad
                     </span>
                 </span>
             )}
-            <span
-                className={cn(
-                    'absolute inset-0 flex items-center justify-center rounded-3xl border-4 bg-surface-primary text-7xl font-bold shadow-lg',
-                    isOut ? 'AdventReveal__lid--off' : 'AdventReveal__lid--shaking'
-                )}
-                style={{ borderColor: color, color }}
-            >
-                {door.day}
-            </span>
+            {door.day === ADVENT_LAST_DAY ? (
+                <span
+                    className={cn('absolute inset-0', isOut ? 'AdventReveal__lid--off' : 'AdventReveal__lid--shaking')}
+                >
+                    <AdventPresent className="size-full" />
+                </span>
+            ) : (
+                <span
+                    className={cn(
+                        'absolute inset-0 flex items-center justify-center rounded-3xl border-4 bg-surface-primary text-7xl font-bold shadow-lg',
+                        isOut ? 'AdventReveal__lid--off' : 'AdventReveal__lid--shaking'
+                    )}
+                    style={{ borderColor: color, color }}
+                >
+                    {door.day}
+                </span>
+            )}
             {isOut && <AdventSparkles count={28} seed={door.day} shape="chip" />}
         </span>
     )

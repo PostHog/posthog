@@ -8,10 +8,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 import { ADVENT_CARD_EDGE_GAP, ADVENT_CARD_INSET, adventCardPlacement } from './adventCardPlacement'
-import { ADVENT_TIPS } from './adventContent'
+import { ADVENT_LAST_DAY, ADVENT_TIPS } from './adventContent'
 import { AdventDoorAnswer } from './AdventDoorAnswer'
 import { AdventDoorFace } from './AdventDoorFace'
 import { AdventDoor, adventDoorColor, adventWeekday } from './adventGraph'
+import { AdventRaffleDetails } from './AdventRaffleDetails'
 import { AdventTipCard } from './AdventTipCard'
 import { ADVENT_CARD_CLOSE_MS } from './useAdventCard'
 
@@ -40,8 +41,10 @@ export interface AdventDoorCardProps {
     onMouseLeave: () => void
 }
 
-function closedClip(faceSize: number, faceInset: number, isLeftward: boolean): string {
-    const [top, bottom] = [`${ADVENT_CARD_INSET}px`, `calc(100% - ${ADVENT_CARD_INSET + faceSize}px)`]
+function closedClip(faceSize: number, faceInset: number, isLeftward: boolean, facesDown: boolean): string {
+    const [top, bottom] = facesDown
+        ? [`calc(100% - ${ADVENT_CARD_INSET + faceSize}px)`, `${ADVENT_CARD_INSET}px`]
+        : [`${ADVENT_CARD_INSET}px`, `calc(100% - ${ADVENT_CARD_INSET + faceSize}px)`]
     const [right, left] = isLeftward
         ? [`${faceInset}px`, `calc(100% - ${faceInset + faceSize}px)`]
         : [`calc(100% - ${faceInset + faceSize}px)`, `${faceInset}px`]
@@ -53,9 +56,12 @@ function cardLayout(
     face: AdventCardFace,
     stage: AdventDoorCardProps['stage'],
     isOpen: boolean
-): { style: CSSProperties; faceShift: CSSProperties; isLeftward: boolean } {
+): { style: CSSProperties; faceShift: CSSProperties; isLeftward: boolean; facesDown: boolean } {
     const { isLeftward, left, width, faceInset } = adventCardPlacement(face, stage.width, door.row)
     const isUpward = door.row === 2
+    // The present's card holds the raffle details, so it is taller than the room under the present.
+    // It grows upward with its face at the bottom, over the present, and opens from there.
+    const facesDown = isUpward && door.day === ADVENT_LAST_DAY
     const faceTop = face.top - ADVENT_CARD_INSET
     const faceBottom = face.top + face.size + ADVENT_CARD_INSET
     const vertical: CSSProperties = isUpward
@@ -66,15 +72,18 @@ function cardLayout(
         left,
         ...vertical,
         borderColor: adventDoorColor(door),
-        clipPath: isOpen ? OPEN_CLIP : closedClip(face.size, faceInset, isLeftward),
+        clipPath: isOpen ? OPEN_CLIP : closedClip(face.size, faceInset, isLeftward, facesDown),
         transitionDuration: `${isOpen ? OPEN_MS : ADVENT_CARD_CLOSE_MS}ms`,
     }
     const shift = faceInset - ADVENT_CARD_INSET
     const faceShift: CSSProperties = isLeftward ? { marginRight: shift } : { marginLeft: shift }
-    return { style, faceShift, isLeftward }
+    return { style, faceShift, isLeftward, facesDown }
 }
 
 function headline(door: AdventDoor): { title: string; detail: string | null } {
+    if (door.day === ADVENT_LAST_DAY && door.status !== 'open') {
+        return { title: '', detail: null }
+    }
     if (door.status === 'open') {
         return { title: door.reward?.name ?? `Door ${door.day}`, detail: door.reward?.line ?? null }
     }
@@ -104,18 +113,22 @@ export function AdventDoorCard({
     onMouseLeave,
 }: AdventDoorCardProps): JSX.Element {
     const { title, detail } = headline(door)
-    const { style, faceShift, isLeftward } = cardLayout(door, face, stage, isOpen)
+    const isPresent = door.day === ADVENT_LAST_DAY
+    const detailsBesideFace = isPresent && door.status !== 'open'
+    const { style, faceShift, isLeftward, facesDown } = cardLayout(door, face, stage, isOpen)
 
     return (
         <div
-            className={cn('AdventCard', isOpen && 'AdventCard--open')}
+            className={cn('AdventCard', facesDown && 'flex-col-reverse', isOpen && 'AdventCard--open')}
             style={style}
             data-attr="advent-door-card"
             data-open={isOpen}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >
-            <div className={cn('flex items-start gap-3', isLeftward && 'flex-row-reverse')}>
+            <div
+                className={cn('flex gap-3', isLeftward && 'flex-row-reverse', facesDown ? 'items-end' : 'items-start')}
+            >
                 <AdventDoorFace
                     door={door}
                     size={face.size}
@@ -124,10 +137,12 @@ export function AdventDoorCard({
                     onClick={() => onPin(door.id)}
                 />
                 <div className="AdventCard__fade flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="text-[11px] text-secondary" translate="no">
-                        {adventWeekday(door.day)}
-                    </span>
-                    <span className="text-sm font-semibold leading-tight">{title}</span>
+                    {!isPresent && (
+                        <span className="text-[11px] text-secondary" translate="no">
+                            {adventWeekday(door.day)}
+                        </span>
+                    )}
+                    {title && <span className="text-sm font-semibold leading-tight">{title}</span>}
                     {detail && (
                         <span
                             className={cn(
@@ -138,6 +153,7 @@ export function AdventDoorCard({
                             {detail}
                         </span>
                     )}
+                    {detailsBesideFace && <AdventRaffleDetails />}
                 </div>
                 {isPinned && (
                     <LemonButton
@@ -151,8 +167,9 @@ export function AdventDoorCard({
                 )}
             </div>
 
-            <div className="AdventCard__fade AdventCard__body">
+            <div className={cn('AdventCard__fade AdventCard__body', detailsBesideFace && 'hidden')}>
                 <AdventDoorAnswer door={door} shares={shares} onAnswer={onAnswer} />
+                {isPresent && !detailsBesideFace && <AdventRaffleDetails />}
                 {door.status === 'open' && (
                     <AdventTipCard tip={ADVENT_TIPS[door.day]} onLinkClick={() => onTipClick(door.day)} />
                 )}
