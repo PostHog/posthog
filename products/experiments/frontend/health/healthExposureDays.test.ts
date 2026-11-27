@@ -1,6 +1,6 @@
 import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
-import { healthDailyExposures, healthDailyShares, healthExposureDay } from './healthExposureDays'
+import { healthChangeDays, healthDailyExposures, healthDailyShares } from './healthExposureDays'
 
 const DAYS = ['2026-10-19', '2026-10-20', '2026-10-21']
 
@@ -56,16 +56,33 @@ describe('healthExposureDays', () => {
         expect(healthDailyExposures(exposures)).toEqual(expected)
     })
 
-    it('leaves a day with too few exposures out of the shares instead of drawing a jump', () => {
-        const daily = healthDailyExposures(answer({ control: [30, 39, 59], test: [10, 11, 31] }))
+    test.each([
+        {
+            name: 'leaves a day with too few exposures out of the shares instead of drawing a jump',
+            cumulative: { control: [30, 39, 59], test: [10, 11, 31] },
+            expected: [
+                { variant: 'control', shares: [75, NaN, 50] },
+                { variant: 'test', shares: [25, NaN, 50] },
+            ],
+        },
+        {
+            name: 'has no line to draw when only one day has enough exposures',
+            cumulative: { control: [30, 39, 49], test: [10, 11, 21] },
+            expected: null,
+        },
+    ])('healthDailyShares: $name', ({ cumulative, expected }) => {
+        const daily = healthDailyExposures(answer(cumulative))
 
-        expect(daily && healthDailyShares(daily)).toEqual([
-            { variant: 'control', shares: [75, NaN, 50] },
-            { variant: 'test', shares: [25, NaN, 50] },
-        ])
+        expect(daily && healthDailyShares(daily)).toEqual(expected)
     })
 
-    it("puts a change on the project's day, not the UTC day", () => {
-        expect(healthExposureDay('2026-10-20T23:30:00Z', 'Europe/Berlin')).toEqual('2026-10-21')
+    it("puts a change on the project's day, not the UTC day, and only on a day of the answer", () => {
+        expect(
+            healthChangeDays(
+                ['2026-10-20T23:30:00Z', '2026-10-21T08:00:00Z', '2026-10-25T08:00:00Z'],
+                'Europe/Berlin',
+                DAYS
+            )
+        ).toEqual(['2026-10-21'])
     })
 })

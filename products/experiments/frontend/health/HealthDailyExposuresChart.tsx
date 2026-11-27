@@ -9,19 +9,16 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
-import { HEALTH_CHART_MARKER_MARGIN, HealthChartDayMarker } from './HealthChartDayMarker'
-import { healthFlagChangeTimes } from './healthCheckRows'
-import { healthDailyExposures, healthExposureDay } from './healthExposureDays'
-import type { HealthPanelCheck } from './healthPanelChecks'
+import { HEALTH_CHART_MARKER_MARGIN, type HealthChartDayMarker, HealthChartDayMarkers } from './HealthChartDayMarkers'
+import { healthChangeDays, healthDailyExposures } from './healthExposureDays'
 
 export function HealthDailyExposuresChart({
-    check,
     exposures,
+    splitChangedAt,
     units,
 }: {
-    /** A check of flag changes, whose rows mark the days of the changes. */
-    check: HealthPanelCheck
     exposures: ExperimentExposureQueryResponse | null
+    splitChangedAt: string[]
     units: string
 }): JSX.Element | null {
     const { timezone } = useValues(teamLogic)
@@ -31,19 +28,23 @@ export function HealthDailyExposuresChart({
         () => (daily?.variants ?? []).map(({ variant, counts }) => ({ key: variant, label: variant, data: counts })),
         [daily]
     )
-    const changeDays = useMemo(() => {
-        const days = healthFlagChangeTimes(check).map((time) => healthExposureDay(time, timezone))
-        return [...new Set(days)].filter((day) => daily?.days.includes(day))
-    }, [check, timezone, daily])
-    const marksChanges = changeDays.length > 0
+    const markers = useMemo<HealthChartDayMarker[]>(
+        () =>
+            healthChangeDays(splitChangedAt, timezone, daily?.days ?? []).map((day) => ({
+                day,
+                label: 'Split changed',
+            })),
+        [daily, splitChangedAt, timezone]
+    )
+    const hasMarkers = markers.length > 0
     const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
-            ...(marksChanges ? { margins: { top: HEALTH_CHART_MARKER_MARGIN } } : {}),
+            ...(hasMarkers ? { margins: { top: HEALTH_CHART_MARKER_MARGIN } } : {}),
             xAxis: { interval: 'day', timezone },
             legend: { show: true },
             tooltip: { placement: 'cursor' },
         }),
-        [timezone, marksChanges]
+        [timezone, hasMarkers]
     )
 
     if (!daily) {
@@ -62,9 +63,7 @@ export function HealthDailyExposuresChart({
                     config={config}
                     dataAttr="experiment-health-daily-exposures-chart"
                 >
-                    {changeDays.map((day) => (
-                        <HealthChartDayMarker key={day} day={day} label="Split changed" />
-                    ))}
+                    <HealthChartDayMarkers markers={markers} />
                 </TimeSeriesLineChart>
             </div>
         </div>

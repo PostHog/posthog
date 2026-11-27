@@ -1,37 +1,39 @@
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
+import { healthChangedWhileExposed, healthFlagChangeTimes } from './healthCheckRows'
 import { HealthDailyExposuresChart } from './HealthDailyExposuresChart'
 import { HealthDailyShareChart } from './HealthDailyShareChart'
 import type { HealthPanelCheck } from './healthPanelChecks'
 import type { HealthPanelFinding } from './healthPanelFindings'
 
-/** The exposures by day behind a finding of an exposure check. Nothing for a check without a finding or another check. */
+/** The exposures by day behind a finding of an exposure check. Nothing for a finding of another check. */
 export function HealthFindingDailyChart({
-    check,
     finding,
+    splitCheck,
     exposures,
     units,
 }: {
-    check: HealthPanelCheck
-    finding: HealthPanelFinding | undefined
+    finding: HealthPanelFinding
+    splitCheck: HealthPanelCheck | null
     exposures: ExperimentExposureQueryResponse | null
     units: string
 }): JSX.Element | null {
-    if (!finding) {
-        return null
+    const splitChangedAt = splitCheck ? healthFlagChangeTimes(splitCheck) : []
+    if (finding.check === 'split_changed_mid_run') {
+        return <HealthDailyExposuresChart exposures={exposures} splitChangedAt={splitChangedAt} units={units} />
     }
-    if (check.key === 'split_changed_mid_run') {
-        return <HealthDailyExposuresChart check={check} exposures={exposures} units={units} />
-    }
-    if (check.key !== 'srm') {
+    if (finding.check !== 'srm') {
         return null
     }
     const startedOn = finding.evidence.mismatch_started_on
+    const splitChanged =
+        finding.subcode === 'split_changed' || (splitCheck !== null && healthChangedWhileExposed(splitCheck))
     return (
         <HealthDailyShareChart
             exposures={exposures}
             startedOn={typeof startedOn === 'string' ? startedOn : null}
-            showsPlan={finding.subcode !== 'split_changed'}
+            splitChangedAt={splitChangedAt}
+            showsPlan={!splitChanged}
             units={units}
         />
     )

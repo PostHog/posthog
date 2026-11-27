@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { healthCheckRowsTable, healthDetectableEffects } from './healthCheckRows'
@@ -5,9 +7,7 @@ import { HealthCheckRowsTable } from './HealthCheckRowsTable'
 import { type HealthReading, healthCheckReadings, healthExposureSplit } from './healthCheckValues'
 import { HealthDetectableEffectLine } from './HealthDetectableEffectLine'
 import { HealthExposureSplitTable } from './HealthExposureSplitTable'
-import { HealthFindingDailyChart } from './HealthFindingDailyChart'
 import type { HealthPanelCheck } from './healthPanelChecks'
-import type { HealthPanelFinding } from './healthPanelFindings'
 import { HealthPanelSection } from './HealthPanelSection'
 import { HealthReadingList } from './HealthReadingList'
 
@@ -18,13 +18,12 @@ export function HealthCheckReadSection({
     check,
     units,
     exposures,
-    finding,
+    chart,
 }: {
     check: HealthPanelCheck
     units: string
     exposures: ExperimentExposureQueryResponse | null
-    /** The finding the check reported. The exposure checks then chart what they read by day. */
-    finding?: HealthPanelFinding
+    chart?: ReactNode
 }): JSX.Element | null {
     const table = healthCheckRowsTable(check, units)
     // An exposure answer cached before the server added the values keeps the layout without them.
@@ -41,7 +40,7 @@ export function HealthCheckReadSection({
 
     return (
         <HealthPanelSection title="What it read">
-            <HealthFindingDailyChart check={check} finding={finding} exposures={exposures} units={units} />
+            {chart}
             {split && <HealthExposureSplitTable rows={split} units={units} />}
             {readings.length > 0 && <HealthReadingList readings={readings} />}
             {table && <HealthCheckRowsTable table={table} />}

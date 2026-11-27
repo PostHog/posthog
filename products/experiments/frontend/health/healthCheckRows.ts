@@ -252,6 +252,11 @@ export function healthFlagChangeTimes(check: HealthPanelCheck): string[] {
     })
 }
 
+/** Whether a flag change of the check came after anyone was exposed. A change the server couldn't time counts too. */
+export function healthChangedWhileExposed(check: HealthPanelCheck): boolean {
+    return rowsOf(check).some((row) => row.before_exposure !== true)
+}
+
 /** The significant variants of the significance check, each against the difference its sample can detect. */
 export function healthDetectableEffects(check: HealthPanelCheck): HealthDetectableEffect[] {
     if (check.key !== 'early_significance') {

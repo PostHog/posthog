@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
-import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { healthIsComparedVariant } from './healthCheckValues'
 
 /** The persons or groups that each compared variant first exposed on each day of the exposure answer. */
 export interface HealthDailyExposures {
@@ -14,10 +14,7 @@ export function healthDailyExposures(
     exposures: ExperimentExposureQueryResponse | null | undefined
 ): HealthDailyExposures | null {
     const expected = exposures?.sample_ratio_mismatch?.expected
-    // The variants that the sample ratio test compares, as in the split table.
-    const compared = (exposures?.timeseries ?? []).filter(({ variant }) =>
-        expected ? variant in expected : variant !== EXPERIMENT_VARIANT_MULTIPLE
-    )
+    const compared = (exposures?.timeseries ?? []).filter(({ variant }) => healthIsComparedVariant(variant, expected))
     if (compared.length < 2 || compared[0].days.length === 0) {
         return null
     }
@@ -33,12 +30,16 @@ export function healthDailyExposures(
 
 // On a day with fewer, one person moves a share by several points, so the lines would jump without meaning anything.
 const MINIMUM_DAILY_COUNT_FOR_SHARES = 30
+const MINIMUM_DAYS_WITH_SHARES = 2
 
 /** Each variant's share of the persons or groups first exposed on each day, in percent. NaN on a day with too few. */
-export function healthDailyShares(daily: HealthDailyExposures): { variant: string; shares: number[] }[] {
+export function healthDailyShares(daily: HealthDailyExposures): { variant: string; shares: number[] }[] | null {
     const dayTotals = daily.days.map((_, index) =>
         daily.variants.reduce((total, { counts }) => total + counts[index], 0)
     )
+    if (dayTotals.filter((total) => total >= MINIMUM_DAILY_COUNT_FOR_SHARES).length < MINIMUM_DAYS_WITH_SHARES) {
+        return null
+    }
     return daily.variants.map(({ variant, counts }) => ({
         variant,
         shares: counts.map((count, index) =>
@@ -47,7 +48,8 @@ export function healthDailyShares(daily: HealthDailyExposures): { variant: strin
     }))
 }
 
-/** The day of the exposure answer that a time falls on. The answer dates each exposure in the project's timezone. */
-export function healthExposureDay(time: string, timezone: string): string {
-    return dayjs(time).tz(timezone).format('YYYY-MM-DD')
+/** The answer dates each exposure in the project's timezone, so a change is placed in it too. */
+export function healthChangeDays(changedAt: string[], timezone: string, days: string[]): string[] {
+    const changeDays = new Set(changedAt.map((time) => dayjs(time).tz(timezone).format('YYYY-MM-DD')))
+    return days.filter((day) => changeDays.has(day))
 }

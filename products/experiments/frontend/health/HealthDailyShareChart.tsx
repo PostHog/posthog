@@ -8,19 +8,22 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
-import { HEALTH_CHART_MARKER_MARGIN, HealthChartDayMarker } from './HealthChartDayMarker'
+import { HEALTH_CHART_MARKER_MARGIN, type HealthChartDayMarker, HealthChartDayMarkers } from './HealthChartDayMarkers'
 import { formatHealthPercentage, healthExposureSplit } from './healthCheckValues'
-import { healthDailyExposures, healthDailyShares } from './healthExposureDays'
+import { healthChangeDays, healthDailyExposures, healthDailyShares } from './healthExposureDays'
+import { HealthPlannedShareLines } from './HealthPlannedShareLines'
 
 export function HealthDailyShareChart({
     exposures,
     startedOn,
+    splitChangedAt,
     showsPlan,
     units,
 }: {
     exposures: ExperimentExposureQueryResponse | null
     /** The day the server found the mismatch to start. Null when it was there from the first day. */
     startedOn: string | null
+    splitChangedAt: string[]
     /** False after a split change, because the planned lines would show today's split over days that followed an earlier one. */
     showsPlan: boolean
     units: string
@@ -28,41 +31,42 @@ export function HealthDailyShareChart({
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
     const daily = useMemo(() => healthDailyExposures(exposures), [exposures])
+    const shares = useMemo(() => (daily ? healthDailyShares(daily) : null), [daily])
     const series = useMemo<Series[]>(
-        () =>
-            daily
-                ? healthDailyShares(daily).map(({ variant, shares }) => ({
-                      key: variant,
-                      label: variant,
-                      data: shares,
-                  }))
-                : [],
-        [daily]
+        () => (shares ?? []).map(({ variant, shares }) => ({ key: variant, label: variant, data: shares })),
+        [shares]
     )
-    const markedDay = startedOn && daily?.days.includes(startedOn) ? startedOn : null
-    const config = useChartConfig<TimeSeriesLineChartConfig>(() => {
-        const planned = showsPlan
-            ? (healthExposureSplit(exposures) ?? []).flatMap(({ plannedPercentage }) =>
-                  plannedPercentage === null ? [] : [plannedPercentage]
-              )
-            : []
-        return {
-            ...(markedDay ? { margins: { top: HEALTH_CHART_MARKER_MARGIN } } : {}),
+    const planned = useMemo(
+        () =>
+            showsPlan
+                ? (healthExposureSplit(exposures) ?? []).flatMap(({ plannedPercentage }) =>
+                      plannedPercentage === null ? [] : [plannedPercentage]
+                  )
+                : [],
+        [exposures, showsPlan]
+    )
+    const markers = useMemo<HealthChartDayMarker[]>(() => {
+        const days = daily?.days ?? []
+        return [
+            ...healthChangeDays(splitChangedAt, timezone, days).map((day) => ({ day, label: 'Split changed' })),
+            ...(startedOn && days.includes(startedOn) ? [{ day: startedOn, label: 'Mismatch starts' }] : []),
+        ]
+    }, [daily, splitChangedAt, timezone, startedOn])
+    const hasMarkers = markers.length > 0
+    const config = useChartConfig<TimeSeriesLineChartConfig>(
+        () => ({
+            ...(hasMarkers ? { margins: { top: HEALTH_CHART_MARKER_MARGIN } } : {}),
             xAxis: { interval: 'day', timezone },
             yAxis: { format: 'percentage', decimalPlaces: 0, startAtZero: true },
-            goalLines: [...new Set(planned)].map((percentage) => ({
-                value: percentage,
-                label: `Planned ${formatHealthPercentage(percentage)}`,
-                // The goal line's default color is a fixed dark gray, which a dark theme hides.
-                color: 'var(--color-graph-axis-label)',
-                showValueOnHover: false,
-            })),
+            // Keeps a planned line on the chart when every share stays below it.
+            valueDomain: { include: planned },
             legend: { show: true },
-            tooltip: { placement: 'cursor' },
-        }
-    }, [timezone, exposures, markedDay, showsPlan])
+            tooltip: { placement: 'cursor', valueFormatter: formatHealthPercentage },
+        }),
+        [timezone, planned, hasMarkers]
+    )
 
-    if (!daily) {
+    if (!daily || !shares) {
         return null
     }
     return (
@@ -76,7 +80,8 @@ export function HealthDailyShareChart({
                     config={config}
                     dataAttr="experiment-health-daily-share-chart"
                 >
-                    {markedDay && <HealthChartDayMarker day={markedDay} label="Mismatch starts" />}
+                    <HealthPlannedShareLines planned={planned} />
+                    <HealthChartDayMarkers markers={markers} />
                 </TimeSeriesLineChart>
             </div>
         </div>
