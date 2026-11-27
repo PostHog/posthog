@@ -44,7 +44,7 @@ function settingEdit(ids: string[], setting: TileSetting, shown: boolean): Prese
     return { edit: 'setTilesAppearance', ids, appearance: { [setting]: shown } }
 }
 
-/** Each setting is ticked while it is on for every tile it applies to. */
+/** Each setting is ticked while it is on for every tile it applies to. A tile's description choices follow under their own heading. */
 export function showAction(
     menu: MenuHead,
     tiles: Pick<Tile, 'id' | 'panel'>[],
@@ -79,10 +79,11 @@ export function showAction(
             },
         ]
     })
-    if (submenu.length === 0) {
+    const entries = [...submenu, ...descriptionChoices(menu, tiles, disabledReason, onEdit)]
+    if (entries.length === 0) {
         return null
     }
-    return { ...menu, group: 'display', disabledReason, submenu }
+    return { ...menu, group: 'display', disabledReason, submenu: entries }
 }
 
 export function backgroundColorAction(
@@ -130,34 +131,33 @@ const DESCRIPTION_MODES: { mode: TileDescriptionMode; label: string }[] = [
     { mode: 'hidden', label: 'Hidden' },
 ]
 
-/** Offered for the content tiles that have a description. */
-export function descriptionAction(
+/** One exclusive group in the Show submenu, for the content tiles that have a description. */
+function descriptionChoices(
     menu: MenuHead,
     tiles: Pick<Tile, 'id' | 'panel'>[],
     disabledReason: string | null,
     onEdit: (edit: PresentationEdit) => void
-): MenuAction | null {
+): MenuAction[] {
     const applies = tiles.flatMap(({ id, panel }) =>
-        !isSectionPanel(panel) && panel.description ? [{ id, mode: panel.appearance?.description ?? 'icon' }] : []
+        !isSectionPanel(panel) && panel.description
+            ? [{ id, mode: panel.appearance?.description ?? 'icon', header: showsPart(panel, 'header') }]
+            : []
     )
     if (applies.length === 0) {
-        return null
+        return []
     }
     const ids = applies.map(({ id }) => id)
-    return {
-        ...menu,
-        group: 'display',
-        disabledReason,
-        choice: true,
-        submenu: DESCRIPTION_MODES.map(({ mode, label }) => ({
-            key: mode,
-            label,
-            dataAttr: `${menu.dataAttr}-item`,
-            disabledReason,
-            checked: applies.every((tile) => tile.mode === mode),
-            keepOpen: true,
-            onSelect: () =>
-                onEdit({ edit: 'setTilesAppearance', ids, appearance: { description: mode === 'icon' ? null : mode } }),
-        })),
-    }
+    // The description sits in the header, so no choice changes anything while the header is off.
+    const headerOff = applies.every(({ header }) => !header) ? 'The header is off' : null
+    return DESCRIPTION_MODES.map(({ mode, label }) => ({
+        key: `description-${mode}`,
+        label,
+        section: 'Description',
+        exclusive: true,
+        dataAttr: `${menu.dataAttr}-description`,
+        disabledReason: disabledReason ?? headerOff,
+        checked: applies.every((tile) => tile.mode === mode),
+        onSelect: () =>
+            onEdit({ edit: 'setTilesAppearance', ids, appearance: { description: mode === 'icon' ? null : mode } }),
+    }))
 }
