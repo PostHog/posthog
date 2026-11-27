@@ -1,0 +1,43 @@
+id: workflow-webhook-intake-killed
+version: 1
+clock: real
+profile: synthetic-workflow-webhook
+seed: 12
+setup:
+    teams: 1
+drive:
+    for: 9m
+    traffic:
+        - name: workflow_webhook
+    ramp:
+        - scale: 1
+          for: 2m
+        - scale: 2
+          for: 2m
+        - scale: 5
+          for: 2m
+        - scale: 10
+          for: 2m
+        - scale: 128
+          for: 1m
+valves:
+    - valve: role.kill
+      target: cdp-intake-workflow-webhook
+      dose: {}
+      at: 5m
+      for: 1s
+convergeWithin: 10m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: no_loss
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: webhook_trigger_answer_ms
+    - name: webhook_trigger_outcomes
+    - name: delivery_latency_ms
+    - name: step_claims_per_second
+pair: true

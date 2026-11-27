@@ -14,6 +14,7 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
+import type { IntakeAnswer, JournalEntry } from './judge'
 
 export type MetricSample = {
     role: string
@@ -165,6 +166,90 @@ export const deliveryLatencyMs: MeasurementDefinition = {
                   { key: 'p95', value: nearestRank(latencies, 0.95) },
                   { key: 'max', value: latencies.at(-1)! },
               ]
+    },
+}
+
+function webhookTriggersByStep({ journal, drive, steps }: MeasureEvidence): [Step, JournalEntry[]][] {
+    const reached = steps.filter(({ fromMs }) => drive.startedAt + fromMs < drive.endedAt)
+    const byStep = new Map(reached.map((step) => [step, [] as JournalEntry[]]))
+    for (const entry of journal) {
+        const step = reached.findLast(({ fromMs }) => drive.startedAt + fromMs <= entry.offeredAt)
+        if (entry.kind === 'webhook' && step !== undefined) {
+            byStep.get(step)!.push(entry)
+        }
+    }
+    return [...byStep]
+}
+
+export const webhookTriggerAnswerMs: MeasurementDefinition = {
+    name: 'webhook_trigger_answer_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: (evidence) =>
+        webhookTriggersByStep(evidence).flatMap(([{ scale }, triggers]) => {
+            const answered = triggers.flatMap(({ answer }) => answer.attemptsMs ?? []).sort((a, b) => a - b)
+            return (
+                [
+                    ['p50', 0.5],
+                    ['p99', 0.99],
+                ] as const
+            ).map(([percentile, share]) => ({
+                key: `${percentile}_${scale}x`,
+                ...(answered.length === 0
+                    ? { value: null, censored: true as const, unmeasured: 'cdp-api answered no trigger in this step' }
+                    : { value: nearestRank(answered, share) }),
+            }))
+        }),
+}
+
+const failedWith = (answer: IntakeAnswer, failed: (status: number) => boolean): boolean =>
+    !answer.accepted && ('transportError' in answer ? failed(0) : failed(answer.status))
+
+export const webhookTriggerOutcomes: MeasurementDefinition = {
+    name: 'webhook_trigger_outcomes',
+    params: z.object({}).strict(),
+    unit: 'triggers',
+    measure: (evidence) => {
+        const delivered = new Set(
+            evidence.truth.flatMap(({ unitId, actionId, status }) =>
+                unitId !== undefined && actionId !== undefined && status >= 200 && status < 300
+                    ? [deliveryKey(unitId, actionId)]
+                    : []
+            )
+        )
+        return webhookTriggersByStep(evidence).flatMap(([{ scale }, triggers]) => {
+            const accepted = triggers.filter(({ answer }) => answer.accepted)
+            return [
+                { key: `offered_${scale}x`, value: triggers.length },
+                { key: `accepted_${scale}x`, value: accepted.length },
+                {
+                    key: `rejected_${scale}x`,
+                    value: triggers.filter(({ answer }) =>
+                        failedWith(answer, (status) => status >= 400 && status < 500)
+                    ).length,
+                },
+                {
+                    key: `errors_${scale}x`,
+                    value: triggers.filter(({ answer }) =>
+                        failedWith(answer, (status) => status === 0 || status >= 500)
+                    ).length,
+                },
+                {
+                    key: `lost_${scale}x`,
+                    ...(evidence.unread !== undefined
+                        ? {
+                              value: null,
+                              censored: true as const,
+                              unmeasured: `the truth could not be read (${evidence.unread})`,
+                          }
+                        : {
+                              value: accepted.filter(({ unitId, expect }) =>
+                                  expect.deliveries.some((actionId) => !delivered.has(deliveryKey(unitId, actionId)))
+                              ).length,
+                          }),
+                },
+            ]
+        })
     },
 }
 
@@ -596,6 +681,8 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    webhookTriggerAnswerMs,
+    webhookTriggerOutcomes,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]

@@ -121,11 +121,15 @@ describe('traffic', () => {
 
     describe('transactional_email', () => {
         it.each<[string, Answer, object]>([
-            ['accepts a queued send', { status: 202, body: { status: 'queued' } }, { accepted: true }],
+            [
+                'accepts a queued send',
+                { status: 202, body: { status: 'queued' } },
+                { accepted: true, attemptsMs: [expect.any(Number)] },
+            ],
             [
                 'journals a refusal with its status and outcome',
                 { status: 422, body: { error: 'recipient_suppressed' } },
-                { accepted: false, status: 422, outcome: 'recipient_suppressed' },
+                { accepted: false, status: 422, outcome: 'recipient_suppressed', attemptsMs: [expect.any(Number)] },
             ],
         ])(
             '%s from the template route, called with a token for the team and flow',
@@ -212,7 +216,7 @@ describe('traffic', () => {
                 try {
                     expect(
                         await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
-                    ).toEqual({ accepted: true, retries: 1 })
+                    ).toEqual({ accepted: true, retries: 1, attemptsMs: [0, 0] })
                     expect(cdpApi.receivedAt).toEqual([0, 500])
                     expect(new Set(cdpApi.received.map((request) => JSON.stringify(request))).size).toBe(1)
                 } finally {
@@ -230,7 +234,13 @@ describe('traffic', () => {
                 try {
                     expect(
                         await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
-                    ).toEqual({ accepted: false, status: 503, outcome: 'intake_unavailable', retries: backoffs.length })
+                    ).toEqual({
+                        accepted: false,
+                        status: 503,
+                        outcome: 'intake_unavailable',
+                        retries: backoffs.length,
+                        attemptsMs: [0, ...backoffs.map(() => 0)],
+                    })
                     expect(cdpApi.receivedAt).toEqual(
                         backoffs.reduce((sentAt, backoff) => [...sentAt, sentAt[sentAt.length - 1] + backoff], [0])
                     )
@@ -240,20 +250,21 @@ describe('traffic', () => {
                 }
             })
 
-            it.each<[string, number[], Answer]>([
-                ['its backoff overruns the deadline', [60_000], UNAVAILABLE],
+            it.each<[string, number[], Answer, number]>([
+                ['its backoff overruns the deadline', [60_000], UNAVAILABLE, 0],
                 [
                     'its first refusal arrives a quarter second before the deadline',
                     [],
                     { ...UNAVAILABLE, takesMs: 59_750 },
+                    59_750,
                 ],
-            ])('sends no retry when %s', async (_story, stalls, first) => {
+            ])('sends no retry, and times its one answer, when %s', async (_story, stalls, first, answerMs) => {
                 const clock = controlledClock(...stalls)
                 const cdpApi = await startCdpApi([first, { status: 202, body: { status: 'queued' } }], clock)
                 try {
                     expect(
                         await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
-                    ).toEqual({ accepted: false, status: 503, outcome: 'intake_unavailable' })
+                    ).toEqual({ accepted: false, status: 503, outcome: 'intake_unavailable', attemptsMs: [answerMs] })
                     expect(cdpApi.received).toHaveLength(1)
                 } finally {
                     await cdpApi.close()
@@ -361,7 +372,7 @@ describe('traffic', () => {
             await workflowWebhook.offer(next, contextFor(url, undefined, clock), NEVER_ABORTED)
 
             const runs = producedRuns()
-            expect(answer).toEqual({ accepted: true, retries: 1 })
+            expect(answer).toEqual({ accepted: true, retries: 1, attemptsMs: [expect.any(Number), expect.any(Number)] })
             expect(runs.map(({ job }) => job.state.state.event)).toEqual(
                 [unit, unit, next].map(({ unitId }) =>
                     expect.objectContaining({ distinct_id: unitId, properties: { unit_id: unitId } })
@@ -379,7 +390,7 @@ describe('bounce_followup traffic', () => {
         [
             'sends the follow-up through the template route once its feedback settled',
             undefined,
-            { accepted: false, status: 422, outcome: 'recipient_suppressed' },
+            { accepted: false, status: 422, outcome: 'recipient_suppressed', attemptsMs: [expect.any(Number)] },
             1,
         ],
         [

@@ -1,0 +1,5 @@
+name: synthetic-workflow-webhook
+traffic:
+    workflow_webhook:
+        ratePerSecond: 1
+settings: {}
