@@ -84,7 +84,7 @@ EXPRESSION_END = (",", ")", " CODEC(", " COMMENT ", " TTL ")
 
 
 def _walk(text: str, start: int = 0):
-    """Yield (index, char, quoted) for text[start:]. Quoted covers the quotes and what they hold.
+    """Yield (index, char, quoted) for text[start:]. Quoted covers string literals, identifiers and comments.
 
     A backslash escapes the next character only inside quotes.
     """
@@ -99,6 +99,12 @@ def _walk(text: str, start: int = 0):
                 yield index, text[index], True
             elif char == quote:
                 quote = ""
+        elif text.startswith(("--", "/*"), index):
+            end = text.find("\n" if text[index] == "-" else "*/", index)
+            end = len(text) if end == -1 else end + (0 if text[index] == "-" else 2)
+            for position in range(index, end):
+                yield position, text[position], True
+            index = end - 1
         else:
             if char in "'`\"":
                 quote = char

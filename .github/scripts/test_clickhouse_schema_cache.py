@@ -169,3 +169,35 @@ def test_normalize_snapshot_reads_literals_through_tsv_escaping() -> None:
     assert normalize_snapshot(literal) == literal
     wrapped = "table\tdb\tt\tMemory\tCREATE TABLE t (y UInt8 DEFAULT (1))\t0\n"
     assert normalize_snapshot(wrapped) == wrapped.replace("(1)", "1")
+
+
+def _table_row(ddl: str) -> str:
+    return f"table\tdb\tt\tReplicatedMergeTree\t{ddl}\t0\n"
+
+
+@parameterized.expand(
+    [
+        (
+            "engine arguments",
+            "CREATE TABLE t (y UInt8) ENGINE = ReplicatedMergeTree(\\'/clickhouse/DEFAULT (1),x\\', \\'r\\')",
+            "CREATE TABLE t (y UInt8) ENGINE = ReplicatedMergeTree(\\'/clickhouse/DEFAULT 1,x\\', \\'r\\')",
+        ),
+        (
+            "a line comment",
+            "CREATE TABLE t (y UInt8) -- DEFAULT (1)\\n ENGINE = Memory",
+            "CREATE TABLE t (y UInt8) -- DEFAULT 1\\n ENGINE = Memory",
+        ),
+        (
+            "a block comment",
+            "CREATE TABLE t (y UInt8 /* DEFAULT (1) */, z UInt8) ENGINE = Memory",
+            "CREATE TABLE t (y UInt8 /* DEFAULT 1 */, z UInt8) ENGINE = Memory",
+        ),
+    ]
+)
+def test_snapshot_keeps_keyword_text_in_arguments_and_comments_different(_name: str, left: str, right: str) -> None:
+    assert normalize_snapshot(_table_row(left)) != normalize_snapshot(_table_row(right))
+
+
+def test_snapshot_still_strips_a_real_expression_after_a_comment() -> None:
+    ddl = "CREATE TABLE t (y UInt8 /* note */ DEFAULT (1), z UInt8) ENGINE = Memory"
+    assert normalize_snapshot(_table_row(ddl)) == _table_row(ddl.replace("(1)", "1"))
