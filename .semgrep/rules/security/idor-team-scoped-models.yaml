@@ -281,6 +281,8 @@ rules:
                               |HogFunction
                               |HogFunctionRevision
                               |Hook
+                              |InboundEmailDomain
+                              |ReceivedEmail
                               |Insight
                               |InsightExplanation
                               |InsightVariable
@@ -845,6 +847,8 @@ rules:
                         |HogFunction
                         |HogFunctionRevision
                         |Hook
+                        |InboundEmailDomain
+                        |ReceivedEmail
                         |Insight
                         |InsightExplanation
                         |InsightVariable
