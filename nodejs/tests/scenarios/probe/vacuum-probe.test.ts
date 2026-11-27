@@ -14,6 +14,16 @@ const run = (sql: string): Promise<unknown> =>
         await client.query('SELECT pg_stat_force_next_flush()')
     }, PROBE_URL)
 
+const databaseNow = (): Promise<number> =>
+    withPostgres(
+        async (client) =>
+            Number(
+                (await client.query<{ now: string }>('SELECT extract(epoch FROM clock_timestamp()) * 1000 AS now'))
+                    .rows[0].now
+            ),
+        PROBE_URL
+    )
+
 const insertJobs = (count: number): Promise<unknown> =>
     run(
         `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
@@ -30,7 +40,7 @@ describe('vacuum probe', () => {
         await SCHEMA.drop()
     })
 
-    it('reads the live and dead tuples and the sizes of cyclotron_jobs, its TOAST and its indexes', async () => {
+    it('reads the live and dead tuples and the sizes of cyclotron_jobs, its TOAST and its indexes, at the database clock', async () => {
         const probe = createVacuumProbe(PROBE_URL)
         const empty = await probe.sample()
         await insertJobs(400)
@@ -43,8 +53,12 @@ describe('vacuum probe', () => {
             `DELETE FROM cyclotron_jobs WHERE ctid IN (SELECT ctid FROM cyclotron_jobs WHERE state IS NULL LIMIT 100)`
         )
 
+        const requested = await databaseNow()
         const sample = await probe.sample()
+        const answered = await databaseNow()
 
+        expect(sample.at).toBeGreaterThanOrEqual(requested)
+        expect(sample.at).toBeLessThanOrEqual(answered)
         expect(sample).toMatchObject({ liveTuples: 300, deadTuples: 101, autovacuums: 0, lastAutovacuumAt: null })
         expect(sample.heapBytes).toBeGreaterThan(0)
         expect(sample.toastBytes).toBeGreaterThan(empty.toastBytes)

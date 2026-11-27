@@ -82,7 +82,7 @@ function sinceAutovacuum(read: Read, { drive }: MeasureEvidence): { value: numbe
         : { value: (read.at - read.lastAutovacuumAt) / 1000 }
 }
 
-type Run = { endedAt: number; seconds?: number }
+type Run = { endedAt: number }
 
 type Runs = { runs: Run[]; incomplete: boolean }
 
@@ -101,16 +101,15 @@ function drivenRunsOf(evidence: MeasureEvidence): Runs | undefined {
         const [previous, current] = [bracketed[i - 1], bracketed[i]]
         const ended = current.autovacuums - previous.autovacuums
         const lastEnd = current.lastAutovacuumAt
-        if (ended <= 0 || lastEnd === null) {
+        if (ended < 0) {
+            incomplete = true
+            continue
+        }
+        if (ended === 0 || lastEnd === null) {
             continue
         }
         if (lastEnd >= startedAt && lastEnd <= endedAt) {
-            const since = previous.vacuumingSince
-            runs.push(
-                ended === 1 && since !== null && since > (previous.lastAutovacuumAt ?? -Infinity) && since <= lastEnd
-                    ? { endedAt: lastEnd, seconds: (lastEnd - since) / 1000 }
-                    : { endedAt: lastEnd }
-            )
+            runs.push({ endedAt: lastEnd })
         }
         const earlier = ended - 1
         if (earlier === 0 || lastEnd < startedAt || previous.at >= endedAt) {
@@ -146,8 +145,6 @@ const atEndpoints = (evidence: MeasureEvidence, measure: (reads: Read[]) => Meas
         ...(endpoints.incomplete && { incomplete: true as const }),
     }))
 }
-
-const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
 
 const growthOf = (start: number | undefined, end: number | undefined): Measured[] =>
     start === undefined || end === undefined || start === 0 ? [] : [{ value: end / start }]
@@ -222,21 +219,7 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
             return []
         }
         const incomplete = driven.incomplete ? { incomplete: true as const } : {}
-        return [
-            { key: 'count', value: driven.runs.length, ...incomplete },
-            { key: 'timed', value: driven.runs.filter(({ seconds }) => seconds !== undefined).length },
-        ]
-    }),
-    soakMeasure('autovacuum_seconds', 's', (evidence) => {
-        const timed = (drivenRunsOf(evidence)?.runs ?? [])
-            .flatMap(({ seconds }) => (seconds === undefined ? [] : [seconds]))
-            .sort((a, b) => a - b)
-        return timed.length === 0
-            ? []
-            : [
-                  { key: 'p50', value: nearestRank(timed, 0.5) },
-                  { key: 'max', value: timed.at(-1)! },
-              ]
+        return [{ key: 'count', value: driven.runs.length, ...incomplete }]
     }),
     seriesMeasure('seconds_since_autovacuum', 's', (evidence, params) => {
         const reads = readsOf(evidence.vacuum)

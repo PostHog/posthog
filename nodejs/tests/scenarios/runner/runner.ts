@@ -211,7 +211,7 @@ async function startProbes(
     const readVacuum = async (): Promise<VacuumRead> => {
         const at = Date.now()
         return vacuumProbe.sample().then(
-            (sample) => ({ at, ...sample }),
+            (sample) => sample,
             (error: unknown) => ({ at, error: messageOf(error) })
         )
     }

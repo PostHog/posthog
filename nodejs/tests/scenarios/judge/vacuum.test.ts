@@ -116,54 +116,41 @@ describe('soak measurements', () => {
         ).toEqual([])
     })
 
-    it('counts the autovacuum runs of the drive and times those a sample saw running', () => {
+    it('counts the autovacuum runs of the drive', () => {
         const vacuum = [
             read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
-            read(100, { autovacuums: 4, lastAutovacuumAt: atS(-60), vacuumingSince: atS(95) }),
+            read(100, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
             read(110, { autovacuums: 5, lastAutovacuumAt: atS(105) }),
-            read(500, { autovacuums: 5, lastAutovacuumAt: atS(105), vacuumingSince: atS(470) }),
-            read(510, { autovacuums: 5, lastAutovacuumAt: atS(105), vacuumingSince: atS(470) }),
+            read(500, { autovacuums: 5, lastAutovacuumAt: atS(105) }),
+            read(510, { autovacuums: 5, lastAutovacuumAt: atS(105) }),
             read(520, { autovacuums: 6, lastAutovacuumAt: atS(515) }),
             read(900, { autovacuums: 8, lastAutovacuumAt: atS(895) }),
             read(1805, { autovacuums: 8, lastAutovacuumAt: atS(895) }),
         ]
 
-        expect(measured('autovacuum_runs', { vacuum })).toEqual([
-            { key: 'count', value: 4 },
-            { key: 'timed', value: 2 },
-        ])
-        expect(measured('autovacuum_seconds', { vacuum })).toEqual([
-            { key: 'p50', value: 10 },
-            { key: 'max', value: 45 },
-        ])
+        expect(measured('autovacuum_runs', { vacuum })).toEqual([{ key: 'count', value: 4 }])
     })
 
     it.each<[string, VacuumRead[], Partial<Measurement>[]]>([
         [
-            'leaves untimed a run that ended with another, though a sample saw one of them start',
+            'counts both runs that ended between the same two samples',
             [
                 read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
-                read(500, { autovacuums: 4, lastAutovacuumAt: atS(-60), vacuumingSince: atS(470) }),
+                read(500, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
                 read(560, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
                 read(1805, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
             ],
-            [
-                { key: 'count', value: 2 },
-                { key: 'timed', value: 0 },
-            ],
+            [{ key: 'count', value: 2 }],
         ],
         [
-            'leaves untimed a run whose start a sample saw before the previous run ended',
+            'marks the count incomplete when the run counter drops, since the runs before the reset are lost',
             [
                 read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
-                read(500, { autovacuums: 5, lastAutovacuumAt: atS(490), vacuumingSince: atS(470) }),
-                read(560, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
-                read(1805, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
+                read(500, { autovacuums: 0, lastAutovacuumAt: null }),
+                read(900, { autovacuums: 1, lastAutovacuumAt: atS(895) }),
+                read(1805, { autovacuums: 1, lastAutovacuumAt: atS(895) }),
             ],
-            [
-                { key: 'count', value: 2 },
-                { key: 'timed', value: 0 },
-            ],
+            [{ key: 'count', value: 1, incomplete: true }],
         ],
         [
             'counts a run by its end time when the samples around it straddle the start or the end of the drive',
@@ -173,10 +160,7 @@ describe('soak measurements', () => {
                 read(1795, { autovacuums: 5, lastAutovacuumAt: atS(-10) }),
                 read(1805, { autovacuums: 6, lastAutovacuumAt: atS(1799) }),
             ],
-            [
-                { key: 'count', value: 1 },
-                { key: 'timed', value: 0 },
-            ],
+            [{ key: 'count', value: 1 }],
         ],
         [
             'marks the count incomplete when runs ended on both sides of a drive edge between two samples',
@@ -185,22 +169,15 @@ describe('soak measurements', () => {
                 read(5, { autovacuums: 6, lastAutovacuumAt: atS(2) }),
                 read(1805, { autovacuums: 6, lastAutovacuumAt: atS(2) }),
             ],
-            [
-                { key: 'count', value: 1, incomplete: true },
-                { key: 'timed', value: 0 },
-            ],
+            [{ key: 'count', value: 1, incomplete: true }],
         ],
         [
             'marks the count incomplete when no sample was taken after the drive',
             [read(-5, { autovacuums: 4 }), read(900, { autovacuums: 5, lastAutovacuumAt: atS(895) })],
-            [
-                { key: 'count', value: 1, incomplete: true },
-                { key: 'timed', value: 0 },
-            ],
+            [{ key: 'count', value: 1, incomplete: true }],
         ],
     ])('%s', (_story, vacuum, expected) => {
         expect(measured('autovacuum_runs', { vacuum })).toEqual(expected)
-        expect(measured('autovacuum_seconds', { vacuum })).toEqual([])
     })
 
     it('keeps the longest wait since the last autovacuum in each window, censored while the table had none', () => {

@@ -960,7 +960,7 @@ export type JournalEntry = {
     - `pickup_p99_window_seconds`, per queue: the p99 pickup lateness in each window. Each scrape interval counts once, in the window of its closing scrape. A window where a worker restarted is unmeasured.
     - `writer_cpu_percent`: the highest writer CPU minute that overlaps each window, so a minute across a window edge counts in both. A window that misses a whole minute of the drive is incomplete. It is unmeasured where the target has no Aurora writer.
     - `cyclotron_jobs_tuples`, `index_bytes_per_row` and `bloat_growth` compare the first and the last sample of the drive. Each end needs a sample within 20 seconds of it, or the values are incomplete, and one sample alone is unmeasured. `bloat_growth` is the end-to-start ratio of bytes per live row for the heap, the TOAST, all indexes and each index.
-    - `autovacuum_runs`, `count` and `timed`, and `autovacuum_seconds`, `p50` and `max`. A run is placed by its end time, from the last sample at or before the drive's start to the first at or after its end. Runs that ended between two samples on both sides of a drive edge mark the count incomplete. A run is timed only when it ended alone between two samples and the earlier one saw it start after the previous run ended. With no run timed, `autovacuum_seconds` writes no row.
+    - `autovacuum_runs`, `count`. A run is placed by its end time, from the last sample at or before the drive's start to the first at or after its end. Runs that ended between two samples on both sides of a drive edge mark the count incomplete, and so does a run counter that drops, as after a statistics reset or a failover. Runs are not timed: a sample cannot tell a cancelled run from one that completed.
 
 ### Cyclotron probe
 
@@ -977,11 +977,11 @@ When Cyclotron gains its own read of the same counts, that read replaces this mo
 
 ### Vacuum probe
 
-`probe/vacuum-probe.ts` reads the vacuum state of `cyclotron_jobs` into `vacuum` in `probes.json`: once as the probes start, around the drive's start, then every 10 seconds through the drive and convergence, and once more when the probes stop. Each read carries the time its query was sent.
+`probe/vacuum-probe.ts` reads the vacuum state of `cyclotron_jobs` into `vacuum` in `probes.json`: once as the probes start, around the drive's start, then every 10 seconds through the drive and convergence, and once more when the probes stop. Each read carries the database's clock as its query ran, so a read that reaches the database after the drive starts never opens the drive. A failed read carries the time its query was sent.
 Each read is one catalog query with no table scan: live and dead tuples, the autovacuum and vacuum counts, the last autovacuum, the start of an autovacuum running on the table, and the sizes of the heap, its TOAST and each index.
 A failed read is kept with its error.
 At the start, the probe reads the autovacuum and vacuum settings and the storage options of the table and its indexes into `vacuumSettings`.
-A role without `pg_read_all_stats`, or a server with `track_activities` off, never sees an autovacuum worker's start, so no run is timed.
+A role without `pg_read_all_stats`, or a server with `track_activities` off, never sees an autovacuum worker's start.
 
 ### Scorecard
 
