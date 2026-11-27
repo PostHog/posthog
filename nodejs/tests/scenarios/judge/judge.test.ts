@@ -35,7 +35,8 @@ describe('judge', () => {
     let truthLoses: number | undefined
     let duringProbe: (() => Promise<unknown>) | undefined
     let duringFinalPage: (() => Promise<unknown>) | undefined
-    let duringHead: (() => void) | undefined
+    let duringHead: (() => Promise<unknown> | void) | undefined
+    let realClock: boolean
     let polls: number
     let probeAnswers: number
     let judge: Judge
@@ -52,9 +53,10 @@ describe('judge', () => {
     const judgeOf = (): Judge =>
         createJudge({
             truth: {
-                head: (read) => {
-                    duringHead?.()
-                    return edgeTruth(edge.url).head(read)
+                head: async (read) => {
+                    await duringHead?.()
+                    // A deadline on the fake clock means nothing to a real read.
+                    return edgeTruth(edge.url).head(realClock ? read : { ...read, atMostMs: undefined })
                 },
                 after: async (cursor, read) => {
                     if (read?.final) {
@@ -86,7 +88,7 @@ describe('judge', () => {
             residentBacklog: () => Promise.resolve(resident!),
             finalRead: { attempts: 2, backoffMs: 0 },
             pollMs: 10,
-            now: () => clockMs,
+            now: () => (realClock ? Date.now() : clockMs),
         })
 
     beforeEach(async () => {
@@ -113,6 +115,7 @@ describe('judge', () => {
         duringProbe = undefined
         duringFinalPage = undefined
         duringHead = undefined
+        realClock = false
         polls = 0
         probeAnswers = Infinity
         judge = judgeOf()
@@ -1213,7 +1216,7 @@ describe('judge', () => {
         }
     )
 
-    it('converges only once the SES feedback the edge is still posting has landed in the truth', async () => {
+    const withHeldWebhook = async (test: (release: () => void) => Promise<void>): Promise<void> => {
         let release = (): void => undefined
         const answered = new Promise<void>((resolve) => {
             release = resolve
@@ -1244,6 +1247,15 @@ describe('judge', () => {
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ delivery: 1 }),
             })
+            await test(release)
+        } finally {
+            release()
+            await new Promise((resolve) => webhook.close(resolve))
+        }
+    }
+
+    it('converges only once the SES feedback the edge is still posting has landed in the truth', () =>
+        withHeldWebhook(async (release) => {
             judge.record(offered())
             await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
             duringHead = release
@@ -1253,11 +1265,66 @@ describe('judge', () => {
                 ['ses.send', 200],
                 ['ses.feedback', 200],
             ])
-        } finally {
-            release()
-            await new Promise((resolve) => webhook.close(resolve))
+        }))
+
+    it('waits for the SES feedback of a send that landed while the edge answered its head', async () => {
+        const late = 'run-a-2'
+        judge.record(offered())
+        judge.record({ ...offered(), unitId: late })
+        await deliver(UNIT)
+        let heads = 0
+        duringHead = async () => {
+            heads += 1
+            if (heads === 1) {
+                await deliver(late)
+            } else if (heads === 2) {
+                edgeRecords.append({
+                    kind: 'ses.feedback',
+                    unitId: late,
+                    status: 200,
+                    detail: {
+                        feedback: {
+                            eventType: 'Delivery',
+                            snsMessageId: 'sns-late',
+                            sesMessageId: 'ses-late',
+                            postedAt: new Date(0).toISOString(),
+                            durationMs: 1,
+                        },
+                    },
+                })
+            }
         }
+
+        expect(await judge.converge(1000, NEVER_ABORTED)).toMatchObject({ converged: true })
+        expect(judge.evidence().truth.map(({ kind, unitId }) => [kind, unitId])).toEqual([
+            ['ses.send', UNIT],
+            ['ses.send', late],
+            ['ses.feedback', late],
+        ])
     })
+
+    it.each(['before the pass', 'during the lag probe'])(
+        'ends at its deadline while the edge holds its head for an SES feedback post stalled %s',
+        (when) =>
+            withHeldWebhook(async () => {
+                judge.record(offered())
+                const send = (): Promise<unknown> =>
+                    deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
+                if (when === 'before the pass') {
+                    await send()
+                } else {
+                    duringProbe = send
+                }
+                realClock = true
+                const startedAt = Date.now()
+
+                const convergence = await judge.converge(300, NEVER_ABORTED)
+
+                expect(Date.now() - startedAt).toBeLessThan(1500)
+                expect(convergence).toMatchObject({ converged: false })
+                expect(convergence).not.toHaveProperty('unread')
+            })
+    )
 
     it('ends at its deadline with the truth it read and the read that failed, rather than throwing', async () => {
         judge.record(offered())

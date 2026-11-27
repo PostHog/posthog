@@ -261,7 +261,7 @@ const lossUnknown = (converged: boolean | undefined, failed: number, lost: numbe
         : failed > 0
           ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
           : lost < 0
-            ? 'the consumer recorded more notifications than the webhook queued, so a replayed batch counted some twice'
+            ? 'recorded and skipped add up to more than queued, so a batch replayed or a scrape was missed'
             : undefined
 
 export const sesNotificationsLost: MeasurementDefinition = {

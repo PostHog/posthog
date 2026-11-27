@@ -227,9 +227,9 @@ describe('SES notifications lost', () => {
             'the consumer failed 2 notifications and replayed their batches, so recorded may count some twice',
         ],
         [
-            'the consumer recorded more than the webhook queued',
+            'recorded and skipped add up to more than queued',
             [...run.slice(0, 3), scraped('cdp-ses-webhooks', 60, { recorded: 30, skipped: 2 })],
-            'the consumer recorded more notifications than the webhook queued, so a replayed batch counted some twice',
+            'recorded and skipped add up to more than queued, so a batch replayed or a scrape was missed',
         ],
     ])('leaves the loss unknown when %s', (_story, samples, unmeasured) => {
         expect(lostOf(samples).find(({ key }) => key === 'lost')).toEqual({
