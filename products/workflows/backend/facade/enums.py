@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from posthog.enums import LabeledStrEnum
+from posthog.enums import LabeledIntEnum, LabeledStrEnum
 
 
 class EmailTrackingConsentMode(StrEnum):
@@ -245,3 +245,25 @@ class PushTokenImportRowFailureReason(LabeledStrEnum):
     TOKEN_MISMATCH = "token_mismatch", "The token does not fit this channel"
     NOT_STORED = "not_stored", "The device was not stored"
     PERSON_PROCESSING_DISABLED = "person_processing_disabled", "Person processing is off for this person"
+
+
+class AdventCalendarDay(LabeledIntEnum):
+    FAVORITE_FOUNDER = 2, "Favorite founder"
+    PINEAPPLE_ON_PIZZA = 5, "Pineapple on pizza"
+    TABS_OR_SPACES = 10, "Tabs or spaces"
+    DARK_OR_LIGHT_MODE = 13, "Dark or light mode"
+    SHIP_ON_A_FRIDAY = 18, "Ship on a Friday"
+    COFFEE_OR_TEA = 21, "Coffee or tea"
+
+
+class AdventCalendarOption(LabeledStrEnum):
+    JAMES = "james", "James"
+    TIM = "tim", "Tim"
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    TABS = "tabs", "Tabs"
+    SPACES = "spaces", "Spaces"
+    DARK = "dark", "Dark mode"
+    LIGHT = "light", "Light mode"
+    COFFEE = "coffee", "Coffee"
+    TEA = "tea", "Tea"

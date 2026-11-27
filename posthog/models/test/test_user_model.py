@@ -8,6 +8,7 @@ from django.core.management.base import CommandError
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import UserType
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -144,6 +145,13 @@ class TestUser(BaseTest):
         # Admin should be set to the first team
         user.refresh_from_db()
         self.assertEqual(user.current_team, t1)
+
+    def test_humans_excludes_service_accounts_and_the_default_manager_does_not(self):
+        service_account = User.objects.create(email="automation@example.com", type=UserType.SERVICE_ACCOUNT)
+
+        self.assertNotIn(service_account, User.objects.humans())
+        self.assertIn(self.user, User.objects.humans())
+        self.assertIn(service_account, User.objects.all())
 
     def test_from_db_sets_original_is_active(self):
         user = User.objects.create(email="from_db@example.com", is_active=True)

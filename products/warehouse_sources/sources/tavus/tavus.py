@@ -30,7 +30,7 @@ class TavusResumeConfig:
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on the id.
     next_page: int = 0
     # Framework fan-out checkpoint ({"completed": [...], "current": ..., "child_state": ...}) for
-    # canvas_interactions.
+    # canvas_interactions and pal_skills.
     fanout_state: Optional[dict[str, Any]] = None
 
 
@@ -141,13 +141,16 @@ def _fanout_resource(
             db_incremental_field_last_value=None,
             # The parent paginator sets `limit` itself, and the child takes no paging params.
             page_size_param=None,
-            parent_endpoint_extra={"data_selector": "data", "data_selector_required": True},
+            parent_endpoint_extra={
+                "data_selector": parent.data_selector,
+                "data_selector_required": parent.data_selector_required,
+            },
             # The child path does not end in a placeholder, so without this it would inherit the
             # parent's page-number paginator and send page/limit params the endpoint does not take.
             child_endpoint_extra={
                 "paginator": SinglePagePaginator(),
-                "data_selector": "data",
-                "data_selector_required": True,
+                "data_selector": config.data_selector,
+                "data_selector_required": config.data_selector_required,
             },
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,
@@ -183,10 +186,10 @@ def tavus_source(
                 "endpoint": {
                     "path": config.path,
                     "params": dict(config.params),
-                    "data_selector": "data",
-                    # The list envelope always carries `data`; a 200 missing it means the response
+                    "data_selector": config.data_selector,
+                    # The list envelope always carries its row key; a 200 missing it means the response
                     # shape changed — fail loud instead of silently advancing past lost rows.
-                    "data_selector_required": True,
+                    "data_selector_required": config.data_selector_required,
                     **({} if config.paginated else {"paginator": "single_page"}),
                 },
             }

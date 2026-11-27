@@ -8,7 +8,10 @@ from posthog.temporal.delete_teams.activities import (
     delete_loop_trigger_schedules_activity,
     delete_misc_small_tables_activity,
     delete_organization_record_activity,
+    delete_organization_task_storage_activity,
     delete_project_record_activity,
+    delete_task_session_storage_activity,
+    delete_task_storage_activity,
     delete_team_persons_activity,
     delete_team_records_activity,
     delete_ui_customization_activity,
@@ -21,6 +24,7 @@ from posthog.temporal.delete_teams.activities import (
 from posthog.temporal.delete_teams.workflows import (
     DeleteOrganizationWorkflow,
     DeleteProjectDataWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
     DeleteTeamsDataWorkflow,
 )
 
@@ -28,6 +32,7 @@ WORKFLOWS = [
     DeleteTeamsDataWorkflow,
     DeleteProjectDataWorkflow,
     DeleteOrganizationWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
 ]
 
 ACTIVITIES = [
@@ -44,9 +49,12 @@ ACTIVITIES = [
     delete_loop_trigger_schedules_activity,
     delete_team_records_activity,
     enqueue_clickhouse_deletion_activity,
+    delete_task_storage_activity,
+    delete_task_session_storage_activity,
     check_project_pending_deletion_activity,
     delete_project_record_activity,
     delete_organization_record_activity,
+    delete_organization_task_storage_activity,
     send_project_deleted_email_activity,
     send_organization_deleted_email_activity,
 ]

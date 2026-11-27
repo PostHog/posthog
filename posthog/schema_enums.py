@@ -1381,6 +1381,17 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingIssueTagColor(StrEnum):
+    BLUE = "blue"
+    TEAL = "teal"
+    GREEN = "green"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    RED = "red"
+    PINK = "pink"
+    PURPLE = "purple"
+
+
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
@@ -1495,6 +1506,7 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     EVENTS_BILLING_LIMIT = "events_billing_limit"
     FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
+    EXPOSURE_ROWS_LEFT_OUT = "exposure_rows_left_out"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1521,6 +1533,7 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     EVENTS_BILLING_LIMIT = "events_billing_limit"
     FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
+    EXPOSURE_ROWS_LEFT_OUT = "exposure_rows_left_out"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
@@ -1546,6 +1559,9 @@ class ExperimentExposureHealthValueKey(StrEnum):
     KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE = "kept_by_test_account_filter_percentage"
     UNSERVED_EXPOSED_COUNT = "unserved_exposed_count"
     UNSERVED_EXPOSED_PERCENTAGE = "unserved_exposed_percentage"
+    LEFT_OUT_ROW_COUNT = "left_out_row_count"
+    UNKNOWN_VARIANT_ROW_COUNT = "unknown_variant_row_count"
+    EMPTY_ID_ROW_COUNT = "empty_id_row_count"
 
 
 class ExperimentMetricGoal(StrEnum):
@@ -1703,6 +1719,7 @@ class FileSystemIconType(StrEnum):
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_TAGS = "llm_tags"
+    TAG = "tag"
     LLM_DATASETS = "llm_datasets"
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
@@ -2130,6 +2147,10 @@ class MCPDashboardSection(StrEnum):
     PROTOCOL_VERSION = "protocolVersion"
     TOOL = "tool"
     ERROR_TYPE = "errorType"
+    TOOL_SHARE = "toolShare"
+    HARNESS = "harness"
+    ERROR_TYPE_SHARE = "errorTypeShare"
+    USER = "user"
     LAB_USERS = "labUsers"
     NAMED_MODEL_USERS = "namedModelUsers"
     RELIABILITY = "reliability"
@@ -2294,6 +2315,7 @@ class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
     POSTHOG_CONVERSION_GOALS_UNUSABLE = "posthog_conversion_goals_unusable"
     POSTHOG_CAMPAIGNS_UNMATCHED = "posthog_campaigns_unmatched"
     POSTHOG_CONVERSIONS_FAILED = "posthog_conversions_failed"
+    HIDDEN_SEARCH_SPEND = "hidden_search_spend"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):
@@ -3202,9 +3224,9 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
-# Add the Slack scopes that wait on Slack app review to SlackIntegrationScopeInReview in frontend/src/types.ts.
 class SlackIntegrationScopeInReview(StrEnum):
-    pass
+    USERGROUPS_READ = "usergroups:read"
+    EMOJI_READ = "emoji:read"
 
 
 class SlashCommandName(StrEnum):

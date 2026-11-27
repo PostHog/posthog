@@ -27,7 +27,11 @@ from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
 from posthog.api.authentication import BrowserTokenField
-from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.api.email_verification import (
+    EmailVerificationCodeUndeliverable,
+    email_verification_code_verifier,
+    is_email_verification_disabled,
+)
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
@@ -37,6 +41,7 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.ai_signup_attribution import classify_ai_signup
 from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailValidationHelper,
@@ -105,6 +110,17 @@ SIGNUP_BLOCKED_DETAIL = (
 
 DELEGATED_ONBOARDING_NEXT = "/onboarding"
 
+# No max_length on these: they are only compared against known AI sources, so an oversized value
+# matches nothing, and a length error would refuse a signup over analytics data.
+INITIAL_REFERRING_DOMAIN_HELP_TEXT = (
+    "Domain that referred this browser on its first visit, as the PostHog JavaScript SDK recorded it. "
+    "Used only to attribute the signup to an AI assistant."
+)
+INITIAL_UTM_SOURCE_HELP_TEXT = (
+    "utm_source of this browser's first visit, as the PostHog JavaScript SDK recorded it. "
+    "Used only to attribute the signup to an AI assistant."
+)
+
 
 def _save_session_with_recovery(session: SessionBase) -> None:
     """Persist session state and recover from missing-row session races."""
@@ -116,9 +132,14 @@ def _save_session_with_recovery(session: SessionBase) -> None:
 
 
 def verify_email_or_login(request: Request, user: User) -> bool:
-    """Send a verification code, or log the user in when none is needed. Returns whether a code went out."""
+    """Send a verification code, or log the user in when none is needed. Returns whether the user must verify."""
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        email_verification_code_verifier.send_code(user)
+        try:
+            email_verification_code_verifier.send_code(user)
+        except EmailVerificationCodeUndeliverable:
+            # The account already exists and signup still has work to do after this call, so the
+            # refusal must not abort it. A resend from the verify page or the next login reports the failure.
+            pass
         return True
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     return False
@@ -208,6 +229,12 @@ class SignupSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
+    )
+    initial_referring_domain: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_REFERRING_DOMAIN_HELP_TEXT
+    )
+    initial_utm_source: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_UTM_SOURCE_HELP_TEXT
     )
     turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
     challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
@@ -367,6 +394,8 @@ class SignupSerializer(serializers.Serializer):
         referral_source = validated_data.pop("referral_source", "")
         referral_source_ai_prompt = validated_data.pop("referral_source_ai_prompt", "")
         referral_source_influencer = validated_data.pop("referral_source_influencer", "")
+        initial_referring_domain = validated_data.pop("initial_referring_domain", "")
+        initial_utm_source = validated_data.pop("initial_utm_source", "")
 
         # For passkey signup, set password to None and use the pre-generated UUID
         if passkey_credential:
@@ -446,6 +475,12 @@ class SignupSerializer(serializers.Serializer):
             referral_source_ai_prompt=referral_source_ai_prompt,
             referral_source_influencer=referral_source_influencer,
             oauth_connection=oauth_connection,
+            ai_signup_attribution=classify_ai_signup(
+                oauth_connection=oauth_connection,
+                referral_source=referral_source,
+                initial_referring_domain=initial_referring_domain,
+                initial_utm_source=initial_utm_source,
+            ),
         )
 
         # Fire-and-forget real-time enrichment for onboarding routing. Fully guarded and
@@ -960,6 +995,12 @@ class SocialSignupSerializer(serializers.Serializer):
         default="",
         help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
     )
+    initial_referring_domain: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_REFERRING_DOMAIN_HELP_TEXT
+    )
+    initial_utm_source: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_UTM_SOURCE_HELP_TEXT
+    )
 
     def validate_first_name(self, value: str) -> str:
         return validate_display_name(value)
@@ -1009,6 +1050,8 @@ class SocialSignupSerializer(serializers.Serializer):
                 "referral_source": referral_source,
                 "referral_source_ai_prompt": referral_source_ai_prompt,
                 "referral_source_influencer": referral_source_influencer,
+                "initial_referring_domain": validated_data.get("initial_referring_domain", ""),
+                "initial_utm_source": validated_data.get("initial_utm_source", ""),
             },
             context={"request": request, "social_backend": partial.backend},
         )

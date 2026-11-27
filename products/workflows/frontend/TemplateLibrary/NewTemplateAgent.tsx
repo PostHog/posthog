@@ -20,7 +20,7 @@ export function NewTemplateAgent(): JSX.Element {
     const { openEditorFromAiComposer, setPickedTemplate } = useActions(newTemplateAgentLogic)
     const { pickedTemplate } = useValues(newTemplateAgentLogic)
     const { fillComposer } = useActions(aiFirstHandoffLogic(NEW_TEMPLATE_HANDOFF))
-    const { templates, templatesLoading } = useValues(messageTemplatesLogic)
+    const { templates, templatesLoading } = useValues(messageTemplatesLogic({ listKey: 'new-template' }))
 
     const pickTemplate = (template: MessageTemplate): void => {
         setPickedTemplate(template)

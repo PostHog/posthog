@@ -138,6 +138,7 @@ _CONTEXT_WINDOW_ERROR_MARKERS = (
     "prompt is too long",
     "context window",
     "exceed context limit",
+    "exceeds the maximum number of tokens allowed",
 )
 
 

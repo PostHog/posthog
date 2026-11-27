@@ -142,6 +142,7 @@ class FakeMailchimp:
             rows = sorted(
                 ({k: v for k, v in row.items() if k != "content"} for row in campaigns),
                 key=lambda row: row["create_time"],
+                reverse=query.get("sort_dir") == "DESC",
             )
             if status := query.get("status"):
                 rows = [row for row in rows if row["status"] == status]

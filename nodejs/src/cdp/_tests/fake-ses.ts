@@ -6,7 +6,10 @@ export type FakeSesMessage = SesMessage
 
 export type FakeSesFault =
     | { status: number; type: string; message: string }
+    | { acceptedThen: { status: number; type: string; message: string } }
     | 'drop-connection'
+    | 'accept-then-drop-connection'
+    | 'answer-without-message-id'
     | 'no-answer'
     | 'stalled-body'
 
@@ -14,16 +17,32 @@ export interface FakeSes {
     endpoint: string
     readonly sent: FakeSesMessage[]
     failWith(fault: FakeSesFault | null): void
+    failInTurn(...faults: FakeSesFault[]): void
+    failOnce(fault: FakeSesFault): void
     close(): Promise<void>
 }
 
 type ConfigurationSets = Record<string, { tracking: boolean }>
 
-function faultRuleOf(fault: FakeSesFault): FaultRule {
-    const dose = { share: 1 }
+function faultRuleOf(fault: FakeSesFault, dose: FaultRule['dose'] = { share: 1 }): FaultRule {
+    if (typeof fault === 'object' && 'acceptedThen' in fault) {
+        return {
+            name: 'ses.accepted_then_status',
+            answer: { kind: 'accepted-then-status', answer: fault.acceptedThen },
+            dose,
+        }
+    }
     switch (fault) {
         case 'drop-connection':
             return { name: 'ses.drop_connection', answer: { kind: 'drop-connection' }, dose }
+        case 'accept-then-drop-connection':
+            return { name: 'ses.accept_then_drop', answer: { kind: 'ambiguous', accepted: true }, dose }
+        case 'answer-without-message-id':
+            return {
+                name: 'ses.no_message_id',
+                answer: { kind: 'accepted-then-status', answer: { status: 200, type: '', message: '' } },
+                dose,
+            }
         case 'no-answer':
             return { name: 'ses.no_answer', answer: { kind: 'no-answer' }, dose }
         case 'stalled-body':
@@ -68,6 +87,16 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
             if (fault) {
                 edge.addFault(faultRuleOf(fault))
             }
+        },
+        failInTurn: (...faults) => {
+            edge.clearFaults()
+            faults.forEach((fault, turn) =>
+                edge.addFault(faultRuleOf(fault, turn < faults.length - 1 ? { count: 1 } : { share: 1 }))
+            )
+        },
+        failOnce: (fault) => {
+            edge.clearFaults()
+            edge.addFault(faultRuleOf(fault, { count: 1 }))
         },
         close: async () => {
             setVariables(previousCredentials)

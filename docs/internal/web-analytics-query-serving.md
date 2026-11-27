@@ -124,21 +124,21 @@ The `warehouse source connect completed` event records this label after the crea
 
 ### WebOverviewQuery (`web_overview.py`)
 
-| #   | Strategy                   | Conditions                                                                                                                            | Tag                                                    |
-| --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| 0   | Conversion-goal split      | Conversion goal + sessions v2/v3 + events-evaluable filters; visitors from the goal-less dispatch below, conversions from goal events | `web_overview_conversion_goal_query` (+ visitors' tag) |
-| 0b  | Dimensional                | `webQueryModifiers.useDimensionalTables` + tier-2 shape + no property access rules + READY dimensional jobs cover the range           | `web_overview_dimensional_query`                       |
-| 1   | Lazy precompute            | Shared gate only — overview has no extra shape restrictions                                                                           | `web_overview_lazy_query`                              |
-| 2   | Preaggregated (deprecated) | Modifier on + no conversion goal                                                                                                      | `web_overview_preaggregated_query`                     |
-| 3   | Session-id-set             | Filtered + allowlisted + preflight passes (sets `sessionIdPushdown`)                                                                  | `web_overview_session_id_set_query`                    |
-| 4   | No-join                    | Unfiltered, no conversion goal                                                                                                        | `web_overview_no_join_query`                           |
-| 5   | Full join                  | Fallback (conversion goals with legacy sessions v1, session filters, or cohort filters land here)                                     | `web_overview_query`                                   |
+| #   | Strategy                   | Conditions                                                                                                                                                         | Tag                                                    |
+| --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| 0   | Conversion-goal split      | Conversion goal + sessions v2/v3 + events-evaluable filters; visitors from the goal-less dispatch below, conversions from goal events                              | `web_overview_conversion_goal_query` (+ visitors' tag) |
+| 0b  | Dimensional                | Team in the dimensional writer list or `webQueryModifiers.useDimensionalTables` + tier-2 shape + no property access rules + READY dimensional jobs cover the range | `web_overview_dimensional_query`                       |
+| 1   | Lazy precompute            | Shared gate only — overview has no extra shape restrictions                                                                                                        | `web_overview_lazy_query`                              |
+| 2   | Preaggregated (deprecated) | Modifier on + no conversion goal                                                                                                                                   | `web_overview_preaggregated_query`                     |
+| 3   | Session-id-set             | Filtered + allowlisted + preflight passes (sets `sessionIdPushdown`)                                                                                               | `web_overview_session_id_set_query`                    |
+| 4   | No-join                    | Unfiltered, no conversion goal                                                                                                                                     | `web_overview_no_join_query`                           |
+| 5   | Full join                  | Fallback (conversion goals with legacy sessions v1, session filters, or cohort filters land here)                                                                  | `web_overview_query`                                   |
 
 ### WebStatsTableQuery (`stats_table.py`) — three lazy families, tried in order
 
 | #   | Strategy                   | Conditions                                                                                                                                                                                                                     | Tag                                                                                                                  |
 | --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| 0   | Dimensional                | `webQueryModifiers.useDimensionalTables` + tier-4 shape + no property access rules + READY dimensional jobs cover the range                                                                                                    | `stats_table_dimensional*`                                                                                           |
+| 0   | Dimensional                | Team in the dimensional writer list or `webQueryModifiers.useDimensionalTables` + tier-4 shape + no property access rules + READY dimensional jobs cover the range                                                             | `stats_table_dimensional*`                                                                                           |
 | 1   | Paths lazy                 | `breakdownBy` ∈ {Page, InitialPage} + `includeBounceRate`; rejects avg-time-on-page, scroll depth, unsupported orderBy; top-K 10,000 paths/day cap for high-cardinality teams                                                  | `web_stats_paths_lazy_query`                                                                                         |
 | 2   | Frustration lazy           | `breakdownBy` = FrustrationMetrics; rejects unsupported orderBy                                                                                                                                                                | `web_stats_frustration_lazy_query`                                                                                   |
 | 3   | Simple-breakdown lazy      | ~18 supported breakdowns (DeviceType, Browser, OS, Country, Region, City, Viewport, Timezone, Language, ExitPage, InitialChannelType, InitialReferringDomain/URL, InitialUTM\_\*); rejects bounce rate, avg time, scroll depth | `web_stats_lazy_query`                                                                                               |
@@ -155,6 +155,14 @@ Both runners skip the dimensional tables when the rows cannot match the live res
 - The team reads sessions v3 and either period starts before the region's v3 backfill start (`SESSIONS_V3_COVERAGE_START_BY_REGION`). The writer does not build those days either, and the coverage check skips them.
 - The request overrides a bounce or session modifier (`DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS`) with a value the team's builds do not use.
 - A stats table query asks for bounce rate on a breakdown other than Page or Initial page and filters on `$pathname`. Bounce rate for those breakdowns comes from the bounces table grouped by the same breakdown, and that table holds sessions without the pages they viewed.
+
+Page tiles also skip the dimensional tables for speed, not exactness.
+The Page, Entry page and Exit page breakdowns and the page directory group by path, and the dimensional tables keep every path, so past a week they read slower than the next path.
+They read the dimensional tables only when the current and compare periods each span at most 8 calendar days (`DIMENSIONAL_PAGE_TILES_MAX_RANGE`), which a "last 7 days" range does.
+Teams in `LIVE_PAGE_TILES_TEAM_IDS_BY_REGION` keep their page tiles on the next path at any range.
+
+A read also falls back when any UTC day of its range has no READY job of the team's current build, including days before the oldest one.
+A query that tried the dimensional tables and fell back carries the reason in `log_comment.web_analytics_dimensional_ineligible_reason` (`DimensionalIneligibleReason`), for example `page_tile_range` or `not_ready`.
 
 The writer stores each session's channel type with the team's custom channel rules applied, so channel breakdowns and `$channel_type` filters read that column. The rules are one of those modifiers. The jobs' identity includes the team's values of those modifiers. A change to the team's bounce, session or channel rule settings gives new jobs, so reads fall back until the writer rebuilds the window.
 
@@ -234,17 +242,19 @@ The eager and demand jobs can still overlap if either pass runs long.
 
 ## Flags and team allowlists
 
-| Gate                                                  | Type              | Controls                                                                                                        |
-| ----------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------- |
-| `web-analytics-precompute-toggle`                     | Org feature flag  | Lazy precompute enrollment; enrolled teams read by default (opt-out). Evaluated locally, fails closed           |
-| `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`              | Env allowlist     | Flag-independent precompute enrollment (shared with Dagster warmers, where flag evaluation is unreliable)       |
-| `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` | Env allowlist     | Lifts the single-`$host` filter-shape restriction — any filter combo becomes precomputable (own cache key each) |
-| `WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS`               | Env allowlist     | Filtered fast path (live tier)                                                                                  |
-| `web-analytics-session-id-set`                        | Team rollout flag | Filtered fast path enrollment without the env allowlist — either gate admits the team                           |
-| `WEB_ANALYTICS_NO_JOIN_TEAM_IDS` + rollout %          | Env + percentage  | Unfiltered fast path — 100% on Cloud                                                                            |
-| `useWebAnalyticsPrecompute`                           | Per-query field   | User opt-out switch (WebAnalyticsMenu toggle); explicit `false` always wins                                     |
-| `useWebAnalyticsPreAggregatedTables`                  | Query modifier    | Preaggregated-tables tier (deprecated — largest existing customers only, no new enrollments)                    |
-| `webQueryModifiers.useDimensionalTables`              | Per-query field   | Tries the dimensional tables first; a gap or a failure falls back to the normal dispatch                        |
+| Gate                                                                         | Type                     | Controls                                                                                                                                  |
+| ---------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `web-analytics-precompute-toggle`                                            | Org feature flag         | Lazy precompute enrollment; enrolled teams read by default (opt-out). Evaluated locally, fails closed                                     |
+| `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`                                     | Env allowlist            | Flag-independent precompute enrollment (shared with Dagster warmers, where flag evaluation is unreliable)                                 |
+| `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS`                        | Env allowlist            | Lifts the single-`$host` filter-shape restriction — any filter combo becomes precomputable (own cache key each)                           |
+| `WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS`                                      | Env allowlist            | Filtered fast path (live tier)                                                                                                            |
+| `web-analytics-session-id-set`                                               | Team rollout flag        | Filtered fast path enrollment without the env allowlist — either gate admits the team                                                     |
+| `WEB_ANALYTICS_NO_JOIN_TEAM_IDS` + rollout %                                 | Env + percentage         | Unfiltered fast path — 100% on Cloud                                                                                                      |
+| `useWebAnalyticsPrecompute`                                                  | Per-query field          | User opt-out switch (WebAnalyticsMenu toggle); explicit `false` always wins                                                               |
+| `useWebAnalyticsPreAggregatedTables`                                         | Query modifier           | Preaggregated-tables tier (deprecated — largest existing customers only, no new enrollments)                                              |
+| `webQueryModifiers.useDimensionalTables`                                     | Per-query field          | Browser toggle: `true` tries the dimensional tables (behind `web-analytics-query-modifiers`), `false` opts out of the writer-list default |
+| `DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION` / `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` | Code list + env override | Teams the dimensional writer fills; their tiles read the dimensional tables by default, falling back when the tables do not cover a query |
+| `web-analytics-dimensional-reads-disabled`                                   | Kill-switch flag         | Turns dimensional reads off for every team; the writer keeps filling the tables                                                           |
 
 ## query_type tag reference
 

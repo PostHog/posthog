@@ -22,8 +22,8 @@ import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
  * resolves it the same way as an absent config (`get_exposure_config_params_for_builder`).
  *
  * Use this only to recognize the default; for the event actually counted, use the experiment's
- * server-resolved event (`experimentLogic`'s `resolvedExposureEvent`), which accounts for the
- * `$experiment_exposure` rollout.
+ * server-resolved event (`experimentLogic`'s `resolvedExposureEvent`), which is `$experiment_exposure`
+ * for an experiment that started at or after the exposure event cutoff.
  */
 export const EXPOSURE_DEFAULT_EVENT = '$feature_flag_called'
 export const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
@@ -31,8 +31,9 @@ export const EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY = '$feature_flag_response'
 
 /**
  * The event an experiment's default exposure is actually counted on, as resolved by the backend
- * (`resolve_default_exposure_event`). Falls back to the pre-rollout default for an experiment that
- * hasn't come from the API yet — a locally-constructed draft, or an older cached payload.
+ * (`resolve_default_exposure_event`). Falls back to `fallbackEvent` for an experiment that hasn't
+ * come from the API yet: a locally-constructed draft, or an older cached payload. A draft passes
+ * `draftDefaultExposureEvent` so it names the event it gets once saved.
  */
 export function resolvedExposureEvent(
     experiment: Pick<Experiment, 'resolved_exposure_event'>,
@@ -186,8 +187,8 @@ export function getExposureSource(exposureCriteria: ExperimentExposureCriteria |
  *   single event name applies (mirrors the backend returning `None`). Variant is on `$feature/<flag_key>`.
  *
  * `resolvedExposureEvent` is the experiment's server-resolved default (`experimentLogic`'s
- * `resolvedExposureEvent`). Pass it whenever an experiment is in hand — omitting it assumes the
- * pre-rollout default and will name the wrong event for experiments on `$experiment_exposure`.
+ * `resolvedExposureEvent`). Pass it whenever an experiment is in hand. Omitting it assumes
+ * `$feature_flag_called` and names the wrong event for an experiment on `$experiment_exposure`.
  */
 export function getExposureEventAndProperty({
     featureFlagKey,

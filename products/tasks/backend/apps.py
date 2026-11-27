@@ -12,6 +12,7 @@ class TasksConfig(AppConfig):
         # the viewset import graph into django.setup().
         from products.tasks.backend import (  # noqa: F401, PLC0415
             activity_logging,
+            mcp_store_hooks,
             search_index,
             task_profiles,
             task_run_sync,
@@ -19,3 +20,4 @@ class TasksConfig(AppConfig):
         )
 
         task_profiles.register()
+        mcp_store_hooks.register()

@@ -82,6 +82,7 @@ logger = structlog.get_logger(__name__)
 MAX_QUERIES_PER_BATCH = 500
 HOGQL_TARGET_ROW_LIMIT = 10_000
 WORKERS_PER_BATCH = 4
+_NO_SCHEMA_LANGUAGES = frozenset({QueryBatchLanguage.PROMQL, QueryBatchLanguage.LOGQL})
 MAX_CONCURRENT_BATCHES = 8
 HEARTBEAT_SECONDS = 10.0
 MAX_READY_BYTES = 128 * 1024 * 1024
@@ -93,12 +94,15 @@ MAX_UNREAD_BYTES = 64 * 1024 * 1024
 CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
-MAX_BATCHES_PER_ORG = 3
-# Below the organization's share, so one member cannot take every running slot their organization has.
-MAX_BATCHES_PER_USER = 1
+MAX_BATCHES_PER_ORG = 4
+# Below the organization's share, so one member cannot take every running slot their organization has. A board sends
+# up to `MAX_STREAMS` batches at once (`queryBatchRunner.ts`), and the queries they run together are still held to
+# `MAX_RUN_QUERIES_PER_USER`.
+MAX_BATCHES_PER_USER = 3
 MAX_OPEN_BATCHES = 16
-MAX_OPEN_BATCHES_PER_ORG = 4
-MAX_OPEN_BATCHES_PER_USER = 2
+MAX_OPEN_BATCHES_PER_ORG = 6
+# One more than a board's streams, so a second tab is not refused while the first board loads.
+MAX_OPEN_BATCHES_PER_USER = 4
 OPEN_WAIT_SECONDS = 10.0
 MAX_STREAM_SECONDS = 600.0
 # A stream that is still reading notices the deadline within a heartbeat and ends with timed-out lines, so only a
@@ -873,6 +877,11 @@ class QueryBatch:
         self._logql_budget = logql_budget(self._team) if logql else None
         for index in logql:
             self._jobs.append((index, query_id_for(self._client_query_id, inputs[index]), inputs[index]))
+        # PromQL and LogQL targets wait on another service and build no HogQL schema, so they go first and take a
+        # worker each before the HogQL targets fill the pool. A HogQL build is CPU-bound and slows when more run at
+        # once, so a second pool for these would not speed up HogQL and would add a set of limits to keep in step.
+        # The sort is stable, so the other targets keep the board's order.
+        self._jobs.sort(key=lambda job: inputs[job[0]].target.language not in _NO_SCHEMA_LANGUAGES)
         # A shape holds the panel's query and its text, so only the panels still to run keep one.
         running = {index for index, _query_id, _query in self._jobs}
         self._shapes = {index: shape for index, shape in self._shapes.items() if index in running}

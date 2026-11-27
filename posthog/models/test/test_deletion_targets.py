@@ -10,9 +10,11 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
 from posthog.models.deletion_targets import (
     EVENTS_JSON,
+    EXPERIMENT_METRIC_EVENTS,
     FLAG_EVALUATIONS,
     DeletionTarget,
     UnreachableTargetError,
+    assert_no_unsweepable_rows,
     dispatchable_here,
     placement_for,
     sweep_clusters,
@@ -32,6 +34,10 @@ _HOSTS_BY_CLUSTER: dict[str, list[tuple]] = {
     "flags": [
         ("flags1", 9000, 1, 1, "offline", "flags"),
         ("flags2", 9000, 1, 2, "offline", "flags"),
+    ],
+    "aux": [
+        ("aux1", 9000, 1, 1, "offline", "aux"),
+        ("aux2", 9000, 1, 2, "offline", "aux"),
     ],
 }
 
@@ -65,10 +71,11 @@ def _cluster_with(tables_by_host: dict[str, set[str]]) -> Iterator[ClickhouseClu
 _REGISTERED_OFF_CLUSTER_TARGETS = [
     pytest.param(EVENTS_JSON, "events", [1, 2], NodeRole.EVENTS, id="events_json"),
     pytest.param(FLAG_EVALUATIONS, "flags", [1], NodeRole.FLAGS, id="flag_evaluations"),
+    pytest.param(EXPERIMENT_METRIC_EVENTS, "aux", [1], NodeRole.AUX, id="experiment_metric_events"),
 ]
 
 
-@override_settings(CLICKHOUSE_EVENTS_CLUSTER="events", CLICKHOUSE_FLAGS_CLUSTER="flags")
+@override_settings(CLICKHOUSE_EVENTS_CLUSTER="events", CLICKHOUSE_FLAGS_CLUSTER="flags", CLICKHOUSE_AUX_CLUSTER="aux")
 @pytest.mark.parametrize("target,cluster_name,shards,shard_role", _REGISTERED_OFF_CLUSTER_TARGETS)
 def test_placement_routes_a_registered_target_to_the_cluster_that_carries_it(
     target: DeletionTarget, cluster_name: str, shards: list[int], shard_role: NodeRole
@@ -133,3 +140,21 @@ def test_sweep_clusters_does_not_repeat_the_handle_in_hand() -> None:
         {"data1": {"sharded_events_json"}, "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
     ) as cluster:
         assert sweep_clusters(cluster, [EVENTS_JSON]) == [cluster]
+
+
+def test_unsweepable_check_skips_a_target_of_derived_rows() -> None:
+    # Event and property removal count the rows a target they cannot sweep holds, with a predicate
+    # on the event and properties columns. A target of derived rows has neither column, so the
+    # count would fail the request on an unknown column while the rows it summarizes are removed on
+    # the events tables. The skip has to be logged, because a completed erasure records which
+    # targets went unchecked.
+    target = DeletionTarget(data_table="summaries", read_table="summaries_dist", derived_from_events=True)
+    predicate_for = Mock()
+    log = Mock()
+
+    with patch("posthog.models.deletion_targets.count_surviving_rows") as count_surviving_rows:
+        assert_no_unsweepable_rows(Mock(), [target], predicate_for, events=[], reason="unsweepable", log=log)
+
+    predicate_for.assert_not_called()
+    count_surviving_rows.assert_not_called()
+    assert "summaries_dist: not counted" in log.info.call_args.args[0]

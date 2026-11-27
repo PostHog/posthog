@@ -9,6 +9,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AdventCalendarAnswerApi,
+    AdventCalendarDoorOpenApi,
+    AdventCalendarDoorOpenRequestApi,
+    AdventCalendarResultsApi,
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
     ApplyUtmDefaultsRequestApi,
@@ -1638,6 +1642,63 @@ export const pushTokenImportsLatestRetrieve = async (
     })
 }
 
+export const getWorkflowAdventCalendarAnswerUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/answer/`
+}
+
+/**
+ * How people open the doors of the Workflows advent calendar and answer its questions.
+ */
+export const workflowAdventCalendarAnswer = async (
+    projectId: string,
+    adventCalendarAnswerApi: AdventCalendarAnswerApi,
+    options?: RequestInit
+): Promise<AdventCalendarResultsApi> => {
+    return apiMutator<AdventCalendarResultsApi>(getWorkflowAdventCalendarAnswerUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(adventCalendarAnswerApi),
+    })
+}
+
+export const getWorkflowAdventCalendarOpenUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/open/`
+}
+
+/**
+ * How people open the doors of the Workflows advent calendar and answer its questions.
+ */
+export const workflowAdventCalendarOpen = async (
+    projectId: string,
+    adventCalendarDoorOpenRequestApi: AdventCalendarDoorOpenRequestApi,
+    options?: RequestInit
+): Promise<AdventCalendarDoorOpenApi> => {
+    return apiMutator<AdventCalendarDoorOpenApi>(getWorkflowAdventCalendarOpenUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(adventCalendarDoorOpenRequestApi),
+    })
+}
+
+export const getWorkflowAdventCalendarResultsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/results/`
+}
+
+/**
+ * How people open the doors of the Workflows advent calendar and answer its questions.
+ */
+export const workflowAdventCalendarResults = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AdventCalendarResultsApi> => {
+    return apiMutator<AdventCalendarResultsApi>(getWorkflowAdventCalendarResultsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_data_suggestions/build/`
 }
@@ -1920,7 +1981,7 @@ export const getInternalHogFlowsBatchJobsAudiencePageCreateUrl = (teamId: string
 
 /**
  * Internal endpoint for the Node batch resolver: one page of a run's stored audience, cursor-paginated
- * like internal_user_blast_radius_persons. Requires Bearer token authentication via INTERNAL_API_SECRET.
+ * in person id order. Requires Bearer token authentication via INTERNAL_API_SECRET.
  */
 export const internalHogFlowsBatchJobsAudiencePageCreate = async (
     teamId: string,
@@ -1988,24 +2049,6 @@ export const getInternalHogFlowsUserBlastRadiusCreateUrl = (teamId: string) => {
  */
 export const internalHogFlowsUserBlastRadiusCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getInternalHogFlowsUserBlastRadiusCreateUrl(teamId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getInternalHogFlowsUserBlastRadiusPersonsCreateUrl = (teamId: string) => {
-    return `/api/projects/${teamId}/internal/hog_flows/user_blast_radius_persons`
-}
-
-/**
- * Internal endpoint for Node.js services to query user blast radius persons with pagination.
- * Requires Bearer token authentication via INTERNAL_API_SECRET.
- */
-export const internalHogFlowsUserBlastRadiusPersonsCreate = async (
-    teamId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInternalHogFlowsUserBlastRadiusPersonsCreateUrl(teamId), {
         ...options,
         method: 'POST',
     })

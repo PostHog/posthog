@@ -6,6 +6,7 @@ import path from 'path'
 import { parse } from 'yaml'
 
 const BOOTSTRAP = path.join(__dirname, 'host-bootstrap.sh')
+const DRY_RUN = path.join(__dirname, 'host-dry-run.sh')
 const TEMPLATE = path.join(__dirname, 'run-stack.yaml')
 const RUN_ID = '00000000-0000-4000-8000-000000000001'
 const OTHER_RUN_ID = '00000000-0000-4000-8000-000000000002'
@@ -54,17 +55,21 @@ describe('host boot', () => {
         expect(poweredOff()).toBe(true)
     })
 
-    it.each<[string, { runId: string; stored: string }, boolean]>([
+    it.each<[string, { runId: string; stored: string; admittedCard?: string }, boolean]>([
         ['inputs that match the manifest', { runId: RUN_ID, stored: '{"card":"failover"}' }, true],
         ['an input whose bytes differ from the manifest', { runId: RUN_ID, stored: '{"card":"other"}' }, false],
         ['a manifest of another run', { runId: OTHER_RUN_ID, stored: '{"card":"failover"}' }, false],
-    ])('checks the run inputs before it installs the toolchain, given %s', (_, { runId, stored }, verified) => {
+        [
+            'a valid bundle whose manifest differs from the one admitted by the controller',
+            { runId: RUN_ID, stored: '{"card":"failover"}', admittedCard: '{"card":"other"}' },
+            false,
+        ],
+    ])('checks inputs before installing the toolchain, given %s', (_, { runId, stored, admittedCard }, verified) => {
         const prefix = path.join(bucket, 'runs', RUN_ID)
         mkdirSync(path.join(prefix, 'input'), { recursive: true })
-        writeFileSync(
-            path.join(prefix, 'input', 'manifest.json'),
-            JSON.stringify({ runId, inputs: { 'profile.json': sha256('{"card":"failover"}') } })
-        )
+        const manifestOf = (profile: string): string =>
+            JSON.stringify({ runId, inputs: { 'profile.json': sha256(profile) } })
+        writeFileSync(path.join(prefix, 'input', 'manifest.json'), manifestOf('{"card":"failover"}'))
         writeFileSync(path.join(prefix, 'input', 'profile.json'), stored)
         tool('apt-get', 'exit 0')
         tool(
@@ -84,7 +89,13 @@ describe('host boot', () => {
             ].join('\n')
         )
 
-        const result = spawnSync('bash', [BOOTSTRAP], { env: env(), encoding: 'utf8' })
+        const result = spawnSync('bash', [BOOTSTRAP], {
+            env: {
+                ...env(),
+                SCENARIO_INPUT_MANIFEST_SHA256: sha256(manifestOf(admittedCard ?? '{"card":"failover"}')),
+            },
+            encoding: 'utf8',
+        })
 
         expect(result.status).not.toBe(0)
         expect(existsSync(path.join(prefix, 'host', 'failed'))).toBe(true)
@@ -116,6 +127,40 @@ describe('host boot', () => {
             ['127.0.0.1'],
             ['127.0.0.1'],
         ])
+    })
+
+    it('passes the dry-run input manifest digest to the host container', () => {
+        const input = path.join(dir, 'input')
+        const work = path.join(dir, 'work')
+        const containerArgs = path.join(dir, 'container-args')
+        const manifest = JSON.stringify({ runId: RUN_ID, inputs: {} }, null, 2)
+        mkdirSync(input)
+        writeFileSync(path.join(input, 'manifest.json'), manifest)
+        writeFileSync(path.join(input, 'cloud-profile.yaml'), 'engineVersion: "16.1"\n')
+        tool('git', '[ "$3" = archive ] && exit 0\nPATH="/usr/bin:/bin" exec git "$@"')
+        tool('curl', 'touch "$4"')
+        tool(
+            'sha256sum',
+            'if [ "${1:-}" = --check ]; then cat >/dev/null; exit 0; fi\nPATH="/usr/bin:/bin" exec sha256sum "$@"'
+        )
+        tool('openssl', `touch "${work}/tls/ca.pem"`)
+        tool('awk', 'echo 192.0.2.1')
+        tool(
+            'docker',
+            `case "$1:$2" in
+                info:--format) echo x86_64 ;;
+                run:--name) printf '%s\\n' "$@" >"${containerArgs}" ;;
+            esac`
+        )
+
+        const result = spawnSync('bash', [DRY_RUN, input, work], { env: env(), encoding: 'utf8' })
+
+        expect(result.stderr).toBe('')
+        expect(result.status).toBe(0)
+        const digestArgs = readFileSync(containerArgs, 'utf8')
+            .split('\n')
+            .filter((arg, i, args) => args[i - 1] === '-e' && arg.startsWith('SCENARIO_INPUT_MANIFEST_SHA256='))
+        expect(digestArgs).toEqual([`SCENARIO_INPUT_MANIFEST_SHA256=${sha256(manifest)}`])
     })
 
     it('powers the host off when the checkout of the run commit fails', () => {

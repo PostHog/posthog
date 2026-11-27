@@ -7,6 +7,7 @@ from typing import Any, NoReturn
 
 import pytest
 import time_machine
+from unittest.mock import Mock, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -16,10 +17,18 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.aeo.backend import prompt_limit, runner
-from products.aeo.backend.engines import CitationCheck, build_check_fields
-from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, CheckMode
+from products.aeo.backend.engine_settings import engine_schedule, update_engine_setting
+from products.aeo.backend.engines import AICreditsExhausted, CitationCheck, build_check_fields
+from products.aeo.backend.facade.contracts import (
+    BrandKind,
+    BrandSource,
+    BrandStatus,
+    CheckFrequency,
+    CheckMode,
+    EngineSettingUpdate,
+)
 from products.aeo.backend.models import AEOBrand, AEOCheckCitation, AEOCitationCheck, AEOPrompt
-from products.aeo.backend.runner import run_citation_checks, select_prompts
+from products.aeo.backend.runner import period_day, run_citation_checks, run_period_day, select_prompts
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
 from products.aeo.backend.test.factories import create_own_brand
 
@@ -250,10 +259,33 @@ def test_a_stopped_run_records_what_it_paid_for_and_reports_the_stop(
 
     # A worker may pick the next queued prompt before the stop cancels it, so the count is not
     # fixed; what must hold is that nothing paid for is discarded and the stop is reported.
-    assert summary.error == "stopped: the run lease was lost to a later dispatch"
+    assert summary.error == "stopped: the run lease was lost or a stop was requested"
     expected_rows = 0 if isinstance(engine, _DownEngine) else engine.calls
     assert summary.rows_written == expected_rows
     assert AEOCitationCheck.objects.for_team(team.id).count() == expected_rows
+
+
+class _OutOfCreditsAfterFirstEngine(_StubEngine):
+    name = "credits-engine"
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        if prompt != "q0?":
+            raise AICreditsExhausted("credit_bucket_exhausted:ai_credits")
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+
+
+def test_running_out_of_credits_stops_the_run_and_keeps_the_answers_already_paid_for(team: Team, settings) -> None:
+    settings.AEO_RUN_CONCURRENCY = 1
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(4)])
+    answering = _StubEngine()
+
+    summary, _ = run_citation_checks(team, engines=[answering, _OutOfCreditsAfterFirstEngine()])
+
+    assert summary.error == "stopped: the organization is out of AI credits"
+    checks = AEOCitationCheck.objects.for_team(team.id)
+    assert not checks.filter(check_failed=True).exists()
+    assert checks.filter(engine="credits-engine").count() == 1
+    assert checks.filter(engine="stub-engine").count() == answering.calls
 
 
 def test_a_stopped_run_keeps_the_results_of_the_checks_already_running(team: Team, settings) -> None:
@@ -456,3 +488,28 @@ def test_a_resumed_prompt_keeps_the_no_search_checks_another_dispatch_recorded(t
     assert (first, second) == ("written", "written")
     checks = AEOCitationCheck.objects.for_team(team.id)
     assert (checks.filter(mode=CheckMode.NO_SEARCH).count(), checks.count()) == (1, 3)
+
+
+@pytest.mark.parametrize("period", [3, 7])
+def test_a_spread_engine_checks_each_prompt_once_per_period(period: int) -> None:
+    prompt_ids = [uuid.UUID(int=i) for i in range(30)]
+    start = dt.datetime(2026, 11, 23, 3, tzinfo=dt.UTC)
+    days = [start + dt.timedelta(days=offset) for offset in range(period)]
+
+    due_days = {
+        prompt_id: [day for day in days if period_day(prompt_id, period) == run_period_day(day, period)]
+        for prompt_id in prompt_ids
+    }
+
+    assert all(len(due) == 1 for due in due_days.values())
+    if period == 7:
+        assert all(run_period_day(day, 7) == day.weekday() for day in days)
+
+
+def test_an_engine_set_to_every_72_hours_runs_on_a_three_day_period(team: Team) -> None:
+    with patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=Mock(url="u", api_key="k")):
+        update_engine_setting(team.id, "claude-web-search", EngineSettingUpdate(frequency=CheckFrequency.EVERY_3_DAYS))
+        schedule = engine_schedule(team.id)
+
+    assert "claude-web-search" not in [engine.name for engine in schedule.daily]
+    assert schedule.periods["claude-web-search"] == 3

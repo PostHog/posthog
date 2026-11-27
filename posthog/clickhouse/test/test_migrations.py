@@ -319,7 +319,7 @@ class TestWarpstreamIngestionConsumers(TestCase):
     ) -> None:
         modules = [
             importlib.import_module("posthog.clickhouse.migrations.0227_warpstream_kafka_engines"),
-            importlib.import_module("posthog.clickhouse.migrations.0396_drop_local_warpstream_ingestion_kafka_engines"),
+            importlib.import_module("posthog.clickhouse.migrations.0397_drop_local_warpstream_ingestion_kafka_engines"),
         ]
         try:
             with (

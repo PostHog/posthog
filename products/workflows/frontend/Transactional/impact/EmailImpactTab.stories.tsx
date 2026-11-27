@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -24,6 +24,8 @@ const tracked: TransactionalEmailImpactApi = {
     untracked: 0,
     clicks_untracked: 0,
     window_days: 7,
+    sessions: null,
+    link_tagging_enabled: true,
     after_click: null,
     without_click: null,
 }
@@ -41,11 +43,24 @@ const meta: Meta = {
 }
 export default meta
 
-const Template: StoryFn<{ impact: TransactionalEmailImpactApi; event: string | null; replay?: boolean }> = ({
-    impact,
-    event,
-    replay = true,
-}) => {
+const Template: StoryFn<{
+    impact: TransactionalEmailImpactApi
+    event: string | null
+    replay?: boolean
+    linkTagging?: boolean
+    sensitive?: boolean
+}> = ({ impact, event, replay = true, linkTagging = true, sensitive = false }) => {
+    const team = useMemo(
+        () => ({
+            ...MOCK_DEFAULT_TEAM,
+            session_recording_opt_in: replay,
+            workflows_config: {
+                ...MOCK_DEFAULT_TEAM.workflows_config,
+                email_workflow_run_link_tag_enabled: linkTagging,
+            },
+        }),
+        [replay, linkTagging]
+    )
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/transactional_email_log/impact/': ({ request }: { request: Request }) => {
@@ -62,17 +77,23 @@ const Template: StoryFn<{ impact: TransactionalEmailImpactApi; event: string | n
                 ]
             },
         },
+        patch: {
+            '/api/organizations/:organization_id/projects/:id/': async ({ request }: { request: Request }) => {
+                const { workflows_config } = (await request.json()) as Partial<typeof team>
+                return [200, { ...team, workflows_config: { ...team.workflows_config, ...workflows_config } }]
+            },
+        },
     })
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
     const { setEvent } = useActions(emailImpactLogic({ workflowId: WORKFLOW_ID }))
     const [ready, setReady] = useState(false)
     useLayoutEffect(() => {
-        loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, session_recording_opt_in: replay })
+        loadCurrentTeamSuccess(team)
         setEvent(event)
         setReady(true)
-    }, [loadCurrentTeamSuccess, setEvent, event, replay])
+    }, [loadCurrentTeamSuccess, setEvent, event, team])
 
-    return ready ? <EmailImpactTab workflowId={WORKFLOW_ID} /> : <></>
+    return ready ? <EmailImpactTab workflowId={WORKFLOW_ID} alwaysSensitive={sensitive} /> : <></>
 }
 
 export const WithConversionEvent = Template.bind({})
@@ -86,3 +107,9 @@ SomeSendsUntracked.args = { impact: someUntracked, event: 'plan upgraded' }
 
 export const NoSessionReplay = Template.bind({})
 NoSessionReplay.args = { impact: tracked, event: 'plan upgraded', replay: false }
+
+export const LinkTaggingOff = Template.bind({})
+LinkTaggingOff.args = { impact: tracked, event: 'plan upgraded', linkTagging: false }
+
+export const SensitiveEmail = Template.bind({})
+SensitiveEmail.args = { impact: tracked, event: 'plan upgraded', linkTagging: false, sensitive: true }

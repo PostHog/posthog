@@ -50,6 +50,10 @@ from products.experiments.backend.health.checks.exposure_criteria import (
     exposure_criteria_values,
 )
 from products.experiments.backend.health.checks.exposure_filters import exposure_filters, exposure_filters_values
+from products.experiments.backend.health.checks.exposure_rows_left_out import (
+    exposure_rows_left_out,
+    exposure_rows_left_out_values,
+)
 from products.experiments.backend.health.checks.filtered_exposures import (
     KEPT_SHARE_THRESHOLD,
     MINIMUM_EXPOSED_WITHOUT_FILTER,
@@ -81,6 +85,10 @@ from products.experiments.backend.health.checks.metric_event_not_ingested import
     metric_event_not_ingested,
     metric_event_rows,
 )
+from products.experiments.backend.health.checks.metric_uses_feature_flag_called import (
+    metric_uses_feature_flag_called,
+    metric_uses_feature_flag_called_values,
+)
 from products.experiments.backend.health.checks.metrics_not_matured import (
     metrics_not_matured,
     metrics_not_matured_values,
@@ -96,6 +104,7 @@ from products.experiments.backend.health.checks.new_flag_no_traffic import (
     new_flag_no_traffic_values,
 )
 from products.experiments.backend.health.checks.no_metric import no_metric, no_metric_values
+from products.experiments.backend.health.checks.result_ready import SIGNIFICANT_DAYS, result_ready, result_ready_values
 from products.experiments.backend.health.checks.shared_flag import flag_shared, flag_shared_values
 from products.experiments.backend.health.checks.split_changed import (
     split_changed_mid_run,
@@ -118,7 +127,7 @@ from products.experiments.backend.health.checks.unserved_variants import (
 from products.experiments.backend.health.checks.zero_exposures import zero_exposures, zero_exposures_values
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
-from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip, CheckValues
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, CheckRows, CheckSkip, CheckValues
 
 
 @frozen
@@ -256,6 +265,17 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         read_rows=metric_event_rows,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_USES_FEATURE_FLAG_CALLED,
+        name='Metrics on the event "$feature_flag_called"',
+        description=(
+            'Looks for metrics that use the event "$feature_flag_called". PostHog is reducing how long it keeps this '
+            'event, so these metrics can lose their earlier data. Metrics on the event "$experiment_exposure" keep '
+            "working."
+        ),
+        run=metric_uses_feature_flag_called,
+        read=metric_uses_feature_flag_called_values,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE,
         name="Invalid metric definitions",
         description=(
@@ -329,6 +349,17 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         ),
         run=metrics_not_matured,
         read=metrics_not_matured_values,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.RESULT_READY,
+        name="When to end the experiment",
+        description=(
+            f"Checks whether the primary metric has its answer: a variant that every result has shown as significant "
+            f"for {SIGNIFICANT_DAYS} days or more, or as many users as the running time estimate needs without a "
+            "significant variant. You can then end the experiment, or keep it running to measure more."
+        ),
+        run=result_ready,
+        read=result_ready_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.STALE_EXPERIMENT,
@@ -494,26 +525,57 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             ),
         ),
     ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT,
+        name="Exposure rows that don't count",
+        description=(
+            "Counts the rows of a warehouse-native exposure query that the exposures leave out: rows with a variant "
+            "that is none of the experiment's variants, and rows with an empty entity_id. Such rows usually mean that "
+            "the query returns the variant or the id in another form than the experiment expects, so users go "
+            "uncounted."
+        ),
+        run=exposure_rows_left_out,
+        read=exposure_rows_left_out_values,
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.LEFT_OUT_ROW_COUNT, threshold=0, warns=ExperimentHealthRuleSide.ABOVE
+        ),
+    ),
+)
+
+# The checks that run on the exposures of a warehouse-native experiment. The other exposure checks read the flag's
+# calls and the exposure events, which a warehouse has neither of.
+WAREHOUSE_NATIVE_EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = tuple(
+    check for check in EXPOSURE_HEALTH_CHECKS if check.key == ExperimentHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT
 )
 
 
 _CHECK_FAILED = "Couldn't check because the check failed"
 
 
-def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> ExperimentHealth:
+def evaluate(
+    ctx: HealthContext, checks: Sequence[HealthCheck], *, launched: HealthContext | None = None
+) -> ExperimentHealth:
+    """`launched` is the draft as it is when its launch succeeds. A check that runs only after launch then runs on it
+    too, and its outcome replaces "Runs after launch". A check that couldn't check on it keeps "Runs after launch",
+    because what it reads, such as the latest calculation or the flag history, loads only for a running experiment."""
     findings: list[ExperimentHealthFinding] = []
     results: list[ExperimentHealthCheckResult] = []
     for check in checks:
+        read_from = ctx
         try:
             outcome = check.run(ctx)
+            if launched is not None and _runs_after_launch(outcome):
+                launched_outcome = check.run(launched)
+                if not _not_checked(launched_outcome):
+                    outcome, read_from = launched_outcome, launched
         except Exception as error:
             # The findings ride on the health action, the exposure answer and `experiment launched`, so one
             # failing check must not fail them or hide the findings of the other checks.
             capture_exception(error)
             results.append(_result(check, ExperimentHealthCheckStatus.NOT_CHECKED, _CHECK_FAILED, {}, ()))
             continue
-        values = _read(check.read, ctx, {})
-        rows = _read(check.read_rows, ctx, ())
+        values = _read(check.read, read_from, {})
+        rows = _read(check.read_rows, read_from, ())
         match outcome:
             case CheckSkip(status=status, reason=reason):
                 results.append(_result(check, status, reason, values, rows))
@@ -525,6 +587,14 @@ def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> ExperimentHea
             case _:
                 assert_never(outcome)
     return ExperimentHealth(findings=tuple(findings), checks=tuple(results))
+
+
+def _runs_after_launch(outcome: CheckOutcome) -> bool:
+    return isinstance(outcome, CheckSkip) and outcome.reason == RUNS_AFTER_LAUNCH
+
+
+def _not_checked(outcome: CheckOutcome) -> bool:
+    return isinstance(outcome, CheckSkip) and outcome.status == ExperimentHealthCheckStatus.NOT_CHECKED
 
 
 def not_checked_health(checks: Sequence[HealthCheck], reason: str) -> ExperimentHealth:

@@ -51,7 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     PersonPropertyRowSink,
 )
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES, WORKFLOWS
-from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources
+from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources, load_sources_in_use
 from products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings import (
     ACTIVITIES as METADATA_ACTIVITIES,
     WORKFLOWS as METADATA_WORKFLOWS,
@@ -84,6 +84,7 @@ __all__ = [
     "SavedQueryNotOnV2ScheduleError",
     "WarehouseBindingMissingError",
     "load_all_sources",
+    "load_sources_in_use",
     "prepare_s3_files_for_querying",
     "start_person_property_backfill",
     "trigger_saved_query_materialization",

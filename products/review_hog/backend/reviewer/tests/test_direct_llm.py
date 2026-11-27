@@ -15,7 +15,7 @@ _MODULE = "products.review_hog.backend.reviewer.sandbox.direct_llm"
 
 
 def _api_error(status: int) -> APIStatusError:
-    request = httpx.Request("POST", "http://gateway/review_hog/v1/messages")
+    request = httpx.Request("POST", "http://gateway/v1/messages")
     return APIStatusError("boom", response=httpx.Response(status, request=request), body=None)
 
 
@@ -46,7 +46,7 @@ async def _call() -> IssueDeduplication:
 async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
     # The one-shot value proposition rides on this request shape: dropping the model/effort pin
     # silently falls back to the gateway default, dropping output_format loses the schema guarantee,
-    # and dropping the stage header makes the call unattributable in dumps and cost queries.
+    # and dropping the stage label makes the call unattributable in dumps and cost queries.
     parsed = IssueDeduplication(duplicates=[])
     client = _mock_client(AsyncMock(return_value=MagicMock(parsed_output=parsed)))
 

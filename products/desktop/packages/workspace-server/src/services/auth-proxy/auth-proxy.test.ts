@@ -169,7 +169,7 @@ describe("AuthProxyService", () => {
   });
 });
 
-describe("AuthProxyService legacy hardening", () => {
+describe("AuthProxyService forward hardening", () => {
   let authFetch: ReturnType<typeof vi.fn>;
   let logs: unknown[][];
   let service: AuthProxyService;
@@ -603,21 +603,8 @@ describe("AuthProxyService gateway sessions", () => {
     }
   });
 
-  it("strips a leading product slug from the path", async () => {
-    goFetch.mockResolvedValue(new Response("ok"));
-    const proxyUrl = await session();
-
-    await fetch(`${proxyUrl}/posthog_code/v1/chat/completions`, {
-      method: "POST",
-      body: "{}",
-    });
-
-    expect(goFetch.mock.calls[0]?.[0]).toBe(
-      "https://ai-gateway.us.posthog.com/v1/chat/completions",
-    );
-  });
-
   it.each([
+    "/posthog_code/v1/chat/completions",
     "/v1/usage/posthog_code",
     "/internal/teams/2/reported-spend",
     "/v1/tokens",

@@ -45,6 +45,7 @@ const pairedCard = (driveFor = '60s'): string => {
         ...card,
         id: PAIRED_CARD,
         pair: true,
+        unpaired: undefined,
         drive: { ...card.drive, for: driveFor },
         invariants: [...card.invariants, { name: 'no_loss' }],
     })
@@ -80,7 +81,7 @@ describe('cloud controller', () => {
         cloud: options = {},
         onMaster = true,
         arrange = () => undefined,
-        env = {},
+        env = { SCENARIO_PUBLISH_IN_WORKFLOW: '1' },
         uncommitted,
         cards = {},
     }: Setup = {}): {
@@ -287,6 +288,28 @@ describe('cloud controller', () => {
             unknown
         >
 
+    it('puts the override in the manifest read by the host for both runs of a pair', async () => {
+        const { controller } = prepare({ cards: { [PAIRED_CARD]: `${pairedCard()}seedable: true\n` } })
+
+        await expect(main(['run', profilePath(), PAIRED_CARD, '--seed', '0'], controller)).resolves.toBe(0)
+
+        const manifest = parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)
+        expect(manifest).toMatchObject({ card: PAIRED_CARD, seed: 0, pair: true })
+    })
+
+    it.each([
+        ['2', 'seedable: true'],
+        ['2.5', 'between 0 and 4294967295'],
+        ['4294967296', 'between 0 and 4294967295'],
+    ])('refuses seed %s before leasing an ineligible run', async (seed, refusal) => {
+        const { controller } = prepare()
+
+        await expect(main(['run', profilePath(), 'cyclotron-scale', '--seed', seed], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(refusal)
+        expect([...cloud.objects.keys()].filter((key) => key.endsWith('/manifest.json'))).toEqual([])
+    })
+
     it.each([
         ['invalid', 'passed', 'unjudged', 2],
         ['failed', 'invalid', 'open', 2],
@@ -456,6 +479,7 @@ describe('cloud controller', () => {
                         ...parse(readFileSync(path.join(__dirname, '..', 'cards', 'destination-errors.yaml'), 'utf8')),
                         id: PAIRED_CARD,
                         pair: true,
+                        unpaired: undefined,
                     }),
                 },
             },
@@ -560,7 +584,7 @@ describe('cloud controller', () => {
         ],
         ['the run id its caller gives', { SCENARIO_RUN_ID: GIVEN_RUN_ID }, GIVEN_RUN_ID],
     ])('runs under %s and releases the lease when the run ends', async (_story, env, expected) => {
-        const { controller } = prepare({ env })
+        const { controller } = prepare({ env: { ...env, SCENARIO_PUBLISH_IN_WORKFLOW: '1' } })
         if (env.SCENARIO_RUN_ID === undefined) {
             cloud.failWhen('put-object', (args) => args.includes('--if-none-match'), 'UnknownOption')
         }
@@ -598,6 +622,36 @@ describe('cloud controller', () => {
         expect(cloud.objects).toEqual(objects)
         expect(schedulesFor(GIVEN_RUN_ID)).toEqual(schedules)
         expect(cloud.stacks.size).toBe(0)
+    })
+
+    it('ships the alert files with checksums and includes their contents in the cloud runner fingerprint', async () => {
+        const rules = 'groups: []\n'
+        const labels = 'labels: {}\n'
+        const input = `runs/${GIVEN_RUN_ID}/input`
+        mkdirSync(path.join(dir, 'alerts'))
+        const runWithAlerts = async (rules: string, labels: string): Promise<unknown> => {
+            now = T
+            api.captured.length = 0
+            const { controller } = prepare({ env: { ...api.credentials, SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+            writeFileSync(
+                path.join(dir, 'runner.yaml'),
+                `${RUNNER_PROFILE}\nalerts:\n  rules: alerts/rules.yaml\n  labels: alerts/labels.yaml\n`
+            )
+            writeFileSync(path.join(dir, 'alerts/rules.yaml'), rules)
+            writeFileSync(path.join(dir, 'alerts/labels.yaml'), labels)
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+            return published().runner_profile_hash
+        }
+
+        const original = await runWithAlerts(rules, labels)
+
+        expect(cloud.objects.get(`${input}/alerts/rules.yaml`)).toBe(rules)
+        expect(cloud.objects.get(`${input}/alerts/labels.yaml`)).toBe(labels)
+        expect(parseJSON(cloud.objects.get(`${input}/manifest.json`)!)).toMatchObject({
+            inputs: { 'alerts/rules.yaml': sha256(rules), 'alerts/labels.yaml': sha256(labels) },
+        })
+        expect(await runWithAlerts('groups: []\n\n', labels)).not.toBe(original)
+        expect(await runWithAlerts(rules, 'labels: {}\n\n')).not.toBe(original)
     })
 
     it.each<[string, (fake: FakeCloud) => void]>([
@@ -1307,6 +1361,61 @@ describe('cloud controller', () => {
         expect(cloud.schedules.size).toBe(2)
     })
 
+    it.each([
+        ['AWS Backup', { 'aws:backup:source-resource': 'vol-0' }],
+        ['Data Lifecycle Manager', { 'aws:dlm:lifecycle-policy-id': 'policy-0', 'dlm:managed': 'true' }],
+    ])('judges a run whose host volume %s snapshotted, and names the snapshot', async (maker, tags) => {
+        const { controller } = prepare({ env: api.credentials })
+        cloud.hostVolumeSnapshots.push(tags)
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+        const [snapshot] = cloud.billable()
+        expect(snapshot).toMatch(/^AWS::EC2::Snapshot snap-/)
+        expect(err.join('\n')).toContain(`- ${snapshot}: made outside the run, by ${maker}`)
+        expect(cloud.schedules.size).toBe(0)
+        expect(released(leasedRunId())).toBe(1)
+        expect(published()).toMatchObject({ status: 'passed', teardown_clean: true, teardown_leftovers: [] })
+    })
+
+    it('keeps the schedules while a snapshot with a tag anyone can set stays, and cleanup releases the run once it is gone', async () => {
+        const { controller } = prepare({ env: api.credentials })
+        cloud.hostVolumeSnapshots.push({ 'aws:backup:source-resource': 'vol-0' }, { 'dlm:managed': 'true' })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
+
+        const runId = leasedRunId()
+        const unmarked = cloud.resources.find(({ tags }) => tags?.['dlm:managed'])!
+        expect(err.join('\n')).toContain(`- AWS::EC2::Snapshot ${unmarked.id}: still tagged`)
+        expect(published()).toMatchObject({
+            teardown_clean: false,
+            teardown_leftovers: [
+                `AWS::EC2::Snapshot ${unmarked.id}: still tagged, with no AWS Backup or Data Lifecycle Manager tag`,
+            ],
+        })
+        expect(cloud.schedules.size).toBe(2)
+        expect(lastReceipt(runId)).toMatchObject({ clean: false })
+
+        now = new Date(now.getTime() + 60_000)
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(2)
+        expect(cloud.schedules.size).toBe(2)
+        expect(released(runId)).toBe(0)
+        expect(lastReceipt(runId)).toMatchObject({ clean: false })
+
+        cloud.resources.splice(cloud.resources.indexOf(unmarked), 1)
+        now = new Date(now.getTime() + 60_000)
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
+
+        expect(cloud.schedules.size).toBe(0)
+        expect(released(runId)).toBe(1)
+        expect(lastReceipt(runId)).toMatchObject({
+            clean: true,
+            resources: expect.arrayContaining([
+                expect.objectContaining({ madeBy: 'AWS Backup', state: 'made outside the run, by AWS Backup' }),
+            ]),
+        })
+    })
+
     it('changes nothing on a second cleanup of a torn-down run', async () => {
         const { controller } = prepare()
         await main(['run', profilePath(), FAILOVER_CARD], controller)
@@ -1912,38 +2021,46 @@ describe('cloud controller', () => {
         expect(published().teardown_leftovers).toEqual(leftovers(volume.split(' ')[1]))
     })
 
-    it.each<[string, Partial<FakeCloudOptions>, boolean, (fake: FakeCloud) => void]>([
-        [
-            'Scenario runs refuses the scorecard of an invalid run',
-            { outlives: ['AWS::EC2::Volume'] },
-            true,
-            () => undefined,
-        ],
-        [
-            'the bucket refuses the copy and no Scenario runs credentials are set',
-            {},
-            false,
-            (fake) =>
-                fake.failWhen('put-object', (args) => args.some((arg) => /^runs\/[^/]+\/scorecard\.json$/.test(arg))),
-        ],
-    ])('exits as a failed scorecard write when %s', async (_, cloudOptions, refused, arrange) => {
-        const env = refused ? { ...api.credentials, SCENARIO_RUNS_PROJECT_TOKEN: 'wrong' } : {}
-        const { controller } = prepare({ cloud: cloudOptions, env })
-        arrange(cloud)
+    it('exits as a failed scorecard write when Scenario runs refuses an invalid scorecard', async () => {
+        const { controller } = prepare({
+            cloud: { outlives: ['AWS::EC2::Volume'] },
+            env: { ...api.credentials, SCENARIO_RUNS_PROJECT_TOKEN: 'wrong' },
+        })
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(3)
 
         expect(api.captured).toEqual([])
     })
 
-    it('keeps the scorecard in the bucket and names it when no Scenario runs credentials are set', async () => {
-        const { controller } = prepare()
+    it('warns and exits with a write failure when no Scenario runs credentials are set', async () => {
+        const { controller } = prepare({ env: {} })
 
-        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(3)
 
         const key = `runs/${leasedRunId()}/scorecard.json`
         expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ origin: 'cloud-manual', status: 'passed' })
         expect(out.join('\n')).toContain(`s3://test-evidence/${key}`)
+        expect(err.join('\n')).toContain('Scenario runs credentials are not set')
+        expect(api.captured).toEqual([])
+    })
+
+    it('keeps the verdict and saves the scorecard for a workflow that publishes separately', async () => {
+        const { controller } = prepare({ env: { ...api.credentials, SCENARIO_PUBLISH_IN_WORKFLOW: '1' } })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+        const key = `runs/${leasedRunId()}/scorecard.json`
+        expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ status: 'passed' })
+        expect(api.captured).toEqual([])
+    })
+
+    it('exits with a write failure when the scorecard cannot be saved for the workflow', async () => {
+        const { controller } = prepare({ env: { ...api.credentials, SCENARIO_PUBLISH_IN_WORKFLOW: '1' } })
+        cloud.failWhen('put-object', (args) => args.some((arg) => /^runs\/[^/]+\/scorecard\.json$/.test(arg)))
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(3)
+
+        expect(err.join('\n')).toContain('Could not keep the scorecard')
         expect(api.captured).toEqual([])
     })
 
@@ -1989,7 +2106,7 @@ describe('cloud controller', () => {
                 /the run token could not be read: EISDIR/,
             ],
         ])('keeps its exit code and warns when %s', async (_story, envOf, said) => {
-            const { controller } = prepare({ env: envOf(dir) })
+            const { controller } = prepare({ env: { ...api.credentials, ...envOf(dir) } })
 
             await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
