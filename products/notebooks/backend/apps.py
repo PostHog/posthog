@@ -29,9 +29,13 @@ class NotebooksConfig(AppConfig):
         )
 
         def _post_trash_change(context, notebook):
-            from products.notebooks.backend.app_delivery import revoke_app_view_grants
+            from products.notebooks.backend.app_delivery import revoke_published_app_access
 
-            revoke_app_view_grants(notebook.team_id, notebook.pk)
+            user = context.user
+            was_impersonated = is_impersonated(context.request)
+            revoke_published_app_access(
+                notebook.team_id, notebook.pk, user if isinstance(user, User) else None, was_impersonated
+            )
             organization = context.organization
             if not organization:
                 return
@@ -39,7 +43,6 @@ class NotebooksConfig(AppConfig):
             team_id = getattr(team, "id", None) if team is not None else None
             if not isinstance(team_id, int):
                 return
-            user = context.user
             if not isinstance(user, User):
                 return
             log_notebook_activity(
@@ -48,7 +51,7 @@ class NotebooksConfig(AppConfig):
                 organization_id=organization.id,
                 team_id=team_id,
                 user=user,
-                was_impersonated=is_impersonated(context.request),
+                was_impersonated=was_impersonated,
                 changes=(
                     None
                     if notebook.deleted

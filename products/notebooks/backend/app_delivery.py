@@ -62,12 +62,6 @@ def active_view_grants(
     return grants.count(), rows
 
 
-def revoke_app_view_grants(team_id: int, notebook_id: UUID) -> None:
-    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
-
-    revoke_published_app_access(team_id, notebook_id, get_current_user(), get_was_impersonated())
-
-
 @transaction.atomic
 def revoke_published_app_access(team_id: int, notebook_id: UUID, actor: User | None, was_impersonated: bool) -> None:
     from products.notebooks.backend.app_embeds import revoke_signed_embeds
@@ -335,29 +329,38 @@ def shared_display_columns(props: dict[str, Any], result: dict[str, Any]) -> tup
     return (display, axes) if chart_rows_match_axes(result, axes) else None
 
 
-def scope_shared_projection(
+def projected_result_block(
     result: dict[str, Any],
     projection: tuple[str, list[str]],
+    title: str | None,
+    budget: SharedOutputBudget,
     tenant_column: str | None,
     tenant_value: str | None,
-) -> tuple[dict[str, Any], tuple[str, list[str]]]:
-    if tenant_column is None:
-        return result, projection
-    rows, columns = result["first_page"], result["columns"]
+) -> dict[str, Any] | None:
+    columns = result["columns"]
+    rows = result["first_page"]
     row_count = result.get("row_count")
-    if isinstance(row_count, int) and len(rows) < row_count:
-        raise serializers.ValidationError("Save and republish the complete SQL results before creating an embed.")
-    if columns.count(tenant_column) != 1:
-        raise serializers.ValidationError(
-            {"tenant_column": "Every displayed SQL output must include this tenant column exactly once."}
-        )
-    index = columns.index(tenant_column)
-    allowed = [row for row in rows if isinstance(row, list) and len(row) > index and row[index] == tenant_value]
+    partial = isinstance(row_count, int) and len(rows) < row_count
     display, displayed = projection
-    return {**result, "first_page": allowed, "row_count": len(allowed)}, (
-        display,
-        [column for column in displayed if column != tenant_column],
-    )
+    if tenant_column is not None:
+        if partial:
+            raise serializers.ValidationError("Save and republish the complete SQL results before creating an embed.")
+        if columns.count(tenant_column) != 1:
+            raise serializers.ValidationError(
+                {"tenant_column": "Every displayed SQL output must include this tenant column exactly once."}
+            )
+        idx = columns.index(tenant_column)
+        rows = [row for row in rows if isinstance(row, list) and len(row) > idx and row[idx] == tenant_value]
+    if display == "BoldNumber":
+        rows = rows[:1]
+    if tenant_column is not None:
+        displayed = [column for column in displayed if column != tenant_column]
+    if not displayed:
+        return None
+    budget.count(displayed)
+    budget.count([title])
+    indexes = [columns.index(column) for column in displayed]
+    return {"title": title, "columns": displayed, "partial": partial, "rows": budget.project_rows(rows, indexes)}
 
 
 def app_output_tabs(
@@ -404,26 +407,11 @@ def app_output_tabs(
                 }
             )
             continue
-        result, projection = scope_shared_projection(result, projection, tenant_column, tenant_value)
-        columns = result["columns"]
-        rows = result["first_page"]
-        row_count = result.get("row_count")
-        partial = isinstance(row_count, int) and len(rows) < row_count
-        display, displayed = projection
-        if display == "BoldNumber":
-            rows = rows[:1]
-        if displayed:
-            budget.count(displayed)
-            budget.count([props.get("title")])
-            indexes = [columns.index(column) for column in displayed]
-            tab["blocks"].append(
-                {
-                    "title": block.get("title") or props.get("title"),
-                    "columns": displayed,
-                    "partial": partial,
-                    "rows": budget.project_rows(rows, indexes),
-                }
-            )
+        output = projected_result_block(
+            result, projection, block.get("title") or props.get("title"), budget, tenant_column, tenant_value
+        )
+        if output is not None:
+            tab["blocks"].append(output)
     return [AppOutputTab(title=tab["title"], blocks=tab["blocks"]) for tab in tabs.values()]
 
 

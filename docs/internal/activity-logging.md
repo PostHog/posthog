@@ -11,9 +11,9 @@ Read this doc before you add or change activity logging.
 
 ## Reading activity rows
 
-Notebook readers can see ordinary edits in the individual activity history. Sharing recipient details and grant changes there require organization admin, owner or authorized staff access.
-Organization admins and owners can also read grants and revocations in their organization’s audit log and in project audit feeds and CSV exports, including after the notebook is deleted.
-Staff who can access a project’s audit log can read its grant records there. The organization-wide endpoint requires an admin or owner membership.
+Notebook readers can see ordinary edits in the individual activity history. Sharing recipient details, grant changes and signed embed details there require organization admin, owner or authorized staff access.
+Organization admins and owners can also read grant and signed embed changes in their organization’s audit log and in project audit feeds and CSV exports, including after the notebook is deleted.
+Staff who can access a project’s audit log can read its grant and embed records there. The organization-wide endpoint requires an admin or owner membership.
 The `system.activity_logs` SQL table omits these records.
 
 Activity rows show the actor, optional client tag, and time above the action summary and its target.
@@ -22,7 +22,6 @@ Description changes include a two-line preview of the new value in normal text.
 The expand control on the right reveals the complete action, preview, and agent intent, along with the existing detail tabs.
 Diff compares the recorded values, and Raw shows the activity payload.
 Product-specific detail tabs remain the initial view when supplied by a describer.
-Signed embed changes follow the same access rules as notebook grants. The restricted detail includes the portal origin and tenant digest. Destinations receive the same summary and attribution and omit portal and tenant information.
 Subscription ownership events show who took ownership or transferred it; transfers include the previous and new owners from the recorded change.
 The copy-link control beside expand appears on hover or keyboard focus.
 
@@ -365,7 +364,7 @@ Organization IP restriction configuration logs initial creation and changes to t
   The Activity page reads times and days without an offset in the project timezone, as insights do.
 - Access control: resource `activity_log`, default level `viewer`.
 - Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
-- Destinations receive a summary when a notebook grant changes. The audit row ID links the actor and action to the detailed record. Destinations also receive the recorded source IP, client, credential type and customer-visible credential ID. The event omits the notebook ID, title, recipient and release revision.
+- Destinations receive a summary when a notebook grant or signed embed changes. The audit row ID links the actor and action to the detailed record. Destinations also receive the recorded source IP, client, credential type and customer-visible credential ID. The event omits the notebook ID, title, recipient, release revision, portal origin and tenant information.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
 
 Scheduled scouts already carry `activity_log:read`. MCP hides `advanced-activity-logs-list` when the Cloud organization lacks the Audit Logs entitlement.
