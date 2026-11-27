@@ -28,12 +28,16 @@ export function useAdventTrackScroll({
     const track = useRef<HTMLDivElement>(null)
     const todayDoor = graph.doors.find((door) => door.day === today)
     const todayX = todayDoor ? adventDoorCenter(todayDoor).x : 0
+    const centeredDay = useRef<number | null>(null)
 
     useLayoutEffect(() => {
-        if (scrollsSideways && track.current) {
+        if (!scrollsSideways) {
+            centeredDay.current = null
+        } else if (track.current && centeredDay.current !== today) {
             track.current.scrollLeft = todayX * zoom - stage.width / 2
+            centeredDay.current = today
         }
-    }, [scrollsSideways, todayX, zoom, stage.width])
+    }, [scrollsSideways, today, todayX, zoom, stage.width])
 
     const scrollLeft = useCallback((): number => track.current?.scrollLeft ?? 0, [])
     return {
