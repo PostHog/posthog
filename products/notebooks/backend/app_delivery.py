@@ -1,6 +1,7 @@
+from contextlib import suppress
 from dataclasses import asdict
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.core.cache import caches
@@ -8,6 +9,8 @@ from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 
+from django_redis.cache import RedisCache
+from redis.exceptions import LockNotOwnedError
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound, Throttled
 
@@ -214,27 +217,35 @@ def displayed_native_sql_cells(release: NotebookAppRelease) -> dict[str, dict[st
     }
 
 
-def can_share_chart_rows(props: dict[str, Any]) -> bool:
+def shared_chart_display(props: dict[str, Any], result: dict[str, Any]) -> str | None:
     if props.get("outputTab") == "results":
-        return True
+        return "ActionsTable"
     viz = props.get("vizQuery") or {}
     if not isinstance(viz, dict):
-        return False
+        return None
+    display = viz.get("display") or "Auto"
+    if display == "Auto":
+        columns = result["columns"]
+        if len(columns) == 1:
+            return "BoldNumber"
+        if len(columns) == 2 and len(automatic_chart_columns(result, columns, "ScatterPlot")) == 1:
+            display = "ActionsBar"
+        else:
+            return None
+    if display in ("ActionsTable", "BoldNumber"):
+        return display
     chart = viz.get("chartSettings") or {}
-    if not isinstance(chart, dict) or chart.get("seriesBreakdownColumn") or chart.get("resultCustomizations"):
-        return False
-    return viz.get("display") in (
-        None,
-        "Auto",
-        "ActionsTable",
-        "BoldNumber",
-        "ActionsLineGraph",
-        "ActionsAreaGraph",
-        "ActionsBar",
-        "ActionsUnstackedBar",
-        "ActionsStackedBar",
-        "ScatterPlot",
-    )
+    if isinstance(chart, dict) and not (chart.get("seriesBreakdownColumn") or chart.get("resultCustomizations")):
+        if display in (
+            "ActionsLineGraph",
+            "ActionsAreaGraph",
+            "ActionsBar",
+            "ActionsUnstackedBar",
+            "ActionsStackedBar",
+            "ScatterPlot",
+        ):
+            return display
+    return None
 
 
 def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
@@ -253,7 +264,14 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
         props = sql_cells.get(node_id)
         if not props:
             continue
-        if not can_share_chart_rows(props):
+        result = pinned_sql_result(release, node_id, props.get("runId"))
+        if result is None:
+            tab["blocks"].append(
+                {"title": block.get("title"), "text": "Republish this app to share a verified SQL result."}
+            )
+            continue
+        display = shared_chart_display(props, result)
+        if display is None:
             tab["blocks"].append(
                 {
                     "title": block.get("title"),
@@ -261,18 +279,12 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
                 }
             )
             continue
-        result = pinned_sql_result(release, node_id, props.get("runId"))
-        if result is None:
-            tab["blocks"].append(
-                {"title": block.get("title"), "text": "Republish this app to share a verified SQL result."}
-            )
-            continue
         columns = result["columns"]
         rows = result["first_page"]
         row_count = result.get("row_count")
         partial = isinstance(row_count, int) and len(rows) < row_count
         displayed = output_columns({**props, "result": result}, columns)
-        if props.get("outputTab") != "results" and (props.get("vizQuery") or {}).get("display") == "BoldNumber":
+        if display == "BoldNumber":
             displayed = output_columns({**props, "outputTab": "results"}, columns)[:1]
             rows = rows[:1]
         if displayed:
@@ -312,14 +324,19 @@ def read_granted_output(team_id: int, recipient_id: int, grant_id: UUID) -> AppO
     budget = consume(f"notebooks:app-view:{team_id}:{recipient_id}", Budget(burst=15, per_hour=240))
     if isinstance(budget, BucketDecision) and not budget.allowed:
         raise Throttled(wait=budget.retry_after)
-    cache = caches["notebook_app_outputs"]
-    cache_key = f"notebook-app-output:v2:{team_id}:{release.pk}"
+    cache = cast(RedisCache, caches["notebook_app_outputs"])
+    cache_key = f"notebook-app-output:v3:{team_id}:{release.pk}"
     cached = cache.get(cache_key)
     if cached is None:
-        if not cache.add(cache_key + ":building", True, timeout=20):
+        lock = cache.lock(cache_key + ":building", timeout=20)
+        if not lock.acquire(blocking=False):
             raise Throttled(wait=2, detail="This release is loading. Try again shortly.")
-        tabs = app_output_tabs(release)
-        cache.set(cache_key, [asdict(tab) for tab in tabs], timeout=300)
+        try:
+            tabs = app_output_tabs(release)
+            cache.set(cache_key, [asdict(tab) for tab in tabs], timeout=300)
+        finally:
+            with suppress(LockNotOwnedError):
+                lock.release()
     else:
         tabs = [AppOutputTab(**tab) for tab in cached]
     return AppOutput(

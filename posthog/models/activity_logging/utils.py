@@ -373,6 +373,15 @@ class ActivityLogVisibilityManager:
                 continue
             if instance.activity not in config.get("activities", []):
                 continue
+            if change_field := config.get("change_field"):
+                detail = instance.detail
+                changes = detail.get("changes") if isinstance(detail, dict) else getattr(detail, "changes", None)
+                if not any(
+                    (change.get("field") if isinstance(change, dict) else getattr(change, "field", None))
+                    == change_field
+                    for change in changes or []
+                ):
+                    continue
             exclude_conditions = config.get("exclude_when", {})
             if not exclude_conditions or all(
                 getattr(instance, field, None) == value for field, value in exclude_conditions.items()
@@ -398,6 +407,8 @@ class ActivityLogVisibilityManager:
             exclude_conditions = config.get("exclude_when", {})
 
             query = Q(scope=scope) & Q(activity__in=activities)
+            if change_field := config.get("change_field"):
+                query &= Q(detail__contains={"changes": [{"field": change_field}]})
             for field, value in exclude_conditions.items():
                 query &= Q(**{field: value})
             exclusion_queries.append(query)

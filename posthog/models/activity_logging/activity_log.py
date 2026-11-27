@@ -488,6 +488,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
 # Activity visibility restrictions - controls which users can see certain activity logs
 # Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
 activity_visibility_restrictions: list[dict[str, Any]] = [
+    {"scope": "Notebook", "activities": ["updated"], "change_field": "app_view_grant"},
     {
         # Account views are private to their creator, so even their IDs and timestamps stay out of
         # the team and org feeds.
@@ -1350,7 +1351,6 @@ def load_activity(
     limit: int = 10,
     page: int = 1,
     user: Union["User", AnonymousUser, None] = None,
-    exclude_change_field: str | None = None,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 
@@ -1360,9 +1360,6 @@ def load_activity(
 
     if item_ids is not None:
         activity_query = activity_query.filter(item_id__in=item_ids)
-
-    if exclude_change_field:
-        activity_query = activity_query.exclude(detail__changes__contains=[{"field": exclude_change_field}])
 
     if user is not None:
         activity_query = apply_activity_visibility_restrictions(activity_query, user)

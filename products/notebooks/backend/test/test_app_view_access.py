@@ -170,7 +170,7 @@ class TestNotebookAppViewAccess(APIBaseTest):
                 self.organization.save(update_fields=[field])
 
     def test_chart_fallback_uses_pinned_rows_and_marks_an_incomplete_preview(self) -> None:
-        self.release.markdown = '<SQLV2 nodeId="totals" code="SELECT 1" runId="published" result={{"columns":["period","count","private_note"],"first_page":[["Nov",1,"hidden"]],"row_count":2,"previewOnly":true}} />'
+        self.release.markdown = '<SQLV2 nodeId="totals" code="SELECT 1" runId="published" vizQuery={{"display":"ActionsBar"}} result={{"columns":["period","count","private_note"],"first_page":[["Nov",1,"hidden"]],"row_count":2,"previewOnly":true}} />'
         self.release.sql_rows = {
             "published": [["Nov", 1, "hidden"], ["Dec", 2, "hidden"]],
             "schema:published": {"node_id": "totals", "columns": ["period", "count", "private_note"], "row_count": 2},
@@ -195,23 +195,27 @@ class TestNotebookAppViewAccess(APIBaseTest):
         self.client.force_login(self.recipient)
         self.assertContains(self.client.get(partial_url), "Republish this app")
 
-    def test_shared_pie_omits_the_undisplayed_axis_and_raw_values(self) -> None:
+    @parameterized.expand(
+        [
+            ("ActionsPie", {"xAxis": {"column": "Week"}, "yAxis": [{"column": "Signups"}, {"column": "Visits"}]}),
+            ("Auto", {}),
+            ("Metric", {"yAxis": [{"column": "Signups"}, {"column": "Visits"}]}),
+        ]
+    )
+    def test_transformed_charts_omit_undisplayed_input_values(self, display: str, settings: dict) -> None:
         run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
-        chart = {
-            "display": "ActionsPie",
-            "chartSettings": {"xAxis": {"column": "Week"}, "yAxis": [{"column": "Signups"}, {"column": "Visits"}]},
-        }
+        chart = {"display": display, "chartSettings": settings}
         self.release.markdown = (
             f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery={{{json.dumps(chart)}}} />'
         )
-        self.release.sql_rows[f"schema:{run_id}"]["columns"] = ["Week", "Signups", "Visits"]
-        self.release.sql_rows[run_id] = [["Oct 12", 222, 450], ["Oct 19", 91, 350]]
+        self.release.sql_rows[f"schema:{run_id}"]["columns"] = ["Week", "Region", "Signups", "Visits"]
+        self.release.sql_rows[run_id] = [["Oct 12", "North", 222, 450], ["Oct 19", "South", 91, 350]]
         self.release.save(update_fields=["markdown", "sql_rows"])
         url = self.grant()
         self.client.force_login(self.recipient)
         output = self.client.get(url)
         self.assertContains(output, "Publish this chart as a table or single number")
-        for private_value in ("Oct 12", "Oct 19", "<td>222</td>", "<td>450</td>"):
+        for private_value in ("Oct 12", "North", "<td>222</td>", "<td>450</td>"):
             self.assertNotContains(output, private_value)
 
     @parameterized.expand(
@@ -235,12 +239,64 @@ class TestNotebookAppViewAccess(APIBaseTest):
         for other in (hidden, "Oct 19", "91"):
             self.assertNotContains(output, f"<td>{other}</td>", html=True)
 
+    def test_automatic_single_column_and_malformed_visualization(self) -> None:
+        run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+        self.release.sql_rows[f"schema:{run_id}"]["columns"] = ["Value"]
+        self.release.sql_rows[run_id] = [[17], [29]]
+        self.release.markdown = (
+            f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery={{{{"display":"Auto"}}}} />'
+        )
+        self.release.save(update_fields=["markdown", "sql_rows"])
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        with patch("products.notebooks.backend.app_delivery.app_output_tabs", side_effect=RuntimeError("unavailable")):
+            assert self.client.get(url).status_code == 500
+        output = self.client.get(url)
+        self.assertContains(output, "<td>17</td>", html=True)
+        self.assertNotContains(output, "<td>29</td>", html=True)
+        self.release = NotebookAppRelease.objects.for_team(self.team.pk).create(
+            team=self.team,
+            notebook=self.notebook,
+            revision=2,
+            title=self.release.title,
+            layout=self.release.layout,
+            markdown=f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery />',
+            sql_rows=self.release.sql_rows,
+        )
+        self.client.force_login(self.user)
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        self.assertContains(self.client.get(url), "Publish this chart as a table or single number")
+
     def test_grant_audits_are_scoped_to_the_notebook(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.AUDIT_LOGS, "name": "Audit logs"},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"},
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        create_access_control(
+            team_id=self.team.pk, resource="notebook", resource_id=str(self.notebook.pk), access_level="none"
+        )
         self.grant()
-        self.assertNotContains(
-            self.client.get(f"/api/projects/{self.team.pk}/notebooks/activity/"), self.recipient.email
+        ordinary = ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            scope="Notebook",
+            activity="updated",
+            detail={"name": "Example notebook title change"},
         )
         self.assertContains(
             self.client.get(f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/activity/"),
             self.recipient.email,
         )
+        self.client.force_login(self.recipient)
+        for route in (
+            "notebooks/activity/",
+            "activity_log/",
+            "advanced_activity_logs/",
+            "advanced_activity_logs/?is_csv_export=1",
+        ):
+            with self.subTest(route=route):
+                response = self.client.get(f"/api/projects/{self.team.pk}/{route}")
+                self.assertNotContains(response, "app_view_grant")
+                self.assertContains(response, str(ordinary.pk))
