@@ -56,6 +56,14 @@ function captureLive(isLive: boolean, event: string, properties: Record<string, 
     }
 }
 
+// The doors past a question on the branch its answer did not take. They puff away as the answered door opens.
+function doorsNotTaken(graph: AdventGraph, question: AdventDoor, optionIndex: number): AdventDoor[] {
+    const notTaken = optionIndex === 0 ? 'lower' : 'upper'
+    return graph.doors.filter(
+        (candidate) => adventQuestionBefore(candidate.day) === question.day && candidate.id.endsWith(notTaken)
+    )
+}
+
 function isPollDay(day: number): day is AdventCalendarDayEnumApi {
     return (Object.values(AdventCalendarDayEnumApi) as number[]).includes(day)
 }
@@ -509,10 +517,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     actions.loadPollResults()
                     return
                 }
-                const notTaken = index === 0 ? 'lower' : 'upper'
-                const vanishing = values.graph.doors.filter(
-                    (candidate) => adventQuestionBefore(candidate.day) === door.day && candidate.id.endsWith(notTaken)
-                )
+                const vanishing = doorsNotTaken(values.graph, door, index)
                 captureLive(values.isLive, EVENTS.answerPicked, { day: door.day, option: optionId })
                 actions.openDoor(uuid, door.day, optionId, values.isLive)
                 const answer = pollAnswerOf(door.day, values.progress.answers[door.day] ?? optionId)
