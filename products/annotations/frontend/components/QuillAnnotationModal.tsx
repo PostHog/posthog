@@ -52,10 +52,11 @@ export function QuillAnnotationModal(): JSX.Element {
         <Credenza
             open={isModalOpen}
             onOpenChange={(open) => {
-                if (!open && !annotationModalChanged) {
+                if (!open) {
                     closeModal()
                 }
             }}
+            disablePointerDismissal={annotationModalChanged}
         >
             <CredenzaContent className="sm:max-w-128">
                 <CredenzaHeader>

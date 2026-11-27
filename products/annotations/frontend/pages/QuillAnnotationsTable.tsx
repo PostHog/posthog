@@ -32,15 +32,13 @@ import { urls } from 'scenes/urls'
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 
-import { annotationScopeToLevel, annotationScopeToName } from '../logics/annotationModalLogic'
+import { annotationScopeToName } from '../logics/annotationModalLogic'
 import { annotationsLogic } from '../logics/annotationsLogic'
 import { annotationScopeTooltip } from './annotationScopeTooltip'
+import { ANNOTATION_SORT_KEYS, sortAnnotations } from './sortAnnotations'
 
 type Columns = DataTableProps<AnnotationType, unknown>['columns']
 type SortingState = NonNullable<DataTableProps<AnnotationType, unknown>['sorting']>
-
-const creatorName = (annotation: AnnotationType): string =>
-    annotation.created_by?.first_name || annotation.created_by?.email || ''
 
 /** Quill version of the annotations list, with the same columns, sorting and "Load more" as the Lemon table. */
 export function QuillAnnotationsTable(): JSX.Element {
@@ -94,7 +92,7 @@ export function QuillAnnotationsTable(): JSX.Element {
             },
             {
                 id: 'date_marker',
-                accessorFn: (annotation) => annotation.date_marker?.valueOf() ?? 0,
+                accessorFn: ANNOTATION_SORT_KEYS.date_marker,
                 header: 'Timestamp',
                 sortDescFirst: true,
                 cell: ({ row }) =>
@@ -106,7 +104,7 @@ export function QuillAnnotationsTable(): JSX.Element {
             },
             {
                 id: 'scope',
-                accessorFn: (annotation) => annotationScopeToLevel[annotation.scope],
+                accessorFn: ANNOTATION_SORT_KEYS.scope,
                 header: 'Scope',
                 cell: ({ row }) => {
                     const annotation = row.original
@@ -138,7 +136,7 @@ export function QuillAnnotationsTable(): JSX.Element {
             },
             {
                 id: 'created_by',
-                accessorFn: creatorName,
+                accessorFn: ANNOTATION_SORT_KEYS.created_by,
                 header: 'Created by',
                 cell: ({ row }) => {
                     const { created_by, creation_type } = row.original
@@ -156,7 +154,7 @@ export function QuillAnnotationsTable(): JSX.Element {
             },
             {
                 id: 'created_at',
-                accessorFn: (annotation) => annotation.created_at?.valueOf() ?? 0,
+                accessorFn: ANNOTATION_SORT_KEYS.created_at,
                 header: 'Created',
                 sortDescFirst: true,
                 cell: ({ row }) =>
@@ -187,6 +185,11 @@ export function QuillAnnotationsTable(): JSX.Element {
         [currentTeam?.name, currentOrganization?.name]
     )
 
+    const sortedAnnotations = useMemo(
+        () => sortAnnotations(filteredAnnotations, sorting),
+        [filteredAnnotations, sorting]
+    )
+
     if (annotationsLoading && annotations.length === 0) {
         return <QuillTableSkeleton label="Loading annotations" />
     }
@@ -199,40 +202,40 @@ export function QuillAnnotationsTable(): JSX.Element {
             </Empty>
         )
     }
-    if (filteredAnnotations.length === 0) {
-        return (
-            <Empty data-attr="annotations-empty">
-                <EmptyHeader>
-                    <EmptyTitle>No annotations in this scope</EmptyTitle>
-                    <EmptyDescription>Pick another scope to see more annotations.</EmptyDescription>
-                </EmptyHeader>
-                <EmptyContent>
-                    <Button variant="outline" onClick={() => setScope(null)}>
-                        Clear filters
-                    </Button>
-                </EmptyContent>
-            </Empty>
-        )
-    }
-
     return (
         <div className="flex flex-col gap-4">
-            <Card size="sm" flush className="pt-0">
-                <div data-attr="annotations-table">
-                    <DataTable
-                        columns={columns}
-                        data={filteredAnnotations}
-                        fullWidth
-                        size="sm"
-                        getRowId={(annotation) => String(annotation.id)}
-                        sorting={sorting}
-                        onSortingChange={(next) => {
-                            // Like the Lemon table's `noSortingCancellation`, a third click flips the order back.
-                            setSorting(next.length > 0 ? next : sorting.map((sort) => ({ ...sort, desc: !sort.desc })))
-                        }}
-                    />
-                </div>
-            </Card>
+            {filteredAnnotations.length === 0 ? (
+                <Empty data-attr="annotations-empty">
+                    <EmptyHeader>
+                        <EmptyTitle>No annotations in this scope</EmptyTitle>
+                        <EmptyDescription>Pick another scope to see more annotations.</EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button variant="outline" onClick={() => setScope(null)}>
+                            Clear filters
+                        </Button>
+                    </EmptyContent>
+                </Empty>
+            ) : (
+                <Card size="sm" flush className="pt-0">
+                    <div data-attr="annotations-table">
+                        <DataTable
+                            columns={columns}
+                            data={sortedAnnotations}
+                            fullWidth
+                            size="sm"
+                            getRowId={(annotation) => String(annotation.id)}
+                            sorting={sorting}
+                            onSortingChange={(next) => {
+                                // Like the Lemon table's `noSortingCancellation`, a third click flips the order back.
+                                setSorting(
+                                    next.length > 0 ? next : sorting.map((sort) => ({ ...sort, desc: !sort.desc }))
+                                )
+                            }}
+                        />
+                    </div>
+                </Card>
+            )}
             {next && (
                 <div className="flex justify-center">
                     <Button variant="primary" loading={loadingNext} onClick={() => loadAnnotationsNext()}>
