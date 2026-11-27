@@ -698,14 +698,18 @@ describe('SesWebhookHandler', () => {
                 mail: baseMail,
                 delivery: {
                     timestamp: '2025-10-03T12:04:00Z',
-                    recipients: ['"Recipient Name" <to@example.com>'],
+                    recipients: ['"Recipient Name" <to@example.com>', '"\\"jo\\""@example.com'],
                 },
             },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.deliveredRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], timestamp: '2025-10-03T12:04:00Z' },
+            {
+                teamId: '1',
+                emailAddresses: ['to@example.com', '"jo"@example.com'],
+                timestamp: '2025-10-03T12:04:00Z',
+            },
         ])
         expect(result.transientBounceRecipients).toEqual([])
     })
@@ -805,7 +809,7 @@ describe('SesWebhookHandler', () => {
         ],
     ])('keeps only sent-to recipients of a %s for suppression', async (_label, arrayKey, buildEvent) => {
         // The send passes a display name with the address, so the destination entry can carry it too.
-        const mail = { ...baseMail, destination: ['"Recipient Name" <to@example.com>', '"\\"jo\\""@example.com'] }
+        const mail = { ...baseMail, destination: ['"Recipient Name" <to@example.com>', 'jo@example.com'] }
         const body = [
             { mail, ...buildEvent(['"Recipient Name" <TO@example.com>', 'not-sent-to@example.org']) },
             {

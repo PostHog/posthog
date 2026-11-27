@@ -839,7 +839,9 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
             // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
             // older send can't erase a fresh bounce.
             if (suppressionAllowed && rec.eventType === 'Delivery') {
-                const emails = [...mailboxAddresses(rec.delivery.recipients ?? rec.mail.destination ?? [])]
+                const emails = (rec.delivery.recipients ?? rec.mail.destination ?? []).flatMap(
+                    (entry) => reportedAddress(entry) ?? []
+                )
                 if (emails.length > 0) {
                     deliveredRecipients.push({
                         teamId,
