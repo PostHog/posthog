@@ -9,7 +9,7 @@ import type {
     ToolListApi,
 } from '../../generated/api.schemas'
 import { diagnosticsTracking } from '../diagnostics/diagnosticsTracking'
-import { withFailed, withLoaded, withRequested } from '../shared/cellLoads'
+import { withEveryFailed, withLoaded, withRequested } from '../shared/cellLoads'
 import type { TraceCellLoad } from '../shared/cellLoads'
 import { CellEntry, createPageCellReader } from '../shared/pageCellReader'
 import { noEntries } from '../shared/readOrFailure'
@@ -90,7 +90,8 @@ export const toolTraceSharesLogic = kea<toolTraceSharesLogicType>([
             {
                 traceSharesParamsChanged: () => noEntries<TraceCellLoad<number>>(),
                 traceSharesRequested: (state, { keys }) => withRequested(state, keys),
-                traceSharesFailed: (state, { keys }) => withFailed(state, keys),
+                // A failed reload must not leave the shares it read before beside the counts it refreshed.
+                traceSharesFailed: (state, { keys }) => withEveryFailed(state, keys),
                 traceSharesLoaded: (state, { entries }) => withLoaded(state, entries),
             },
         ],
@@ -106,11 +107,12 @@ export const toolTraceSharesLogic = kea<toolTraceSharesLogicType>([
                 diagnosticsTracking.readFailed({ kind: 'tool', read: 'trace_shares' })
             },
             loaded: actions.traceSharesLoaded,
-            request: async (keys, params) => {
+            request: async (keys, params, signal) => {
                 const { items } = await aiObservabilityToolsTraceSharesCreate(
                     String(ApiConfig.getCurrentProjectId()),
                     { keys },
-                    params
+                    params,
+                    { signal }
                 )
                 return items.map(({ key, traceShare }) => [key, traceShare])
             },

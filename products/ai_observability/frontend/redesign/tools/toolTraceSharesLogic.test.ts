@@ -125,6 +125,16 @@ describe('toolTraceSharesLogic', () => {
         ])
     })
 
+    it('marks the shares it showed as failed when a reload fails to read them again', async () => {
+        await mount()
+        answer = () => [500, { detail: 'failed' }]
+
+        toolsListLogic.actions.reload()
+        await settle()
+
+        expect(statuses(['tool-0', 'tool-1'])).toEqual(['error', 'error'])
+    })
+
     it('keeps what it read when only the search changes', async () => {
         await mount()
 
