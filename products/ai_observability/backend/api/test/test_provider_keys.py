@@ -871,6 +871,26 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             api_version="2024-10-21",
         )
 
+    @parameterized.expand(
+        [
+            ("azure_endpoint", "anthropic", "https://u:secret@contoso.services.ai.azure.com/"),
+            ("base_url", "openai_compatible", "https://u:secret@llm.example.com/v1"),
+        ]
+    )
+    def test_an_endpoint_saved_with_a_credential_is_shown_without_it(self, field: str, provider: str, url: str):
+        LLMProviderKey.objects.create(
+            team=self.team,
+            provider=provider,
+            name="Old key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk", field: url},
+            created_by=self.user,
+        )
+
+        [row] = self.client.get(_url(self.team, "provider_keys/")).json()["results"]
+
+        self.assertNotIn("secret", row[f"{field}_display"])
+
     # The endpoint is shown to every project member, so a credential typed into it is dropped.
     @parameterized.expand(
         [

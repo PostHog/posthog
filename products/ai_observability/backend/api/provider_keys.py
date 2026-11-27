@@ -242,7 +242,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
     def get_azure_endpoint_display(self, obj: LLMProviderKey) -> str | None:
         if obj.provider not in (LLMProvider.AZURE_OPENAI, LLMProvider.ANTHROPIC):
             return None
-        return obj.encrypted_config.get("azure_endpoint")
+        endpoint = obj.encrypted_config.get("azure_endpoint")
+        # Keys saved before writes were stripped can still hold a credential, and every project member reads this.
+        return strip_userinfo(endpoint) if endpoint else endpoint
 
     def get_api_version_display(self, obj: LLMProviderKey) -> str | None:
         if obj.provider != LLMProvider.AZURE_OPENAI:
@@ -252,7 +254,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
     def get_base_url_display(self, obj: LLMProviderKey) -> str | None:
         if obj.provider not in (LLMProvider.OPENAI_COMPATIBLE, LLMProvider.SYSTEM_ONE):
             return None
-        return obj.encrypted_config.get("base_url")
+        base_url = obj.encrypted_config.get("base_url")
+        return strip_userinfo(base_url) if base_url else base_url
 
     def validate_base_url(self, value: str) -> str:
         provider = self.initial_data.get("provider", self.instance.provider if self.instance else None)
