@@ -1,6 +1,6 @@
 import './AdventCalendar.scss'
 
-import { CSSProperties } from 'react'
+import { CSSProperties, HTMLAttributes } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -91,6 +91,14 @@ function headline(door: AdventDoor): { title: string; detail: string | null } {
         : { title: 'Ready to open', detail: 'Select the door to see who is behind it.' }
 }
 
+function dialogProps(day: number, isPinned: boolean, isClosing = false): HTMLAttributes<HTMLDivElement> {
+    return {
+        role: isPinned ? 'dialog' : undefined,
+        'aria-labelledby': isPinned ? `advent-door-card-title-${day}` : undefined,
+        ...(isClosing ? { inert: '' } : {}),
+    }
+}
+
 export function AdventDoorCard({
     door,
     shares,
@@ -115,9 +123,7 @@ export function AdventDoorCard({
             style={style}
             data-attr="advent-door-card"
             data-open={isOpen}
-            role={isPinned ? 'dialog' : undefined}
-            aria-labelledby={isPinned ? `advent-door-card-title-${door.day}` : undefined}
-            {...(isClosing ? { inert: '' } : {})}
+            {...dialogProps(door.day, isPinned, isClosing)}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >

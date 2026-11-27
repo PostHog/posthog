@@ -134,6 +134,8 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         onLeave: hover.onLeave,
     })
     const face = cardNode ? faceOf(cardNode, fit, track.current?.scrollTop ?? 0) : null
+    const focusGuard = (onFocus: () => void): ReactNode =>
+        card.isPinned && <span tabIndex={0} aria-hidden onFocus={onFocus} />
 
     return (
         <div
@@ -174,7 +176,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
                             </div>
                         </div>
                     </div>
-                    {card.isPinned && <span tabIndex={0} aria-hidden onFocus={guards.onFocusStart} />}
+                    {focusGuard(guards.onFocusStart)}
                     {cardNode && face && (
                         <AdventDoorCard
                             key={cardNode.id}
@@ -193,7 +195,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
                             onMouseLeave={card.onLeaveDoor}
                         />
                     )}
-                    {card.isPinned && <span tabIndex={0} aria-hidden onFocus={guards.onFocusEnd} />}
+                    {focusGuard(guards.onFocusEnd)}
                 </>
             )}
         </div>
