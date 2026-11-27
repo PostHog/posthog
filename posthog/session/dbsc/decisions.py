@@ -6,7 +6,9 @@ from posthog.session.dbsc.cookies import CookieCheck
 from posthog.session.dbsc.rollout import Mode
 
 # Requests the browser sent before it stored the cookie from /dbsc/start still arrive after the binding commits.
-FRESH_BINDING_GRACE = timedelta(seconds=60)
+# The middleware sees a request when it arrives, not when it finishes, so this only covers network and queue delay.
+# A copy of the session cookie replayed inside this window gets through, so it stays short.
+FRESH_BINDING_GRACE = timedelta(seconds=15)
 
 
 class Action(StrEnum):

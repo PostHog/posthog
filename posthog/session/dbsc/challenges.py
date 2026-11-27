@@ -25,15 +25,15 @@ def refresh_subject(binding_id: str) -> str:
     return f"binding:{binding_id}"
 
 
-def issue_challenge(subject: str) -> str:
+def issue_challenge(subject: str, ttl_seconds: int = CHALLENGE_TTL_SECONDS) -> str:
     """Keyed by an offer or binding id, because the response to a login has no session key yet."""
     key = _cache_key(subject)
     store = _store()
-    store.add(key, secrets.token_urlsafe(32), CHALLENGE_TTL_SECONDS)
+    store.add(key, secrets.token_urlsafe(32), ttl_seconds)
     challenge = store.get(key)
     if not isinstance(challenge, str):
         challenge = secrets.token_urlsafe(32)
-        store.set(key, challenge, CHALLENGE_TTL_SECONDS)
+        store.set(key, challenge, ttl_seconds)
     return challenge
 
 

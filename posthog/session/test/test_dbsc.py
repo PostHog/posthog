@@ -23,6 +23,8 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from jwt.algorithms import ECAlgorithm, RSAAlgorithm
 from parameterized import parameterized
+from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -132,6 +134,10 @@ class TestDbscProof(SimpleTestCase):
     )
     def test_parse_sf_string(self, _name, header, expected):
         assert protocol.parse_sf_string(header) == expected
+
+
+def _registration_count(outcome: str) -> float:
+    return REGISTRY.get_sample_value("posthog_dbsc_registrations_total", {"outcome": outcome}) or 0.0
 
 
 @override_settings(DBSC_COOKIE_SIGNING_KEYS=["new-key", "old-key"], SESSION_COOKIE_SECURE=False)
@@ -248,6 +254,10 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
         assert row.dbsc_binding["jwk"] == _public_jwk(self.key)
         assert self.client.get("/api/users/@me/").status_code == 200
 
+        duplicates = _registration_count("duplicate")
+        assert self.client.post("/dbsc/start").status_code == 400
+        assert _registration_count("duplicate") == duplicates + 1
+
     def test_password_login_response_carries_the_registration_offer(self):
         self.client.logout()
 
@@ -288,6 +298,7 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
         [
             ("shadow", "shadow", "/api/users/@me/", timedelta(minutes=2), None, 200, True),
             ("enforce_fresh_binding", "enforce", "/api/users/@me/", timedelta(0), None, 200, True),
+            ("enforce_after_grace", "enforce", "/api/users/@me/", timedelta(seconds=30), None, 401, False),
             ("enforce_api", "enforce", "/api/users/@me/", timedelta(minutes=2), "Windows", 401, False),
             ("enforce_page", "enforce", "/insights", timedelta(minutes=2), None, 302, False),
             ("enforce_unrouted_dbsc_path", "enforce", "/dbsc/anything", timedelta(minutes=2), None, 302, False),
@@ -317,6 +328,16 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
         ended = not session_survives
         assert ActivityLog.objects.filter(activity="session_refused_unbound", user=self.user).exists() == ended
         assert ActivityLog.objects.filter(activity="logged_out", user=self.user).exists() == ended
+
+    def test_shadow_logs_one_refusal_per_binding_while_it_repeats(self):
+        self._register()
+        del self.client.cookies[cookie_name()]
+
+        with self._past_grace(), capture_logs() as logs:
+            for _ in range(3):
+                assert self.client.get("/api/users/@me/").status_code == 200
+
+        assert [entry["action"] for entry in logs if entry["event"] == "dbsc_refused"] == ["record"]
 
     def test_cross_site_navigation_bounces_through_our_origin_before_refusing(self):
         self._register()
@@ -400,6 +421,12 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
         assert check_bound_cookie(refreshed.cookies[cookie_name()].value, binding_id) == CookieCheck.VALID
 
         assert self.client.post("/dbsc/refresh", headers=signed).status_code == 403
+
+        next_challenge = protocol.parse_sf_string(refreshed.headers[protocol.CHALLENGE_HEADER])
+        assert next_challenge is not None
+        next_signed = {**session_header, protocol.RESPONSE_HEADER: f'"{_proof(self.key, next_challenge)}"'}
+        with time_machine.travel(timezone.now() + timedelta(minutes=9), tick=False):
+            assert self.client.post("/dbsc/refresh", headers=next_signed).status_code == 200
 
     def test_refresh_status_codes_for_requests_it_cannot_serve(self):
         self._register()

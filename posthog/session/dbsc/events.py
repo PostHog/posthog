@@ -1,5 +1,7 @@
+import hashlib
 from typing import Literal
 
+from django.core.cache import caches
 from django.http import HttpRequest
 
 import structlog
@@ -17,6 +19,10 @@ logger = structlog.get_logger(__name__)
 REFUSED_ACTIVITY = "session_refused_unbound"
 
 RefusalReason = Literal["missing", "expired", "bad_signature", "wrong_session", "invalid_proof"]
+
+# A browser that lost its DBSC session sends every request without the bound cookie until the session expires.
+REFUSAL_LOG_INTERVAL_SECONDS = 10 * 60
+_REFUSAL_LOGGED_PREFIX = "dbsc_refusal_logged:"
 
 REGISTRATIONS_COUNTER = Counter(
     "posthog_dbsc_registrations_total",
@@ -58,10 +64,19 @@ def record_refresh(outcome: str, *, user_id: int | None) -> None:
         logger.info("dbsc_refresh_failed", outcome=outcome, user_id=user_id)
 
 
+def _first_refusal_in_interval(binding_id: str, action: Action) -> bool:
+    key = _REFUSAL_LOGGED_PREFIX + hashlib.sha256(f"{binding_id}:{action.value}".encode()).hexdigest()
+    try:
+        return bool(caches["dbsc_challenges"].add(key, True, REFUSAL_LOG_INTERVAL_SECONDS))
+    except Exception:
+        return True
+
+
 def record_refusal(
     request: HttpRequest,
     user: User,
     *,
+    binding_id: str,
     mode: Mode,
     reason: RefusalReason,
     action: Action,
@@ -77,18 +92,19 @@ def record_refusal(
         skipped=str(skipped).lower(),
         cross_site=str(cross_site).lower(),
     ).inc()
-    logger.warning(
-        "dbsc_refused",
-        mode=mode.value,
-        reason=reason,
-        action=action.value,
-        skipped=skipped,
-        cross_site=cross_site,
-        impersonated=impersonated,
-        escalated=escalated,
-        user_id=user.id,
-        path=request.path,
-    )
+    if _first_refusal_in_interval(binding_id, action):
+        logger.warning(
+            "dbsc_refused",
+            mode=mode.value,
+            reason=reason,
+            action=action.value,
+            skipped=skipped,
+            cross_site=cross_site,
+            impersonated=impersonated,
+            escalated=escalated,
+            user_id=user.id,
+            path=request.path,
+        )
     # An impersonated session carries the staff member's binding, which never belongs in the customer's log.
     if action != Action.END_SESSION or impersonated or user.current_organization_id is None:
         return

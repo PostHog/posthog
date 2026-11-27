@@ -110,6 +110,7 @@ def _refusal(request: HttpRequest, user: User, binding: bindings.Binding) -> Htt
     record_refusal(
         request,
         user,
+        binding_id=binding.id,
         mode=facts.mode,
         reason=cast(RefusalReason, facts.check.value),
         action=action,
