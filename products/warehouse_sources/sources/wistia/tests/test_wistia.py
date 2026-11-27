@@ -392,25 +392,34 @@ class TestMediaDateWindows:
         ]
         assert result.rows == [{"date": start, "load_count": 1, "media_hashed_id": "m1"} for start, _ in expected]
 
-    def test_resumes_from_the_saved_media_page(self) -> None:
+    def test_resumes_at_the_saved_media_and_window(self) -> None:
         def answer(request: RecordedRequest) -> ScriptedResponse:
             if request.path == "/modern/medias":
                 page = int(request.param("page") or 0)
                 count = 100 if page == 1 else 1
-                return _page([{"hashed_id": f"p{page}m{i}", "created": "2026-11-12T00:00:00Z"} for i in range(count)])
+                return _page([{"hashed_id": f"p{page}m{i}", "created": "2025-06-15T00:00:00Z"} for i in range(count)])
             return _page([{"date": request.param("start_date"), "load_count": 1}])
 
         first = _driver().run("media_stats_by_date", answer, should_use_incremental_field=False)
         assert first.raised is None
-        assert len(first.rows) == 101
-        assert first.committed_states[-1] == WistiaResumeConfig(page=2)
+        assert first.committed_states[:2] == [
+            WistiaResumeConfig(page=1, media_id="p1m0", window_start="2026-06-14"),
+            WistiaResumeConfig(page=1, media_id="p1m0", window_start="2026-11-13"),
+        ]
 
+        # A full refresh appends on resume, so rows written before the interruption must not be read again.
         resumed = _driver().run(
             "media_stats_by_date",
             answer,
             should_use_incremental_field=False,
-            resume_state=WistiaResumeConfig(page=2),
+            resume_state=WistiaResumeConfig(page=1, media_id="p1m1", window_start="2026-06-14"),
         )
         assert resumed.raised is None
-        assert [request.param("page") for request in resumed.requests if request.path == "/modern/medias"] == ["2"]
-        assert [row["media_hashed_id"] for row in resumed.rows] == ["p2m0"]
+        assert [request.param("page") for request in resumed.requests if request.path == "/modern/medias"] == [
+            "1",
+            "2",
+        ]
+        keys = [(row["media_hashed_id"], row["date"]) for row in resumed.rows]
+        assert keys[0] == ("p1m1", "2026-06-14")
+        assert all(media_id != "p1m0" for media_id, _ in keys)
+        assert len(keys) == len(set(keys)) == 1 + 98 * 2 + 2

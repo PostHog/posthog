@@ -43,8 +43,10 @@ class WistiaResumeConfig:
     page: Optional[int] = None
     # Framework fan-out checkpoint: {"completed": [...], "current": ..., "child_state": ...}.
     fanout_state: Optional[dict[str, Any]] = None
-    # First day of the next account stats window, as YYYY-MM-DD.
+    # First day of the next stats window, as YYYY-MM-DD. For the per-media tables, the window
+    # belongs to `media_id` on media page `page`.
     window_start: Optional[str] = None
+    media_id: Optional[str] = None
 
 
 class WistiaPageNumberPaginator(PageNumberPaginator):
@@ -342,10 +344,15 @@ def _media_window_rows(
     watermark = _as_date(db_incremental_field_last_value) if db_incremental_field_last_value is not None else None
 
     page = FIRST_PAGE
+    resume_media_id: Optional[str] = None
+    resume_window_start: Optional[date] = None
     if manager.can_resume():
         resume = manager.load_state()
         if resume is not None and resume.page is not None:
             page = resume.page
+            resume_media_id = resume.media_id
+            if resume.window_start is not None:
+                resume_window_start = date.fromisoformat(resume.window_start)
 
     for medias in client.paginate(
         path=parent_config.path,
@@ -354,11 +361,22 @@ def _media_window_rows(
         initial_paginator_state={"page": page},
         data_selector_required=True,
     ):
-        # A resume reads this media page again, and merge removes the rows it already wrote.
-        manager.save_state(WistiaResumeConfig(page=page))
+        if resume_media_id is not None:
+            # A full refresh appends on resume, so skip the media whose rows are already written.
+            # If the media is gone from the page, the whole page is read again.
+            ids = [media["hashed_id"] for media in medias]
+            if resume_media_id in ids:
+                medias = medias[ids.index(resume_media_id) :]
+            else:
+                resume_window_start = None
+            resume_media_id = None
+
         for media in medias:
             media_id = media["hashed_id"]
             start = _media_window_start(media, watermark)
+            if resume_window_start is not None:
+                start = resume_window_start
+                resume_window_start = None
             while start <= today:
                 end = min(start + timedelta(days=MEDIA_STATS_WINDOW_DAYS - 1), today)
                 end_param = end + timedelta(days=1) if config.end_date_exclusive else end
@@ -375,9 +393,9 @@ def _media_window_rows(
                     # A media deleted between the media list and this request returns 404.
                     if e.response is None or e.response.status_code != 404:
                         raise
-                    manager.safe_point()
-                    break
+                    end = today
                 start = end + timedelta(days=1)
+                manager.save_state(WistiaResumeConfig(page=page, media_id=media_id, window_start=start.isoformat()))
                 if rows:
                     yield [{**row, config.parent_key: media_id} for row in rows]
                 else:
