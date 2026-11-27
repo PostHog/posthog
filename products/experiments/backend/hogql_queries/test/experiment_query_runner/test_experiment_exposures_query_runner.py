@@ -136,6 +136,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
     def test_warehouse_native_exposures_come_from_the_warehouse(self):
+        # An excluded variant stays out of the exposures, but its rows aren't unknown to the diagnostic.
+        self.experiment.excluded_variants = ["holdout"]
+        self.experiment.save()
         connection = ExternalDataSource.objects.create(
             team=self.team,
             source_id="bigquery",
@@ -178,6 +181,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert "FROM exposures" in statement["query"]
         assert "DATE(" in statement["query"] and "'UTC'" in statement["query"]
         assert left_out["connection_id"] == str(connection.id) and "unknown_variant" in left_out["query"]
+        assert "'holdout'" in left_out["query"] and "'holdout'" not in statement["query"]
         assert response.rows_left_out == ExperimentWarehouseNativeRowsLeftOut(
             unknown_variants={"Control": 3}, empty_id=1
         )

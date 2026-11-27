@@ -698,6 +698,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         builder = WarehouseNativeQueryBuilder(
             exposure=self.warehouse_native_exposure,
             variants=tuple(self.variants),
+            excluded_variants=tuple(sorted(self.excluded_variants)),
             date_from=self.date_range_query.date_from(),
             date_to=self.date_range_query.date_to(),
             multiple_variant_handling=multiple_variant_handling,

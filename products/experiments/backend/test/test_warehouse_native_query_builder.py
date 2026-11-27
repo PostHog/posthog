@@ -242,12 +242,21 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
         assert [(variant, int(count)) for _, variant, count in exposures] == [("test", 1)]
         assert {(reason, value, int(count)) for reason, value, count in left_out} == {("empty_id", None, 2)}
 
-    def test_exposure_rows_left_out_by_reason(self) -> None:
+    @parameterized.expand(
+        [
+            ("a variant the flag lacks is unknown", (), {("empty_id", None, 1), ("unknown_variant", "holdout", 1)}),
+            ("an excluded variant is left out on purpose", ("holdout",), {("empty_id", None, 1)}),
+        ]
+    )
+    def test_exposure_rows_left_out_by_reason(
+        self, _name: str, excluded_variants: tuple[str, ...], expected: set[tuple]
+    ) -> None:
         statement = WarehouseNativeQueryBuilder(
             exposure=ExperimentWarehouseNativeExposureConfig(
                 connection_id="connection", query="SELECT * FROM exposure_log", unit=UNIT
             ),
             variants=("control", "test"),
+            excluded_variants=excluded_variants,
             date_from=datetime(2026, 1, 1, tzinfo=UTC),
             date_to=datetime(2026, 2, 1, tzinfo=UTC),
             multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
@@ -257,10 +266,7 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
 
         # The fixture has one row with no id and one for the holdout variant. Its row from before the experiment
         # is outside the window, which bounds the scan.
-        assert {(reason, value, int(count)) for reason, value, count in rows} == {
-            ("empty_id", None, 1),
-            ("unknown_variant", "holdout", 1),
-        }
+        assert {(reason, value, int(count)) for reason, value, count in rows} == expected
 
     def test_ratio_metric_totals_per_variant(self) -> None:
         metric = ExperimentRatioMetric(
