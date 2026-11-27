@@ -1,6 +1,7 @@
 import re
 import copy
 import json
+import time
 import threading
 from collections.abc import Callable
 from datetime import timedelta
@@ -143,7 +144,7 @@ class TestResendImport(BaseTest):
         self.resend = FakeResend()
         _sync_email_template()
         client = "products.messaging.backend.services.resend_client"
-        self.sleep = self._patch(f"{client}.time.sleep")
+        self.sleep = self._patch(f"{client}.ResendClient._sleep")
         self.start_workflow = self._patch(
             "products.messaging.backend.provider_imports.runs.start_provider_import_workflow"
         )
@@ -840,7 +841,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         happy = "/contacts/c0000000-0000-4000-8000-000000000003"
         self.resend.failures[happy] = [(503, {})] * 4
 
-        with patch("products.messaging.backend.services.resend_client.time.sleep"):
+        with patch("products.messaging.backend.services.resend_client.ResendClient._sleep"):
             with self.assertRaises(ImportProviderUnavailable):
                 runs.run_step(self.team.id, run.id, "contact_properties", attempt=1)
         run.refresh_from_db()
@@ -1349,7 +1350,7 @@ class TestResendClientPace(SimpleTestCase):
         client_module = "products.messaging.backend.services.resend_client"
         with (
             patch(f"{client_module}.time.monotonic", side_effect=lambda: clock[0]),
-            patch(f"{client_module}.time.sleep", side_effect=sleep),
+            patch(f"{client_module}.ResendClient._sleep", side_effect=sleep),
             patch(f"{client_module}.requests.get", side_effect=get),
         ):
             client = resend_client.ResendClient(API_KEY)
@@ -1384,7 +1385,7 @@ class TestResendClientPace(SimpleTestCase):
                 clock[0] += seconds
 
             client.get("/domains")
-            with patch(f"{client_module}.time.sleep", side_effect=sleep):
+            with patch(f"{client_module}.ResendClient._sleep", side_effect=sleep):
                 client.get("/domains")
 
         assert sent_at[2] >= sent_at[1] + 2
@@ -1403,7 +1404,7 @@ class TestResendClientPace(SimpleTestCase):
 
         client_module = "products.messaging.backend.services.resend_client"
         with (
-            patch(f"{client_module}.time.sleep"),
+            patch(f"{client_module}.ResendClient._sleep"),
             patch(f"{client_module}.REQUESTS_PER_SECOND", 100000),
             patch(f"{client_module}.requests.get", side_effect=get),
         ):
@@ -1430,18 +1431,50 @@ class TestResendClientPace(SimpleTestCase):
         )
         client_module = "products.messaging.backend.services.resend_client"
         with (
-            patch(f"{client_module}.time.sleep"),
+            patch(f"{client_module}.ResendClient._sleep"),
             patch(f"{client_module}.REQUESTS_PER_SECOND", 100000),
             patch(f"{client_module}.requests.get", side_effect=get),
         ):
             client = resend_client.ResendClient(API_KEY)
-            batches = resend_client.read_ahead(pages, partial(resend._read_page_properties, client))
+            batches = resend_client.read_ahead(client, pages, partial(resend._read_page_properties, client))
             next(batches)
             assert second_page_started.wait(timeout=5)
             # What a failed save does: the step stops taking pages.
             batches.close()
 
         assert len([url for url in reads if "/contacts/p1-" in url]) < 10
+
+    def test_a_stopped_import_ends_a_rate_limit_wait_without_another_request(self) -> None:
+        reads: list[str] = []
+        waiting = threading.Event()
+
+        def get(url: str, **_: Any) -> MagicMock:
+            reads.append(url)
+            if url.endswith("/contacts/p1-c0"):
+                waiting.set()
+                return FakeResend._response(429, {"name": "rate_limit_exceeded"}, {"retry-after": "60"})
+            return FakeResend._response(200, {"properties": {"plan": "pro"}})
+
+        pages = iter(
+            resend_client.ResendPage(data=[{"id": f"p{page}-c{i}"} for i in range(5)], next_after=None)
+            for page in range(2)
+        )
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.REQUESTS_PER_SECOND", 100000),
+            patch(f"{client_module}.MAX_PARALLEL_REQUESTS", 1),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+            batches = resend_client.read_ahead(client, pages, partial(resend._read_page_properties, client))
+            next(batches)
+            assert waiting.wait(timeout=5)
+            reads_while_waiting = len(reads)
+            started = time.monotonic()
+            batches.close()
+
+        assert time.monotonic() - started < 5
+        assert len(reads) == reads_while_waiting
 
 
 class TestResendImportBudget(SimpleTestCase):

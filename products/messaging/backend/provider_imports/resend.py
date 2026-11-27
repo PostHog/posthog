@@ -6,7 +6,6 @@ email; the other contact steps read only who opted out.
 """
 
 import re
-import threading
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -527,7 +526,9 @@ def _fetch_contact_properties(
         return
     # Saving looks up each contact's person, which can take longer than reading the next page, so the reads go on
     # meanwhile and the next save takes every page read since.
-    for batch in read_ahead(client.pages("/contacts", _after(checkpoint)), partial(_read_page_properties, client)):
+    for batch in read_ahead(
+        client, client.pages("/contacts", _after(checkpoint)), partial(_read_page_properties, client)
+    ):
         contacts = ContactCollector()
         for _, page_properties in batch:
             for email, properties in page_properties:
@@ -541,21 +542,16 @@ def _fetch_contact_properties(
         )
 
 
-def _read_page_properties(
-    client: ResendClient, page: ResendPage, stop: threading.Event
-) -> list[tuple[Any, dict[str, Any]]]:
+def _read_page_properties(client: ResendClient, page: ResendPage) -> list[tuple[Any, dict[str, Any]]]:
     listed = [contact for contact in page.data if contact.get("id")]
     return [
         (contact.get("email"), {name: _property_value(value) for name, value in properties.items()})
-        for contact, properties in zip(listed, client.each(partial(_read_properties, client, stop), listed))
+        for contact, properties in zip(listed, client.each(partial(_read_properties, client), listed))
         if properties
     ]
 
 
-def _read_properties(client: ResendClient, stop: threading.Event, contact: dict[str, Any]) -> dict[str, Any] | None:
-    # The import stopped, so what this page reads is thrown away.
-    if stop.is_set():
-        return None
+def _read_properties(client: ResendClient, contact: dict[str, Any]) -> dict[str, Any] | None:
     try:
         properties = client.get(f"/contacts/{_path_part(contact['id'])}").get("properties")
     except ResendAPIError as e:

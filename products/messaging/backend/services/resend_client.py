@@ -59,6 +59,10 @@ class ResendRateLimited(ResendAPIError):
     """Resend kept answering 429 after the client waited as long as it told it to."""
 
 
+class ResendClientStopped(Exception):
+    """The client was stopped, so it sends no more requests."""
+
+
 T = TypeVar("T")
 R = TypeVar("R")
 
@@ -89,6 +93,7 @@ class ResendClient:
         self._share_cut_at = float("-inf")
         self._longest_reset = 0
         self._lock = threading.Lock()
+        self._stopped = threading.Event()
 
     def __repr__(self) -> str:
         return "ResendClient()"
@@ -133,11 +138,17 @@ class ResendClient:
                 raise errors[0]
             return [future.result() for future in futures]
 
+    def stop(self) -> None:
+        """Ends the waits of requests in flight and refuses new ones, from any thread."""
+        self._stopped.set()
+
     def _get(self, path: str, params: dict[str, Any] | None) -> dict[str, Any]:
         waits = 0
         retries = 0
         while True:
             self._pace()
+            if self._stopped.is_set():
+                raise ResendClientStopped()
             try:
                 response = requests.get(
                     f"{settings.MESSAGING_RESEND_API_URL}{path}",
@@ -149,7 +160,7 @@ class ResendClient:
             except requests.RequestException as e:
                 if retries < self._max_transient_retries:
                     retries += 1
-                    time.sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
+                    self._sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
                     continue
                 # The exception text can hold the request's details, so only its type leaves this function.
                 raise ResendAPIError(f"Couldn't reach Resend ({type(e).__name__}).") from None
@@ -162,7 +173,7 @@ class ResendClient:
                 continue
             if response.status_code >= 500 and retries < self._max_transient_retries:
                 retries += 1
-                time.sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
+                self._sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
                 continue
             return _parse(response)
 
@@ -173,19 +184,23 @@ class ResendClient:
                 start_at = max(now, self._next_request_at)
                 self._next_request_at = start_at + self._interval
             if start_at > now:
-                time.sleep(start_at - now)
+                self._sleep(start_at - now)
             # Another request can hit a full window while this one waits for its time, and then this one waits too.
             with self._lock:
                 paused_for = self._paused_until - time.monotonic()
             if paused_for <= 0:
                 return
-            time.sleep(paused_for)
+            self._sleep(paused_for)
 
     def _pause(self, seconds: float) -> None:
         """Holds every request, including those already waiting for their time, for `seconds`."""
         with self._lock:
             self._hold_until(time.monotonic() + seconds)
-        time.sleep(seconds)
+        self._sleep(seconds)
+
+    def _sleep(self, seconds: float) -> None:
+        if self._stopped.wait(seconds):
+            raise ResendClientStopped()
 
     def _hold_until(self, moment: float) -> None:
         self._paused_until = max(self._paused_until, moment)
@@ -220,14 +235,14 @@ class ResendClient:
 
 
 def read_ahead(
-    pages: Iterator[ResendPage], read: Callable[[ResendPage, threading.Event], R]
+    client: ResendClient, pages: Iterator[ResendPage], read: Callable[[ResendPage], R]
 ) -> Generator[list[tuple[ResendPage, R]]]:
     """`read` for each page in a thread of its own, so the requests go on while the caller saves what it was handed.
 
     Each batch holds the pages read since the last one, at least one and at most MAX_PAGES_AHEAD, in page order. An
-    error in the thread is raised once the pages read before it are handed over. The thread stops when the caller
-    stops iterating, and `read` gets an event that is set then, so it can skip the rest of its page. `read` must not
-    use the database, whose connection belongs to the caller's transaction.
+    error in the thread is raised once the pages read before it are handed over. When the caller stops iterating,
+    `client` is stopped, so the thread sends nothing more and ends. `pages` and `read` must use `client` and not the
+    database, whose connection belongs to the caller's transaction.
     """
     ready: queue.Queue[tuple[ResendPage, R] | BaseException | None] = queue.Queue(maxsize=MAX_PAGES_AHEAD)
     stop = threading.Event()
@@ -244,7 +259,7 @@ def read_ahead(
     def produce() -> None:
         try:
             for page in pages:
-                if not hand_over((page, read(page, stop))):
+                if not hand_over((page, read(page))):
                     return
             hand_over(None)
         except BaseException as e:
@@ -272,6 +287,7 @@ def read_ahead(
             raise ending
     finally:
         stop.set()
+        client.stop()
         reader.join()
 
 
