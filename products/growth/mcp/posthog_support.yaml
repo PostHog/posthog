@@ -39,4 +39,5 @@ tools:
             it". Never call it on your own judgment. If they ask for a change, draft it again, show the new version, and
             wait for a yes to that one. A draft becomes at most one ticket: calling again returns the same ticket.
             Afterwards, first give them the ticket number when the response has one, and tell them to log in and watch
-            the support panel in the right-hand sidebar of PostHog for replies, at https://app.posthog.com/home#panel=support.
+            the support panel in the right-hand sidebar of PostHog for replies, at
+            https://app.posthog.com/home#panel=support.
