@@ -457,7 +457,7 @@ describe('measurements', () => {
         )
     })
 
-    type Latency = number | 'failed' | { failedAfterMs: number }
+    type Latency = number | 'failed' | { failedAfterMs: number } | { startsLateMs: number; latencyMs: number }
 
     const latencyWriter = (latency: (second: number) => Latency): WriterSample[] =>
         everySecondOf(0, 1500).map((second): WriterSample => {
@@ -465,12 +465,22 @@ describe('measurements', () => {
             const at = { at: atS(second), monoMs: second * 1000 }
             return ms === 'failed'
                 ? { ...at, latencyMs: 0, ok: false, sqlstate: '57P01' }
-                : typeof ms === 'object'
-                  ? { ...at, latencyMs: ms.failedAfterMs, ok: false, sqlstate: '57014' }
-                  : { ...at, latencyMs: ms, ok: true, inRecovery: false }
+                : typeof ms === 'number'
+                  ? { ...at, latencyMs: ms, ok: true, inRecovery: false }
+                  : 'failedAfterMs' in ms
+                    ? { ...at, latencyMs: ms.failedAfterMs, ok: false, sqlstate: '57014' }
+                    : {
+                          at: at.at + ms.startsLateMs,
+                          monoMs: at.monoMs + ms.startsLateMs,
+                          latencyMs: ms.latencyMs,
+                          ok: true,
+                      }
         })
 
     const THREE_MINUTE_VALVE: ValveTimelineEntry[] = [{ ...VALVE, releasedAt: isoAt(880) }]
+    const NOT_WHOLE_MINUTES = 'the valve phase is not a whole number of minutes'
+    const IN_FLIGHT_AT_END = 'a write probe was in flight at the valve end'
+    const SPLIT_SCRAPES = 'a scrape interval that crosses a minute boundary cannot say which side its pickups fell on'
 
     it.each<
         [
@@ -479,6 +489,7 @@ describe('measurements', () => {
             ValveTimelineEntry[],
             Omit<Measurement, 'name' | 'unit'>[],
             ((second: number) => boolean)?,
+            DriveWindow?,
         ]
     >([
         [
@@ -575,31 +586,59 @@ describe('measurements', () => {
             ],
         ],
         [
-            'folds a sub-second remainder into the last minute, so an empty remainder censors nothing',
-            (second) => (between(700, 759)(second) ? 400 : 10),
-            [{ ...VALVE, releasedAt: isoAt(880.5) }],
+            'leaves recovery unknown for a valve that is not a whole number of minutes, though its slow tail falls in its own point',
+            (second) => (second === 915 ? 400 : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
             [
                 { key: 'baseline', value: 10 },
                 { key: 'bar', value: 20 },
-                { key: 't0', value: 400 },
+                { key: 't0', value: 10 },
                 { key: 't60', value: 10 },
                 { key: 't120', value: 10 },
-                { key: 'recovery_seconds', value: 60 },
+                { key: 't180', value: 400 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: NOT_WHOLE_MINUTES },
             ],
-            (second) => second !== 880,
         ],
         [
-            'reads a slow last minute as not recovered, though one fast probe lands in its sub-second remainder',
-            (second) => (between(700, 879)(second) ? 400 : 10),
-            [{ ...VALVE, releasedAt: isoAt(880.5) }],
+            'leaves recovery unknown when a write is still in flight at the valve end',
+            (second) => (second === 879 ? { startsLateMs: 800, latencyMs: 400 } : 10),
+            THREE_MINUTE_VALVE,
             [
                 { key: 'baseline', value: 10 },
                 { key: 'bar', value: 20 },
-                { key: 't0', value: 400 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: IN_FLIGHT_AT_END },
+            ],
+        ],
+        [
+            'counts a slow write in the minute it ended, though it started in the minute before',
+            (second) => (second === 759 ? { startsLateMs: 750, latencyMs: 400 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
                 { key: 't60', value: 400 },
-                { key: 't120', value: 400 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+        ],
+        [
+            'keeps a probe that started before the baseline out of it',
+            (second) => (second === 669 ? { startsLateMs: 750, latencyMs: 400 } : second >= 700 ? 300 : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 300 },
+                { key: 't60', value: 300 },
+                { key: 't120', value: 300 },
                 { key: 'recovery_seconds', value: null, censored: true },
             ],
+            () => true,
+            { startedAt: atS(0), warmedAt: atS(670), endedAt: atS(1500) },
         ],
         [
             'keeps the minutes of a valve whose baseline had a failed probe, with no bar and no recovery',
@@ -616,7 +655,7 @@ describe('measurements', () => {
         ],
         ['measures nothing for a card without a valve', () => 10, [], []],
         ['measures nothing on a baseline under 30 seconds', () => 10, [{ ...VALVE, intentAt: isoAt(10) }], []],
-    ])('write latency p99 %s', (_story, latency, timeline, measured, probed = () => true) => {
+    ])('write latency p99 %s', (_story, latency, timeline, measured, probed = () => true, drive = DRIVE) => {
         const names = ['write_latency_p99_ms', 'write_latency_recovery_seconds']
         const recovery = measured.filter(({ key }) => key === 'recovery_seconds')
 
@@ -624,8 +663,8 @@ describe('measurements', () => {
             measure(
                 names.map((name) => ({ name, params: {} })),
                 evidence({
-                    writer: latencyWriter(latency).filter(({ at }) => probed((at - FROM) / 1000)),
-                    drive: DRIVE,
+                    writer: latencyWriter(latency).filter(({ at }) => probed(Math.floor((at - FROM) / 1000))),
+                    drive,
                     timeline,
                 })
             )
@@ -702,7 +741,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -724,7 +763,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -746,7 +785,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 0.5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 5, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -758,7 +797,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -770,7 +809,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -782,7 +821,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 5 },
                 { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -794,7 +833,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -806,7 +845,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -818,7 +857,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -837,7 +876,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -849,7 +888,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5, censored: true },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -861,7 +900,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 0.5 },
                 { key: 'hogflow_t60', value: null, censored: true, incomplete: true },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
     ])('pickup p99 %s', (_story, samples, measured) => {
