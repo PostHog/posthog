@@ -1862,7 +1862,6 @@ class TestExternalDataSchema(APIBaseTest):
         [
             # A plain view / partitioned parent reports supports_xmin=False — reject even with a PK.
             ("table_not_capable", None, "xmin replication is not available"),
-            # A failed lookup must not read as a table without xmin.
             ("discovery_failed", ConnectionError("could not connect to server"), "couldn't check whether"),
         ]
     )
