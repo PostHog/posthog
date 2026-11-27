@@ -291,6 +291,9 @@ FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 # Set by a manual sync so its run skips the gap. The next failed run rewrites the streak without it.
 FAILURE_STREAK_MANUAL_RUN_KEY = "manual_run_requested"
+# In `sync_type_config`: the interval this schema's schedule runs at, in seconds, when something
+# other than the schedule starts its runs at `sync_frequency_interval`.
+SCHEDULE_INTERVAL_SECONDS_KEY = "schedule_interval_seconds"
 # In `sync_type_config`: when someone last asked for a sync of this schema, failing or not. A run that
 # would stand down because it has nothing to do goes ahead while no full run has finished since.
 MANUAL_RUN_REQUESTED_AT_KEY = "manual_run_requested_at"
@@ -668,6 +671,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             return self.sync_type_config.get("incremental_field_earliest_value", None)
 
         return None
+
+    @property
+    def schedule_interval(self) -> timedelta | None:
+        """The interval this schema's schedule runs at: `sync_frequency_interval` unless an override is set."""
+        seconds = (self.sync_type_config or {}).get(SCHEDULE_INTERVAL_SECONDS_KEY)
+        if isinstance(seconds, int) and not isinstance(seconds, bool) and seconds > 0:
+            return timedelta(seconds=seconds)
+        return self.sync_frequency_interval
 
     @property
     def last_full_run_at(self) -> str | None:

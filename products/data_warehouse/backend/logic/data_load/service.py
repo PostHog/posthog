@@ -82,7 +82,7 @@ def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: boo
         minute = t.minute
     else:
         # Apply a one-time jitter based on the sync frequency to avoid all jobs syncing at the same time
-        interval: timedelta | None = external_data_schema.sync_frequency_interval
+        interval: timedelta | None = external_data_schema.schedule_interval
         if interval is not None:
             rng = random.Random(str(external_data_schema.id))
 
@@ -104,7 +104,7 @@ def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: boo
         inputs,
         hour_of_day=hour,
         minute_of_hour=minute,
-        sync_frequency=external_data_schema.sync_frequency_interval,
+        sync_frequency=external_data_schema.schedule_interval,
         should_sync=should_sync,
     )
 

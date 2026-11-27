@@ -146,6 +146,29 @@ def _get_expected_start_time(external_data_schema, sync_time, now):
 
 
 @pytest.mark.parametrize(
+    "sync_type_config,expected",
+    [
+        (None, dt.timedelta(minutes=5)),
+        ({"schedule_interval_seconds": 21600}, dt.timedelta(hours=6)),
+        ({"schedule_interval_seconds": 0}, dt.timedelta(minutes=5)),
+    ],
+)
+def test_a_schedule_runs_at_the_sync_frequency_unless_the_schema_overrides_it(sync_type_config, expected):
+    schema = ExternalDataSchema(
+        id=uuid.uuid4(),
+        team_id=1,
+        source_id=uuid.uuid4(),
+        sync_frequency_interval=dt.timedelta(minutes=5),
+        sync_type_config=sync_type_config,
+    )
+
+    interval = get_sync_schedule(schema).spec.intervals[0]
+
+    assert interval.every == expected
+    assert interval.offset is not None and interval.offset < expected
+
+
+@pytest.mark.parametrize(
     "sync_frequency_interval",
     [
         dt.timedelta(minutes=5),
