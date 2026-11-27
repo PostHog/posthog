@@ -93,6 +93,9 @@ class PlanningCenterEndpointConfig:
     fanout: Optional[DependentEndpointConfig] = None
     chained_fanout: Optional[ChainedFanoutConfig] = None
     included: Optional[IncludedResourceConfig] = None
+    # Checkpoint the fan-out parent's page, not every completed parent. Set for a parent list that
+    # can hold thousands of rows.
+    resume_parent_pagination: bool = False
     page_size: int = PAGE_SIZE
 
     @property
@@ -139,6 +142,8 @@ SCHEDULES_FANOUT = DependentEndpointConfig(
     resolve_field="id",
     include_from_parent=["id"],
     parent_field_renames={"id": "person_id"},
+    # A stable parent order, so a run that resumes from a saved parent offset skips no person.
+    parent_params={"order": "created_at"},
     child_params={"filter": "all,with_declined,not_across_organizations"},
     # A person removed from Services between the people page and this fetch must not fail the run.
     child_response_actions=[{"status_code": 404, "action": "ignore"}],
@@ -289,6 +294,7 @@ _ENDPOINTS: list[PlanningCenterEndpointConfig] = [
         partition_key=None,
         primary_keys=["person_id", "id"],
         fanout=SCHEDULES_FANOUT,
+        resume_parent_pagination=True,
     ),
     # Calendar
     _endpoint("calendar_events", "calendar", "events", incremental=True, full_refresh_order=None),

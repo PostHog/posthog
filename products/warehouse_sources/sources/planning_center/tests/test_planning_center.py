@@ -316,6 +316,23 @@ class TestSchedulesFanOut:
         assert {request.headers["x-pco-api-version"] for request in result.requests} == {"2018-11-01"}
         assert result.rows == [{"id": "s1", "person_id": "p1", "status": "D", "team_name": "Band"}]
 
+    def test_resume_starts_the_people_listing_at_the_saved_page(self) -> None:
+        result = _driver().run(
+            "schedules",
+            route(
+                {
+                    "/services/v2/people": [_page([_resource("p200")], 201)],
+                    "/services/v2/people/p200/schedules": [_page([_resource("s200")], 1)],
+                }
+            ),
+            resume_state=PlanningCenterResumeConfig(fanout_state={"parent": {"offset": 200}}),
+        )
+
+        assert result.raised is None
+        assert result.params("offset")[0] == "200"
+        assert result.params("order")[0] == "created_at"
+        assert [(row["person_id"], row["id"]) for row in result.rows] == [("p200", "s200")]
+
 
 class TestIncludedResources:
     @pytest.mark.parametrize(

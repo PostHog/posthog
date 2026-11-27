@@ -369,6 +369,7 @@ def _fanout_source(
             page_size_param=None,
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_paginator_state,
+            resume_parent_pagination=config.resume_parent_pagination,
         ),
     )
     # Added after the helper renames the parent id, so the parent id is already on the row.
