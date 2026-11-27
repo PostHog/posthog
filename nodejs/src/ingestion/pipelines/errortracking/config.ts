@@ -24,11 +24,11 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_CYMBAL_BASE_URL: string
     ERROR_TRACKING_CYMBAL_TIMEOUT_MS: number
     /**
-     * On a lane that cannot redirect to overflow, an event that Cymbal asks to retry is resent on
-     * its own, and no resend starts after this much time since the batch reached Cymbal. 0 turns
-     * the resends off. Keep it plus ERROR_TRACKING_CYMBAL_TIMEOUT_MS well under
-     * CONSUMER_LOOP_STALL_THRESHOLD_MS, and under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS for a consumer
-     * on the legacy health check, because the whole batch has to fit in them.
+     * On a lane that cannot redirect, no resend of an event that Cymbal asks to retry starts after
+     * this much time since the step's attempt began. 0 turns the resends off. The step can take the
+     * retry wrapper's 10 s soft deadline, plus this, plus ERROR_TRACKING_CYMBAL_TIMEOUT_MS, which
+     * must stay under CONSUMER_LOOP_STALL_THRESHOLD_MS (CONSUMER_MAX_HEARTBEAT_INTERVAL_MS on the
+     * legacy consumer).
      */
     ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS: number
 

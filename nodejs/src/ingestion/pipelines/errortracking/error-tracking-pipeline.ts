@@ -220,10 +220,9 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
     const afterCymbal = preCymbal
         // Process through Cymbal as a batch (before enrichment - Cymbal only
         // needs raw exception data, not person/geoip/group data).
-        // The retry wrapper reruns the whole step only when it throws, which is a DNS failure or a
-        // request that Cymbal could not take. softDeadlineMs (10s) + ERROR_TRACKING_CYMBAL_TIMEOUT_MS
-        // (15s) stays below CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s). An event that asks to retry is
-        // handled in the step, within ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS.
+        // softDeadlineMs (10s) + ERROR_TRACKING_CYMBAL_TIMEOUT_MS (15s) stays below
+        // CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s). ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS
+        // adds the in-place resends to that budget.
         .pipeChunk(
             createCymbalProcessingStep(cymbalClient, {
                 overflowMode,

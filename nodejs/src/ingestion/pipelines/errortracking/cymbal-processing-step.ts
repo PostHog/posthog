@@ -14,7 +14,7 @@ import { PipelineResult, ok, redirect } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { ISOTimestamp, Team } from '~/types'
 
-import { CymbalClient, CymbalResult } from './cymbal/client'
+import { CYMBAL_UNAVAILABLE_CODE, CymbalClient, CymbalError, CymbalResult } from './cymbal/client'
 import { CymbalRequest, CymbalResponse } from './cymbal/types'
 
 export interface CymbalProcessingInput {
@@ -34,10 +34,10 @@ export interface CymbalRetryOptions {
 /** The wait before each in-place retry round. Its length is the maximum number of rounds. */
 const IN_PLACE_RETRY_DELAYS_MS = [1_000, 3_000, 9_000]
 
-/** Each wait is shortened by a random part of up to this fraction, so lanes do not resend in step. */
+/** Each wait is shortened by a random part of up to this fraction, so pods do not resend in step. */
 const IN_PLACE_RETRY_JITTER = 0.5
 
-/** Cymbal rejects requests above a fixed number in flight per pod with a 429. */
+/** Cymbal answers 429 above a fixed number of requests in flight per pod. */
 const IN_PLACE_RETRY_CONCURRENCY = 10
 
 const cymbalInPlaceRetries = new Counter({
@@ -82,9 +82,23 @@ async function retryInPlace(
 }
 
 /**
- * Returns `undefined`, which sends the event to the DLQ, unless this lane redirects to an overflow
- * lane. The overflow lane cannot send an event further, because it has no overflow topic of its own.
+ * The events are not at fault when Cymbal could not take an event's last resend, or when every
+ * event still asks to retry, because then Cymbal or one of its dependencies is down. A lane that
+ * cannot redirect then retries the whole batch instead of sending the events to the DLQ.
  */
+function cymbalUnavailableError(results: CymbalResult[]): CymbalError | undefined {
+    const retries = results.filter((result) => result.result === 'retry')
+    const notTaken = retries.filter((result) => result.error.code === CYMBAL_UNAVAILABLE_CODE)
+    if (notTaken.length === 0 && retries.length < results.length) {
+        return undefined
+    }
+    return new CymbalError(
+        `Cymbal is unavailable: ${retries.length} of ${results.length} events ask to retry, ${notTaken.length} not taken`,
+        true
+    )
+}
+
+/** Returns `undefined`, which sends the event to the DLQ, unless this lane redirects to an overflow lane. */
 function retryOnOverflow<T>(
     { overflowMode, preservePartitionLocality }: CymbalRetryOptions,
     warnings: PipelineWarning[]
@@ -125,10 +139,9 @@ function validateEventTimestamp(event: PluginEvent): { timestamp: ISOTimestamp; 
  * happens after Cymbal to reduce payload size and avoid wasted work
  * if events are suppressed.
  *
- * An event that Cymbal asks to retry gets its next attempt on the overflow lane, so the main lane
- * does not wait for it. The overflow lane, and a consumer without an overflow lane, have no lane to
- * hand it to. They resend it on its own after a growing wait, and send it to the DLQ when it still
- * asks to retry after the last round.
+ * The main lane sends an event that Cymbal asks to retry to the overflow lane. A lane that cannot
+ * redirect resends it on its own after a growing wait, and sends it to the DLQ when it still asks
+ * to retry after the last round.
  */
 export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
     cymbalClient: CymbalClient,
@@ -178,6 +191,10 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                     retryOptions.inPlaceRetrySoftDeadlineMs,
                     startedAt
                 )
+                const unavailable = cymbalUnavailableError(results)
+                if (unavailable) {
+                    throw unavailable
+                }
             }
 
             return toPipelineResults<CymbalResponse, T, OverflowOutput>(
@@ -203,8 +220,6 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                 batchSize: inputs.length,
             })
 
-            // The client gives each event of a failed request its own result, so this is a DNS
-            // failure, a request Cymbal could not take (a network error, 429 or 503), or a bug.
             // Throw so that the retry wrapper retries the whole batch.
             throw error
         }

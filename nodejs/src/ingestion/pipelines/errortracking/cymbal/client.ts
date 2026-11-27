@@ -111,7 +111,7 @@ export interface CymbalClientConfig {
 /**
  * Error class that indicates whether the error is retriable.
  */
-class CymbalError extends Error {
+export class CymbalError extends Error {
     isRetriable: boolean
     isTimeout: boolean
     status?: number
@@ -125,23 +125,21 @@ class CymbalError extends Error {
     }
 }
 
-/**
- * Network and timeout errors are retriable. A timeout is kept apart because it can come from one
- * slow event, which the client isolates by fanning out, while a network error means Cymbal is down.
- */
+/** The code of the `retry` result an event gets when Cymbal could not take its own request. */
+export const CYMBAL_UNAVAILABLE_CODE = 'unavailable'
+
+/** A timeout is kept apart from a network error because one slow event can cause it. */
 function toCymbalError(error: unknown): CymbalError {
     const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
     return new CymbalError(error instanceof Error ? error.message : String(error), true, isTimeout)
 }
 
 /**
- * The result that every event of a failed request gets, so that one failed request does not
- * discard the results of the other requests in the batch. Cymbal answers 500 when no event of the
- * request resolved, so a 500 can come from the events themselves and becomes a `retry` for each.
+ * Cymbal answers 500 when no event of the request resolved, so a 500 can come from the events and
+ * gives each of them a `retry`.
  *
- * @throws the error itself when Cymbal could not take the request at all (a network error, 429 or
- * 503). The contract asks to retry the whole request then, and the events are not at fault. Also
- * throws an error that is not a request failure, such as a bug in the client.
+ * @throws the error when Cymbal could not take the request (a network error, 429 or 503), or when
+ * it is not a request failure.
  */
 function resultForFailedRequest(error: unknown): CymbalResult {
     if (error instanceof ServiceResponseError) {
@@ -200,12 +198,9 @@ function jumpConsistentHash(key: number, numBuckets: number): number {
  * When DNS returns a single IP (e.g., local dev or ClusterIP service),
  * all events are sent to that address — no grouping overhead.
  *
- * The client does not retry. When a request fails with a 500, a 4xx, a
- * timeout or a body that breaks the contract, each of its events gets a
- * `retry` or `fail` result, and the caller decides where the next attempt
- * happens. When Cymbal cannot take a request at all (a network error, 429 or
- * 503), the client throws a retriable CymbalError, so the whole batch is
- * retried.
+ * The client does not retry. Each event of a failed request gets a `retry` or
+ * `fail` result, except when Cymbal could not take the request (a network
+ * error, 429 or 503), which throws a retriable CymbalError.
  */
 export class CymbalClient {
     private hostname: string
@@ -297,12 +292,9 @@ export class CymbalClient {
     }
 
     /**
-     * Process each event in its own request, so that one slow or failing event cannot hold back or
-     * fail the others. Each event goes to the pod its team routes to. At most `concurrency`
-     * requests run at once, and no request starts at or after `startBefore` (a `Date.now()` time).
-     *
-     * A request that Cymbal cannot take (a network error, 429 or 503) gives its event a `retry`
-     * result instead of throwing, so that it does not discard the results of the other events.
+     * Sends each event in its own request, so that one slow or failing event cannot hold back the
+     * others. No request starts at or after `startBefore`, a `Date.now()` time. A request that
+     * Cymbal could not take gives its event a `retry` with CYMBAL_UNAVAILABLE_CODE.
      *
      * @returns One result per input event, in input order, or `undefined` for an event not sent.
      * @throws a retriable error when DNS resolution fails
@@ -338,7 +330,7 @@ export class CymbalClient {
             return result
         } catch (error) {
             if (error instanceof CymbalError && error.isRetriable) {
-                return { result: 'retry', error: { code: 'unavailable', message: error.message } }
+                return { result: 'retry', error: { code: CYMBAL_UNAVAILABLE_CODE, message: error.message } }
             }
             throw error
         }

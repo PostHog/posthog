@@ -3,7 +3,7 @@ import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 
 import { createCymbalProcessingStep } from './cymbal-processing-step'
-import { CymbalClient } from './cymbal/client'
+import { CYMBAL_UNAVAILABLE_CODE, CymbalClient } from './cymbal/client'
 import { CymbalResult } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
 
@@ -165,9 +165,18 @@ describe('createCymbalProcessingStep', () => {
 
     describe('an event Cymbal asks to retry', () => {
         const retry: CymbalResult = { result: 'retry', error: { code: 'deadline_exceeded', message: 'slow' } }
+        const notTaken: CymbalResult = {
+            result: 'retry',
+            error: { code: CYMBAL_UNAVAILABLE_CODE, message: 'Cymbal returned 429' },
+        }
+
+        const resolved = (uuid: string) =>
+            toOutcomes([createResponse({ uuid, properties: { $exception_fingerprint: `fp-${uuid}` } })])
 
         const runPastRetryWaits = async (inputs: ReturnType<typeof createInput>[]) => {
             const pending = step(inputs)
+            // Handled here so that a rejection is not reported as unhandled while the timers run.
+            pending.catch(() => undefined)
             await jest.runAllTimersAsync()
             return pending
         }
@@ -179,9 +188,6 @@ describe('createCymbalProcessingStep', () => {
                 inPlaceRetrySoftDeadlineMs,
             })
         }
-
-        const resentUuids = () =>
-            mockCymbalClient.processEachException.mock.calls.map(([items]) => items.map((item) => item.request.uuid))
 
         beforeEach(() => {
             jest.useFakeTimers()
@@ -201,6 +207,7 @@ describe('createCymbalProcessingStep', () => {
                 inPlaceRetrySoftDeadlineMs: 60_000,
             })
             mockCymbalClient.processExceptions.mockResolvedValueOnce([retry, retry])
+            mockCymbalClient.processEachException.mockResolvedValue([...resolved('uuid-1'), ...resolved('uuid-2')])
 
             const results = await runPastRetryWaits([createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })])
 
@@ -212,15 +219,12 @@ describe('createCymbalProcessingStep', () => {
                     preserveKey: false,
                 })
             }
-            expect(mockCymbalClient.processEachException).not.toHaveBeenCalled()
         })
 
         it.each(['consume' as const, 'disabled' as const])(
             'is resent on its own with overflow mode %s until it resolves',
             async (overflowMode) => {
                 usesInPlaceRetries(overflowMode, 60_000)
-                const resolved = (uuid: string) =>
-                    toOutcomes([createResponse({ uuid, properties: { $exception_fingerprint: `fp-${uuid}` } })])
                 mockCymbalClient.processExceptions.mockResolvedValueOnce([
                     ...resolved('a'),
                     retry,
@@ -239,35 +243,64 @@ describe('createCymbalProcessingStep', () => {
                         value: { event: { uuid, properties: { $exception_fingerprint: `fp-${uuid}` } } },
                     }))
                 )
-                expect(resentUuids()).toEqual([['b', 'd'], ['d']])
             }
         )
 
+        const ok = { type: PipelineResultType.OK }
+        const dlq = { type: PipelineResultType.DLQ, reason: 'cymbal_item_retry' }
+
         it.each([
-            ['after the last resend', 60_000, 0, 3],
-            ['once the soft deadline leaves no time for another resend', 10_000, 0, 2],
-            ['when the first pass used up the soft deadline', 10_000, 9_500, 0],
-        ])('goes to the DLQ when it still asks %s', async (_name, inPlaceRetrySoftDeadlineMs, firstPassMs, resends) => {
+            ['resolves on the third resend', 60_000, 0, 3, ok],
+            ['goes to the DLQ when it still asks after the third resend', 60_000, 0, 4, dlq],
+            ['resolves on the second resend within a 10 s soft deadline', 10_000, 0, 2, ok],
+            ['goes to the DLQ when the soft deadline leaves no time for a third resend', 10_000, 0, 3, dlq],
+            ['goes to the DLQ when the first pass used up the soft deadline', 10_000, 9_500, 1, dlq],
+        ])('%s', async (_name, inPlaceRetrySoftDeadlineMs, firstPassMs, resolvingResend, expected) => {
             usesInPlaceRetries('consume', inPlaceRetrySoftDeadlineMs)
             mockCymbalClient.processExceptions.mockImplementationOnce(
-                () => new Promise((resolve) => setTimeout(() => resolve([retry]), firstPassMs))
+                () => new Promise((resolve) => setTimeout(() => resolve([...resolved('a'), retry]), firstPassMs))
             )
-            mockCymbalClient.processEachException.mockResolvedValue([retry])
+            let resends = 0
+            mockCymbalClient.processEachException.mockImplementation(() =>
+                Promise.resolve(++resends === resolvingResend ? resolved('b') : [retry])
+            )
 
-            const results = await runPastRetryWaits([createInput()])
+            const results = await runPastRetryWaits([createInput({ uuid: 'a' }), createInput({ uuid: 'b' })])
 
-            expect(results[0]).toMatchObject({ type: PipelineResultType.DLQ, reason: 'cymbal_item_retry' })
-            expect(mockCymbalClient.processEachException).toHaveBeenCalledTimes(resends)
+            expect(results[1]).toMatchObject(expected)
         })
 
         it('keeps an event that was not resent before the soft deadline as a retry', async () => {
             usesInPlaceRetries('consume', 60_000)
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([retry])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([...resolved('a'), retry])
             mockCymbalClient.processEachException.mockResolvedValue([undefined])
 
-            const results = await runPastRetryWaits([createInput()])
+            const results = await runPastRetryWaits([createInput({ uuid: 'a' }), createInput({ uuid: 'b' })])
 
-            expect(results[0]).toMatchObject({ type: PipelineResultType.DLQ, reason: 'cymbal_item_retry' })
+            expect(results[1]).toMatchObject(dlq)
+        })
+
+        it.each([0, 60_000])(
+            'retries the whole batch when every event still asks to retry, with a %d ms soft deadline',
+            async (inPlaceRetrySoftDeadlineMs) => {
+                usesInPlaceRetries('consume', inPlaceRetrySoftDeadlineMs)
+                mockCymbalClient.processExceptions.mockResolvedValueOnce([retry, retry])
+                mockCymbalClient.processEachException.mockResolvedValue([retry, retry])
+
+                await expect(
+                    runPastRetryWaits([createInput({ uuid: 'a' }), createInput({ uuid: 'b' })])
+                ).rejects.toMatchObject({ isRetriable: true })
+            }
+        )
+
+        it("retries the whole batch when Cymbal could not take an event's last resend", async () => {
+            usesInPlaceRetries('consume', 60_000)
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([...resolved('a'), retry])
+            mockCymbalClient.processEachException.mockResolvedValue([notTaken])
+
+            await expect(
+                runPastRetryWaits([createInput({ uuid: 'a' }), createInput({ uuid: 'b' })])
+            ).rejects.toMatchObject({ isRetriable: true })
         })
     })
 
