@@ -23,7 +23,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.oauth_provenance import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.signals.backend.constants import MAX_SCOUT_SUGGESTION_GOAL_CHARS
+from products.signals.backend.facade.constants import MAX_SCOUT_SUGGESTION_GOAL_CHARS
 from products.signals.backend.first_report_experiment import DISPATCHED_VARIANT_KEY
 from products.signals.backend.models import (
     SignalFirstReportNotification,

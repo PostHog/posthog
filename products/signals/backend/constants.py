@@ -18,7 +18,3 @@ SCRATCHPAD_REVISIONS_PER_KEY = 10
 # `SignalScratchpadRevision.changed_by_identity` of the daily sweep that expires `report:` pointers to a gone
 # report. A scout that reads the expired entry sees this name, so it can tell the sweep from another scout.
 REPORT_POINTER_SWEEP_IDENTITY = "system:report-pointer-sweep"
-
-# A suggestion row shows its goal as one line of plain text. The producer clears a longer goal, so the
-# row falls back to the description, and the API refuses one on write.
-MAX_SCOUT_SUGGESTION_GOAL_CHARS = 200

@@ -2,7 +2,7 @@ from django.db import models
 
 from rest_framework import serializers
 
-from products.signals.backend.constants import MAX_SCOUT_SUGGESTION_GOAL_CHARS
+from products.signals.backend.facade.constants import MAX_SCOUT_SUGGESTION_GOAL_CHARS
 
 
 class ScoutOrigin(models.TextChoices):

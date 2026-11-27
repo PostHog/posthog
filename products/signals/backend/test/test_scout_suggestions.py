@@ -27,7 +27,7 @@ from posthog.sync import database_sync_to_async
 from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.signals.backend.constants import MAX_SCOUT_SUGGESTION_GOAL_CHARS
+from products.signals.backend.facade.constants import MAX_SCOUT_SUGGESTION_GOAL_CHARS
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
 from products.signals.backend.scout_chat import SCOUT_CHAT_TEMPLATES, SCOUT_REFINE_SUGGESTION_PROMPT
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
