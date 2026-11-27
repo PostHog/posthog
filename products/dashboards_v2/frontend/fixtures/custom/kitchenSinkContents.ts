@@ -26,7 +26,7 @@ export const kitchenSinkContents = defineContentPackage('kitchen-sink', {
     'top-issues': {
         Component: TopIssuesList,
         size: { w: 12, h: 10, minW: 8, minH: 6 },
-        menuActions: (actions) => actions.filter((action) => action.key === 'download-image'),
+        menuActions: (actions) => actions.filter((action) => action.key === 'download'),
     },
     'recommendation-deck': {
         Component: RecommendationDeck,

@@ -65,7 +65,7 @@ export async function copyDashboardImage(root: HTMLElement): Promise<void> {
     }
 }
 
-/** `download-image` with a format submenu, then `copy-image` on a browser that can put an image on the clipboard. */
+/** `download` with a format submenu, which a panel type can add its own file formats to, then `copy-image` on a browser that can put an image on the clipboard. */
 export function imageActions({
     downloadLabel,
     copyLabel,
@@ -86,7 +86,7 @@ export function imageActions({
     const dataAttr = `${dataAttrPrefix}-download-image`
     const actions: MenuAction[] = [
         {
-            key: 'download-image',
+            key: 'download',
             label: downloadLabel,
             dataAttr,
             group: 'view',
