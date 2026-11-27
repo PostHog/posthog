@@ -11,6 +11,7 @@ import { ActivityScope } from '~/types'
 
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
 import { FeatureFlagCalledMetricsBanner } from 'products/experiments/frontend/components/FeatureFlagCalledMetricsBanner'
+import { ExperimentExposuresWindowSync } from 'products/experiments/frontend/exposures/ExperimentExposuresWindowSync'
 import { ExperimentHealthTab } from 'products/experiments/frontend/health/ExperimentHealthTab'
 import { healthIssues } from 'products/experiments/frontend/health/healthPanelFindings'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
@@ -28,7 +29,7 @@ import { experimentLogic } from '../experimentLogic'
 import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
-import { isLegacyExperiment } from '../utils'
+import { isLegacyExperiment, isSavedExperiment } from '../utils'
 import { DeletedFlagBanner } from './DeletedFlagBanner'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
@@ -205,6 +206,7 @@ export function ExperimentView(): JSX.Element {
                 <LoadingState />
             ) : (
                 <>
+                    {isSavedExperiment(experiment) && <ExperimentExposuresWindowSync experiment={experiment} />}
                     <DeletedFlagBanner />
                     {healthFindings === null && (
                         <>

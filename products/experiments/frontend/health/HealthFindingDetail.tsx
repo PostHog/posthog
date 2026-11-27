@@ -1,5 +1,6 @@
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
+import { HealthCheckDataEnd } from './HealthCheckDataEnd'
 import { HealthCheckReadSection } from './HealthCheckReadSection'
 import { HealthCheckRuleSection } from './HealthCheckRuleSection'
 import { HealthFindingFixes } from './HealthFindingFixes'
@@ -14,7 +15,7 @@ export function HealthFindingDetail({
     check,
     units,
     exposures,
-    checkedAt,
+    isOutOfDate,
     onActedOn,
 }: {
     finding: HealthPanelFinding
@@ -22,7 +23,7 @@ export function HealthFindingDetail({
     check: HealthPanelCheck | null
     units: string
     exposures: ExperimentExposureQueryResponse | null
-    checkedAt: string | null
+    isOutOfDate: boolean
     onActedOn?: () => void
 }): JSX.Element {
     const { reportActedOn } = useHealthFindingReporting({
@@ -31,15 +32,21 @@ export function HealthFindingDetail({
         severity: finding.severity,
         reason: finding.reason ?? undefined,
     })
+    const asOf = check?.as_of ?? null
 
     return (
         <div className="flex flex-col gap-6" data-attr="experiment-health-finding-detail">
-            <h3 className="m-0 flex min-w-0 items-start gap-2 text-xl font-semibold">
-                <span className="flex pt-1">
-                    <HealthFindingSeverityIcon severity={finding.severity} />
-                </span>
-                <span>{finding.title}</span>
-            </h3>
+            <div className="flex flex-col gap-1">
+                <h3 className="m-0 flex min-w-0 items-start gap-2 text-xl font-semibold">
+                    <span className="flex pt-1">
+                        <HealthFindingSeverityIcon severity={finding.severity} />
+                    </span>
+                    <span>{finding.title}</span>
+                </h3>
+                {asOf && (
+                    <HealthCheckDataEnd asOf={asOf} isOutOfDate={isOutOfDate} className="pl-7 text-xs text-secondary" />
+                )}
+            </div>
             <HealthPanelSection title="What we found">
                 <p className="m-0 max-w-prose whitespace-pre-line">{finding.detail}</p>
             </HealthPanelSection>
@@ -54,7 +61,7 @@ export function HealthFindingDetail({
                 />
             )}
             {check && <HealthCheckReadSection check={check} units={units} exposures={exposures} />}
-            {check && <HealthCheckRuleSection check={check} units={units} checkedAt={checkedAt} />}
+            {check && <HealthCheckRuleSection check={check} units={units} />}
         </div>
     )
 }

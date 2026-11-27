@@ -11,14 +11,18 @@ import { groupsModel } from '~/models/groupsModel'
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthSetupApi } from '../generated/api.schemas'
-import { exposureAnswerComputedAt } from './exposureHealth'
 import { HealthCheckDetail } from './HealthCheckDetail'
 import { HealthCheckList } from './HealthCheckList'
 import { HealthChecksCoverageNote } from './HealthChecksCoverageNote'
 import { HealthFindingDetail } from './HealthFindingDetail'
 import { HealthFindingListItem } from './HealthFindingListItem'
 import { HealthOverviewDetail } from './HealthOverviewDetail'
-import { type ExposureChecksState, type HealthPanelCheck, listedHealthChecks } from './healthPanelChecks'
+import {
+    type ExposureChecksState,
+    type HealthPanelCheck,
+    isHealthCheckOutOfDate,
+    listedHealthChecks,
+} from './healthPanelChecks'
 import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
 import { type HealthPanelSelection, healthFindingKey, resolveHealthPanelSelection } from './healthPanelSelection'
 
@@ -30,6 +34,7 @@ export function HealthChecksPanel({
     exposures,
     isDraft,
     exposureChecks,
+    staleBefore,
     onFindingActedOn,
 }: {
     checks: HealthPanelCheck[]
@@ -42,6 +47,8 @@ export function HealthChecksPanel({
     exposures: ExperimentExposureQueryResponse | null
     isDraft: boolean
     exposureChecks: ExposureChecksState
+    /** A check whose `as_of` is earlier is out of date. Null when no check can be. */
+    staleBefore: string | null
     onFindingActedOn?: () => void
 }): JSX.Element {
     const [pickedSelection, setPickedSelection] = useState<HealthPanelSelection | null>(null)
@@ -57,11 +64,10 @@ export function HealthChecksPanel({
     ].filter((group) => group.findings.length > 0)
     const selection = resolveHealthPanelSelection(pickedSelection, findings, listedChecks)
     const units = aggregationLabel(experiment.feature_flag?.filters?.aggregation_group_type_index, true).plural
-    const exposureCheckKeys = new Set<string>(exposures?.health_checks?.map(({ key }) => key))
-    const exposureCheckedAt = exposureAnswerComputedAt(exposures)
-    // The checks of the experiment run on each load, so only the exposure checks say when they ran.
-    const checkedAt = (key: HealthPanelCheck['key']): string | null =>
-        exposureCheckKeys.has(key) ? exposureCheckedAt : null
+    const checkOf = (key: HealthPanelCheck['key'] | null | undefined): HealthPanelCheck | null =>
+        checks.find((check) => check.key === key) ?? null
+    const isOutOfDate = (check: HealthPanelCheck | null): check is HealthPanelCheck =>
+        check !== null && isHealthCheckOutOfDate(check, staleBefore)
 
     const detailRef = useRef<HTMLElement>(null)
 
@@ -121,11 +127,15 @@ export function HealthChecksPanel({
                                             {group.findings.map((finding) => {
                                                 const key = healthFindingKey(finding)
                                                 const isSelected = selection.kind === 'finding' && selection.key === key
+                                                const check = checkOf(finding.check)
                                                 return (
                                                     <HealthFindingListItem
                                                         key={key}
                                                         finding={finding}
                                                         isSelected={isSelected}
+                                                        outOfDateAsOf={
+                                                            isOutOfDate(check) ? (check.as_of ?? null) : null
+                                                        }
                                                         onSelect={() => select({ kind: 'finding', key }, isSelected)}
                                                     />
                                                 )
@@ -139,6 +149,7 @@ export function HealthChecksPanel({
                             checks={listedChecks}
                             checksLoading={checksLoading}
                             exposureChecks={exposureChecks}
+                            staleBefore={staleBefore}
                             selectedKey={selection.kind === 'check' ? selection.key : null}
                             onSelect={(check) => {
                                 const isSelected = selection.kind === 'check' && selection.key === check.key
@@ -169,10 +180,10 @@ export function HealthChecksPanel({
                     {selection.kind === 'finding' ? (
                         <HealthFindingDetail
                             finding={selection.finding}
-                            check={checks.find(({ key }) => key === selection.finding.check) ?? null}
+                            check={checkOf(selection.finding.check)}
                             units={units}
                             exposures={exposures}
-                            checkedAt={selection.finding.check ? checkedAt(selection.finding.check) : null}
+                            isOutOfDate={isOutOfDate(checkOf(selection.finding.check))}
                             onActedOn={onFindingActedOn}
                         />
                     ) : selection.kind === 'check' ? (
@@ -180,7 +191,7 @@ export function HealthChecksPanel({
                             check={selection.check}
                             units={units}
                             exposures={exposures}
-                            checkedAt={checkedAt(selection.check.key)}
+                            isOutOfDate={isOutOfDate(selection.check)}
                         />
                     ) : (
                         <HealthOverviewDetail checks={checks} findings={findings} setup={setup} exposures={exposures} />

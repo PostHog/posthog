@@ -247,7 +247,8 @@ function changedHealthCheckInputs(
     return before ? HEALTH_CHECK_INPUTS.filter((field) => !objectsEqual(before[field], after[field])) : null
 }
 
-type ExperimentHealthLoadTrigger = 'experiment_load' | 'experiment_update'
+// pinned: the values of `trigger` on `experiment health rechecked`, so renaming one breaks insights
+export type ExperimentHealthLoadTrigger = 'experiment_load' | 'experiment_update' | 'results_run'
 
 function generateRefreshId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -2648,7 +2649,8 @@ export const experimentLogic = kea<experimentLogicType>([
                             healthBefore,
                             health,
                             values.healthUi,
-                            changedHealthCheckInputs(inputsBefore, inputs)
+                            changedHealthCheckInputs(inputsBefore, inputs),
+                            trigger
                         )
                     }
                     return health
