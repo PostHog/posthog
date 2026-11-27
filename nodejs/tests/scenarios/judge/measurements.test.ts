@@ -2,7 +2,7 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import { Registry, collectDefaultMetrics } from 'prom-client'
 
-import type { RoleExit } from '../environment/supervisor'
+import type { RoleExit, RoleTermination } from '../environment/supervisor'
 import type { WriterSample } from '../probe/writer-probe'
 import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
@@ -19,6 +19,7 @@ import {
     janitorResetsOf,
     measure,
     phasesOf,
+    readActivity,
     sampleOf,
     startSampler,
 } from './measurements'
@@ -74,6 +75,7 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     journal: [],
     truth: [],
     fetchRetries: 3,
+    truthFrom: 0,
     samples: [],
     missed: [],
     host: [],
@@ -287,6 +289,127 @@ describe('measurements', () => {
         expect(measure([{ name: 'role_restarts', params: {} }], evidence({ samples, exits }))).toEqual([
             { name: 'role_restarts', key: 'cdp-api', value: 0, unit: 'restarts' },
             { name: 'role_restarts', key: ROLE, value: 3, unit: 'restarts' },
+        ])
+    })
+
+    const at = (ms: number): string => new Date(FROM + ms).toISOString()
+    const terminated = (exit: Partial<RoleTermination>): ValveTimelineEntry => ({
+        valve: 'role.terminate',
+        target: 'cdp-cyclotron-worker-email',
+        requestedAt: at(5000),
+        appliedAt: at(5000),
+        exit: { signalledAt: at(5000), ...exit },
+    })
+    const resent = [
+        { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
+        { ...record(2, 'run-a-1', 42_000), invocationId: 'inv-a' },
+    ]
+
+    it.each([
+        ['a role that stopped on SIGTERM', [{ exitedAt: at(8000), code: 0 }], [{ key: 'sigterm', value: 3000 }]],
+        [
+            'a role that needed the SIGKILL',
+            [{ killedAt: at(15_000), exitedAt: at(15_200), signal: 'SIGKILL' }],
+            [
+                {
+                    key: 'sigterm',
+                    value: null,
+                    censored: true,
+                    unmeasured: 'a SIGKILL exit is not measured in this release',
+                },
+            ],
+        ],
+        [
+            'a role that exited on its own as its grace ran out',
+            [{ killedAt: at(15_000), exitedAt: at(15_010), code: 0 }],
+            [{ key: 'sigterm', value: 10_010 }],
+        ],
+        [
+            'two terminated roles',
+            [
+                { exitedAt: at(8000), code: 0 },
+                { exitedAt: at(9000), code: 0 },
+            ],
+            [
+                {
+                    value: null,
+                    censored: true,
+                    unmeasured: 'the card terminates more than one role, so its exits have no stable key',
+                },
+            ],
+        ],
+        [
+            'a role killed by another valve during its grace',
+            [{ exitedAt: at(7000), signal: 'SIGKILL' }],
+            [
+                {
+                    key: 'sigterm',
+                    value: null,
+                    censored: true,
+                    unmeasured: 'a SIGKILL exit is not measured in this release',
+                },
+            ],
+        ],
+        [
+            'a role whose exit never arrived',
+            [{}],
+            [{ key: 'sigterm', value: null, censored: true, unmeasured: 'cdp-cyclotron-worker-email did not exit' }],
+        ],
+    ])('times how long %s took to exit after the signal', (_story, exits, measured) => {
+        expect(measure([{ name: 'role_exit_ms', params: {} }], evidence({ timeline: exits.map(terminated) }))).toEqual(
+            measured.map((value) => ({ name: 'role_exit_ms', unit: 'ms', ...value }))
+        )
+    })
+
+    it('leaves role_exit_ms unmeasured on a card with a second terminate entry that never fired', () => {
+        const pending: ValveTimelineEntry = {
+            valve: 'role.terminate',
+            target: 'cdp-cyclotron-worker-email',
+            requestedAt: at(0),
+        }
+
+        expect(
+            measure(
+                [{ name: 'role_exit_ms', params: {} }],
+                evidence({ timeline: [terminated({ exitedAt: at(8000), code: 0 }), pending] })
+            )
+        ).toEqual([
+            {
+                name: 'role_exit_ms',
+                unit: 'ms',
+                value: null,
+                censored: true,
+                unmeasured: 'the card terminates more than one role, so its exits have no stable key',
+            },
+        ])
+    })
+
+    it('leaves lease_reclaim_ms unmeasured in this release, though a stranded send went out again', () => {
+        const timeline = [terminated({ exitedAt: at(10_000), code: 0 })]
+
+        expect(measure([{ name: 'lease_reclaim_ms', params: {} }], evidence({ timeline, truth: resent }))).toEqual([
+            {
+                name: 'lease_reclaim_ms',
+                unit: 'ms',
+                value: null,
+                censored: true,
+                unmeasured: 'not measured in this release',
+            },
+        ])
+    })
+
+    it('leaves resent_invocations unmeasured in this release, though this run sent one invocation twice', () => {
+        const journal = [offered('run-a-1', 0)]
+
+        expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ journal, truth: resent }))).toEqual([
+            {
+                name: 'resent_invocations',
+                unit: 'invocations',
+                key: 'total',
+                value: null,
+                censored: true,
+                unmeasured: 'not measured: a run-scoped resend count is a follow-up',
+            },
         ])
     })
 
@@ -1449,6 +1572,165 @@ describe('measurements', () => {
             { name: 'step_claims_per_second', key: 'email_10x', unit: 'jobs/s', value: 0, incomplete: true },
             { name: 'step_claims_per_second', key: 'fetch_10x', unit: 'jobs/s', value: 53 / 55, incomplete: true },
             { name: 'step_claims_per_second', key: 'fanout_10x', unit: 'jobs/s', value: 1, incomplete: true },
+        ])
+    })
+
+    it("reads each step's host busy share, each role's CPU cores and busiest replica, and the writer's mean backends", () => {
+        const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
+        const every5s = Array.from({ length: 24 }, (_, i) => i * 5)
+        const cpuAt = (second: number, coresBefore: number, coresAfter: number): number =>
+            Math.min(second, 60) * coresBefore + Math.max(second - 60, 0) * coresAfter
+        const worker = (role: string, replica: number, cores: [number, number]): MetricSample[] =>
+            every5s.map((second) => ({
+                ...sample(second, -60, cpuAt(second, ...cores), 100, replica),
+                role,
+            }))
+        const recorded = evidence({
+            samples: [
+                ...worker(HOGFLOW, 0, [0.5, 1]),
+                ...worker(HOGFLOW, 1, [0.25, 0.5]),
+                ...worker(ROLE, 0, [0.25, 0.25]),
+            ],
+            host: every5s.map((second) => ({
+                at: atS(second),
+                totalTicks: second * 80,
+                busyTicks: cpuAt(second, 20, 60),
+            })),
+            activity: [
+                ...every5s.map((second) => ({
+                    at: atS(second),
+                    backends:
+                        second < 60
+                            ? [
+                                  { state: 'active', wait: 'cpu', count: 2 },
+                                  { state: 'idle', wait: 'client', count: 6 },
+                              ]
+                            : [
+                                  { state: 'active', wait: 'cpu', count: 3 },
+                                  { state: 'active', wait: 'lock', count: second % 10 === 0 ? 4 : 6 },
+                                  { state: 'idle in transaction', wait: 'client', count: 1 },
+                              ],
+                })),
+                { at: atS(87), error: 'Postgres at db failed: timeout' },
+            ],
+            drive: { startedAt: atS(0), endedAt: atS(120) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 120_000 },
+            ],
+        })
+
+        expect(
+            measure(
+                [
+                    { name: 'step_writer_backends', params: {} },
+                    { name: 'step_writer_active_waits', params: {} },
+                    { name: 'step_host_busy_percent', params: {} },
+                    { name: 'step_role_cpu_cores', params: {} },
+                    { name: 'step_role_busiest_cpu_cores', params: {} },
+                ],
+                recorded
+            )
+        ).toEqual([
+            { name: 'step_writer_backends', key: 'active_1x', unit: 'backends', value: 2 },
+            { name: 'step_writer_backends', key: 'idle_1x', unit: 'backends', value: 6 },
+            { name: 'step_writer_backends', key: 'active_10x', unit: 'backends', value: 8, incomplete: true },
+            {
+                name: 'step_writer_backends',
+                key: 'idle_in_transaction_10x',
+                unit: 'backends',
+                value: 1,
+                incomplete: true,
+            },
+            { name: 'step_writer_active_waits', key: 'cpu_1x', unit: 'backends', value: 2 },
+            { name: 'step_writer_active_waits', key: 'cpu_10x', unit: 'backends', value: 3, incomplete: true },
+            { name: 'step_writer_active_waits', key: 'lock_10x', unit: 'backends', value: 5, incomplete: true },
+            { name: 'step_host_busy_percent', key: '1x', unit: '%', value: 25 },
+            { name: 'step_host_busy_percent', key: '10x', unit: '%', value: 75 },
+            { name: 'step_role_cpu_cores', key: `${ROLE}_1x`, unit: 'cores', value: 0.25 },
+            { name: 'step_role_cpu_cores', key: `${HOGFLOW}_1x`, unit: 'cores', value: 0.75 },
+            { name: 'step_role_cpu_cores', key: `${ROLE}_10x`, unit: 'cores', value: 0.25 },
+            { name: 'step_role_cpu_cores', key: `${HOGFLOW}_10x`, unit: 'cores', value: 1.5 },
+            { name: 'step_role_busiest_cpu_cores', key: `${ROLE}_1x`, unit: 'cores', value: 0.25 },
+            { name: 'step_role_busiest_cpu_cores', key: `${HOGFLOW}_1x`, unit: 'cores', value: 0.5 },
+            { name: 'step_role_busiest_cpu_cores', key: `${ROLE}_10x`, unit: 'cores', value: 0.25 },
+            { name: 'step_role_busiest_cpu_cores', key: `${HOGFLOW}_10x`, unit: 'cores', value: 1 },
+        ])
+    })
+
+    it("calls a step's writer backends unmeasured when no read landed in it or every read failed, and marks one whose reads failed in part", () => {
+        const every5s = Array.from({ length: 24 }, (_, i) => i * 5)
+        const recorded = evidence({
+            samples: every5s.map((second) => ({ ...sample(second, -60, second, 100), role: ROLE })),
+            activity: every5s.map((second) =>
+                second < 60 && second !== 25
+                    ? { at: atS(second), backends: [{ state: 'idle', wait: 'client', count: 3 }] }
+                    : { at: atS(second), error: 'timeout' }
+            ),
+            drive: { startedAt: atS(0), endedAt: atS(180) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 120_000 },
+                { scale: 100, fromMs: 120_000, toMs: 180_000 },
+            ],
+        })
+        const unread = {
+            key: '10x',
+            unit: 'backends',
+            value: null,
+            censored: true,
+            unmeasured: 'every pg_stat_activity read in the step failed: timeout',
+        }
+        const unlanded = {
+            key: '100x',
+            unit: 'backends',
+            value: null,
+            censored: true,
+            unmeasured: 'no pg_stat_activity read landed in the step',
+        }
+
+        expect(
+            measure(
+                [
+                    { name: 'step_writer_backends', params: {} },
+                    { name: 'step_writer_active_waits', params: {} },
+                ],
+                recorded
+            )
+        ).toEqual([
+            { name: 'step_writer_backends', key: 'idle_1x', unit: 'backends', value: 3, incomplete: true },
+            { name: 'step_writer_backends', ...unread },
+            { name: 'step_writer_backends', ...unlanded },
+            { name: 'step_writer_active_waits', key: '1x', unit: 'backends', value: 0, incomplete: true },
+            { name: 'step_writer_active_waits', ...unread },
+            { name: 'step_writer_active_waits', ...unlanded },
+        ])
+    })
+
+    it('counts a writer read for the step in which the writer answered it, also when that step was halted short', async () => {
+        const clock = [atS(58), atS(61)]
+        const answeredLate = await readActivity(
+            () => Promise.resolve([{ state: 'active', wait: 'lock', count: 4 }]),
+            () => clock.shift()!
+        )
+        const recorded = evidence({
+            activity: [
+                ...Array.from({ length: 12 }, (_, i) => ({
+                    at: atS(i * 5),
+                    backends: [{ state: 'idle', wait: 'client', count: 2 }],
+                })),
+                answeredLate,
+            ],
+            drive: { startedAt: atS(0), endedAt: atS(62) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 62_000 },
+            ],
+        })
+
+        expect(measure([{ name: 'step_writer_backends', params: {} }], recorded)).toEqual([
+            { name: 'step_writer_backends', key: 'idle_1x', unit: 'backends', value: 2 },
+            { name: 'step_writer_backends', key: 'active_10x', unit: 'backends', value: 4 },
         ])
     })
 
