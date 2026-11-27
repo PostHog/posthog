@@ -1,11 +1,11 @@
 import { useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { adventCalendarAccess } from './adventCalendarAccess'
 import { AdventShareButton } from './AdventShareButton'
 import { AdventStage } from './AdventStage'
 
@@ -17,10 +17,12 @@ export function AdventCalendarScene(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
 
-    if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+    const calendarOn = adventCalendarAccess(featureFlags, receivedFeatureFlags)
+
+    if (calendarOn === undefined && !featureFlagsTimedOut) {
         return <div className="flex-1" />
     }
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]) {
+    if (!calendarOn) {
         return <NotFound object="page" />
     }
 
