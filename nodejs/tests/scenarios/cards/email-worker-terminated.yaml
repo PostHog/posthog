@@ -35,6 +35,7 @@ gates:
 measure:
     - name: role_exit_ms
     - name: lease_reclaim_ms
+    - name: resent_invocations
     - name: role_cpu_seconds
     - name: role_rss_max_bytes
     - name: delivery_latency_ms

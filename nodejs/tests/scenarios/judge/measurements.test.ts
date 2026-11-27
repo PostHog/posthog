@@ -244,6 +244,28 @@ describe('measurements', () => {
         )
     })
 
+    it.each([
+        [
+            'counts each invocation id the edge accepted more than once',
+            [
+                { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
+                { ...record(2, 'run-a-1', 42_000), invocationId: 'inv-a' },
+                { ...record(3, 'run-a-2', 20_000, 503), invocationId: 'inv-b' },
+                { ...record(4, 'run-a-2', 25_000), invocationId: 'inv-b' },
+                { ...record(5, 'run-a-3', 4500), invocationId: 'inv-c' },
+            ],
+            [
+                { key: 'total', value: 1 },
+                { key: 'run-a-1 inv-a', value: 2 },
+            ],
+        ],
+        ['reports none when every invocation went out once', [], [{ key: 'total', value: 0 }]],
+    ])('resent_invocations %s', (_story, truth, measured) => {
+        expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ truth }))).toEqual(
+            measured.map((value) => ({ name: 'resent_invocations', unit: 'invocations', ...value }))
+        )
+    })
+
     it('times each delivery from its offer to its first accepted send, skipping refused and undelivered units', () => {
         const latencies = Array.from({ length: 20 }, (_, i) => (i + 1) * 100)
         const journal = [

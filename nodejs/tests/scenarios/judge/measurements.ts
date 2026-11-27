@@ -12,7 +12,7 @@ import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
-import { deliveryKey } from './invariants'
+import { deliveryKey, isAccepted } from './invariants'
 import type { JudgeEvidence } from './invariants'
 
 export type MetricSample = {
@@ -218,6 +218,25 @@ export const leaseReclaimMs: MeasurementDefinition = {
                       },
                   ]
         }),
+}
+
+export const resentInvocations: MeasurementDefinition = {
+    name: 'resent_invocations',
+    params: z.object({}).strict(),
+    unit: 'invocations',
+    measure: ({ truth }) => {
+        const accepted = Map.groupBy(
+            truth.filter(
+                ({ invocationId, unitId, status }) =>
+                    invocationId !== undefined && unitId !== undefined && isAccepted(status)
+            ),
+            ({ unitId, invocationId }) => `${unitId} ${invocationId}`
+        )
+        const resent = [...accepted]
+            .filter(([, sends]) => sends.length > 1)
+            .map(([key, sends]) => ({ key, value: sends.length }))
+        return [{ key: 'total', value: resent.length }, ...resent]
+    },
 }
 
 export type Phase = { from: number; to: number }
@@ -650,6 +669,7 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     deliveryLatencyMs,
     roleExitMs,
     leaseReclaimMs,
+    resentInvocations,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]

@@ -946,6 +946,7 @@ export type JournalEntry = {
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
   - `role_exit_ms`, `sigterm` or `sigkill`, milliseconds, lower is better: for each `role.terminate` entry, from the SIGTERM to the role's exit, keyed by whether the exit needed the SIGKILL. A role whose exit never arrived is unmeasured.
   - `lease_reclaim_ms`, per unit and invocation id, milliseconds, lower is better: for each `role.terminate` entry, from the role's exit to the first edge request after it, for each invocation that already had a request at the signal. Each key is a send stranded by the stop and sent again under the same invocation id. When none went out again, it is unmeasured.
+  - `resent_invocations`, invocations, lower is better: the key `total` counts the invocation ids the edge accepted more than once, and one key per such unit and invocation id gives its accepted sends. It sets a stop's resends beside a kill's, because both resend under the invocation id the worker already used.
   - `counter_drift`, messages, closer to 0 is better: how far the production email counters drift from the sink's truth. It is a measurement, not a pass or fail bar.
     - After `check` reads the truth, the runner reads `app_metrics2` in ClickHouse for the run's teams, from the hour the run started, `app_source = 'hog_flow'`. It reads `email_sent`, `email_delivered` and `email_failed`.
     - The sink's count for each counter comes from the truth of this run's units:
