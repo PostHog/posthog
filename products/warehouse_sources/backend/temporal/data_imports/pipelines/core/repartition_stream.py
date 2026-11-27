@@ -72,8 +72,8 @@ class UnsupportedSourceTableError(Exception):
 
 
 class UnboundedStringStatsError(UnsupportedSourceTableError):
-    """A string column holds bytes that sort above every valid UTF-8 string, so no Add-action max
-    can cover them.
+    """A string column holds bytes that no valid UTF-8 string up to `STRING_STATS_MAX_BYTES` sorts
+    above, so no Add-action max can cover them.
 
     A file with no max on a column is skipped by delta-rs's pyarrow reader for every filter on it.
     The rewrite would gather other rows into that file and hide them from reads, so it stops instead.
@@ -405,6 +405,43 @@ def _string_upper_bound(value: str, *, complete: bool = True) -> str | None:
     return None
 
 
+def _smallest_char_above_byte(byte: int) -> str | None:
+    """The smallest character whose UTF-8 encoding sorts above every byte string that starts with
+    `byte`. None from 0xF5, because no UTF-8 lead byte is that high."""
+    lead = max(byte + 1, 0xC2)
+    if lead > 0xF4:
+        return None
+    if lead <= 0xDF:
+        encoded = bytes([lead, 0x80])
+    elif lead == 0xE0:
+        encoded = b"\xe0\xa0\x80"
+    elif lead <= 0xEF:
+        encoded = bytes([lead, 0x80, 0x80])
+    elif lead == 0xF0:
+        encoded = b"\xf0\x90\x80\x80"
+    else:
+        encoded = bytes([lead, 0x80, 0x80, 0x80])
+    return encoded.decode("utf-8")
+
+
+def _invalid_string_upper_bound(raw: bytes, prefix: str) -> str | None:
+    """A string up to `STRING_STATS_MAX_BYTES` that is not less than `raw`, which is not valid UTF-8
+    and starts with the valid `prefix`.
+
+    The raised prefix comes first. When the prefix cannot be raised, for example because it is
+    empty, the prefix is followed by a character above the first invalid byte. None only when that
+    byte is 0xF5 or higher too.
+    """
+    raised = _string_upper_bound(prefix, complete=False)
+    if raised is not None:
+        return raised
+    encoded = prefix.encode("utf-8")
+    above = _smallest_char_above_byte(raw[len(encoded)])
+    if above is None or len(encoded) + len(above.encode("utf-8")) > STRING_STATS_MAX_BYTES:
+        return None
+    return prefix + above
+
+
 @frozen
 class StatBounds:
     """JSON-ready min and max for one column. None means the bound is left out."""
@@ -463,10 +500,13 @@ class _ColumnStats:
             low_text, _ = _utf8_prefix(low)
             low = _truncate_utf8(low_text, STRING_STATS_MAX_BYTES)
             high_text, complete = _utf8_prefix(high)
-            # With no short upper bound the exact value is kept, as delta-rs does.
-            high = _string_upper_bound(high_text, complete=complete) or (high_text if complete else None)
+            if complete:
+                # With no short upper bound the exact value is kept, as delta-rs does.
+                high = _string_upper_bound(high_text) or high_text
+            else:
+                high = _invalid_string_upper_bound(high, high_text)
             if high is None:
-                raise UnboundedStringStatsError("a string column holds a value above every valid UTF-8 string")
+                raise UnboundedStringStatsError("a string column holds a value with no valid UTF-8 upper bound")
         self.minimum = low if self.minimum is None or low < self.minimum else self.minimum
         self.maximum = high if self.maximum is None or high > self.maximum else self.maximum
 

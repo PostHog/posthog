@@ -1708,6 +1708,13 @@ class TestAddActionStats:
             pytest.param([b"a\x80\xc3\xa9", b"b"], "a", "b", id="min_valid_again_after_the_invalid_byte"),
             pytest.param([b"a", b"m\xe0", b"z"], "a", "z", id="invalid_value_between_the_bounds"),
             pytest.param([b"0", b"a" * 70 + b"\xe0"], "0", "a" * 63 + "b", id="max_invalid_past_the_stats_cut"),
+            pytest.param([b"abc", b"\xe9t\xe9"], "abc", "\ua000", id="latin_1_max_invalid_at_its_first_byte"),
+            pytest.param([b"\x80abc"], "", "\u0080", id="max_starts_with_a_continuation_byte"),
+            pytest.param([b"\xc3("], "", "\u0100", id="max_starts_with_a_cut_two_byte_character"),
+            pytest.param([b"\xef\xff"], "", "\U00010000", id="max_starts_with_a_cut_three_byte_character"),
+            pytest.param(
+                [b"\xf4\x8f\xbf\xbf\x80"], "\U0010ffff", "\U0010ffff\u0080", id="max_code_point_then_invalid_byte"
+            ),
         ],
     )
     def test_string_stats_bound_values_that_are_not_utf8(self, values, low, high, tmp_path):
@@ -1741,6 +1748,7 @@ class TestAddActionStats:
             pytest.param([b"a", b"\xfeabc"], False, id="max_invalid_at_its_first_byte"),
             pytest.param([b"\xfe", b"\xff", None], False, id="every_value_invalid"),
             pytest.param([b"\xf4\x8f\xbf\xbf\xff"], False, id="prefix_cannot_be_raised"),
+            pytest.param([b"\xf4\x90"], False, id="cut_character_at_the_highest_lead_byte"),
         ],
     )
     def test_a_string_max_above_every_valid_utf8_string_stops_the_write(self, raw_values, large, tmp_path):
