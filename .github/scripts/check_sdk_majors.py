@@ -64,7 +64,6 @@ NODE_WRAPPER_PEERS = (
 # (manifest, package, lockfile or None)
 PYTHON_PINS = (
     ("pyproject.toml", "posthoganalytics", "uv.lock"),
-    ("services/llm-gateway/pyproject.toml", "posthoganalytics", "services/llm-gateway/uv.lock"),
     ("common/ingestion/acceptance_tests/requirements.txt", "posthoganalytics", None),
     ("tools/infra-scripts/clitools/requirements.txt", "posthog", None),
 )
