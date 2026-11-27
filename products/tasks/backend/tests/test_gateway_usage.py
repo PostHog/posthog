@@ -1,3 +1,4 @@
+import inspect
 from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -31,6 +32,7 @@ from products.tasks.backend.logic.services.gateway_usage import (
 )
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS
 from products.tasks.backend.models import SandboxSession, Task, TaskRun, TaskRunGatewayRequest
+from products.tasks.backend.temporal.gateway_usage import GatewayUsageInput, reconcile_gateway_usage
 
 
 @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example.com/v1", SANDBOX_AI_GATEWAY_MINT_KEY="phs_test")
@@ -74,15 +76,16 @@ class TestGatewayUsage(BaseTest):
 
     @override_settings(DEBUG=True, SANDBOX_AI_GATEWAY_DEV_TOKEN="phe_dev_mode_token")
     @patch("aiohttp.ClientSession._request", autospec=True)
-    def test_dev_mode_token_skips_cost_lookups(self, get: Mock) -> None:
-        run = self._run()
+    def test_dev_mode_token_run_reconciles_without_cost_lookups(self, get: Mock) -> None:
+        run = self._run(status=TaskRun.Status.COMPLETED)
         self._report(run, ["parent"])
+        record_generation_request(team_id=self.team.id, run_id=run.id, request_id="queued")
 
-        self._process(run)
+        pending = inspect.unwrap(reconcile_gateway_usage)(GatewayUsageInput(run_id=str(run.id), team_id=self.team.id))
 
+        assert pending == 0
         get.assert_not_called()
-        run.refresh_from_db()
-        assert run.state["unprocessed_request_ids"] == ["parent"]
+        assert get_task_run_token_usage(run_id=run.id, team_id=self.team.id).complete
 
     @patch.dict("os.environ", {"HTTPS_PROXY": "http://proxy.example.com:8080"})
     @patch("aiohttp.ClientSession._request", autospec=True)
