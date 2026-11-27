@@ -156,6 +156,21 @@ Observation failures stop that probe and are logged. They do not change the agen
 }
 ```
 
+When `route_git_reads` is enabled, the flag also requires a payload naming each selected team, Scout skill and repository:
+
+```json
+{
+  "scouts": [{ "team_id": 123, "skill_name": "repository-review", "repository": "example/private" }]
+}
+```
+
+Every field must match the same entry.
+Selection uses the server-stamped Scout name and requires the `signals.scout_full_network` profile, read-only Git access and one private repository.
+Missing or invalid payloads, other Scouts belonging to the same actor, interactive runs, resume, snapshots and custom images are excluded.
+The workflow must support Git routing before enrollment starts.
+The payload narrows the rollout; existing actor, repository and credential authorization still applies.
+Enrollment without Git routing retains its existing selection behavior.
+
 The region must match `AGENT_EGRESS_REGION`. Use separate regional material and a certificate covering `*.egress.example.com`. The worker derives `run-<run UUID without hyphens>.egress.example.com` and binds it to the run's team, actor, execution and provisioned sandbox. No per-run configuration file is needed. Keys stay in worker mounts and the isolated relay; workflow history carries IDs, the configuration path and the enrollment mode.
 
 Set `renew_relay_certificate: true` in the enrollment or probe JSON only after selecting a relay image that supports certificate reload and `client_ca_file`. It defaults to false for existing images and executions. The worker installs the public enrollment CA in the sidecar and renews the same registered key halfway through the certificate's remaining lifetime. The renewal deadline is saved on the run so another worker can continue it.
