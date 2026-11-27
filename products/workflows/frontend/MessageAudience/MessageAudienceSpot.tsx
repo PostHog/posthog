@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { uuid } from 'lib/utils/dom'
@@ -18,9 +18,9 @@ export function MessageAudienceSpot({
     disabled = false,
     children,
 }: MessageAudienceSpotProps): JSX.Element {
-    const [attemptId] = useState(uuid)
-    const reported = useRef(false)
-    const { ref, inView } = useInView({ triggerOnce: true })
+    const attemptId = useMemo(() => uuid(), [source, destination])
+    const reported = useRef<string | null>(null)
+    const { ref, inView } = useInView()
 
     useEffect(
         () => (disabled ? undefined : holdMessageAudienceAttempt(source, destination, attemptId)),
@@ -28,8 +28,8 @@ export function MessageAudienceSpot({
     )
 
     useEffect(() => {
-        if (inView && !disabled && !reported.current) {
-            reported.current = true
+        if (inView && !disabled && reported.current !== attemptId) {
+            reported.current = attemptId
             captureMessageAudienceShown(source, destination, attemptId)
         }
     }, [inView, disabled, source, destination, attemptId])

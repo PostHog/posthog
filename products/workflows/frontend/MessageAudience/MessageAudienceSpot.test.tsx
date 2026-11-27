@@ -11,6 +11,7 @@ import { AccessControlLevel, AccessControlResourceType, PropertyFilterType, Prop
 
 import { MessageAudience, captureMessageAudienceClicked } from './messageAudience'
 import { MessageAudienceButton } from './MessageAudienceButton'
+import { MessageAudienceSpot } from './MessageAudienceSpot'
 
 const audience: MessageAudience = {
     source: 'early_access_feature',
@@ -125,6 +126,40 @@ describe('message audience on-screen events', () => {
         act(() => mockAllIsIntersecting(true))
 
         expect(events('message audience shown')).toEqual([])
+    })
+
+    it('reports a button that was disabled only once it is on screen while usable', () => {
+        const spot = (disabled: boolean): JSX.Element => (
+            <MessageAudienceSpot source="cohort" destination="broadcast" disabled={disabled}>
+                Email this cohort
+            </MessageAudienceSpot>
+        )
+        const { rerender } = render(spot(true))
+        act(() => mockAllIsIntersecting(true))
+        act(() => mockAllIsIntersecting(false))
+        rerender(spot(false))
+        expect(events('message audience shown')).toEqual([])
+
+        act(() => mockAllIsIntersecting(true))
+        expect(events('message audience shown')).toEqual([
+            { source: 'cohort', destination: 'broadcast', attempt_id: expect.any(String) },
+        ])
+    })
+
+    it('reports a button again when it switches to another destination', async () => {
+        const { rerender } = render(
+            <MessageAudienceButton audience={audience} destinations={['broadcast']} label="Email them" />
+        )
+        act(() => mockAllIsIntersecting(true))
+        rerender(<MessageAudienceButton audience={audience} destinations={['workflow']} label="Email them" />)
+        act(() => mockAllIsIntersecting(true))
+
+        const shown = events('message audience shown')
+        expect(shown.map(({ destination }) => destination)).toEqual(['broadcast', 'workflow'])
+        await clickAndOpen('Email them')
+        expect(events('message audience clicked')).toEqual([
+            { source: 'early_access_feature', destination: 'workflow', attempt_id: shown[1].attempt_id },
+        ])
     })
 
     it('reports each menu destination only once the menu opens', async () => {
