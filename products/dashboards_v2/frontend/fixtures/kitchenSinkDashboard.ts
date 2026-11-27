@@ -5,7 +5,7 @@ import { type Dashboard, GRID, type Tile } from '../dashboard/document/dashboard
 import type { ChartConfig } from '../panels/chart/chartSpec'
 import { type MetricOptions, metricSpec } from '../panels/chart/viz/metric/metricSpec'
 import { type PanelQuery } from '../query/querySchema'
-import { type ContentPanel, type SavedPanel } from '../panels/core/panelSchema'
+import { type ContentPanel, type SavedPanel, type TileDescriptionMode } from '../panels/core/panelSchema'
 
 // TODO(2026-11-25): Delete once the board list can open saved boards.
 // It stands in for a saved dashboard and shows every panel and layout case.
@@ -45,7 +45,10 @@ const tile = (id: string, x: number, y: number, w: number, h: number, panel: Til
 })
 const section = (id: string, x: number, y: number, w: number, title: string, tiles: Tile[], collapsed = false): Tile =>
     tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, tiles, collapsed })
-const described = (tile: Tile, description: string): Tile => ({ ...tile, panel: { ...tile.panel, description } })
+const described = (tile: Tile, description: string, mode?: TileDescriptionMode): Tile => ({
+    ...tile,
+    panel: { ...tile.panel, description, ...(mode && { appearance: { description: mode } }) },
+})
 
 const METRIC_ROWS = metricSpec.size.h
 // Spreads the leftover columns over the row, so five metrics still fill 24 columns.
@@ -230,7 +233,7 @@ export const kitchenSinkDashboard: Dashboard = {
                     ]),
                 ]),
                 section('ks-left', 0, 66, 12, 'Half width', [tile('ks-l-bar', 0, 0, 12, 12, bar('Revenue by product', SQL.revenueByProduct))]),
-                described(section('ks-right', 12, 66, 12, 'Half width, empty', []), 'A section can carry a description too.'),
+                described(section('ks-right', 12, 66, 12, 'Half width, empty', []), 'A section can carry a description too.', 'below'),
                 described(section('ks-closed', 0, 86, 24, 'Closed section', [tile('ks-c-line', 0, 0, 24, 12, line('Hidden', SQL.pageviewsOverTime))], true), 'A closed section keeps its description in the header.'),
                 tile('ks-headless', 0, 90, 8, 8, text('A tile without a title is dragged by its body.')),
                 section('ks-queries', 0, 98, 24, 'Every query language and chart option', [
@@ -358,7 +361,7 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ts-slow-line', 0, 0, 12, 12, { ...line('Slow query', SAMPLE.slow), description: 'The sample runner answers after 4 seconds' }),
                     tile('ts-slow-metric', 12, 0, 6, METRIC_ROWS, metric('Slow total', SAMPLE.slowTotal)),
                     tile('ts-stale', 18, 0, 6, 12, { ...line('Stale result', SAMPLE.stale), refreshedAt: REFRESHED_AT }),
-                ]), 'Tiles that wait on a slow query, and one that shows an old result while a new one loads.'),
+                ]), 'Tiles that wait on a slow query, and one that shows an old result while a new one loads.', 'below'),
                 described(section('ts-failed', 0, 54, 24, 'Empty and failed queries', [
                     tile('ts-empty-line', 0, 0, 8, 12, line('Empty result', SAMPLE.empty)),
                     tile('ts-empty-metric', 8, 0, 4, METRIC_ROWS, metric('Empty total', SAMPLE.emptyTotal)),

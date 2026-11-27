@@ -39,7 +39,7 @@ export const panelRefSchema = z.object({
 export const sectionPanelSchema = z.object({
     type: z.literal('section'),
     title: z.string(),
-    /** Opens from an icon next to the title. */
+    /** Shown where `appearance.description` says, which is an icon next to the title when missing. */
     description: z.string().optional(),
     collapsed: z.boolean().optional(),
     appearance: tileAppearanceSchema.optional(),
