@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 from products.warehouse_sources.sources.r2_data_catalog import r2_data_catalog
 from products.warehouse_sources.sources.r2_data_catalog._config import R2DataCatalogSourceConfig
 from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
+    FILE_TOO_LARGE_MESSAGE,
     INCREMENTAL_COLUMN_MISSING_MESSAGE,
     INVALID_ACCOUNT_MESSAGE,
     INVALID_BUCKET_MESSAGE,
@@ -180,7 +181,12 @@ def _data_entry(path: str, count: int, max_id: int, content: int = 0) -> dict[st
 class FakeR2:
     """An R2 Data Catalog with one table, `analytics.events`, and the R2 bucket that holds its files."""
 
-    def __init__(self, with_deletes: bool = True, extra_entries: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        with_deletes: bool = True,
+        extra_entries: list[dict[str, Any]] | None = None,
+        delete_positions: dict[str, list[int]] | None = None,
+    ) -> None:
         self.files: dict[str, bytes] = {
             "/lake/data/a.parquet": _old_file([1, 2, 3]),
             "/lake/data/b.parquet": _new_file([4, 5, 6]),
@@ -192,8 +198,14 @@ class FakeR2:
             {**_data_entry("s3://lake/data/gone.parquet", 3, 9), "status": 2},
         ]
         if with_deletes:
+            positions = delete_positions or {"s3://lake/data/a.parquet": [1]}
             self.files["/lake/data/del.parquet"] = _parquet(
-                pa.table({"file_path": ["s3://lake/data/a.parquet"], "pos": pa.array([1], type=pa.int64())})
+                pa.table(
+                    {
+                        "file_path": [path for path, rows in positions.items() for _ in rows],
+                        "pos": pa.array([row for rows in positions.values() for row in rows], type=pa.int64()),
+                    }
+                )
             )
             entries.append(_data_entry("s3://lake/data/del.parquet", 1, 0, content=1))
         entries.extend(extra_entries or [])
@@ -296,6 +308,9 @@ def test_full_refresh_reads_files_in_path_order_by_field_id_and_drops_deleted_ro
         r.headers["authorization"].startswith("AWS4-HMAC-SHA256 Credential=AKIDVENDED/") for r in storage_requests
     )
     assert all(r.headers["x-amz-security-token"] == "vended-session" for r in storage_requests)
+    # Load-table answers carry vended storage keys, so the catalog session must stay out of HTTP sample capture.
+    catalog_sessions = [o for o in result.session_options if "Authorization" in (o.get("headers") or {})]
+    assert catalog_sessions and all(o.get("capture") is False for o in catalog_sessions)
 
 
 @pytest.mark.parametrize(
@@ -341,22 +356,64 @@ def test_state_is_staged_before_each_batch_and_points_past_finished_files(monkey
 
 
 @pytest.mark.parametrize(
-    ("resume_state", "expected_ids", "reads_first_file"),
+    ("resume_state", "incremental", "expected_ids", "reads_first_file", "resets"),
     [
-        (R2DataCatalogResumeConfig(snapshot_id=7, file_index=1, rows_done=1), [5, 6], False),
-        (R2DataCatalogResumeConfig(snapshot_id=7, file_index=0, rows_done=2), [3, 4, 5, 6], True),
-        # A snapshot that has expired since the last attempt starts the read again.
-        (R2DataCatalogResumeConfig(snapshot_id=3, file_index=1, rows_done=1), [1, 2, 3, 4, 5, 6], True),
+        (R2DataCatalogResumeConfig(snapshot_id=7, file_index=1, rows_done=1), False, [5, 6], False, False),
+        (R2DataCatalogResumeConfig(snapshot_id=7, file_index=0, rows_done=2), False, [3, 4, 5, 6], True, False),
+        # A snapshot that has expired since the last attempt starts the read again. A full refresh then resets
+        # the destination, or the rows the earlier attempt loaded would be appended twice.
+        (R2DataCatalogResumeConfig(snapshot_id=3, file_index=1, rows_done=1), False, [1, 2, 3, 4, 5, 6], True, True),
+        # An incremental read merges on the key, so reading rows again needs no reset.
+        (R2DataCatalogResumeConfig(snapshot_id=3, file_index=1, rows_done=1), True, [1, 2, 3, 4, 5, 6], True, False),
     ],
 )
 def test_resume_continues_inside_the_saved_file(
-    resume_state: R2DataCatalogResumeConfig, expected_ids: list[int], reads_first_file: bool
+    resume_state: R2DataCatalogResumeConfig,
+    incremental: bool,
+    expected_ids: list[int],
+    reads_first_file: bool,
+    resets: bool,
 ) -> None:
-    result = _driver().run("analytics.events", FakeR2(with_deletes=False), resume_state=resume_state)
+    result = _driver().run(
+        "analytics.events",
+        FakeR2(with_deletes=False),
+        resume_state=resume_state,
+        incremental_field="id" if incremental else None,
+        db_incremental_field_last_value=None,
+    )
 
     assert result.raised is None
     assert _ids(result) == expected_ids
     assert ("/lake/data/a.parquet" in _storage_paths(result)) is reads_first_file
+    assert result.response is not None
+    assert result.response.destination_reset_required is resets
+
+
+def test_a_file_removed_in_any_manifest_is_not_read() -> None:
+    fake = FakeR2(with_deletes=False, extra_entries=[{**_data_entry("s3://lake/data/a.parquet", 3, 3), "status": 2}])
+
+    result = _driver().run("analytics.events", fake)
+
+    assert _ids(result) == [4, 5, 6]
+    assert "/lake/data/a.parquet" not in _storage_paths(result)
+
+
+def test_position_deletes_apply_per_file_across_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(r2_data_catalog, "BATCH_ROWS", 2)
+    fake = FakeR2(delete_positions={"s3://lake/data/a.parquet": [2, 0], "s3://lake/data/b.parquet": [1]})
+
+    result = _driver().run("analytics.events", fake)
+
+    assert _ids(result) == [2, 4, 6]
+
+
+def test_a_file_larger_than_the_cap_raises_a_non_retryable_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(r2_data_catalog, "MAX_DATA_FILE_BYTES", 100)
+
+    result = _driver().run("analytics.events", FakeR2(with_deletes=False))
+
+    assert str(result.raised) == FILE_TOO_LARGE_MESSAGE
+    assert FILE_TOO_LARGE_MESSAGE in R2DataCatalogSource().get_non_retryable_errors()
 
 
 def test_table_without_a_snapshot_yields_an_empty_table_with_the_schema() -> None:
@@ -420,6 +477,62 @@ def test_unusable_incremental_settings_raise_a_non_retryable_error(field: str, l
 
     assert str(result.raised) == expected
     assert expected in R2DataCatalogSource().get_non_retryable_errors()
+
+
+STRUCT_TYPE = {
+    "type": "struct",
+    "fields": [
+        {"id": 11, "name": "city", "type": "string", "required": False},
+        {"id": 12, "name": "zip", "type": "string", "required": False},
+    ],
+}
+
+
+def test_schema_alignment_fills_columns_the_file_does_not_hold() -> None:
+    # Written without field ids, as an imported Parquet file is: `old_name` is field 1 by the name mapping.
+    address = pa.array([{"town": "Paris", "zip": "75001"}])
+    file_table = pa.table(
+        {"old_name": pa.array([7], type=pa.int64()), "address": address},
+    )
+    columns = [
+        IcebergColumn(field_id=1, name="id", type="long", required=True),
+        IcebergColumn(field_id=2, name="region", type="string", required=False),
+        IcebergColumn(field_id=3, name="flag", type="boolean", required=False, initial_default=True),
+        IcebergColumn(field_id=4, name="day", type="date", required=False, initial_default="2024-01-02"),
+        IcebergColumn(field_id=5, name="missing", type="int", required=False),
+        IcebergColumn(field_id=6, name="address", type=STRUCT_TYPE, required=False),
+    ]
+
+    aligned = align_to_schema(file_table, columns, name_mapping={1: frozenset({"old_name"})}, constants={2: "eu-west"})
+
+    assert aligned.to_pylist() == [
+        {
+            "id": 7,
+            "region": "eu-west",
+            "flag": True,
+            "day": date(2024, 1, 2),
+            "missing": None,
+            # `town` was renamed to `city` in the current schema; without field ids it can't be matched.
+            "address": {"city": None, "zip": "75001"},
+        }
+    ]
+
+
+def test_nested_struct_children_follow_their_field_ids() -> None:
+    children = pa.struct(
+        [
+            pa.field("town", pa.string(), metadata={b"PARQUET:field_id": b"11"}),
+            pa.field("dropped", pa.string(), metadata={b"PARQUET:field_id": b"13"}),
+        ]
+    )
+    file_table = pa.table(
+        [pa.array([{"town": "Paris", "dropped": "x"}, None], type=children)],
+        schema=pa.schema([pa.field("address", children, metadata={b"PARQUET:field_id": b"6"})]),
+    )
+
+    aligned = align_to_schema(file_table, [IcebergColumn(field_id=6, name="address", type=STRUCT_TYPE, required=False)])
+
+    assert aligned.to_pylist() == [{"address": {"city": "Paris", "zip": None}}, {"address": None}]
 
 
 def test_columns_from_files_before_a_type_promotion_get_the_current_type() -> None:
@@ -566,6 +679,18 @@ def test_get_schemas_lists_tables_across_namespace_pages(names: list[str] | None
     assert schema.columns[1] == ("name", "string", True)
 
 
+def test_discovery_stops_walking_namespaces_at_the_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(r2_data_catalog, "MAX_DISCOVERED_NAMESPACES", 1)
+    config = R2DataCatalogSourceConfig(account_id="acct123", bucket_name="lake", api_token="cf-token")
+
+    with scripted_network(FakeR2()) as network:
+        schemas = R2DataCatalogSource().get_schemas(config, team_id=1)
+
+    assert [schema.name for schema in schemas] == ["analytics.events"]
+    # The second page of namespaces is never requested.
+    assert not any(r.param("pageToken") for r in network.requests_log)
+
+
 @pytest.mark.parametrize(
     ("summary", "expected"),
     [
@@ -593,6 +718,9 @@ def test_row_count_leaves_out_deleted_rows(summary: dict[str, str], expected: in
         ("http://catalog.cloudflarestorage.com/acct/lake", None),
         ("https://catalog.cloudflarestorage.com.evil.com/acct/lake", None),
         ("https://evilcloudflarestorage.com/acct/lake", None),
+        # A backslash makes the HTTP client send the request to the host before it.
+        ("https://attacker.example\\catalog.cloudflarestorage.com/acct/lake", None),
+        ("https://catalog.cloudflarestorage.com/acct\\@attacker.example/lake", None),
         ("https://user:pw@catalog.cloudflarestorage.com/acct/lake", None),
         ("https://catalog.cloudflarestorage.com:8443/acct/lake", None),
         ("https://catalog.cloudflarestorage.com/", None),

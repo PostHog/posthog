@@ -1,5 +1,6 @@
 import io
 import re
+import json
 import time
 import tempfile
 import contextvars
@@ -10,6 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import IO, Any
 from urllib.parse import quote, urlsplit
 
+import numpy as np
 import pyarrow as pa
 import fastavro
 import pyarrow.compute as pc
@@ -28,7 +30,11 @@ from products.warehouse_sources.sources.r2_data_catalog.settings import (
     DEFAULT_CREDENTIAL_LIFETIME_SECONDS,
     DISCOVERY_CONCURRENCY,
     DOWNLOAD_CHUNK_BYTES,
+    DOWNLOAD_DEADLINE_SECONDS,
+    DOWNLOAD_SAFE_POINT_BYTES,
     INCREMENTAL_TYPES,
+    MAX_DATA_FILE_BYTES,
+    MAX_DISCOVERED_NAMESPACES,
     MAX_DISCOVERED_TABLES,
     MAX_NAMESPACE_DEPTH,
     R2_STORAGE_DOMAIN,
@@ -79,6 +85,10 @@ INCREMENTAL_COLUMN_MISSING_MESSAGE = (
 INVALID_WATERMARK_MESSAGE = (
     "The saved incremental value doesn't fit the type of the incremental column. Resync the table to start again."
 )
+FILE_TOO_LARGE_MESSAGE = (
+    "A file of the Iceberg table is larger than the import reads in one piece. Compact the table into smaller "
+    "files, then sync again."
+)
 UNREACHABLE_MESSAGE = "Couldn't reach Cloudflare to check the catalog. Try again in a moment."
 
 # Manifest list `content` and data file `content` values from the Iceberg spec.
@@ -103,6 +113,10 @@ _BOUND_WIDTHS: dict[str, tuple[int, ...]] = {
 }
 _EPOCH_DATE = date(1970, 1, 1)
 _PARQUET_FIELD_ID = b"PARQUET:field_id"
+# Host names are letters, digits, hyphens and dots only. Anything else (a backslash, an `@`) can make the HTTP client
+# send the request to another host than the one checked.
+_HOST_RE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)*")
+_UNSAFE_URI_CHARACTERS = re.compile(r"[\\\s@]")
 
 _PRIMITIVE_ARROW_TYPES: dict[str, pa.DataType] = {
     "boolean": pa.bool_(),
@@ -142,6 +156,8 @@ class IcebergColumn:
     name: str
     type: Any
     required: bool
+    # The value of the column in rows written before the column existed (format v3 `initial-default`).
+    initial_default: Any = None
 
     @property
     def type_name(self) -> str:
@@ -173,6 +189,32 @@ class IcebergTable:
         except (TypeError, ValueError):
             return None
 
+    @property
+    def name_mapping(self) -> dict[int, frozenset[str]]:
+        """Top-level names that files written without field ids used for each field id."""
+        raw = (self.metadata.get("properties") or {}).get("schema.name-mapping.default")
+        try:
+            entries = json.loads(raw) if isinstance(raw, str) else []
+        except ValueError:
+            return {}
+        return {
+            int(entry["field-id"]): frozenset(str(name) for name in entry.get("names") or [])
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("field-id") is not None
+        }
+
+    @property
+    def identity_partition_sources(self) -> dict[int, dict[str, int]]:
+        """For each partition spec id: the partition field name to the source field id, for identity transforms."""
+        return {
+            int(spec.get("spec-id", 0)): {
+                str(field["name"]): int(field["source-id"])
+                for field in spec.get("fields") or []
+                if field.get("transform") == "identity" and field.get("source-id") is not None
+            }
+            for spec in self.metadata.get("partition-specs") or []
+        }
+
     def column(self, name: str) -> IcebergColumn | None:
         return next((column for column in self.columns if column.name == name), None)
 
@@ -196,9 +238,11 @@ class DataFile:
     record_count: int
     # Iceberg single-value bound of each column, keyed by field id.
     upper_bounds: dict[int, bytes]
+    # Values of identity-partitioned columns, keyed by field id. Iceberg may leave these columns out of the file.
+    identity_values: dict[int, Any] = dataclasses.field(default_factory=dict)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class R2DataCatalogResumeConfig:
     """The snapshot being read, the index of the data file in path order, and the rows of it already read."""
 
@@ -208,10 +252,13 @@ class R2DataCatalogResumeConfig:
 
 
 def normalize_catalog_uri(uri: str) -> str:
-    parts = urlsplit(uri.strip())
+    stripped = uri.strip()
+    parts = urlsplit(stripped)
     host = (parts.hostname or "").lower()
     if (
-        parts.scheme != "https"
+        _UNSAFE_URI_CHARACTERS.search(stripped)
+        or not _HOST_RE.fullmatch(host)
+        or parts.scheme != "https"
         or parts.username
         or parts.password
         or parts.query
@@ -325,8 +372,12 @@ class CatalogClient:
             seen_tokens.add(token)
             page_params["pageToken"] = token
 
-    def list_namespaces(self) -> list[tuple[str, ...]]:
-        found: list[tuple[str, ...]] = []
+    def check_access(self) -> None:
+        """One page of the top-level namespaces: the config call checks the warehouse, this checks catalog read."""
+        self._get(self._catalog_path("namespaces"))
+
+    def iter_namespaces(self) -> Iterator[tuple[str, ...]]:
+        """Walk the namespace tree breadth first, one page at a time, so a caller can stop early."""
         pending: list[tuple[str, ...]] = [()]
         visited: set[tuple[str, ...]] = set()
         while pending:
@@ -338,26 +389,31 @@ class CatalogClient:
                 if namespace in visited or len(namespace) <= len(parent) or namespace[: len(parent)] != parent:
                     continue
                 visited.add(namespace)
-                found.append(namespace)
+                yield namespace
                 if len(namespace) < MAX_NAMESPACE_DEPTH:
                     pending.append(namespace)
-        return found
 
-    def list_tables(self, namespace: tuple[str, ...]) -> list[TableIdentifier]:
-        tables: list[TableIdentifier] = []
+    def iter_tables(self, namespace: tuple[str, ...]) -> Iterator[TableIdentifier]:
         for raw in self._paginate(f"namespaces/{_encode_namespace(namespace)}/tables", "identifiers"):
             if isinstance(raw, dict) and raw.get("name"):
                 parts = raw.get("namespace")
                 table_namespace = tuple(str(p) for p in parts) if isinstance(parts, list) else namespace
-                tables.append(TableIdentifier(namespace=table_namespace, name=str(raw["name"])))
-        return tables
+                yield TableIdentifier(namespace=table_namespace, name=str(raw["name"]))
 
-    def list_all_tables(self, limit: int | None = MAX_DISCOVERED_TABLES) -> list[TableIdentifier]:
+    def iter_all_tables(self) -> Iterator[TableIdentifier]:
+        for namespace in self.iter_namespaces():
+            yield from self.iter_tables(namespace)
+
+    def list_all_tables(self) -> list[TableIdentifier]:
+        """The tables that discovery shows. The walk stops at the table and namespace caps, page by page."""
         tables: list[TableIdentifier] = []
-        for namespace in self.list_namespaces():
-            tables.extend(self.list_tables(namespace))
-            if limit is not None and len(tables) >= limit:
-                return tables[:limit]
+        for count, namespace in enumerate(self.iter_namespaces(), start=1):
+            for identifier in self.iter_tables(namespace):
+                tables.append(identifier)
+                if len(tables) >= MAX_DISCOVERED_TABLES:
+                    return tables
+            if count >= MAX_DISCOVERED_NAMESPACES:
+                break
         return tables
 
     def close(self) -> None:
@@ -398,7 +454,7 @@ def resolve_table(client: CatalogClient, display_name: str) -> IcebergTable:
         except R2DataCatalogError as error:
             if str(error) != TABLE_NOT_FOUND_MESSAGE:
                 raise
-    for identifier in client.list_all_tables(limit=None):
+    for identifier in client.iter_all_tables():
         if identifier.display_name == display_name:
             return client.load_table(identifier)
     raise R2DataCatalogError(f"{TABLE_NOT_FOUND_MESSAGE} Table: {display_name}")
@@ -419,6 +475,7 @@ def parse_table(identifier: TableIdentifier, response: Mapping[str, Any]) -> Ice
             name=str(field["name"]),
             type=field.get("type"),
             required=bool(field.get("required")),
+            initial_default=field.get("initial-default"),
         )
         for field in schema.get("fields") or []
     ]
@@ -482,11 +539,24 @@ def parse_storage_credentials(
     )
 
 
-def _split_location(location: str) -> tuple[str, str]:
+@frozen
+class ObjectLocation:
+    bucket: str
+    key: str
+
+
+def _split_location(location: str) -> ObjectLocation:
     parts = urlsplit(location)
     if parts.scheme not in ("s3", "s3a", "s3n", "r2") or not parts.netloc or not parts.path.strip("/"):
         raise R2DataCatalogError(f"R2 Data Catalog returned a file location the import can't read: {location}")
-    return parts.netloc, parts.path.lstrip("/")
+    return ObjectLocation(bucket=parts.netloc, key=parts.path.lstrip("/"))
+
+
+@frozen
+class _SignedClient:
+    credentials: StorageCredentials
+    session: Session
+    signer: S3SigV4Auth
 
 
 class StorageReader:
@@ -494,48 +564,45 @@ class StorageReader:
 
     def __init__(self, load_credentials: Callable[[], StorageCredentials]) -> None:
         self._load_credentials = load_credentials
-        self._credentials: StorageCredentials | None = None
-        self._session: Session | None = None
-        self._signer: S3SigV4Auth | None = None
+        self._client: _SignedClient | None = None
 
-    def _ensure_credentials(self) -> tuple[StorageCredentials, Session, S3SigV4Auth]:
-        if (
-            self._credentials is None
-            or self._session is None
-            or self._signer is None
-            or time.time() >= self._credentials.expires_at - CREDENTIAL_REFRESH_MARGIN_SECONDS
-        ):
-            if self._session is not None:
-                self._session.close()
-            credentials = self._load_credentials()
-            self._credentials = credentials
-            self._session = make_tracked_session(
+    def _signed_client(self) -> _SignedClient:
+        client = self._client
+        if client is not None and time.time() < client.credentials.expires_at - CREDENTIAL_REFRESH_MARGIN_SECONDS:
+            return client
+        self.close()
+        credentials = self._load_credentials()
+        client = _SignedClient(
+            credentials=credentials,
+            session=make_tracked_session(
                 redact_values=tuple(
                     value for value in (credentials.secret_access_key, credentials.session_token) if value
                 ),
                 allow_redirects=False,
-            )
-            self._signer = S3SigV4Auth(
+            ),
+            signer=S3SigV4Auth(
                 Credentials(credentials.access_key_id, credentials.secret_access_key, credentials.session_token),
                 "s3",
                 credentials.region,
-            )
-        return self._credentials, self._session, self._signer
+            ),
+        )
+        self._client = client
+        return client
 
     def _signed_get(self, location: str, stream: bool) -> Response:
-        credentials, session, signer = self._ensure_credentials()
-        bucket, key = _split_location(location)
-        url = f"{credentials.endpoint}/{quote(bucket, safe='')}/{quote(key, safe='/~')}"
+        client = self._signed_client()
+        target = _split_location(location)
+        url = f"{client.credentials.endpoint}/{quote(target.bucket, safe='')}/{quote(target.key, safe='/~')}"
         request = AWSRequest(method="GET", url=url)
-        signer.add_auth(request)
-        return session.get(url, headers=dict(request.headers), timeout=REQUEST_TIMEOUT, stream=stream)
+        client.signer.add_auth(request)
+        return client.session.get(url, headers=dict(request.headers), timeout=REQUEST_TIMEOUT, stream=stream)
 
     def get(self, location: str, stream: bool = False) -> Response:
         response = self._signed_get(location, stream)
         if response.status_code == 403:
             # R2 also answers 403 for vended credentials that expired early, so new ones get one more try.
             response.close()
-            self._credentials = None
+            self.close()
             response = self._signed_get(location, stream)
         if response.status_code == 403:
             response.close()
@@ -548,12 +615,32 @@ class StorageReader:
     def read_bytes(self, location: str) -> bytes:
         return self.get(location).content
 
-    def open_file(self, location: str) -> IO[bytes]:
+    def open_file(self, location: str, safe_point: Callable[[], None] | None = None) -> IO[bytes]:
+        """Download a file to a spooled temporary file.
+
+        The download is capped in size and time. `safe_point` runs between chunks, so a worker that shuts down can
+        hand the run over during a long download; pass it only when the caller holds no rows.
+        """
         spooled = tempfile.SpooledTemporaryFile(max_size=SPOOL_MEMORY_BYTES)
         response = self.get(location, stream=True)
+        deadline = time.monotonic() + DOWNLOAD_DEADLINE_SECONDS
         try:
+            declared = response.headers.get("Content-Length")
+            if declared and declared.isdigit() and int(declared) > MAX_DATA_FILE_BYTES:
+                raise R2DataCatalogError(FILE_TOO_LARGE_MESSAGE)
+            downloaded = 0
+            since_safe_point = 0
             for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
+                downloaded += len(chunk)
+                since_safe_point += len(chunk)
+                if downloaded > MAX_DATA_FILE_BYTES:
+                    raise R2DataCatalogError(FILE_TOO_LARGE_MESSAGE)
+                if time.monotonic() > deadline:
+                    raise R2DataCatalogError(f"R2 storage download took too long for {location}")
                 spooled.write(chunk)
+                if safe_point is not None and since_safe_point >= DOWNLOAD_SAFE_POINT_BYTES:
+                    since_safe_point = 0
+                    safe_point()
         except BaseException:
             spooled.close()
             raise
@@ -563,8 +650,9 @@ class StorageReader:
         return spooled
 
     def close(self) -> None:
-        if self._session is not None:
-            self._session.close()
+        if self._client is not None:
+            self._client.session.close()
+            self._client = None
 
 
 def _avro_records(content: bytes) -> Iterator[dict[str, Any]]:
@@ -585,12 +673,29 @@ def _bounds(raw: Any) -> dict[int, bytes]:
 @frozen
 class ReadPlan:
     data_files: list[DataFile]
-    # Deleted row positions of each data file, from the table's position delete files.
-    deleted_positions: dict[str, pa.Array]
+    # Deleted row positions of each data file, sorted and unique, from the table's position delete files.
+    deleted_positions: dict[str, np.ndarray]
+
+
+def _identity_values(partition: Any, sources: Mapping[str, int]) -> dict[int, Any]:
+    if not isinstance(partition, dict):
+        return {}
+    return {source_id: partition[name] for name, source_id in sources.items() if partition.get(name) is not None}
+
+
+def _group_deleted_positions(table: pa.Table) -> dict[str, np.ndarray]:
+    grouped = table.group_by("file_path").aggregate([("pos", "list")])
+    return {
+        str(path): np.asarray(positions, dtype=np.int64)
+        for path, positions in zip(grouped.column("file_path").to_pylist(), grouped.column("pos_list").to_pylist())
+    }
 
 
 def plan_read(
-    reader: StorageReader, snapshot: Mapping[str, Any], safe_point: Callable[[], None] | None = None
+    reader: StorageReader,
+    snapshot: Mapping[str, Any],
+    identity_partition_sources: Mapping[int, Mapping[str, int]] | None = None,
+    safe_point: Callable[[], None] | None = None,
 ) -> ReadPlan:
     if snapshot.get("manifest-list"):
         manifests = list(_avro_records(reader.read_bytes(str(snapshot["manifest-list"]))))
@@ -599,12 +704,17 @@ def plan_read(
         manifests = [{"manifest_path": path, "content": _DATA} for path in snapshot.get("manifests") or []]
 
     data_files: dict[str, DataFile] = {}
-    delete_files: list[str] = []
+    delete_files: set[str] = set()
+    removed: set[str] = set()
     for manifest in manifests:
+        sources = (identity_partition_sources or {}).get(int(manifest.get("partition_spec_id") or 0), {})
         for entry in _avro_records(reader.read_bytes(str(manifest["manifest_path"]))):
-            if entry.get("status") == _DELETED_ENTRY:
-                continue
             data_file = entry.get("data_file") or {}
+            if entry.get("status") == _DELETED_ENTRY:
+                # The spec rewrites the manifest that held a removed file, but a writer that leaves the old entry
+                # in another manifest must not bring the file back.
+                removed.add(str(data_file.get("file_path")))
+                continue
             content = data_file.get("content") or _DATA
             file_format = str(data_file.get("file_format") or "").upper()
             path = str(data_file.get("file_path"))
@@ -613,31 +723,32 @@ def plan_read(
             if file_format != "PARQUET":
                 raise R2DataCatalogError(UNSUPPORTED_FORMAT_MESSAGE)
             if content == _POSITION_DELETES:
-                delete_files.append(path)
+                delete_files.add(path)
             else:
                 data_files[path] = DataFile(
                     path=path,
                     record_count=int(data_file.get("record_count") or 0),
                     upper_bounds=_bounds(data_file.get("upper_bounds")),
+                    identity_values=_identity_values(data_file.get("partition"), sources),
                 )
         if safe_point is not None:
             safe_point()
 
-    deleted: dict[str, list[pa.Array]] = {}
-    for path in sorted(delete_files):
-        with reader.open_file(path) as handle:
+    live_files = {path: data_file for path, data_file in data_files.items() if path not in removed}
+    deleted: dict[str, list[np.ndarray]] = {}
+    for path in sorted(delete_files - removed):
+        with reader.open_file(path, safe_point=safe_point) as handle:
             table = pq.read_table(handle, columns=["file_path", "pos"])
-        for target in pc.unique(table.column("file_path")).to_pylist():
-            mask = pc.equal(table.column("file_path"), pa.scalar(target, type=pa.string()))
-            deleted.setdefault(str(target), []).append(table.filter(mask).column("pos").combine_chunks())
+        for target, positions in _group_deleted_positions(table).items():
+            # Deletes for files the plan doesn't read cost memory and change nothing.
+            if target in live_files:
+                deleted.setdefault(target, []).append(positions)
         if safe_point is not None:
             safe_point()
 
     return ReadPlan(
-        data_files=sorted(data_files.values(), key=lambda data_file: data_file.path),
-        deleted_positions={
-            path: pa.concat_arrays([array.cast(pa.int64()) for array in arrays]) for path, arrays in deleted.items()
-        },
+        data_files=sorted(live_files.values(), key=lambda data_file: data_file.path),
+        deleted_positions={path: np.unique(np.concatenate(arrays)) for path, arrays in deleted.items()},
     )
 
 
@@ -653,28 +764,92 @@ def arrow_type(iceberg_type: Any) -> pa.DataType:
     return pa.null()
 
 
-def align_to_schema(table: pa.Table, columns: list[IcebergColumn]) -> pa.Table:
-    """Pick the current schema's columns out of a data file by field id, so renamed columns keep their data."""
-    by_id: dict[int, int] = {}
-    by_name: dict[str, int] = {}
-    for index, field in enumerate(table.schema):
-        by_name[field.name] = index
-        field_id = (field.metadata or {}).get(_PARQUET_FIELD_ID)
-        if field_id is not None:
-            by_id[int(field_id)] = index
+def _constant_array(value: Any, length: int, target: pa.DataType) -> pa.Array:
+    try:
+        return pa.array([value] * length).cast(target)
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError):
+        # A default the reader can't convert (a hex binary, a nested value) stays null rather than failing the sync.
+        return pa.nulls(length).cast(target)
+
+
+def _field_index(
+    fields: list[pa.Field], field_id: int, name: str, mapped_names: frozenset[str] = frozenset()
+) -> int | None:
+    has_ids = any((field.metadata or {}).get(_PARQUET_FIELD_ID) is not None for field in fields)
+    for index, field in enumerate(fields):
+        raw_id = (field.metadata or {}).get(_PARQUET_FIELD_ID)
+        if has_ids:
+            if raw_id is not None and int(raw_id) == field_id:
+                return index
+        # Files written without field ids (imported from plain Parquet) match by the name mapping, then by name.
+        elif field.name in mapped_names:
+            return index
+    if not has_ids:
+        return next((index for index, field in enumerate(fields) if field.name == name), None)
+    return None
+
+
+def _align_array(array: pa.Array, iceberg_type: Any) -> pa.Array:
+    """Bring a nested value to the current schema: struct children by field id, list elements recursively."""
+    if not isinstance(iceberg_type, dict):
+        target = arrow_type(iceberg_type)
+        if pa.types.is_null(target) or array.type == target:
+            return array
+        # Files written before a type promotion (int to long, float to double) hold the old type.
+        return array.cast(target)
+    kind = iceberg_type.get("type")
+    if kind == "struct" and pa.types.is_struct(array.type):
+        struct_array: pa.StructArray = array  # type: ignore[assignment]
+        arrow_fields = [array.type.field(i) for i in range(array.type.num_fields)]
+        children = struct_array.flatten()
+        aligned: list[pa.Array] = []
+        names: list[str] = []
+        for child in iceberg_type.get("fields") or []:
+            index = _field_index(arrow_fields, int(child["id"]), str(child["name"]))
+            child_type = child.get("type")
+            if index is None:
+                aligned.append(pa.nulls(len(array)).cast(arrow_type(child_type)))
+            else:
+                aligned.append(_align_array(children[index], child_type))
+            names.append(str(child["name"]))
+        return pa.StructArray.from_arrays(aligned, names=names, mask=array.is_null())
+    if kind == "list" and (pa.types.is_list(array.type) or pa.types.is_large_list(array.type)):
+        list_array: pa.ListArray = array  # type: ignore[assignment]
+        values = _align_array(list_array.values, iceberg_type.get("element"))
+        return type(list_array).from_arrays(list_array.offsets, values, mask=array.is_null())
+    return array
+
+
+def align_to_schema(
+    table: pa.Table,
+    columns: list[IcebergColumn],
+    name_mapping: Mapping[int, frozenset[str]] | None = None,
+    constants: Mapping[int, Any] | None = None,
+) -> pa.Table:
+    """Pick the current schema's columns out of a data file by field id, so renamed columns keep their data.
+
+    A column missing from the file takes its identity-partition value or its initial default from `constants`.
+    """
+    fields = list(table.schema)
     arrays: list[pa.ChunkedArray | pa.Array] = []
     for column in columns:
-        # Files written without field ids (imported from plain Parquet) fall back to names.
-        found = by_id.get(column.field_id) if by_id else by_name.get(column.name)
+        found = _field_index(
+            fields, column.field_id, column.name, (name_mapping or {}).get(column.field_id, frozenset())
+        )
         target = arrow_type(column.type)
-        if found is None:
-            arrays.append(pa.nulls(table.num_rows).cast(target))
-        elif pa.types.is_null(target) or table.schema.field(found).type == target:
-            arrays.append(table.column(found))
+        if found is not None:
+            source = table.column(found)
+            arrays.append(
+                pa.chunked_array([_align_array(chunk, column.type) for chunk in source.chunks], type=None)
+                if source.num_chunks
+                else source
+            )
+        elif constants is not None and column.field_id in constants:
+            arrays.append(_constant_array(constants[column.field_id], table.num_rows, target))
+        elif column.initial_default is not None:
+            arrays.append(_constant_array(column.initial_default, table.num_rows, target))
         else:
-            # Files written before a type promotion (int to long, float to double) hold the old type, and every
-            # batch must carry the current one.
-            arrays.append(table.column(found).cast(target))
+            arrays.append(pa.nulls(table.num_rows).cast(target))
     return pa.Table.from_arrays(arrays, names=[column.name for column in columns])
 
 
@@ -746,15 +921,37 @@ def _internal_values(values: pa.ChunkedArray, iceberg_type: str) -> pa.ChunkedAr
 
 
 def filter_rows(
-    table: pa.Table, first_position: int, deleted: pa.Array | None, row_filter: IncrementalFilter | None
+    table: pa.Table, first_position: int, deleted: np.ndarray | None, row_filter: IncrementalFilter | None
 ) -> pa.Table:
     if deleted is not None and len(deleted):
-        positions = pa.array(range(first_position, first_position + table.num_rows), type=pa.int64())
-        table = table.filter(pc.invert(pc.is_in(positions, value_set=deleted)))
+        # `deleted` is sorted, so a binary search finds this batch's deletes without a set lookup per row.
+        low, high = np.searchsorted(deleted, [first_position, first_position + table.num_rows])
+        if high > low:
+            keep = np.ones(table.num_rows, dtype=bool)
+            keep[deleted[low:high] - first_position] = False
+            table = table.filter(pa.array(keep))
     if row_filter is not None and table.num_rows:
         values = _internal_values(table.column(row_filter.column.name), row_filter.column.type_name)
         table = table.filter(pc.greater_equal(values, pa.scalar(row_filter.threshold, type=pa.int64())))
     return table
+
+
+@frozen
+class ReadStart:
+    snapshot: dict[str, Any] | None
+    file_index: int = 0
+    rows_done: int = 0
+    # The saved cursor names a snapshot that expired, so the read starts again from the current snapshot.
+    restarted: bool = False
+
+
+def read_start(table: IcebergTable, resume: R2DataCatalogResumeConfig | None) -> ReadStart:
+    if resume is None:
+        return ReadStart(snapshot=table.snapshot)
+    resumed_snapshot = table.snapshot_by_id(resume.snapshot_id)
+    if resumed_snapshot is None:
+        return ReadStart(snapshot=table.snapshot, restarted=True)
+    return ReadStart(snapshot=resumed_snapshot, file_index=resume.file_index, rows_done=resume.rows_done)
 
 
 def iter_table_rows(
@@ -762,50 +959,41 @@ def iter_table_rows(
     table: IcebergTable,
     row_filter: IncrementalFilter | None,
     manager: ResumableSourceManager[R2DataCatalogResumeConfig],
-    logger: Any,
+    start: ReadStart,
 ) -> Iterator[pa.Table]:
-    resume = manager.load_state() if manager.can_resume() else None
-    snapshot = table.snapshot
-    file_index = 0
-    rows_done = 0
-    if resume is not None:
-        resumed_snapshot = table.snapshot_by_id(resume.snapshot_id)
-        if resumed_snapshot is not None:
-            snapshot = resumed_snapshot
-            file_index, rows_done = resume.file_index, resume.rows_done
-        else:
-            logger.warning("R2 Data Catalog: the saved snapshot has expired, reading the table from the start")
-
+    snapshot = start.snapshot
     if snapshot is None:
         client.close()
         yield pa.schema([pa.field(c.name, arrow_type(c.type)) for c in table.columns]).empty_table()
         return
 
     snapshot_id = int(snapshot["snapshot-id"])
+    name_mapping = table.name_mapping
     reader = StorageReader(lambda: client.storage_credentials(table.identifier))
     try:
-        plan = plan_read(reader, snapshot, safe_point=manager.safe_point)
+        plan = plan_read(reader, snapshot, table.identity_partition_sources, safe_point=manager.safe_point)
         yielded_any = False
-        for index in range(file_index, len(plan.data_files)):
+        for index in range(start.file_index, len(plan.data_files)):
             data_file = plan.data_files[index]
-            start = rows_done if index == file_index else 0
+            first_row = start.rows_done if index == start.file_index else 0
             if not file_may_match(data_file, row_filter):
                 continue
-            with reader.open_file(data_file.path) as handle:
+            # No rows are held between files, so the download can hand the run over.
+            with reader.open_file(data_file.path, safe_point=manager.safe_point) as handle:
                 parquet_file = pq.ParquetFile(handle)
                 file_rows = parquet_file.metadata.num_rows
                 position = 0
                 for batch in parquet_file.iter_batches(batch_size=BATCH_ROWS, use_threads=False):
                     batch_start = position
                     position += batch.num_rows
-                    if position <= start:
+                    if position <= first_row:
                         continue
                     raw = pa.Table.from_batches([batch])
-                    if batch_start < start:
-                        raw = raw.slice(start - batch_start)
-                        batch_start = start
+                    if batch_start < first_row:
+                        raw = raw.slice(first_row - batch_start)
+                        batch_start = first_row
                     rows = filter_rows(
-                        align_to_schema(raw, table.columns),
+                        align_to_schema(raw, table.columns, name_mapping, data_file.identity_values),
                         batch_start,
                         plan.deleted_positions.get(data_file.path),
                         row_filter,

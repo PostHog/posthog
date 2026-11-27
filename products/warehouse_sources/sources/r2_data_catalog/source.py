@@ -4,6 +4,7 @@ from requests import RequestException
 
 from products.warehouse_sources.sources.r2_data_catalog._config import R2DataCatalogSourceConfig
 from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
+    FILE_TOO_LARGE_MESSAGE,
     INCREMENTAL_COLUMN_MISSING_MESSAGE,
     INVALID_ACCOUNT_MESSAGE,
     INVALID_BUCKET_MESSAGE,
@@ -26,6 +27,7 @@ from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
     incremental_type,
     iter_table_rows,
     load_tables,
+    read_start,
     resolve_table,
 )
 from products.warehouse_sources.sources.sdk import (
@@ -64,8 +66,9 @@ class R2DataCatalogSource(ResumableSource[R2DataCatalogSourceConfig, R2DataCatal
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The catalog URI is where the stored API token goes, so changing it must re-require the token.
-        return ["catalog_uri"]
+        # The account, the bucket and the catalog URI pick the catalog that the stored API token is sent to, so
+        # changing any of them must re-require the token. They also say which credentials row a source shares.
+        return ["account_id", "bucket_name", "catalog_uri"]
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -136,6 +139,7 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
                 NO_CREDENTIALS_MESSAGE,
                 UNSUPPORTED_DELETES_MESSAGE,
                 UNSUPPORTED_FORMAT_MESSAGE,
+                FILE_TOO_LARGE_MESSAGE,
             )
         }
 
@@ -160,7 +164,7 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
             return False, str(error)
         try:
             # The config call checks the warehouse, the namespace list checks the token's catalog read access.
-            client.list_namespaces()
+            client.check_access()
             if schema_name is not None:
                 resolve_table(client, schema_name)
         except R2DataCatalogError as error:
@@ -242,14 +246,22 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
                 if inputs.should_use_incremental_field
                 else None
             )
+            start = read_start(
+                table, resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+            )
         except BaseException:
             client.close()
             raise
+        if start.restarted:
+            inputs.logger.warning("R2 Data Catalog: the saved snapshot has expired, reading the table from the start")
         return SourceResponse(
             name=inputs.schema_name,
-            items=lambda: iter_table_rows(client, table, row_filter, resumable_source_manager, inputs.logger),
+            items=lambda: iter_table_rows(client, table, row_filter, resumable_source_manager, start),
             primary_keys=table.primary_keys or None,
             rows_to_sync=table.total_records if row_filter is None else None,
             # Rows come in data file order, not in order of the incremental column.
             sort_mode=None,
+            # A full refresh that starts again would append the rows an earlier attempt already loaded. An
+            # incremental read merges on the key, so reading rows again is harmless there.
+            destination_reset_required=start.restarted and not inputs.should_use_incremental_field,
         )

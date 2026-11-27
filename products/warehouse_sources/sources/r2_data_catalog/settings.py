@@ -11,10 +11,16 @@ REQUEST_TIMEOUT = (10, 120)
 SPOOL_MEMORY_BYTES = 64 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 BATCH_ROWS = 5_000
+# A data file is read whole before parsing. Compaction writes 128 MiB files by default, so this only stops outliers.
+MAX_DATA_FILE_BYTES = 4 * 1024 * 1024 * 1024
+DOWNLOAD_DEADLINE_SECONDS = 30 * 60
+# A long download reaches a safe point after each of these many bytes, so a worker shutdown can hand the run over.
+DOWNLOAD_SAFE_POINT_BYTES = 64 * 1024 * 1024
 
 # Discovery loads every table once, inside a web request, so a catalog with more tables than this lists only the
 # first ones. A sync loads its table by name and has no cap.
 MAX_DISCOVERED_TABLES = 1_000
+MAX_DISCOVERED_NAMESPACES = 1_000
 DISCOVERY_CONCURRENCY = 8
 MAX_NAMESPACE_DEPTH = 8
 
