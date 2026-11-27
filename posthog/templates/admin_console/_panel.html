@@ -37,11 +37,21 @@
                                href="{{ fact.href }}">{{ fact.value }}</a>
                         {% elif fact.tone %}
                             {% include "admin_console/_badge.html" with label=fact.value tone=fact.tone mono=fact.mono %}
+                        {% elif fact.collapsed %}
+                            <details class="group/fact">
+                                <summary class="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                                    <span class="group-open/fact:hidden{% if fact.mono %} font-mono text-xs{% endif %}">{{ fact.summary }}</span>
+                                    <span class="text-muted-foreground underline decoration-border underline-offset-2 group-open/fact:hidden">Show all</span>
+                                    <span class="text-muted-foreground underline decoration-border underline-offset-2 hidden group-open/fact:inline">Show less</span>
+                                </summary>
+                                <div class="mt-1 whitespace-pre-wrap{% if fact.mono %} font-mono text-xs{% endif %}">{{ fact.value }}</div>
+                            </details>
                         {% elif fact.mono %}
                             <span class="font-mono text-xs">{{ fact.value }}</span>
                         {% else %}
                             {{ fact.value }}
                         {% endif %}
+                        {% if fact.detail %}<span class="ml-1 font-mono text-xs text-muted-foreground">{{ fact.detail }}</span>{% endif %}
                     </dd>
                 {% endfor %}
             </dl>

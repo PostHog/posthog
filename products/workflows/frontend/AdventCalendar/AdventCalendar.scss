@@ -1,0 +1,180 @@
+.AdventTrigger {
+    border-radius: 1.75rem 0.75rem 0.75rem 1.75rem;
+}
+
+.AdventStage {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 20rem;
+    overflow: hidden;
+    background: var(--advent-night);
+    border-radius: var(--radius);
+}
+
+[theme='dark'] .AdventStage {
+    --color-bg-primary: var(--color-posthog-3000-50);
+    --color-bg-surface-primary: var(--color-white);
+    --color-bg-surface-secondary: var(--color-posthog-3000-100);
+    --color-bg-surface-popover: var(--color-white);
+    --color-bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --color-bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --color-text-primary: var(--color-neutral-950);
+    --color-text-secondary: var(--color-neutral-750);
+    --color-text-tertiary: var(--color-neutral-600);
+    --color-border-primary: var(--color-posthog-3000-200);
+    --color-accent: hsl(
+        var(--color-posthog-brand-orange-hue),
+        var(--color-posthog-brand-orange-saturation),
+        var(--color-posthog-brand-orange-lightness)
+    );
+    --color-accent-hover: hsl(
+        var(--color-posthog-brand-orange-hue),
+        var(--color-posthog-brand-orange-saturation),
+        calc(var(--color-posthog-brand-orange-lightness) + 10%)
+    );
+    --color-accent-active: hsl(
+        var(--color-posthog-brand-orange-hue),
+        var(--color-posthog-brand-orange-saturation),
+        calc(var(--color-posthog-brand-orange-lightness) + 15%)
+    );
+    --text-3000: var(--text-3000-light);
+    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
+    --secondary-3000-button-border: var(--secondary-3000-button-border-light);
+    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+    --shadow-elevation-3000: 0 3px 0 var(--border-3000-light);
+
+    color: var(--color-text-primary);
+    color-scheme: light;
+}
+
+.AdventStage__track {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+.AdventStage__track--scrolls {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+}
+
+.AdventStage__workflow {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    transition: opacity 320ms ease-out;
+}
+
+.AdventStage--revealing .AdventStage__workflow {
+    pointer-events: none;
+    opacity: 0.14;
+}
+
+.AdventStage__scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    cursor: default;
+    background: transparent;
+    border: 0;
+}
+
+.AdventStage__grain {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.24 0'/%3E%3C/filter%3E%3Crect width='180' height='180' fill='white' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.45;
+}
+
+.AdventStage__frame {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+    border: 6px solid var(--advent-paper);
+    border-radius: inherit;
+    box-shadow:
+        inset 0 0 0 2px var(--advent-gold),
+        inset 0 0 48px color-mix(in oklab, var(--advent-ink) 30%, transparent);
+}
+
+.AdventPicture {
+    position: absolute;
+    isolation: isolate;
+    container-type: size;
+}
+
+.AdventCard {
+    position: absolute;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 12px;
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 16px;
+    box-shadow: var(--shadow-elevation-3000);
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-property: clip-path;
+}
+
+.AdventCard__face {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    background: none;
+    border: 0;
+}
+
+.AdventCard__door {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: 700;
+    background: var(--color-bg-surface-primary);
+    border-style: solid;
+    border-width: 2px;
+    border-radius: 0.75rem;
+}
+
+.AdventCard__fade {
+    opacity: 0;
+    transition: opacity 140ms ease-out;
+}
+
+.AdventCard--open .AdventCard__fade {
+    opacity: 1;
+    transition: opacity 240ms ease-out 140ms;
+}
+
+.AdventCard__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+    overflow-y: auto;
+    font-size: 0.8125rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .AdventStage__workflow,
+    .AdventCard,
+    .AdventCard__fade {
+        transition: none;
+    }
+}
+
+.AdventCard__door.AdventDoor--exit {
+    border-radius: 0.75rem 1.75rem 1.75rem 0.75rem;
+}

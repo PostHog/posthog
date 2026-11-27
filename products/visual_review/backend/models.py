@@ -583,6 +583,11 @@ class BaselineApproval(ProductTeamModel):
     ledger_base_hash = models.CharField(max_length=128, blank=True)
     # The baseline the reviewer saw. An earlier approval of this pull request or of a stack parent can supply it.
     effective_base_hash = models.CharField(max_length=128, blank=True)
+    # The approval whose picture is the effective base, when that differs from the ledger base. The source run's
+    # frozen overlay names it too, but the retention sweep deletes superseded runs long before this row closes.
+    base_approval = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="approvals_made_over"
+    )
 
     commit_sha = models.CharField(max_length=40)
     # The newest commit where a run of the pull request reproduced the approval, so it survives a rebase.

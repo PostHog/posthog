@@ -1,6 +1,5 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
-import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { randomUUID } from 'crypto'
 import { once } from 'events'
 import fs, {
@@ -38,6 +37,7 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '~/cdp/outputs/producers'
+import { SesTransport } from '~/cdp/services/messaging/ses-transport'
 import { template as emailTemplate } from '~/cdp/templates/_destinations/email/email.template'
 import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
 import { CyclotronJobInvocation } from '~/cdp/types'
@@ -1007,13 +1007,13 @@ async function startDeliveringRoles(
         },
     ] = consumerGroupsOf(specs)
     const cyclotronUrl = cyclotronUrlOf(specs[0])
-    const ses = new SESv2Client({
+    const ses = new SesTransport({
         endpoint: worker.SES_ENDPOINT,
         region: worker.SES_REGION,
         credentials: { accessKeyId: worker.AWS_ACCESS_KEY_ID!, secretAccessKey: worker.AWS_SECRET_ACCESS_KEY! },
         maxAttempts: 1,
     })
-    cdp.email.emailService.sesV2Client = ses
+    cdp.email.emailService.sesTransport = ses
     let jobsToLeaveRunning = leaveOneJobRunning ? 1 : 0
     const failures: unknown[] = []
     let work = Promise.resolve()
@@ -1939,6 +1939,7 @@ describe('runner through seed, drive and judge', () => {
                 drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },
                 writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
                 queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
+                activity: expect.arrayContaining([{ at: expect.any(Number), backends: expect.any(Array) }]),
                 dependencies: [],
             })
             expect(existsSync(path.join(result.evidenceDir, 'writer-cpu.json'))).toBe(false)

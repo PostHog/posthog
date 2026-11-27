@@ -139,3 +139,5 @@ rules:
     - match:
           - '/integrations/aws-s3/*.test.*'
       owners: team-workflows
+    - match: '/integrations/aws-warehouse-sources/'
+      owners: team-warehouse-sources

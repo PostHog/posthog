@@ -30,8 +30,8 @@
         display: none;
     }
 
-    .react-grid-item.react-draggable-dragging > .dash-PanelCard,
-    .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .dash-PanelCard,
+    .react-grid-item.react-draggable-dragging > .dash-ContentTile,
+    .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .dash-ContentTile,
     .react-grid-item.react-draggable-dragging > .SectionTile,
     .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .SectionTile {
         box-shadow: var(--shadow-elevation-3000);
@@ -176,8 +176,8 @@
     /* Over a resize edge, or while resizing, the whole tile or section is outlined instead of the edge. */
     .react-grid-item:has(> .react-resizable-handle:hover),
     .react-grid-item.resizing {
-        > .dash-PanelCard,
-        > .TileContextMenu__trigger > .dash-PanelCard,
+        > .dash-ContentTile,
+        > .TileContextMenu__trigger > .dash-ContentTile,
         > .SectionTile,
         > .TileContextMenu__trigger > .SectionTile {
             outline: 2px solid var(--dv2-interaction-color);

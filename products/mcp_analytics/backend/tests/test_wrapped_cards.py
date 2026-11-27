@@ -1,6 +1,7 @@
 from parameterized import parameterized
 
-from products.mcp_analytics.backend.wrapped.cards import Archetype, WrappedCards, build_wrapped_cards
+from products.mcp_analytics.backend.facade.enums import Archetype
+from products.mcp_analytics.backend.wrapped.cards import WrappedCards, build_wrapped_cards
 from products.mcp_analytics.backend.wrapped.queries import DimensionRow, WrappedAggregates
 
 DEFAULT_MONTHS = {"2026-07": 400, "2026-08": 600}
@@ -109,6 +110,20 @@ def test_reliability_names_no_struggling_tool_when_every_rate_matches() -> None:
     assert (reliability.most_reliable_tool.tool, reliability.most_reliable_tool.calls) == ("get_forecast", 300)
 
 
+def test_reliability_never_rounds_a_rare_error_away() -> None:
+    tools = (
+        _row("get_forecast", 99_000, errors=1),
+        _row("list_alerts", 500, errors=50),
+        _row("create_alert", 500, errors=10),
+    )
+
+    reliability = _build(_aggregates(months={"2026-07": 50_000, "2026-08": 50_000}, tools=tools, errors=1)).reliability
+
+    assert reliability.success_rate < 1
+    assert reliability.most_reliable_tool is not None
+    assert reliability.most_reliable_tool.error_rate > 0
+
+
 @parameterized.expand(
     [
         ("mostly_known_clients", {"Claude Code": 700, "Cursor": 200, "Other": 100}, ["Claude Code", "Cursor", "Other"]),
@@ -118,7 +133,7 @@ def test_reliability_names_no_struggling_tool_when_every_rate_matches() -> None:
 def test_apps_card(_name: str, harnesses: dict[str, int], labels: list[str] | None) -> None:
     apps = _build(_aggregates(harnesses=harnesses)).apps
 
-    assert (apps and [share.label for share in apps.shares]) == labels
+    assert (apps and [share.name for share in apps.shares]) == labels
 
 
 @parameterized.expand(
@@ -129,6 +144,12 @@ def test_apps_card(_name: str, harnesses: dict[str, int], labels: list[str] | No
             {"Anthropic": 400, "Other": 100, "Unknown": 500},
             {"Claude Sonnet": 400},
             None,
+        ),
+        (
+            "unmatched_models_outnumber_the_leader",
+            {"Anthropic": 450, "OpenAI": 50, "Unknown": 500},
+            {"Claude Sonnet": 50, "Other": 450, "Unknown": 500},
+            [],
         ),
         (
             "enough_known_models",
@@ -146,9 +167,10 @@ def test_labs_and_models_cards(
     if family_labels is None:
         assert cards.labs is None and cards.models is None
     else:
-        assert cards.labs is not None and cards.models is not None
-        assert [(share.label, share.share) for share in cards.labs.shares] == [("Anthropic", 0.9), ("OpenAI", 0.1)]
-        assert [share.label for share in cards.models.shares] == family_labels
+        assert cards.labs is not None
+        assert [(share.name, share.share) for share in cards.labs.shares] == [("Anthropic", 0.9), ("OpenAI", 0.1)]
+        model_names = [share.name for share in cards.models.shares] if cards.models else []
+        assert model_names == family_labels
 
 
 def test_rush_hour_needs_enough_calls_and_finds_the_busiest_slot() -> None:

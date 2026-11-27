@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
 import { NativeMarketingSource } from '~/queries/schema/schema-general'
@@ -21,6 +22,7 @@ import {
     removeSourceFromMappings,
 } from './mappingUtils'
 import { buildCampaignMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'
+import { QuillCampaignMappingMenu } from './QuillCampaignMappingMenu'
 
 export interface CampaignMappingCellActionsProps {
     columnName: string
@@ -45,6 +47,7 @@ export function CampaignMappingCellActions({ columnName, value }: CampaignMappin
 function SourceCellActions({ value }: { value: unknown }): JSX.Element | null {
     const { marketingAnalyticsConfig, integrationCampaignTables } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCustomSourceMappings, openIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const utmSource = extractStringValue(value)
     if (!utmSource) {
@@ -73,7 +76,11 @@ function SourceCellActions({ value }: { value: unknown }): JSX.Element | null {
                 : undefined,
     })
 
-    return menuItems ? <LemonMenuOverlay items={menuItems} /> : null
+    if (!menuItems) {
+        return null
+    }
+
+    return todayRailNav ? <QuillCampaignMappingMenu items={menuItems} /> : <LemonMenuOverlay items={menuItems} />
 }
 
 function CampaignCellActions({ value }: { value: unknown }): JSX.Element | null {
@@ -81,6 +88,7 @@ function CampaignCellActions({ value }: { value: unknown }): JSX.Element | null 
         marketingAnalyticsSettingsLogic
     )
     const { updateCampaignNameMappings, openIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const utmCampaign = extractStringValue(value)
     if (!utmCampaign) {
@@ -110,5 +118,9 @@ function CampaignCellActions({ value }: { value: unknown }): JSX.Element | null 
         },
     })
 
-    return menuItems ? <LemonMenuOverlay items={menuItems} /> : null
+    if (!menuItems) {
+        return null
+    }
+
+    return todayRailNav ? <QuillCampaignMappingMenu items={menuItems} /> : <LemonMenuOverlay items={menuItems} />
 }

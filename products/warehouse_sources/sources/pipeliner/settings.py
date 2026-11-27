@@ -34,26 +34,41 @@ class PipelinerEndpointConfig:
 # wants to analyze. `Activities` is deliberately absent — it is an abstract union of Tasks
 # and Appointments, which are synced directly instead.
 PIPELINER_ENDPOINTS: dict[str, PipelinerEndpointConfig] = {
+    "account_types": PipelinerEndpointConfig(name="account_types", entity="AccountTypes"),
     "accounts": PipelinerEndpointConfig(name="accounts", entity="Accounts"),
+    "appointment_types": PipelinerEndpointConfig(name="appointment_types", entity="AppointmentTypes"),
     "appointments": PipelinerEndpointConfig(name="appointments", entity="Appointments"),
     "clients": PipelinerEndpointConfig(name="clients", entity="Clients"),
+    "contact_account_account_role_relations": PipelinerEndpointConfig(
+        name="contact_account_account_role_relations", entity="ContactAccountAccountRoleRelations"
+    ),
+    "contact_account_relations": PipelinerEndpointConfig(
+        name="contact_account_relations", entity="ContactAccountRelations"
+    ),
+    "contact_types": PipelinerEndpointConfig(name="contact_types", entity="ContactTypes"),
     "contacts": PipelinerEndpointConfig(name="contacts", entity="Contacts"),
     "currencies": PipelinerEndpointConfig(name="currencies", entity="Currencies"),
     "currency_exchange_rates": PipelinerEndpointConfig(name="currency_exchange_rates", entity="CurrencyExchangeRates"),
     "currency_exchange_rates_lists": PipelinerEndpointConfig(
         name="currency_exchange_rates_lists", entity="CurrencyExchangeRatesLists"
     ),
+    "lead_types": PipelinerEndpointConfig(name="lead_types", entity="LeadTypes"),
     "leads": PipelinerEndpointConfig(name="leads", entity="Leads"),
     "notes": PipelinerEndpointConfig(name="notes", entity="Notes"),
     "opportunities": PipelinerEndpointConfig(name="opportunities", entity="Opportunities"),
+    "opportunity_types": PipelinerEndpointConfig(name="opportunity_types", entity="OpportunityTypes"),
     "oppty_product_relations": PipelinerEndpointConfig(name="oppty_product_relations", entity="OpptyProductRelations"),
     "pipelines": PipelinerEndpointConfig(name="pipelines", entity="Pipelines"),
     "products": PipelinerEndpointConfig(name="products", entity="Products"),
+    "quote_processes": PipelinerEndpointConfig(name="quote_processes", entity="QuoteProcesses"),
+    "quote_types": PipelinerEndpointConfig(name="quote_types", entity="QuoteTypes"),
+    "quotes": PipelinerEndpointConfig(name="quotes", entity="Quotes"),
     "sales_unit_client_relations": PipelinerEndpointConfig(
         name="sales_unit_client_relations", entity="SalesUnitClientRelations"
     ),
     "sales_units": PipelinerEndpointConfig(name="sales_units", entity="SalesUnits"),
     "steps": PipelinerEndpointConfig(name="steps", entity="Steps"),
+    "task_types": PipelinerEndpointConfig(name="task_types", entity="TaskTypes"),
     "tasks": PipelinerEndpointConfig(name="tasks", entity="Tasks"),
 }
 

@@ -117,6 +117,24 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
         # psycopg raises this directly (no "connection failed:" prefix) when its own connect
         # deadline elapses while still polling the socket for a handshake that never completed.
         (psycopg.errors.ConnectionTimeout("connection timeout expired"), True),
+        (OperationalError("consuming input failed: SSL SYSCALL error: EOF detected"), True),
+        (psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected"), True),
+        (
+            _raised_from(
+                OperationalError("consuming input failed: SSL SYSCALL error: EOF detected"),
+                psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected"),
+            ),
+            True,
+        ),
+        # The same TLS text at connect time can mean a persistent misconfiguration, so it must stay reportable.
+        (
+            OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "SSL SYSCALL error: EOF detected"
+            ),
+            False,
+        ),
+        (OperationalError("SSL SYSCALL error: EOF detected"), False),
         (
             _raised_from(
                 OperationalError("connection timeout expired"),

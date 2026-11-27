@@ -1,65 +1,38 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
-
 import { IconX } from '@posthog/icons'
 
-import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { PropertyDefinition, materializedColumnsLogic } from './materializedColumnsLogic'
+import { PropertyDefinition } from './materializedColumnsLogic'
+import { useAssignSlotForm } from './useAssignSlotForm'
 
 export function CreateSlotModal(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { availableProperties, availablePropertiesLoading } = useValues(materializedColumnsLogic)
-    const { setShowCreateModal, loadSlots } = useActions(materializedColumnsLogic)
-    const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null)
-    const [searchTerm, setSearchTerm] = useState('')
-    const [isSubmitting, setIsSubmitting] = useState(false)
-
-    const handleSubmit = async (): Promise<void> => {
-        if (!currentTeam || !selectedPropertyId) {
-            return
-        }
-
-        setIsSubmitting(true)
-        try {
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-            await api.create(`api/projects/${currentTeam.id}/materialized_column_slots/assign_slot/`, {
-                property_definition_id: selectedPropertyId,
-            })
-            lemonToast.success('Property queued for materialization — it will be picked up by the next weekly cycle')
-            setShowCreateModal(false)
-            loadSlots()
-        } catch (error: any) {
-            lemonToast.error(error.detail || 'Failed to queue property for materialization')
-            console.error(error)
-        } finally {
-            setIsSubmitting(false)
-        }
-    }
-
-    // Filter and sort properties based on search term
-    const filteredProperties = availableProperties
-        .filter((prop: PropertyDefinition) => prop.name.toLowerCase().includes(searchTerm.toLowerCase()))
-        .sort((a: PropertyDefinition, b: PropertyDefinition) => a.name.localeCompare(b.name))
-
-    const selectedProperty = availableProperties.find((prop: PropertyDefinition) => prop.id === selectedPropertyId)
+    const {
+        availableProperties,
+        availablePropertiesLoading,
+        filteredProperties,
+        selectedProperty,
+        selectedPropertyId,
+        setSelectedPropertyId,
+        searchTerm,
+        setSearchTerm,
+        isSubmitting,
+        handleSubmit,
+        close,
+    } = useAssignSlotForm()
 
     return (
         <LemonModal
             isOpen
-            onClose={() => setShowCreateModal(false)}
+            onClose={close}
             title="Assign Materialized Column Slot"
             width="36rem"
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={() => setShowCreateModal(false)}>
+                    <LemonButton type="secondary" onClick={close}>
                         Cancel
                     </LemonButton>
                     <LemonButton

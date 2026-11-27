@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, fields
 from typing import Any
 
@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.tagged_item import replace_tags_on_object
+from posthog.api.tagged_item import BulkTagActivityContext, apply_bulk_tag_changes, replace_tags_on_object
 from posthog.models import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -194,8 +194,8 @@ def replace_tags(*, team: Team, experiment_id: int, tags: list[str]) -> None:
     replace_tags_on_object(tags, _one_in_project(team, experiment_id, include_deleted=True).get())
 
 
-# The update data of the service names these fields by the sources of the experiment serializer fields.
-_UPDATE_DATA_KEYS = {"feature_flag_key": "get_feature_flag_key", "create_in_folder": "_create_in_folder"}
+# The service refuses a folder on an update and names the field in the error, so it gets the request field name.
+_UPDATE_DATA_KEYS = {"create_in_folder": "_create_in_folder"}
 _NOT_UPDATE_DATA = frozenset({"allow_unknown_events", "feature_flag_config", "tags", "feature_flag_rule_id"})
 
 
@@ -234,10 +234,55 @@ def list_page(
     *, team: Team, filters: ExperimentListFilters, access: ListAccess | None, page: PageRequest
 ) -> Page[Experiment]:
     rows = _experiments(team).defer(*LIST_DEFERRED_FIELDS).annotate(is_legacy_annotation=_list_is_legacy_annotation())
-    queryset = ExperimentService(team=team, user=None).filter_experiments_queryset(
-        visible_to(rows, access), action="list", query_params=_query_params(asdict(filters))
+    return select_page(strict_fetch(_apply_list_filters(team, visible_to(rows, access), filters)), page)
+
+
+def _apply_list_filters(team: Team, rows: QuerySet[Experiment], filters: ExperimentListFilters) -> QuerySet[Experiment]:
+    return ExperimentService(team=team, user=None).filter_experiments_queryset(
+        rows, action="list", query_params=_query_params(asdict(filters))
     )
-    return select_page(strict_fetch(queryset), page)
+
+
+_REF_FIELDS = ("id", "team_id", "created_by_id")
+
+
+def list_refs(*, team: Team, filters: ExperimentListFilters) -> QuerySet[Experiment]:
+    """Every experiment that the list shows for the filters, in the order of the list, with the columns of a ref."""
+    rows = Experiment.objects.filter(team__project_id=team.project_id)
+    return strict_fetch(_apply_list_filters(team, rows, filters).only(*_REF_FIELDS))
+
+
+def _live_among(team: Team, experiment_ids: Collection[int]) -> QuerySet[Experiment]:
+    experiments = Experiment.objects.filter(team__project_id=team.project_id, pk__in=list(experiment_ids))
+    return experiments.exclude(deleted=True)
+
+
+def refs_among(*, team: Team, experiment_ids: Collection[int]) -> QuerySet[Experiment]:
+    """The live experiments of the project among the ids, archived ones included, newest first, with the columns of a
+    ref."""
+    return strict_fetch(_live_among(team, experiment_ids).order_by("-created_at").only(*_REF_FIELDS))
+
+
+def change_tags(
+    *,
+    team: Team,
+    user: User,
+    was_impersonated: bool,
+    experiment_ids: Sequence[int],
+    tag_action: str,
+    tags: Sequence[str],
+) -> list[dict[str, Any]]:
+    # apply_bulk_tag_changes reads the current tags itself, inside its transaction, so no tag prefetch here.
+    experiments = strict_fetch(_live_among(team, experiment_ids).only("id", "team_id", "name"))
+    by_id = {experiment.id: experiment for experiment in experiments}
+    return apply_bulk_tag_changes(
+        [by_id[experiment_id] for experiment_id in experiment_ids if experiment_id in by_id],
+        tag_action,
+        list(tags),
+        activity_context=BulkTagActivityContext(
+            scope="Experiment", user=user, was_impersonated=was_impersonated, activity="updated"
+        ),
+    )
 
 
 def resolved_exposure_event(experiment: Experiment) -> str:

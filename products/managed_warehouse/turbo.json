@@ -25,6 +25,7 @@
                 "backend/admin/**",
                 "backend/common.py",
                 "backend/duckgres_availability.py",
+                "backend/logic/access.py",
                 "backend/logic/ducklake_copy.py",
                 "backend/logic/sql_editor.py",
                 "backend/logic/sql_editor_credentials.py",

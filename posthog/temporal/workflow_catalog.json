@@ -1350,6 +1350,11 @@
     "task_queues": "TASKS_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "slack-app-daily-focus-agent",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "slack-app-daily-focus-sweep",
     "product": "slack_app",
     "task_queues": "TASKS_TASK_QUEUE"

@@ -1506,6 +1506,7 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     EVENTS_BILLING_LIMIT = "events_billing_limit"
     FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
+    EXPOSURE_ROWS_LEFT_OUT = "exposure_rows_left_out"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1532,6 +1533,7 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     EVENTS_BILLING_LIMIT = "events_billing_limit"
     FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
+    EXPOSURE_ROWS_LEFT_OUT = "exposure_rows_left_out"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
@@ -1557,6 +1559,9 @@ class ExperimentExposureHealthValueKey(StrEnum):
     KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE = "kept_by_test_account_filter_percentage"
     UNSERVED_EXPOSED_COUNT = "unserved_exposed_count"
     UNSERVED_EXPOSED_PERCENTAGE = "unserved_exposed_percentage"
+    LEFT_OUT_ROW_COUNT = "left_out_row_count"
+    UNKNOWN_VARIANT_ROW_COUNT = "unknown_variant_row_count"
+    EMPTY_ID_ROW_COUNT = "empty_id_row_count"
 
 
 class ExperimentMetricGoal(StrEnum):
@@ -2051,6 +2056,7 @@ class IntegrationKind(StrEnum):
     APPLE_ADS = "apple-ads"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
+    AWS_WAREHOUSE_SOURCES = "aws-warehouse-sources"
     AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
@@ -3219,9 +3225,9 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
-# Add the Slack scopes that wait on Slack app review to SlackIntegrationScopeInReview in frontend/src/types.ts.
 class SlackIntegrationScopeInReview(StrEnum):
-    pass
+    USERGROUPS_READ = "usergroups:read"
+    EMOJI_READ = "emoji:read"
 
 
 class SlashCommandName(StrEnum):

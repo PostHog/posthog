@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -497,11 +498,13 @@ export interface inboxTaskKickoffLogicActions {
     contextDelivered: (
         taskId: string,
         items: AttachedContextItem[],
-        fromNewChat?: boolean | undefined
+        fromNewChat?: boolean | undefined,
+        wireItems?: AttachedContextItem[] | undefined
     ) => {
         fromNewChat: boolean
         items: AttachedContextItem[]
         taskId: string
+        wireItems: AttachedContextItem[]
     } // attachedContextLogic
     clearActiveCreation: () => {
         value: true
@@ -930,7 +933,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     }
                 }
             } catch (error) {
-                posthog.captureException(error)
+                if (shouldReportApiFailure(error)) {
+                    posthog.captureException(error)
+                }
             } finally {
                 cache.warmingReportId = null
                 cache.warmReleaseRequested = false
