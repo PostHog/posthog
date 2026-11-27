@@ -94,9 +94,11 @@ class TestNotebookAppViewAccess(APIBaseTest):
         assert not NotebookAppViewGrant.objects.for_team(self.team.pk).filter(release=self.release).exists()
         events = ActivityLog.objects.filter(team_id=self.team.pk, scope="Notebook", item_id=self.notebook.short_id)
         details = [
-            entry.detail["changes"][0]
-            for entry in events
-            if entry.detail.get("changes") and entry.detail["changes"][0]["field"] == "app_view_grant"
+            change
+            for detail in events.values_list("detail", flat=True)
+            if isinstance(detail, dict)
+            for change in detail.get("changes", [])
+            if change["field"] == "app_view_grant"
         ]
         assert any(change.get("after") == {"recipient": self.recipient.email, "revision": 1} for change in details)
         assert any(change.get("before") == {"recipient": self.recipient.email, "revision": 1} for change in details)
