@@ -3677,6 +3677,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
+    def test_destination_rejects_inputs_reading_workflow_variables(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "inputs": {**EXAMPLE_FULL["inputs"], "url": {"value": "https://example.com/{variables.ticket_number}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "inputs__url"
+        assert response.json()["detail"] == (
+            "Invalid template: Variable not available in inputs: variables. Inputs can read event, person, "
+            "groups, project, source and inputs, and in a workflow also variables."
+        )
+
     @parameterized.expand(
         [
             # An input saved before this check must not trap the function: disabling or deleting it

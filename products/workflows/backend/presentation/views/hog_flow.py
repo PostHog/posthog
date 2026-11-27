@@ -2615,6 +2615,7 @@ class HogFlowActionSerializer(serializers.Serializer):
 
                 function_inputs_context = {
                     "function_type": template.type,
+                    "in_workflow": True,
                     "is_dwh_source": self.context.get("is_dwh_source", False),
                     # The existing (decrypted) secret inputs for this action, so a resent
                     # {"secret": true} marker recovers the stored value instead of wiping it.

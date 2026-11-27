@@ -196,6 +196,19 @@ class TestSandboxEmailSteps(APIBaseTest):
         )
         assert (rendered["subject"], rendered["text"]) == ("Hello", "Hello from our workflow.")
 
+    def test_a_hog_step_reads_workflow_variables(self) -> None:
+        with _flag(True), _runtime(True):
+            response = self.client.post(
+                self._url(), _flow(_hog_sandbox_step(text="Order {variables.order_id}"), status="active"), format="json"
+            )
+
+        assert response.status_code == 201, response.json()
+        rendered = _render(
+            _stored_email(response.json()["id"])["bytecode"],
+            {"person": {"properties": {"email": "ada@example.com"}}, "variables": {"order_id": "A-1"}},
+        )
+        assert rendered["text"] == "Order A-1"
+
     def _try_to_run(self, path: str):
         if path == "create_active":
             return self.client.post(self._url(), _flow(_sandbox_step(), status="active"), format="json")
