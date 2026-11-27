@@ -49,7 +49,7 @@ def _shipped_redis_cache() -> dict:
     }
 
 
-ENOUGH_ACCOUNT_SENDS = {"SEND": 20_000, "DELIVERY": 19_800, "DELIVERY_COMPLAINT": 18_000}
+ENOUGH_ACCOUNT_SENDS = {"SEND": 10_000, "DELIVERY": 9_900, "DELIVERY_COMPLAINT": 9_000}
 CHANGED_AT = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 DAILY_METRICS_FETCH = "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team"
 
@@ -126,10 +126,6 @@ class TestEmailReputationAPI(APIBaseTest):
     def _get_reputation_from_ses(self, *, released: bool = True) -> dict:
         with (
             patch(
-                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
-                return_value={},
-            ),
-            patch(
                 "products.workflows.backend.services.email_health.posthoganalytics.feature_enabled",
                 side_effect=_locally_evaluated_flag(released),
             ),
@@ -180,7 +176,7 @@ class TestEmailReputationAPI(APIBaseTest):
 
     @parameterized.expand([("a_handful", 7), ("a_few_dozen", 37), ("just_under_the_floor", 9_999)])
     def test_reputation_withholds_the_infrastructure_health_of_a_low_volume_account(self, _name: str, sends: int):
-        with FakeSesEndpoint().installed() as ses:
+        with FakeSesEndpoint().installed() as ses, time_machine.travel("2026-03-10T12:00:00Z", tick=False) as clock:
             ses.account_metrics.update(
                 {
                     "SEND": sends,
@@ -190,9 +186,13 @@ class TestEmailReputationAPI(APIBaseTest):
                     "DELIVERY_COMPLAINT": sends - 1,
                 }
             )
-            data = self._get_reputation_from_ses()
+            first = self._get_reputation_from_ses()
+            clock.shift(timedelta(minutes=2))
+            second = self._get_reputation_from_ses()
 
-        assert data["infrastructure"] is None
+        assert first["infrastructure"] is None
+        assert second["infrastructure"] is None
+        assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
 
     def test_reputation_asks_ses_once_when_it_rejects_the_account_query(self):
         with FakeSesEndpoint().installed() as ses:
