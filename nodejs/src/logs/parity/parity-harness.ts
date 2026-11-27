@@ -292,6 +292,7 @@ export function buildParityConsumer(
     const patternFaultsLeft = new Map(
         Object.entries(scenario.pattern_keys_faults).map(([teamId, fault]) => [Number(teamId), fault.times])
     )
+    const samplingFaultsLeft = new Map<number, number>()
 
     // Rules compile once per team, as the production caches serve them, so a benchmark does not time compilation.
     const compiled = new Map<string, unknown>()
@@ -374,12 +375,23 @@ export function buildParityConsumer(
         } as unknown as LogsIngestionConsumerDeps['usageBatch'],
         dependencyRetry: { retryCount: 2, initialRetryDelayMs: 1 },
         samplingRulesCache: {
-            getCompiledRuleSet: (teamId: number) =>
-                Promise.resolve(
+            getCompiledRuleSet: (teamId: number) => {
+                const fault = scenario.sampling_rules_faults?.[teamId]
+                if (fault) {
+                    const left = samplingFaultsLeft.get(teamId) ?? fault.times
+                    if (left === undefined || left > 0) {
+                        if (left !== undefined) {
+                            samplingFaultsLeft.set(teamId, left - 1)
+                        }
+                        return Promise.reject(toError(fault))
+                    }
+                }
+                return Promise.resolve(
                     memo(`sampling:${teamId}`, () =>
                         compileRuleSet((scenario.sampling_rules[teamId] ?? []) as SamplingRuleRow[])
                     )
-                ),
+                )
+            },
         } as unknown as LogsIngestionConsumerDeps['samplingRulesCache'],
         retentionRulesCache: {
             getCompiledRuleSet: (teamId: number, source: string) =>

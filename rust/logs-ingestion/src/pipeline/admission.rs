@@ -4,9 +4,15 @@ use std::sync::{Arc, Mutex};
 use ingestion_framework::{drop, ok, ChunkProcessingStep, PipelineResult};
 use metrics::counter;
 
+use crate::content_weights::OrderedCounts;
 use crate::rate_limiter::RateLimitedMessage;
 
-use super::context::{is_unbilled_internal, team_id_matches_csv, LogsPipelineContext};
+use super::context::{
+    is_unbilled_internal, sent_by_team_with_public_token, team_id_matches_csv, AppSource,
+    LogsPipelineContext,
+};
+use super::errors::is_dependency_unavailable;
+use super::resolve::is_sampling_eval_enabled_for_team;
 use super::types::{LogsIngestionMessage, UsageStatsByTeam};
 
 /// Only billed messages reach it.
@@ -119,6 +125,111 @@ pub fn create_backfill_gate_step(context: Arc<LogsPipelineContext>) -> Admission
                 }
             }
             Ok(results)
+        },
+    )
+}
+
+struct RuleDrop {
+    team_id: i64,
+    rule_id: String,
+    records: f64,
+    bytes: f64,
+}
+
+pub fn create_require_secret_key_step(context: Arc<LogsPipelineContext>) -> AdmissionStep {
+    ChunkProcessingStep::new(
+        "requireSecretKeyStep",
+        move |values: Vec<LogsAdmissionInput>| {
+            let context = context.clone();
+            async move {
+                let cache = match context.deps.sampling_rules.clone() {
+                    Some(cache) if matches!(context.identity.app_source, AppSource::Logs) => cache,
+                    _ => return Ok(values.into_iter().map(ok).collect()),
+                };
+                let is_candidate = |m: &LogsIngestionMessage| {
+                    sent_by_team_with_public_token(m)
+                        && is_sampling_eval_enabled_for_team(&context, m.team_id)
+                };
+                let mut team_ids: Vec<i64> = Vec::new();
+                for v in values.iter().filter(|v| is_candidate(&v.message)) {
+                    if !team_ids.contains(&v.message.team_id) {
+                        team_ids.push(v.message.team_id);
+                    }
+                }
+                let rule_sets = futures::future::join_all(
+                    team_ids
+                        .iter()
+                        .map(|t| context.retry(|| cache.get_compiled_rule_set(*t))),
+                )
+                .await;
+                let mut rule_ids: Vec<(i64, String)> = Vec::new();
+                for (team_id, rule_set) in team_ids.iter().zip(rule_sets) {
+                    let rule_set = match rule_set {
+                        Ok(rule_set) => rule_set,
+                        Err(error) if is_dependency_unavailable(&error) => return Err(error),
+                        Err(error) => {
+                            tracing::warn!(
+                                team_id,
+                                error = %error,
+                                "require secret key lookup failed, passing the team on"
+                            );
+                            continue;
+                        }
+                    };
+                    if let Some(rule_id) = rule_set.require_secret_key_rule_id.clone() {
+                        rule_ids.push((*team_id, rule_id));
+                    }
+                }
+
+                let mut counts = TeamCounts::default();
+                let mut dropped: Vec<RuleDrop> = Vec::new();
+                let results = values
+                    .into_iter()
+                    .map(|v| {
+                        let m = &v.message;
+                        let rule_id = match rule_ids.iter().find(|(t, _)| *t == m.team_id) {
+                            Some((_, rule_id)) if sent_by_team_with_public_token(m) => rule_id,
+                            _ => return ok(v),
+                        };
+                        counts.add(m.team_id);
+                        match dropped.iter_mut().find(|d| d.team_id == m.team_id) {
+                            Some(d) => {
+                                d.records += m.record_count;
+                                d.bytes += m.bytes_uncompressed_records;
+                            }
+                            None => dropped.push(RuleDrop {
+                                team_id: m.team_id,
+                                rule_id: rule_id.clone(),
+                                records: m.record_count,
+                                bytes: m.bytes_uncompressed_records,
+                            }),
+                        }
+                        record_dropped(&v.usage, m);
+                        drop("require_secret_key")
+                    })
+                    .collect();
+                counts.report("require_secret_key");
+                for RuleDrop {
+                    team_id,
+                    rule_id,
+                    records,
+                    bytes,
+                } in dropped
+                {
+                    let usage = &context.usage_metrics;
+                    usage.queue_by_rule(
+                        team_id,
+                        "sampling_records_dropped_by_rule",
+                        &OrderedCounts(vec![(rule_id.clone(), records)]),
+                    );
+                    usage.queue_by_rule(
+                        team_id,
+                        "bytes_dropped_by_rule",
+                        &OrderedCounts(vec![(rule_id, bytes)]),
+                    );
+                }
+                Ok(results)
+            }
         },
     )
 }

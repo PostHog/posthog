@@ -14,6 +14,7 @@ import {
     createQuotaLimitStep,
     createRateLimitStep,
     createRecordAllowedUsageStep,
+    createRequireSecretKeyStep,
     createTrackIncomingTrafficStep,
 } from './admission-steps'
 import { LogsPipelineContext } from './logs-pipeline-context'
@@ -64,6 +65,7 @@ export function createLogsAdmissionPipeline(
     return newChunkPipelineBuilder<LogsAdmissionInput, LogsItemContext>()
         .pipeChunk(createTrackIncomingTrafficStep())
         .pipeChunk(createBackfillGateStep(context))
+        .pipeChunk(createRequireSecretKeyStep(context))
         .pipeChunk(createQuotaLimitStep(context))
         .pipeChunk(createRateLimitStep(context))
         .pipeChunk(createRecordAllowedUsageStep())

@@ -1663,6 +1663,79 @@
    "sha256": "7596548bcf14f5e2f19f81bdfb46c90fe929059b6b38a9a5e5cda6039f490dc0"
   }
  ],
+ "require-secret-key-bad-rule.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "21eef25d51fe5d55a877ec16cce6283969937f5480c9584f80ea9c95918a0c5c"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "c957f083120a13c88e2dd08d322701ddeea35979daa1dd7b2ee4c6a16ffa1ded"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "ed6bc9873df908a98fdb59c8e703d43b7ecae7602b013600bae33230193fb623"
+  }
+ ],
+ "require-secret-key-rules-blip.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "e30fa4751313dca7228fff1c3b1af0b640bfb248fa47590635a32d1ce6e8aef8"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "746a710b6beef8068c79bb4601bf5052c9a37a25eb752b215726c717e7153e79"
+  }
+ ],
+ "require-secret-key-rules-outage.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "fbe65ad73171117754cee7ed2476fa4ad5e17cbc9cde971e54597d5ee468f706"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "e4574ff28c90abc679dc9b2140608e5ce74e5334b88419a57c651d8253cb22c5"
+  },
+  {
+   "codec": "zstandard",
+   "count": 1,
+   "sha256": "c83cd8fc52b5b0700c4c9ac4aac657bdaa34660cda123340a8d3a67fa6882fed"
+  }
+ ],
+ "require-secret-key.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "7f4bf07739942d0629cc0aedd10e035b4cd711fec59295942a8ad2cd9a639b3c"
+  },
+  {
+   "codec": "zstandard",
+   "count": 3,
+   "sha256": "fb9db32d635e2e9404aad6603349087adfd12621cf8a2c72c800f1668934a7ce"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "e2bf2a7f31058a781ef1fb9d04811377651cbbfaa74ffc53bd7e1bcb9ff6b147"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "0673512ab33652148744c5aeb3f4ca46bfa43c2c4f3c1ffee6c8ccc18332f1fd"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "e112bd4218efffa1c92bedec86970a577c9c03ab23f5ef8ec707339806307c6f"
+  }
+ ],
  "retention.json": [
   {
    "codec": "zstandard",

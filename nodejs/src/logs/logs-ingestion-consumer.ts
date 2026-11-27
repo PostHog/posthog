@@ -70,6 +70,7 @@ import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService, SAMPLING_STAGE_NAME } from './sampling/logs-sampling.service'
+import { findRequireSecretKeyDrops } from './sampling/require-secret-key'
 import { type SamplingRuleSource, SamplingRulesCache } from './sampling/sampling-rules-cache'
 import {
     AUTH_TYPE_HEADER,
@@ -763,9 +764,11 @@ export class LogsIngestionConsumer {
         this.trackIncomingTraffic(messages)
 
         const { backfillAllowedMessages, backfillDroppedMessages } = this.filterBackfillNotEnabledMessages(messages)
+        const { secretKeyAllowedMessages, secretKeyDroppedMessages } =
+            await this.filterRequireSecretKeyMessages(backfillAllowedMessages)
         const internalMessages: LogsIngestionMessage[] = []
         const billedMessages: LogsIngestionMessage[] = []
-        for (const message of backfillAllowedMessages) {
+        for (const message of secretKeyAllowedMessages) {
             ;(this.isUnbilledInternal(message) ? internalMessages : billedMessages).push(message)
         }
         const { quotaAllowedMessages, quotaDroppedMessages } = await this.filterQuotaLimitedMessages(billedMessages)
@@ -774,6 +777,7 @@ export class LogsIngestionConsumer {
 
         const usageStats = this.trackOutgoingTrafficAndBuildUsageStats(rateLimiterAllowedMessages, [
             ...backfillDroppedMessages.filter((message) => !this.isUnbilledInternal(message)),
+            ...secretKeyDroppedMessages,
             ...quotaDroppedMessages,
             ...rateLimiterDroppedMessages,
         ])
@@ -935,6 +939,32 @@ export class LogsIngestionConsumer {
         }
 
         return { backfillAllowedMessages, backfillDroppedMessages }
+    }
+
+    private async filterRequireSecretKeyMessages(messages: LogsIngestionMessage[]): Promise<{
+        secretKeyAllowedMessages: LogsIngestionMessage[]
+        secretKeyDroppedMessages: LogsIngestionMessage[]
+    }> {
+        const cache = this.deps.samplingRulesCache
+        if (!cache || this.samplingRuleSource !== 'logs') {
+            return { secretKeyAllowedMessages: messages, secretKeyDroppedMessages: [] }
+        }
+        const { dropped, byTeam } = await findRequireSecretKeyDrops(
+            messages,
+            cache,
+            (teamId) => this.isSamplingEvalEnabledForTeam(teamId),
+            (fn) => this.retryOnDependencyUnavailable(fn)
+        )
+        for (const [teamId, totals] of byTeam) {
+            logMessageDroppedCounter.inc({ reason: 'require_secret_key', team_id: teamId.toString() }, totals.messages)
+            recordLogMessageDropped('require_secret_key', teamId.toString(), totals.messages)
+            this.queueSamplingRecordsDroppedByRule(teamId, new Map([[totals.ruleId, totals.records]]))
+            this.queueBytesDroppedByRule(teamId, new Map([[totals.ruleId, totals.bytes]]))
+        }
+        return {
+            secretKeyAllowedMessages: messages.filter((message) => !dropped.has(message)),
+            secretKeyDroppedMessages: [...dropped],
+        }
     }
 
     private async filterQuotaLimitedMessages(

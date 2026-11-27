@@ -20,8 +20,15 @@ import {
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
 } from '../logs-ingestion-consumer'
+import { findRequireSecretKeyDrops } from '../sampling/require-secret-key'
 import type { LogsIngestionMessage } from '../types'
-import { LogsPipelineContext, isUnbilledInternal, teamIdMatchesCsv } from './logs-pipeline-context'
+import {
+    LogsPipelineContext,
+    isSamplingEvalEnabledForTeam,
+    isUnbilledInternal,
+    retryOnDependencyUnavailable,
+    teamIdMatchesCsv,
+} from './logs-pipeline-context'
 
 export class LogsBatchUsage {
     readonly byTeam: UsageStatsByTeam = new Map()
@@ -113,6 +120,40 @@ export function createBackfillGateStep<T extends LogsAdmissionInput>(
             }
         }
         return Promise.resolve(results)
+    }
+}
+
+export function createRequireSecretKeyStep<T extends LogsAdmissionInput>(
+    context: LogsPipelineContext
+): ChunkProcessingStep<T, T> {
+    return async function requireSecretKeyStep(values) {
+        const cache = context.deps.samplingRulesCache
+        if (!cache || context.identity.samplingRuleSource !== 'logs') {
+            return values.map((value) => ok(value))
+        }
+        const { dropped, byTeam } = await findRequireSecretKeyDrops(
+            values,
+            cache,
+            (teamId) => isSamplingEvalEnabledForTeam(context, teamId),
+            (fn) => retryOnDependencyUnavailable(context, fn)
+        )
+        for (const [teamId, totals] of byTeam) {
+            logMessageDroppedCounter.inc({ reason: 'require_secret_key', team_id: teamId.toString() }, totals.messages)
+            recordLogMessageDropped('require_secret_key', teamId.toString(), totals.messages)
+            context.usageMetrics.queueByRule(
+                teamId,
+                'sampling_records_dropped_by_rule',
+                new Map([[totals.ruleId, totals.records]])
+            )
+            context.usageMetrics.queueByRule(teamId, 'bytes_dropped_by_rule', new Map([[totals.ruleId, totals.bytes]]))
+        }
+        return values.map((value): PipelineResult<T> => {
+            if (!dropped.has(value)) {
+                return ok(value)
+            }
+            value.usage.recordDropped(value)
+            return drop('require_secret_key')
+        })
     }
 }
 

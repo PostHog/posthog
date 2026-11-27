@@ -360,18 +360,33 @@ impl<K: std::hash::Hash + Eq, V> Compiled<K, V> {
     }
 }
 
-struct ScenarioSampling(JsValue, Compiled<i64, CompiledRuleSet>);
+struct ScenarioSampling {
+    rows: JsValue,
+    faults: Mutex<HashMap<i64, (Option<u64>, JsValue)>>,
+    compiled: Compiled<i64, CompiledRuleSet>,
+}
 
 #[async_trait]
 impl SamplingRulesSource for ScenarioSampling {
     async fn get_compiled_rule_set(&self, team_id: i64) -> anyhow::Result<Arc<CompiledRuleSet>> {
-        self.1.get_or_compile(team_id, || self.compile(team_id))
+        if let Some((left, spec)) = self.faults.lock().unwrap().get_mut(&team_id) {
+            match left {
+                None => return Err(to_error(spec)),
+                Some(n) if *n > 0 => {
+                    *n -= 1;
+                    return Err(to_error(spec));
+                }
+                Some(_) => {}
+            }
+        }
+        self.compiled
+            .get_or_compile(team_id, || self.compile(team_id))
     }
 }
 
 impl ScenarioSampling {
     fn compile(&self, team_id: i64) -> anyhow::Result<CompiledRuleSet> {
-        let rows: Vec<SamplingRuleRow> = team_rows(Some(&self.0), team_id)
+        let rows: Vec<SamplingRuleRow> = team_rows(Some(&self.rows), team_id)
             .iter()
             .map(|r| SamplingRuleRow {
                 id: s(get(r, "id")).unwrap_or_default(),
@@ -654,10 +669,21 @@ pub fn scenario_parts(
             discard,
         }),
         sampling_rules: keep("samplingRulesCache").then(|| {
-            Arc::new(ScenarioSampling(
-                field("sampling_rules"),
-                Compiled::default(),
-            )) as _
+            Arc::new(ScenarioSampling {
+                rows: field("sampling_rules"),
+                faults: Mutex::new(
+                    entries(get(scenario, "sampling_rules_faults"))
+                        .into_iter()
+                        .filter_map(|(k, v)| {
+                            Some((
+                                k.parse().ok()?,
+                                (n(get(v, "times")).map(|t| t as u64), v.clone()),
+                            ))
+                        })
+                        .collect(),
+                ),
+                compiled: Compiled::default(),
+            }) as _
         }),
         metric_rules: Some(Arc::new(ScenarioMetricRules {
             rows: field("metric_rules"),

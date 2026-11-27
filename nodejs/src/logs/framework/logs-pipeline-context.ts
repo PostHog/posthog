@@ -21,6 +21,7 @@ import type { RetentionRuleSource } from '../retention/compile-retention-rules'
 import { RETENTION_MONTH_DAYS } from '../retention/evaluate-retention'
 import type { LogsSamplingService } from '../sampling/logs-sampling.service'
 import type { SamplingRuleSource } from '../sampling/sampling-rules-cache'
+import { AUTH_TYPE_SECRET_KEY } from '../secret-key-teams'
 import type { LogsRateLimiterService } from '../services/logs-rate-limiter.service'
 import type { LogsIngestionMessage } from '../types'
 
@@ -122,6 +123,10 @@ export type LogsPipelineContext = {
     defaultRetentionDays: (teamId: number, logsSettings: LogsSettings) => Promise<number>
 }
 
+export function isSamplingEvalEnabledForTeam(context: LogsPipelineContext, teamId: number): boolean {
+    return !context.gates.samplingKillswitch && teamIdMatchesCsv(context.gates.samplingEnabledTeams, teamId)
+}
+
 /** Transformations write hog_function logs, which could come back here as internal logs and loop. */
 export function appliesTeamLogRules(message: LogsIngestionMessage): boolean {
     return message.verifiedAsInternalLogs?.teamRules ?? true
@@ -129,6 +134,10 @@ export function appliesTeamLogRules(message: LogsIngestionMessage): boolean {
 
 export function isUnbilledInternal(message: LogsIngestionMessage): boolean {
     return message.verifiedAsInternalLogs !== undefined && !message.verifiedAsInternalLogs.billed
+}
+
+export function sentByTeamWithPublicToken(message: LogsIngestionMessage): boolean {
+    return message.authType !== AUTH_TYPE_SECRET_KEY && message.verifiedAsInternalLogs === undefined
 }
 
 /** A failed batch replays in full and the logs table has no dedupe, so each retry here avoids duplicates. */
