@@ -147,9 +147,13 @@ def broadcast_channel_repositories(slack_team_id: str, channel_id: str) -> froze
 _POSTER_BUDGET = Budget(burst=5, per_hour=30)
 
 
+def poster_budget_key(slack_team_id: str, slack_user_id: str) -> str:
+    return f"stamphog:broadcast_link_poster:{slack_team_id}:{slack_user_id}"
+
+
 def poster_within_limit(slack_team_id: str, slack_user_id: str) -> bool:
     """Whether this poster may have another link post taken. True when Redis cannot answer."""
-    decision = consume(f"stamphog:broadcast_link_poster:{slack_team_id}:{slack_user_id}", _POSTER_BUDGET)
+    decision = consume(poster_budget_key(slack_team_id, slack_user_id), _POSTER_BUDGET)
     return not isinstance(decision, BucketDecision) or decision.allowed
 
 

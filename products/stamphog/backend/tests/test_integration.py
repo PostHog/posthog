@@ -22,6 +22,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthAccessToken, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
+from posthog.redis import get_client
 from posthog.slack.block_actions import block_action_handler_for
 from posthog.slack.channel_messages import ChannelMessage, dispatch_channel_message
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
@@ -46,6 +47,7 @@ from products.stamphog.backend.facade.review_evidence import ReviewEvidence, Rev
 from products.stamphog.backend.facade.review_requests import request_review
 from products.stamphog.backend.logic import approval_gates, gateway_tokens
 from products.stamphog.backend.logic.attestation_checks import PendingCheck
+from products.stamphog.backend.logic.broadcast_links import poster_budget_key
 from products.stamphog.backend.logic.broadcast_requests import BroadcastRequestAsk
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
@@ -5039,6 +5041,8 @@ POSTER = "U0POSTER"
 def _link_channel(team_id: int) -> StamphogRepoConfig:
     repo_config = _broadcast_repo_config(team_id)
     Integration.objects.filter(team_id=team_id, kind="slack").update(integration_id=LINK_WORKSPACE)
+    # Redis outlives the test transaction, and every link test posts as the same person.
+    get_client().delete(poster_budget_key(LINK_WORKSPACE, POSTER))
     return repo_config
 
 
@@ -5115,7 +5119,11 @@ def test_a_pull_request_link_in_the_broadcast_channel_asks_people_without_a_revi
     ReviewRun.objects.for_team(team.id).filter(head_sha="sha190b").update(
         status=ReviewRunStatus.COMPLETED, verdict=ReviewVerdict.APPROVED, verdict_posted_at=VERDICT_POSTED_AT
     )
-    assert _refresh(request).status == BroadcastRequestStatus.STAMPHOG_APPROVED
+    recorder.pr_reviews[(REPO, 190)] = [
+        {"user": {"login": "stamphog[bot]", "type": "Bot"}, "state": "APPROVED", "commit_id": "sha190b"}
+    ]
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
+        assert _refresh(request).status == BroadcastRequestStatus.STAMPHOG_APPROVED
     assert fakes.FakeSlackIntegration.updated_messages[-1]["ts"] == card["ts"]
     assert len(_link_cards()) == 1
 
