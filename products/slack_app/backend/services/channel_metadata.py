@@ -177,9 +177,9 @@ def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str
     wanted = {group.id for group in groups if not group.handle}
     lookup_answered = True
     if wanted and not slack.missing_scopes([SLACK_USERGROUPS_SCOPE]):
-        lookup = _workspace_group_handles(slack, wanted)
-        known = {**known, **lookup.handles}
-        lookup_answered = lookup.answered
+        group_lookup = _workspace_group_handles(slack, wanted)
+        known = {**known, **group_lookup.handles}
+        lookup_answered = group_lookup.answered
     # Without `usergroups:read` a group the channel never named keeps its id and an empty handle.
     groups = [group if group.handle else OwnerGroup(id=group.id, handle=known.get(group.id, "")) for group in groups]
     SlackChannel.objects.update_or_create(
