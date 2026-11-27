@@ -20,7 +20,6 @@ from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import Actor
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
-from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
@@ -190,29 +189,23 @@ class TaxonomyAgentToolkit:
     ) -> dict[str, str]:
         """Map property name -> sanitized user-authored description from the team's property definitions.
 
-        Only the enterprise `PropertyDefinition` model carries a `description` field, so this is a
-        no-op on non-EE builds. Descriptions live only in Postgres and never influence which
-        properties are surfaced — the list still comes from ClickHouse / stored definitions. Runs a
-        single batched query.
+        Descriptions live only in Postgres and never influence which properties are surfaced — the
+        list still comes from ClickHouse / stored definitions. Runs a single batched query.
         """
-        if not EE_AVAILABLE or not names:
+        if not names:
             return {}
 
-        from ee.models.property_definition import (
-            EnterprisePropertyDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
-        )
-
         qs = (
-            EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
             .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
-            .exclude(description__isnull=True)
-            .exclude(description="")
+            .exclude(metadata__description__isnull=True)
+            .exclude(metadata__description="")
         )
         if group_type_index is not None:
             qs = qs.filter(group_type_index=group_type_index)
         return {
             name: sanitize_event_description(description)
-            for name, description in qs.values_list("name", "description")
+            for name, description in qs.values_list("name", "metadata__description")
             if description
         }
 

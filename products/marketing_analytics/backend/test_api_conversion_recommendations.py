@@ -19,6 +19,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
 from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.facade.api import copy_definition_metadata
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -448,10 +449,15 @@ class TestConversionRecommendations(APIBaseTest):
         EventDefinition.objects.bulk_create(
             [EventDefinition(team=self.team, name=name, last_seen_at=now) for name in event_names]
         )
-        EnterpriseEventDefinition.objects.create(
+        booking = EnterpriseEventDefinition.objects.create(
             team=self.team, name="booking_confirmed", description="A confirmed reservation.", last_seen_at=now
         )
-        EnterpriseEventDefinition.objects.create(team=self.team, name="hidden_event", hidden=True)
+        hidden = EnterpriseEventDefinition.objects.create(team=self.team, name="hidden_event", hidden=True)
+        copy_definition_metadata("event", [booking.pk, hidden.pk])
+        # Stale ee rows make the test fail if the catalog reads the ee table again
+        EnterpriseEventDefinition.objects.filter(pk__in=[booking.pk, hidden.pk]).update(
+            description="stale", hidden=False
+        )
         EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=now)
         EventDefinition.objects.create(team=self.team, name="old_event", last_seen_at=now - timedelta(days=40))
         EventDefinition.objects.create(team=self.team, name="activity_date_unknown")

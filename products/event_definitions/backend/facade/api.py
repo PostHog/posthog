@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from uuid import UUID
 
-from ..logic import definition_metadata, event_property_purge, placeholder, property_definitions
+from ..logic import definition_metadata, event_definitions, event_property_purge, placeholder, property_definitions
 from . import contracts
 from .enums import PropertyDefinitionType, PropertyType
 
@@ -53,6 +53,27 @@ def get_property_type(
     """
     return property_definitions.get_property_type(
         project_id=project_id, name=name, type=type, group_type_index=group_type_index
+    )
+
+
+def get_event_descriptions(*, project_id: int, names: Sequence[str]) -> dict[str, str]:
+    """The descriptions people wrote for the project's events with these names, keyed by name.
+
+    An event without a description is left out.
+    """
+    return event_definitions.get_event_descriptions(project_id=project_id, names=names)
+
+
+def get_event_metadata_summaries(
+    *, project_id: int, definition_ids: Sequence[UUID], description_length: int, using: str
+) -> list[contracts.EventMetadataSummary]:
+    """The description and hidden flag of each of these event definitions that people edited.
+
+    The description is cut to `description_length` characters. `using` is the database alias to read
+    from, so that a caller can keep the read on the connection its statement timeout covers.
+    """
+    return event_definitions.get_event_metadata_summaries(
+        project_id=project_id, definition_ids=definition_ids, description_length=description_length, using=using
     )
 
 

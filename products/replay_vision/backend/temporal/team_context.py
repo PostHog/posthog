@@ -13,9 +13,8 @@ from typing import Any
 
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models import Team
-from posthog.settings import EE_AVAILABLE
 
-from products.event_definitions.backend.models import effective_project_id_expr
+from products.event_definitions.backend.facade import api as event_definitions_facade
 
 # CoreMemory.text is model-capped at 10k chars; cap lower since the preamble is resent on every scan step.
 _MAX_PRODUCT_CONTEXT_LEN = 4000
@@ -92,24 +91,7 @@ def select_event_descriptions(custom_names: list[str], found: Mapping[str, str |
 
 
 def fetch_event_descriptions(team: Team, columns: list[str], rows: list[list[Any]]) -> dict[str, str]:
-    """Customer-written descriptions for this session's custom events, keyed by name, most frequent first.
-
-    Descriptions only exist on the enterprise EventDefinition model, so this is a no-op on OSS builds.
-    """
-    if not EE_AVAILABLE:
-        return {}
-    from ee.models.event_definition import EnterpriseEventDefinition  # noqa: PLC0415 — absent from OSS builds
-
+    """Customer-written descriptions for this session's custom events, keyed by name, most frequent first."""
     custom_names = session_custom_event_names(columns, rows)
-    found = dict(
-        EnterpriseEventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-        .filter(
-            # Definitions are project-scoped with a team-scoped legacy fallback; mirrors posthog/api/event_definition.py.
-            effective_project_id=team.project_id,
-            name__in=custom_names,
-        )
-        .exclude(description__isnull=True)
-        .exclude(description="")
-        .values_list("name", "description")
-    )
+    found = event_definitions_facade.get_event_descriptions(project_id=team.project_id, names=custom_names)
     return select_event_descriptions(custom_names, found)

@@ -22,6 +22,7 @@ from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.facade.testing import create_action, delete_action
+from products.event_definitions.backend.facade.api import copy_definition_metadata
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
@@ -640,13 +641,15 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         # was left calling it without them, so descriptions never surfaced in production.
         from ee.models.property_definition import EnterprisePropertyDefinition
 
-        EnterprisePropertyDefinition.objects.create(
+        definition = EnterprisePropertyDefinition.objects.create(
             team=self.team,
             type=PropertyDefinition.Type.PERSON,
             name="plan_tier",
             property_type="String",
             description="Subscription tier\nof the account",
         )
+        copy_definition_metadata("property", [definition.pk])
+        EnterprisePropertyDefinition.objects.filter(pk=definition.pk).update(description="stale")
         toolkit = DummyToolkit(self.team, self.user)
         result = toolkit.retrieve_entity_properties("person")
 
