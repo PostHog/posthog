@@ -643,7 +643,10 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
                 elif "app_published" in validated_data:
                     revoke_published_app_access(
-                        updated_notebook, self.context["request"].user, is_impersonated(self.context["request"])
+                        updated_notebook.team_id,
+                        updated_notebook.pk,
+                        self.context["request"].user,
+                        is_impersonated(self.context["request"]),
                     )
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id

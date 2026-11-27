@@ -54,10 +54,17 @@ def active_view_grants(
     return grants.count(), rows
 
 
-def revoke_published_app_access(notebook: Notebook, actor: User, was_impersonated: bool) -> None:
+@transaction.atomic
+def revoke_published_app_access(team_id: int, notebook_id: UUID, actor: User, was_impersonated: bool) -> None:
     from products.notebooks.backend.app_embeds import revoke_signed_embeds
 
-    NotebookAppViewGrant.objects.for_team(notebook.team_id).filter(release__notebook=notebook).delete()
+    notebook = (
+        Notebook.objects.select_for_update(of=("self",))
+        .select_related("team")
+        .only("short_id", "title", "team__organization_id")
+        .get(pk=notebook_id, team_id=team_id)
+    )
+    NotebookAppViewGrant.objects.for_team(team_id).filter(release__notebook_id=notebook_id).delete()
     revoke_signed_embeds(notebook, actor, was_impersonated)
 
 
