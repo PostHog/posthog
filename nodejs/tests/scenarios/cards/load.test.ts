@@ -887,6 +887,17 @@ describe('load', () => {
         expect(loadCard({ ...card, bars: TWICE_DECLARED_BARS }).card.bars).toEqual(TWICE_DECLARED_BARS)
     })
 
+    it('loads the autovacuum values a profile writes as a decimal with a unit, a fraction, a negative number or a word', () => {
+        const autovacuum = {
+            autovacuum: 'on',
+            autovacuum_naptime: '1min',
+            autovacuum_vacuum_scale_factor: '0.2',
+            autovacuum_work_mem: '-1',
+        }
+
+        expect(loadCard(card, { ...profile, postgres: { autovacuum } }).profile.postgres).toEqual({ autovacuum })
+    })
+
     it('keeps the name of a profile passed from outside the repository', () => {
         expect(loadCard(card, { ...profile, name: 'measured-2026-11' }).profile.name).toBe('measured-2026-11')
     })
