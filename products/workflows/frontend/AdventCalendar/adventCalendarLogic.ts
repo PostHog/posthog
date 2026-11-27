@@ -481,9 +481,19 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         const receive = async (request: Promise<AdventCalendarResultsApi>): Promise<void> => {
             const read = (cache.resultReads = (cache.resultReads ?? 0) + 1)
             const mount = cache.disposables
+            cache.pendingReads = (cache.pendingReads ?? 0) + 1
+            cache.readsOverlapped ||= cache.pendingReads > 1
             const results = await resultsOrNull(request)
+            cache.pendingReads -= 1
             if (results && !mount.isDisposed) {
                 actions.receivePollResults(results, read)
+            }
+            if (cache.pendingReads === 0) {
+                const reread = cache.readsOverlapped && !cache.disposables.isDisposed
+                cache.readsOverlapped = false
+                if (reread) {
+                    actions.loadPollResults()
+                }
             }
         }
         const readyDoor = (doorId: string): AdventDoor | null => {
