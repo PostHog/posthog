@@ -49,8 +49,6 @@ on:
                 required: false
             POSTHOG_DEVEX_PROJECT_API_TOKEN:
                 required: false
-            POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY:
-                required: false
             AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE:
                 required: false
         outputs:
@@ -197,22 +195,26 @@ jobs:
                   echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
 
             # Native debug symbols upload to PostHog error tracking from inside the
-            # image build (see rust/Dockerfile). Only master builds on the canonical
-            # deploy repo get the token; everywhere else the Dockerfile skips the
-            # upload, so unrebased branches and forks are unaffected.
-            - name: Prepare symbol upload token
+            # image build (see rust/Dockerfile), where hog logs in with this job's OIDC
+            # token. The image build cannot read the runner's environment, so the request
+            # credentials go in as build secrets. Only master builds on the canonical
+            # deploy repo pass them; everywhere else the Dockerfile skips the upload, so
+            # unrebased branches and forks are unaffected.
+            - name: Prepare symbol upload credentials
               id: symbols
               env:
-                  TOKEN: ${{ secrets.POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY }}
                   ENABLED: ${{ github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true' }}
               run: |
-                  if [ "$ENABLED" = "true" ] && [ -n "$TOKEN" ]; then
-                      echo "::add-mask::$TOKEN"
-                      echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-                      # Unique per run: secret mounts don't participate in the layer
-                      # cache key, so this busts the cache to guarantee the upload
-                      # actually runs on token-bearing builds (see rust/Dockerfile).
-                      echo "trigger=${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+                  if [ "$ENABLED" = "true" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+                      echo "::add-mask::$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+                      {
+                          echo "request-url=$ACTIONS_ID_TOKEN_REQUEST_URL"
+                          echo "request-token=$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+                          # Unique per run: secret mounts don't participate in the layer
+                          # cache key, so this busts the cache to guarantee the upload
+                          # actually runs on builds that carry credentials (see rust/Dockerfile).
+                          echo "trigger=${{ github.run_id }}-${{ github.run_attempt }}"
+                      } >> "$GITHUB_OUTPUT"
                   else
                       echo "Native symbol upload disabled for this build"
                   fi
@@ -243,7 +245,8 @@ jobs:
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
-                      posthog_upload_symbols_cli_api_key=${{ steps.symbols.outputs.token }}
+                      actions_id_token_request_url=${{ steps.symbols.outputs.request-url }}
+                      actions_id_token_request_token=${{ steps.symbols.outputs.request-token }}
 
             - name: Build failure properties
               if: failure()

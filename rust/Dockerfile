@@ -62,47 +62,60 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
 
 # Upload native debug symbols (with source context) to PostHog error tracking,
 # so panics and exceptions captured by common-posthog symbolicate server-side.
-# They go to the internal PostHog project (POSTHOG_CLI_ENV_ID=2 on US cloud),
+# They go to the internal PostHog project (HOG_PROJECT_ID=2 on US cloud),
 # the same project the frontend sourcemap upload in the root Dockerfile targets.
-# Runs only when CI mounts the upload token (master builds on the canonical
-# deploy repo — see _rust-build-images.yml); PR and local builds skip it.
+# Runs only when CI mounts the job's OIDC request credentials (master builds on
+# the canonical deploy repo, see _rust-build-images.yml); PR and local builds skip it.
+# hog exchanges the OIDC token for a short-lived PostHog token, which needs a
+# trust policy for the deploy repo in project 2. GITHUB_ACTIONS selects that
+# exchange. The other GitHub variables stay unset on purpose: without GITHUB_SHA
+# hog stamps no release, which is what the next paragraph needs.
 # Upload failures warn instead of failing the build: symbols must never block
 # shipping an image. The cargo registry cache mounts make dependency sources
 # visible to --include-source at the paths DWARF records for them.
 # No release stamping: symbolication resolves by GNU build id alone, and the
-# amd64/arm64 builds run concurrently — the CLI's lookup-then-create release
-# flow would race and drop one platform's upload.
+# amd64/arm64 builds run concurrently, so a lookup-then-create release flow
+# would race and drop one platform's upload.
 #
 # SYMBOL_UPLOAD_TRIGGER exists because secret mounts are not part of the layer
 # cache key: without it, a PR build's skipped-upload layer could be reused by a
 # master build and silently skip the upload. CI sets it to the unique run id
-# when the token is provided, so token-bearing builds always re-execute this
-# layer; token-less builds keep a constant empty value and stay cached.
+# when it mounts the credentials, so those builds always re-execute this layer;
+# builds without them keep a constant empty value and stay cached.
 #
-# The CLI installer is pinned to an immutable release tag and checksum-verified
-# before execution. To upgrade, change POSTHOG_CLI_VERSION and recompute:
-#   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
-ARG POSTHOG_CLI_VERSION=0.8.1
-ARG POSTHOG_CLI_INSTALLER_SHA256=b1f1781a78a37930884db3ad412d9508a9ac015b01339455a7357cd0b23d9c92
+# hog is pinned to an immutable release and checksum-verified before use. The
+# glibc archives match this Debian builder. hog runs hog-worker from its own
+# folder, so both files stay together. To upgrade, change HOG_VERSION and copy
+# the two linux checksums from that release's SHA256SUMS:
+#   https://github.com/PostHog/posthog/releases/download/hog%2Fv<X.Y.Z>/SHA256SUMS
+ARG HOG_VERSION=0.3.0
+ARG HOG_SHA256_AMD64=9dff37a41ec5bf947c190fc4760e95a051be9ea7744eb3d0f4a4e7be695674bc
+ARG HOG_SHA256_ARM64=35a0a6de2dfd476e2e594002fa7eb5b90d3b2a2ec578983075706df1c1b5b038
+ARG TARGETARCH
 ARG SYMBOL_UPLOAD_TRIGGER=""
-RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
+RUN --mount=type=secret,id=actions_id_token_request_url \
+    --mount=type=secret,id=actions_id_token_request_token \
     --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    if [ -z "$SYMBOL_UPLOAD_TRIGGER" ] || [ ! -s /run/secrets/posthog_upload_symbols_cli_api_key ]; then \
-        echo "No symbol upload trigger/token; skipping native symbol upload"; \
+    if [ -z "$SYMBOL_UPLOAD_TRIGGER" ] || [ ! -s /run/secrets/actions_id_token_request_token ]; then \
+        echo "No symbol upload trigger/credentials; skipping native symbol upload"; \
     elif ( \
-        curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/posthog-cli-installer.sh \
-            "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${POSTHOG_CLI_VERSION}/posthog-cli-installer.sh" && \
-        echo "${POSTHOG_CLI_INSTALLER_SHA256}  /tmp/posthog-cli-installer.sh" | sha256sum -c - && \
-        sh /tmp/posthog-cli-installer.sh && \
-        export PATH="/root/.posthog:$PATH" && \
-        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_symbols_cli_api_key)" && \
-        export POSTHOG_CLI_ENV_ID=2 && \
+        case "$TARGETARCH" in \
+            amd64) hog_target=linux-x64 hog_sha256="$HOG_SHA256_AMD64" ;; \
+            arm64) hog_target=linux-arm64 hog_sha256="$HOG_SHA256_ARM64" ;; \
+            *) echo "No hog build for $TARGETARCH" >&2; exit 1 ;; \
+        esac && \
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --connect-timeout 10 -o /tmp/hog.tar.gz \
+            "https://github.com/PostHog/posthog/releases/download/hog%2Fv${HOG_VERSION}/hog-${hog_target}.tar.gz" && \
+        echo "${hog_sha256}  /tmp/hog.tar.gz" | sha256sum -c - && \
+        mkdir -p /tmp/hog && tar -xzf /tmp/hog.tar.gz -C /tmp/hog && \
         mkdir -p /tmp/posthog-symbols && \
         cp "target/release/$BIN" /tmp/posthog-symbols/ && \
-        posthog-cli symbol-sets upload \
-            --directory /tmp/posthog-symbols \
-            --include-source \
+        GITHUB_ACTIONS=true \
+        ACTIONS_ID_TOKEN_REQUEST_URL="$(cat /run/secrets/actions_id_token_request_url)" \
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN="$(cat /run/secrets/actions_id_token_request_token)" \
+        HOG_PROJECT_ID=2 HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 \
+        /tmp/hog/hog error-tracking upload /tmp/posthog-symbols --include-source \
     ); then \
         echo "Native debug symbols uploaded for $BIN"; \
     else \

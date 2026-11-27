@@ -723,6 +723,10 @@ jobs:
         # can take twice as long for the same build, and a job that reaches this
         # limit is cancelled, which skips every publish job.
         timeout-minutes: 40
+        permissions:
+            contents: read
+            # hog uploads the CLI's debug symbols with this job's OIDC token.
+            id-token: write
         container: ${{ matrix.container && matrix.container.image || null }}
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -834,36 +838,46 @@ jobs:
               timeout-minutes: 8
               shell: bash
               env:
-                  POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
-                  POSTHOG_CLI_PROJECT_ID: '2'
+                  # hog logs in with the job's OIDC token, through the trust policy for
+                  # master pushes of this repository in project 2.
+                  HOG_PROJECT_ID: '2'
+                  HOG_NO_TELEMETRY: '1'
+                  HOG_NO_UPDATE_CHECK: '1'
+                  # Copy new checksums from the release's SHA256SUMS when HOG_VERSION changes.
+                  HOG_VERSION: 0.3.0
+                  HOG_SHA256_LINUX_X64: 9dff37a41ec5bf947c190fc4760e95a051be9ea7744eb3d0f4a4e7be695674bc
+                  HOG_SHA256_DARWIN_ARM64: cb7caf2f18d5e9200ab840e8b07c3b4f5d98364a2ab0eac047500afd6d66c515
+                  HOG_SHA256_DARWIN_X64: 3180c2b064fe5d2b325964d70e0bef7e706411ef7fe137d979a68163adabc5da
                   RELEASE_VERSION: ${{ needs.release.outputs.new-version }}
                   TARGETS: ${{ join(matrix.targets, ' ') }}
               run: |
                   set -euo pipefail
 
-                  if [ -z "$POSTHOG_CLI_API_KEY" ]; then
-                      echo "::error::POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY is required to upload CLI debug symbols"
-                      exit 1
-                  fi
+                  case "$(uname -s)/$(uname -m)" in
+                      Linux/x86_64) hog_target=linux-x64 hog_sha256="$HOG_SHA256_LINUX_X64" ;;
+                      Darwin/arm64) hog_target=darwin-arm64 hog_sha256="$HOG_SHA256_DARWIN_ARM64" ;;
+                      Darwin/x86_64) hog_target=darwin-x64 hog_sha256="$HOG_SHA256_DARWIN_X64" ;;
+                      *)
+                          echo "::error::No pinned hog build for $(uname -s)/$(uname -m)"
+                          exit 1
+                          ;;
+                  esac
+                  hog_dir="$RUNNER_TEMP/hog"
+                  mkdir -p "$hog_dir"
+                  curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                      -o "$hog_dir/hog.tar.gz" \
+                      "https://github.com/PostHog/posthog/releases/download/hog%2Fv$HOG_VERSION/hog-$hog_target.tar.gz"
+                  echo "$hog_sha256  $hog_dir/hog.tar.gz" | shasum -a 256 -c -
+                  # hog runs hog-worker from its own folder, so the archive is extracted whole.
+                  tar -xzf "$hog_dir/hog.tar.gz" -C "$hog_dir"
 
                   symbols_dir="$RUNNER_TEMP/posthog-cli-symbols"
                   mkdir -p "$symbols_dir"
-
-                  # dist builds with --target, so `cargo run` without it uses another
-                  # target directory and compiles the whole CLI again. Use a packaged
-                  # binary when this runner can execute it. The aarch64 Linux targets
-                  # are cross-built on an x86_64 runner, so they cannot.
-                  uploader=(cargo run --manifest-path cli/Cargo.toml --profile dist --)
                   for target in $TARGETS; do
-                      package_dir="target/distrib/posthog-cli-$target"
                       target_symbols_dir="$symbols_dir/$target"
                       mkdir -p "$target_symbols_dir"
-                      cp "$package_dir/posthog-cli" "$target_symbols_dir/posthog-cli"
-                      if "$package_dir/posthog-cli" --version >/dev/null; then
-                          uploader=("$package_dir/posthog-cli")
-                      fi
+                      cp "target/distrib/posthog-cli-$target/posthog-cli" "$target_symbols_dir/posthog-cli"
                   done
-                  echo "Uploading with: ${uploader[*]}"
 
                   # Cargo builds into cli/target (the cargo workspace root is cli/),
                   # while repo-root target/ only holds cargo-dist's staging area, so
@@ -874,8 +888,7 @@ jobs:
                       cp -R -L "$dsym" "$symbols_dir/$(basename "$(dirname "$dsym")")-posthog-cli.dSYM"
                   done < <(find -L target cli/target -type d -name 'posthog-cli.dSYM' -print0)
 
-                  "${uploader[@]}" \
-                      symbol-sets upload --directory "$symbols_dir" \
+                  "$hog_dir/hog" error-tracking upload "$symbols_dir" \
                       --release-name posthog-cli \
                       --release-version "$RELEASE_VERSION"
 
