@@ -1,10 +1,5 @@
-import { useValues } from 'kea'
-
-import { userLogic } from 'scenes/userLogic'
-
-import { accessControlsLogic } from './accessControlsLogic'
 import type { AccessDetailSubjectScope } from './accessDetailLogic'
-import { getEntryId, isMemberEntry, subjectDisabledReason } from './helpers'
+import { isMemberEntry } from './helpers'
 import { QuillMemberAccessHeader } from './QuillMemberAccessHeader'
 import { QuillObjectAccessRules } from './QuillObjectAccessRules'
 import { QuillProductAccessRules } from './QuillProductAccessRules'
@@ -12,6 +7,7 @@ import { QuillProjectAccessItem } from './QuillProjectAccessItem'
 import { QuillPropertyAccessRules } from './QuillPropertyAccessRules'
 import { QuillRoleAccessHeader } from './QuillRoleAccessHeader'
 import type { AccessControlSettingsEntry } from './types'
+import { useAccessDetailSubject } from './useAccessDetailSubject'
 
 export function QuillAccessControlDetail({
     projectId,
@@ -22,14 +18,7 @@ export function QuillAccessControlDetail({
     scopeType: AccessDetailSubjectScope
     entry: AccessControlSettingsEntry
 }): JSX.Element {
-    const subjectId = getEntryId(entry)
-    const subjectNoun = scopeType === 'role' ? 'role' : 'member'
-    const { canEdit, terraformDisabledReason } = useValues(accessControlsLogic({ projectId }))
-    const { user } = useValues(userLogic)
-
-    // One gate for every control, so the whole panel greys out together (permissions, self-edits, org admins
-    // who always have full access)
-    const cannotEditReason = terraformDisabledReason ?? subjectDisabledReason(entry, canEdit, user?.uuid)
+    const { subjectId, subjectNoun, cannotEditReason } = useAccessDetailSubject(projectId, scopeType, entry)
 
     return (
         <div className="flex flex-col gap-6">

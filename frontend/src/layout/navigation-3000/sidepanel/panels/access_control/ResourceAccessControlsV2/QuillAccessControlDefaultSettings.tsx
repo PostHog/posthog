@@ -18,7 +18,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AccessControlLevel, AvailableFeature } from '~/types'
 
 import { accessControlsLogic } from './accessControlsLogic'
-import { getLevelOptionsForResource } from './helpers'
+import { getLevelOptionsForResource, productLevelOptions } from './helpers'
 import { QuillAddLevelMenu } from './QuillAddLevelMenu'
 import { QuillLevelSelect } from './QuillLevelSelect'
 import { QuillObjectAccessRules } from './QuillObjectAccessRules'
@@ -41,13 +41,7 @@ function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
     const disabledReason = getDefaultsDisabledReason(loading, canEdit, terraformDisabledReason)
     const entry = defaults?.resource_access_levels[row.original.key]
     const value = entry?.access_level ?? null
-    const options = getLevelOptionsForResource(resourceLevels, {
-        minimum: entry?.minimum ?? null,
-        maximum: entry?.maximum ?? null,
-        inheritedLevel: null,
-        inheritedReason: null,
-        resourceLabel: row.original.label,
-    })
+    const options = productLevelOptions(resourceLevels, entry, row.original.label)
 
     const setResourceDefault = (level: AccessControlLevel | null): void => {
         updateResourceAccessControls(

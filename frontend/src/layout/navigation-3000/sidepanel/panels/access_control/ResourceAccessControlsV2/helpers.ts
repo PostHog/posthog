@@ -216,6 +216,21 @@ function inheritedReason(reason: InheritedReason, fallbackTo: string): string {
  * What applies to a resource when the subject has no rule of their own. The entry resolves it
  * server-side, down to the built-in default when no rule exists anywhere.
  */
+/** The levels a product rule can take, with the ones outside its minimum and maximum disabled. */
+export function productLevelOptions(
+    availableLevels: AccessControlLevel[],
+    rule: { minimum?: AccessControlLevel | null; maximum?: AccessControlLevel | null } | undefined,
+    productLabel: string
+): ReturnType<typeof getLevelOptionsForResource> {
+    return getLevelOptionsForResource(availableLevels, {
+        minimum: rule?.minimum ?? null,
+        maximum: rule?.maximum ?? null,
+        inheritedLevel: null,
+        inheritedReason: null,
+        resourceLabel: productLabel,
+    })
+}
+
 export function inheritedFor(res: EffectiveAccessControlEntry | undefined, fallbackTo: string): InheritedAccess | null {
     const inherited = res?.inherited_access ?? null
     if (!inherited) {

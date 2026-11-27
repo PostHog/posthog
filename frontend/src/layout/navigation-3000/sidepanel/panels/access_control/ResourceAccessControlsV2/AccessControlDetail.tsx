@@ -25,6 +25,7 @@ import { ObjectAccessRules } from './ObjectAccessRules'
 import { PropertyAccessRules } from './PropertyAccessRules'
 import { ScopeIcon } from './ScopeIcon'
 import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry } from './types'
+import { useAccessDetailSubject } from './useAccessDetailSubject'
 
 export function AccessControlDetailContent({
     projectId,
@@ -35,14 +36,7 @@ export function AccessControlDetailContent({
     scopeType: AccessDetailSubjectScope
     entry: AccessControlSettingsEntry
 }): JSX.Element {
-    const subjectId = getEntryId(entry)
-    const subjectNoun = scopeType === 'role' ? 'role' : 'member'
-    const { canEdit, terraformDisabledReason } = useValues(accessControlsLogic({ projectId }))
-    const { user } = useValues(userLogic)
-
-    // The same gate as the project select and products above, so the whole page greys out together
-    // (permissions, self-edits, org admins who always have full access)
-    const cannotEditReason = terraformDisabledReason ?? subjectDisabledReason(entry, canEdit, user?.uuid)
+    const { subjectId, subjectNoun, cannotEditReason } = useAccessDetailSubject(projectId, scopeType, entry)
 
     return (
         <>

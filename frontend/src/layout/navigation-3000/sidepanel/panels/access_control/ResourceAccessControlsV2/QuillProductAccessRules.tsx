@@ -8,7 +8,7 @@ import { APIScopeObject, AccessControlLevel } from '~/types'
 
 import { accessControlsLogic } from './accessControlsLogic'
 import type { AccessDetailSubjectScope } from './accessDetailLogic'
-import { getEntryId, getLevelOptionsForResource, inheritedFor } from './helpers'
+import { getEntryId, inheritedFor, productLevelOptions } from './helpers'
 import { QuillAccessDetailSection } from './QuillAccessDetailSection'
 import { QuillLevelSelect } from './QuillLevelSelect'
 import { type ProductRow, QuillProductNameCell } from './QuillProductNameCell'
@@ -41,13 +41,7 @@ function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
         <QuillLevelSelect
             aria-label={`${row.original.label} access`}
             value={resource?.access_level ?? null}
-            options={getLevelOptionsForResource(availableLevels, {
-                minimum: resource?.minimum ?? null,
-                maximum: resource?.maximum ?? null,
-                inheritedLevel: null,
-                inheritedReason: null,
-                resourceLabel: row.original.label,
-            })}
+            options={productLevelOptions(availableLevels, resource, row.original.label)}
             onChange={(level) => onSetLevel(row.original.key, level)}
             disabledReason={cannotEditReason}
             inherited={inheritedFor(resource, row.original.label.toLowerCase())}
