@@ -135,7 +135,6 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                                 <ViewerComputeCell
                                     key={cell.id}
                                     viewer={viewer}
-                                    revision={release.revision}
                                     cell={cell}
                                     variables={variables}
                                     saved={savedOutput}

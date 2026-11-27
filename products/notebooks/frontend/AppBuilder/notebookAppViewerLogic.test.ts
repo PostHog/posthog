@@ -11,6 +11,7 @@ import { HogQLQueryResponse, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import * as notebookApi from '../generated/api'
+import type { NotebookAppComputeResultApi } from '../generated/api.schemas'
 import { emptyAppLayout } from './notebookAppLayout'
 import { restorePublishedResults, savedQueryResult } from './notebookAppPublishedResults'
 import { notebookAppViewerLogic } from './notebookAppViewerLogic'
@@ -18,6 +19,41 @@ import { notebookAppViewerLogic } from './notebookAppViewerLogic'
 describe('published viewer refreshes', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => jest.restoreAllMocks())
+
+    it('keeps private calculations in the mounted viewer session when an app tab unmounts', async () => {
+        jest.spyOn(notebookApi, 'notebooksAppReleaseRetrieve').mockResolvedValue({
+            revision: 2,
+            title: 'Forecast',
+            markdown: '',
+            layout: emptyAppLayout(),
+            variables: [],
+            has_previous: false,
+            results_as_of: null,
+            published_at: null,
+        })
+        const request = promiseResolveReject<NotebookAppComputeResultApi>()
+        const compute = jest.spyOn(notebookApi, 'notebooksAppComputeCreate').mockReturnValue(request.promise)
+        const first = { project: '1', shortId: 'forecast', sessionId: 'first' }
+        const viewer = notebookAppViewerLogic(first)
+        const unmountViewer = viewer.mount()
+        const tab = notebookAppViewerLogic(first)
+        const unmountTab = tab.mount()
+        const other = notebookAppViewerLogic({ ...first, sessionId: 'second' })
+        const unmountOther = other.mount()
+        try {
+            await waitFor(() => expect(viewer.values.release?.revision).toEqual(2))
+            tab.actions.runPrivateCell('forecast', 'python')
+            unmountTab()
+            request.resolve({ text: '17' })
+            await waitFor(() => expect(viewer.values.privateCells.forecast?.result?.data.text).toEqual('17'))
+            expect(notebookAppViewerLogic(first).values.privateCells.forecast.loading).toBe(false)
+            expect(other.values.privateCells).toEqual({})
+            expect(compute).toHaveBeenCalledTimes(1)
+        } finally {
+            unmountOther()
+            unmountViewer()
+        }
+    })
 
     it('applies a list for this viewer and recognizes the published defaults when reselected', async () => {
         const regions = { name: 'regions', type: 'list', value: ['North'] }

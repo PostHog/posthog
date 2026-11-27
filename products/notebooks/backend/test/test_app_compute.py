@@ -1,3 +1,6 @@
+import json
+from contextlib import redirect_stdout
+from io import StringIO
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -8,7 +11,7 @@ from posthog.hogql.direct_sql.mysql_adapter import MySQLAdapter
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 
-from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config
+from products.notebooks.backend.kernel_runtime import KernelRuntimeService, build_notebook_sandbox_config
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun
 
@@ -63,7 +66,9 @@ class TestAppCompute(APIBaseTest):
         url = self.url.replace("app_compute", "app_draft_compute")
         payload = {**self.payload, "revision": self.notebook.version, "layout": layout}
         kernel = MagicMock()
-        kernel.execute.return_value = SimpleNamespace(status="ok", stdout="40", result=None)
+        kernel.execute.side_effect = lambda code, **kwargs: SimpleNamespace(
+            status="ok", stdout="null" if "print(json.dumps(notebook_dataframe_page" in code else "40", result=None
+        )
         with patch("products.notebooks.backend.app_compute.get_kernel_runtime", return_value=kernel):
             assert (
                 self.client.post(url, {**payload, "revision": self.notebook.version + 1}, format="json").status_code
@@ -78,7 +83,9 @@ class TestAppCompute(APIBaseTest):
 
     def test_viewer_inputs_and_kernel_are_private_to_one_run(self, _flag) -> None:
         kernel = MagicMock()
-        kernel.execute.return_value = SimpleNamespace(status="ok", stdout="40\n", result=None)
+        kernel.execute.side_effect = lambda code, **kwargs: SimpleNamespace(
+            status="ok", stdout="null" if "print(json.dumps(notebook_dataframe_page" in code else "40\n", result=None
+        )
         with patch("products.notebooks.backend.app_compute.get_kernel_runtime", return_value=kernel) as get_kernel:
             other = self._create_user("viewer@example.com")
             self.organization.members.add(other)
@@ -94,10 +101,80 @@ class TestAppCompute(APIBaseTest):
                 scratch._state.adding and build_notebook_sandbox_config(scratch).block_network for scratch in scratches
             )
             assert kernel.shutdown.call_count == 2
-            assert kernel.execute.call_args.args[0] == "print(orders * minutes // 60)"
+            assert any("print(orders * minutes // 60)" in call.args[0] for call in kernel.execute.call_args_list)
         self.notebook.refresh_from_db()
         assert self.notebook.variables == self.defaults
         assert not NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
+
+    def test_sql_only_chain_inlines_hogql_without_a_sandbox(self, _flag) -> None:
+        self.release.markdown = (
+            '<SQLV2 nodeId="events" code="SELECT person_id FROM events" returnVariable="people" />\n\n'
+            '<SQLV2 nodeId="capacity" code="SELECT uniqExact(person_id) FROM people" />'
+        )
+        self.release.save(update_fields=["markdown"])
+        with (
+            patch("products.notebooks.backend.app_compute.get_kernel_runtime") as sandbox,
+            patch("products.notebooks.backend.app_compute.execute_hogql_query") as query,
+        ):
+            query.return_value = SimpleNamespace(error=None, columns=["people"], results=[[4]])
+            response = self.client.post(self.url, self.payload, format="json")
+        assert response.status_code == 200, response.content
+        assert response.json()["rows"] == [[4]]
+        query.assert_called_once()
+        assert "uniqExact" in query.call_args.kwargs["query"] and "events" in query.call_args.kwargs["query"]
+        sandbox.assert_not_called()
+
+    def test_private_frames_use_notebook_expression_semantics_and_bound_intermediate_sql(self, _flag) -> None:
+        from IPython.core.interactiveshell import InteractiveShell
+
+        shell = InteractiveShell()
+        shell.run_cell(KernelRuntimeService()._build_kernel_bootstrap_code(self.notebook, self.user, "test"))
+
+        def run(code, **kwargs):
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                outcome = shell.run_cell(code, store_history=True)
+            return SimpleNamespace(
+                status="ok" if outcome.success else "error",
+                stdout=stdout.getvalue(),
+                result=None,
+                stderr=str(outcome.error_in_exec or outcome.error_before_exec or ""),
+                error_name="",
+            )
+
+        kernel = MagicMock()
+        kernel.execute.side_effect = run
+
+        def node(kind, node_id, name, code):
+            return f'<{kind} nodeId="{node_id}" returnVariable="{name}" code={{{json.dumps(code)}}} />'
+
+        with patch("products.notebooks.backend.app_compute.get_kernel_runtime", return_value=kernel):
+            for code in ("forecasts = pd.DataFrame({'total': [4]})", "pd.Series([4], name='total')"):
+                self.release.markdown = node("PythonV2", "capacity", "forecasts", code)
+                self.release.save(update_fields=["markdown"])
+                response = self.client.post(self.url, self.payload, format="json")
+                assert response.status_code == 200, response.content
+                assert response.json() == {"columns": ["total"], "rows": [[4]]}
+            self.release.markdown = "\n\n".join(
+                (
+                    node("PythonV2", "source", "forecasts", "pd.DataFrame({'total': [4]})"),
+                    node("SQLV2", "many", "expanded", "SELECT total FROM forecasts CROSS JOIN range(700)"),
+                    node("PythonV2", "capacity", "reduced", "print(len(expanded))"),
+                )
+            )
+            self.release.save(update_fields=["markdown"])
+            response = self.client.post(self.url, self.payload, format="json")
+            assert response.status_code == 400, response.content
+            assert "500 rows" in response.json()["detail"]
+            assert not any("print(len(expanded))" in call.args[0] for call in kernel.execute.call_args_list)
+
+    def test_kernel_timeout_is_a_calculation_error_and_shuts_down_the_sandbox(self, _flag) -> None:
+        kernel = MagicMock()
+        kernel.execute.side_effect = TimeoutError("time limit")
+        with patch("products.notebooks.backend.app_compute.get_kernel_runtime", return_value=kernel):
+            response = self.client.post(self.url, self.payload, format="json")
+        assert response.status_code == 400 and "timed out" in response.json()["detail"]
+        kernel.shutdown.assert_called_once()
 
     def test_rejects_missing_scope_hidden_cells_and_outdated_sources(self, _flag) -> None:
         with patch(
@@ -124,6 +201,7 @@ class TestAppCompute(APIBaseTest):
         self.release.save(update_fields=["markdown"])
 
         def run_query(**kwargs):
+            assert 0 < kwargs["settings"].max_execution_time <= 90
             assert kwargs["user"] == self.user
             assert kwargs["connection_id"] == connection_id
             assert "240" in kwargs["query"]

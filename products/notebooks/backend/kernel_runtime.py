@@ -498,7 +498,9 @@ class KernelRuntimeService:
             )
             return
 
-        if call != "hogql_execute":
+        if handle.runtime.notebook_id is None and handle.runtime.notebook_short_id.startswith(APP_VIEWER_KERNEL_PREFIX):
+            response_payload = {"error": "Use a SQL cell to supply data to an app calculation."}
+        elif call != "hogql_execute":
             logger.warning(
                 "notebook_bridge_unsupported_call",
                 call=call,
@@ -849,6 +851,8 @@ class KernelRuntimeService:
         code = self._build_kernel_bootstrap_code(notebook, user, sandbox.id)
         if not code:
             return
+        if notebook._state.adding and notebook.short_id.startswith(APP_VIEWER_KERNEL_PREFIX):
+            code += "\ndef hogql_execute(*args, **kwargs):\n    raise RuntimeError('Use a SQL cell to supply data to an app calculation.')"
         payload = {
             "connection_file": connection_file,
             "timeout": int(self._startup_timeout),
@@ -1358,24 +1362,31 @@ class KernelRuntimeService:
             "user_expressions": user_expressions,
             "stream": True,
         }
-        if handle.runtime.notebook_id is None and handle.runtime.notebook_short_id.startswith(APP_VIEWER_KERNEL_PREFIX):
+        private = handle.runtime.notebook_id is None and handle.runtime.notebook_short_id.startswith(
+            APP_VIEWER_KERNEL_PREFIX
+        )
+        if private:
             payload["max_output_bytes"] = APP_VIEWER_MAX_OUTPUT_BYTES
         command = self._build_kernel_command(payload, action="execute")
         sandbox_class = self._get_sandbox_class(handle.backend)
         sandbox = sandbox_class.get_by_id(handle.sandbox_id)
         started_at = timezone.now()
-        stream = sandbox.execute_stream(command, timeout_seconds=timeout_seconds)
-
         payload_out: dict[str, Any] | None = None
-        marker = self._notebook_bridge_marker(handle)
-        bridge_parser = _NotebookBridgeParser(marker=marker)
+        if private:
+            # A streamed cell emits both the display events and their JSON-escaped result envelope.
+            result = sandbox.execute_bounded(
+                command, timeout_seconds=timeout_seconds, max_output_bytes=8 * APP_VIEWER_MAX_OUTPUT_BYTES
+            )
+        else:
+            stream = sandbox.execute_stream(command, timeout_seconds=timeout_seconds)
+            marker = self._notebook_bridge_marker(handle)
+            bridge_parser = _NotebookBridgeParser(marker=marker)
+            for line in stream.iter_stdout():
+                event = self._parse_kernel_stream_line(line, handle=handle, bridge_parser=bridge_parser)
+                if event and event["type"] == "result":
+                    payload_out = event["data"]
+            result = stream.wait()
 
-        for line in stream.iter_stdout():
-            event = self._parse_kernel_stream_line(line, handle=handle, bridge_parser=bridge_parser)
-            if event and event["type"] == "result":
-                payload_out = event["data"]
-
-        result = stream.wait()
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel execution failed: {result.stdout} {result.stderr}")
 
@@ -1389,7 +1400,10 @@ class KernelRuntimeService:
             else:
                 raise RuntimeError("Kernel execution returned no output.")
 
-        payload_out["stdout"] = self._strip_notebook_bridge_messages(payload_out.get("stdout", ""), marker)
+        if not private:
+            payload_out["stdout"] = self._strip_notebook_bridge_messages(
+                payload_out.get("stdout", ""), self._notebook_bridge_marker(handle)
+            )
 
         status = payload_out.get("status", "error")
         execution_count = payload_out.get("execution_count")

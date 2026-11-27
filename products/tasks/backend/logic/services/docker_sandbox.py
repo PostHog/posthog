@@ -6,6 +6,7 @@ import time
 import uuid
 import shlex
 import base64
+import select
 import shutil
 import signal
 import socket
@@ -73,6 +74,7 @@ from .sandbox import (
     list_dir_command,
     parse_list_dir_output,
     parse_sandbox_repo_mount_map,
+    read_bounded_output,
     read_pinned_agent_version,
     redact_sandbox_command,
     sandbox_repo_path,
@@ -786,6 +788,37 @@ class DockerSandbox(AgentServerLaunchMixin):
                 {"sandbox_id": self.id, "command": redacted_command, "error": str(e)},
                 cause=e,
             )
+
+    def execute_bounded(self, command: str, *, timeout_seconds: int, max_output_bytes: int) -> ExecutionResult:
+        deadline = time.monotonic() + timeout_seconds
+        with subprocess.Popen(
+            ["docker", "exec", self._container_id, "bash", "-c", command],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ) as process:
+            assert process.stdout is not None
+            pipe = process.stdout
+
+            def remaining() -> float:
+                return max(0, deadline - time.monotonic())
+
+            def chunks() -> Iterator[bytes]:
+                while remaining() > 0 and select.select([pipe], [], [], remaining())[0]:
+                    chunk = os.read(pipe.fileno(), 16 * 1024)
+                    if not chunk:
+                        return
+                    yield chunk
+                raise TimeoutError("Kernel execution timed out.")
+
+            try:
+                output = read_bounded_output(chunks(), max_output_bytes)
+                exit_code = process.wait(timeout=remaining())
+            except subprocess.TimeoutExpired as error:
+                raise TimeoutError("Kernel execution timed out.") from error
+            finally:
+                if process.poll() is None:
+                    process.kill()
+            return ExecutionResult(stdout=output, stderr="", exit_code=exit_code)
 
     def execute_stream(
         self,

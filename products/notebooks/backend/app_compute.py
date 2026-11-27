@@ -1,3 +1,4 @@
+import ast
 import json
 import secrets
 from contextlib import ExitStack
@@ -9,6 +10,7 @@ from uuid import UUID
 from pydantic import JsonValue
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.direct_connection import get_direct_connection_source, raw_query_uses_organization_grant
 from posthog.hogql.direct_sql import get_raw_adapter_for_source
 from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
@@ -30,6 +32,7 @@ from products.notebooks.backend.kernel_runtime import (
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds, apply_raw_page_bounds
+from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
 from products.notebooks.backend.sql_v2_state import NotebookCellState, build_dependency_edges, extract_cells
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
@@ -40,6 +43,7 @@ from products.notebooks.backend.sql_v2_variables import (
     substitute_duckdb_variables,
     substitute_hogql_variables,
 )
+from products.tasks.backend.facade.sandbox import SandboxOutputTooLarge, SandboxTimeoutError
 
 MAX_ROWS = 500
 MAX_CELLS = 20
@@ -75,11 +79,22 @@ def _bounded_json(value: Any) -> str:
     return encoded
 
 
-def _execute_python(kernel: KernelRuntimeSession, code: str, deadline: float) -> str:
+def _remaining_seconds(deadline: float) -> int:
     remaining = int(deadline - monotonic())
     if remaining <= 0:
         raise ValidationError("The calculation timed out.")
-    result = kernel.execute(code, capture_variables=False, timeout=min(remaining, 30))
+    return remaining
+
+
+def _execute_python(kernel: KernelRuntimeSession, code: str, deadline: float) -> str:
+    try:
+        result = kernel.execute(code, capture_variables=False, timeout=min(_remaining_seconds(deadline), 30))
+    except SandboxOutputTooLarge as error:
+        raise ValidationError("The result is too large. Narrow the inputs or aggregate the source data.") from error
+    except (TimeoutError, SandboxTimeoutError) as error:
+        raise ValidationError("The calculation timed out.") from error
+    if result.status == "timeout":
+        raise ValidationError("The calculation timed out.")
     if result.status != "ok":
         raise ValidationError((result.stderr or result.error_name or "The calculation failed.")[-3000:])
     text = (result.stdout or "") + str((result.result or {}).get("text/plain", ""))
@@ -122,14 +137,23 @@ def run_app_cell(
     if any(cell.connection_id and cell.depends_on for cell in chain):
         raise ValidationError("A connected query cannot read a dataframe from another cell.")
     notebook = Notebook.objects.select_related("team").get(team_id=team_id, pk=notebook_id)
-    needs_kernel = any(cell.cell_type == "python" or cell.depends_on for cell in chain)
+    local_frames: set[str] = set()
+    kernel_cells: set[str] = set()
+    materialize = {node_id}
+    for cell in chain:
+        if cell.cell_type == "python" or local_frames.intersection(cell.depends_on):
+            kernel_cells.add(cell.node_id)
+            materialize.update(cell.depends_on)
+        if cell.node_id in kernel_cells or cell.connection_id:
+            local_frames.add(cell.node_id)
+    hogql_definitions: dict[str, str | None] = {}
     with (
         tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=notebook.team_id),
         ExitStack() as cleanup,
     ):
         kernel = None
         deadline = monotonic() + 90
-        if needs_kernel:
+        if kernel_cells:
             scratch = Notebook(
                 team=notebook.team,
                 short_id=APP_VIEWER_KERNEL_PREFIX + secrets.token_urlsafe(8),
@@ -145,56 +169,97 @@ def run_app_cell(
         result: dict[str, JsonValue] = {}
         for cell in chain:
             try:
-                result = _run_cell(cell, notebook, user, variables, kernel, deadline, cell.node_id == node_id)
-            except NotebookVariableError as error:
+                _remaining_seconds(deadline)
+                if cell.node_id in kernel_cells:
+                    assert kernel is not None
+                    result = _run_kernel_cell(cell, variables, kernel, deadline, cell.node_id == node_id)
+                    continue
+                if cell.send_raw_query:
+                    query = _external_query(cell, notebook, user, variables)
+                else:
+                    code = substitute_hogql_variables(cell.code, variables)
+                    if cell.node_id not in materialize:
+                        hogql_definitions[cell.dataframe_name] = code
+                        continue
+                    query = apply_page_bounds(resolve_sql_v2_references(code, hogql_definitions), MAX_ROWS + 1, 0)
+                    if not cell.connection_id:
+                        hogql_definitions[cell.dataframe_name] = code
+                result = _run_sql_cell(cell, query, notebook, user, kernel, deadline, cell.node_id == node_id)
+            except (NotebookVariableError, SQLV2ReferenceError) as error:
                 raise ValidationError(str(error)) from error
         return result
 
 
-def _run_cell(
+def _python_cell_code(code: str) -> tuple[str, bool]:
+    try:
+        module = ast.parse(code)
+    except SyntaxError:
+        return code, False
+    if not module.body or not isinstance(module.body[-1], ast.Expr):
+        return code, False
+    expression = module.body[-1]
+    assignment = ast.Assign(targets=[ast.Name(id="_app_last", ctx=ast.Store())], value=expression.value)
+    module.body[-1:] = [ast.copy_location(assignment, expression), ast.Expr(ast.Name(id="_app_last", ctx=ast.Load()))]
+    return ast.unparse(ast.fix_missing_locations(module)), True
+
+
+def _run_kernel_cell(
     cell: NotebookCellState,
+    variables: list[NotebookVariable],
+    kernel: KernelRuntimeSession,
+    deadline: float,
+    final: bool,
+) -> dict[str, JsonValue]:
+    name = cell.dataframe_name
+    if cell.cell_type == "python":
+        code, has_last_expression = _python_cell_code(cell.code)
+        text = _execute_python(kernel, code, deadline)
+        if not name:
+            return {"text": text}
+        bind_frame = f"_app_result = globals().get({name!r})"
+        if has_last_expression:
+            bind_frame += (
+                "\nif isinstance(_app_last, pd.DataFrame):\n    _app_result = _app_last"
+                "\nelif isinstance(_app_last, pd.Series):\n    _app_result = _app_last.to_frame()"
+            )
+        _execute_python(kernel, bind_frame, deadline)
+    else:
+        text = ""
+        query, parameters = substitute_duckdb_variables(cell.code, variables)
+        _execute_python(
+            kernel,
+            f"_app_relation = _duckdb_connection.sql({query!r}, params=json.loads({json.dumps(parameters)!r}))\n"
+            f"_app_result = _app_relation.limit({MAX_ROWS + 1}).df()",
+            deadline,
+        )
+    frame = _kernel_frame(kernel, "_app_result", deadline)
+    if frame is None:
+        return {"text": text}
+    if name and not final:
+        _execute_python(
+            kernel,
+            f"globals()[{name!r}] = _app_result\nduck_save_table({name!r}, _app_result)",
+            deadline,
+        )
+    return frame
+
+
+def _run_sql_cell(
+    cell: NotebookCellState,
+    query: str,
     notebook: Notebook,
     user: User,
-    variables: list[NotebookVariable],
     kernel: KernelRuntimeSession | None,
     deadline: float,
     final: bool,
 ) -> dict[str, JsonValue]:
-    if cell.cell_type == "python":
-        assert kernel is not None
-        text = _execute_python(kernel, cell.code, deadline)
-        if cell.dataframe_name and not final:
-            name = cell.dataframe_name
-            _execute_python(
-                kernel,
-                f"if isinstance(globals().get({name!r}), pd.DataFrame):\n    duck_save_table({name!r}, globals()[{name!r}])",
-                deadline,
-            )
-        return {"text": text}
-    if cell.depends_on:
-        assert kernel is not None
-        query, parameters = substitute_duckdb_variables(cell.code, variables)
-        _execute_python(
-            kernel, f"_app_result = duck_execute({query!r}, json.loads({json.dumps(parameters)!r}))", deadline
-        )
-        if cell.dataframe_name and not final:
-            _execute_python(
-                kernel,
-                f"globals()[{cell.dataframe_name!r}] = _app_result\nduck_save_table({cell.dataframe_name!r}, _app_result)",
-                deadline,
-            )
-        return _kernel_frame(kernel, "_app_result", deadline) if final else {}
-    query = (
-        _external_query(cell, notebook, user, variables)
-        if cell.send_raw_query
-        else apply_page_bounds(substitute_hogql_variables(cell.code, variables), MAX_ROWS + 1, 0)
-    )
     response = execute_hogql_query(
         query=query,
         team=notebook.team,
         user=user,
         connection_id=cell.connection_id,
         send_raw_query=cell.send_raw_query,
+        settings=HogQLGlobalSettings(max_execution_time=_remaining_seconds(deadline)),
         workload=Workload.ONLINE,
     )
     if response.error:
@@ -213,13 +278,15 @@ def _run_cell(
     return json.loads(payload)
 
 
-def _kernel_frame(kernel: KernelRuntimeSession, name: str, deadline: float) -> dict[str, JsonValue]:
+def _kernel_frame(kernel: KernelRuntimeSession, name: str, deadline: float) -> dict[str, JsonValue] | None:
     data = _execute_python(
         kernel,
         f"print(json.dumps(notebook_dataframe_page(globals()[{name!r}], limit={MAX_ROWS})))",
         deadline,
     )
     page = json.loads(data)
+    if page is None:
+        return None
     if page["row_count"] > MAX_ROWS:
         raise ValidationError("This calculation returns more than 500 rows. Aggregate the result or add a limit.")
     columns = page["columns"]
