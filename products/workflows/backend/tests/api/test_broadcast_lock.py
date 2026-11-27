@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import MagicMock, patch
@@ -6,7 +7,6 @@ from unittest.mock import MagicMock, patch
 from django.db import connections
 
 from parameterized import parameterized
-from rest_framework.test import APIClient
 
 from posthog.models import Team
 
@@ -40,7 +40,7 @@ def _exit() -> dict:
 
 class _BroadcastFixtures:
     team: Team
-    client: APIClient
+    client: Any
 
     def _url(self, flow_id: str, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/hog_flows/{flow_id}{suffix}"
