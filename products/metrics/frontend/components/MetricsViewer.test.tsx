@@ -189,6 +189,17 @@ describe('MetricsViewer', () => {
         expect(await screen.findByText('Create a dashboard')).toBeInTheDocument()
     })
 
+    it('shows the builder, PromQL and SQL language picker', () => {
+        render(
+            <Provider>
+                <MetricsViewer />
+            </Provider>
+        )
+
+        expect(screen.getByText('PromQL')).toBeInTheDocument()
+        expect(screen.getByText('SQL')).toBeInTheDocument()
+    })
+
     // The facet rail ships with the metrics product, so the product flag alone gates it.
     it.each([
         ['shows', true],
