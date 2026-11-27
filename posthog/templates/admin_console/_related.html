@@ -1,0 +1,42 @@
+{# The records related to a record, under its page header. `related` is a list of RelatedPreview from posthog/admin/console/related.py. #}
+<section class="quill-card group/card flex flex-col mb-4"
+         data-quill
+         data-slot="card"
+         data-size="sm"
+         aria-label="Related records">
+    <div class="quill-card__content grid gap-x-6 gap-y-4 @3xl:grid-cols-3"
+         data-slot="card-content">
+        {% for preview in related %}
+            <div class="flex flex-col gap-1.5 min-w-0">
+                <h2 class="m-0 text-xs font-bold text-muted-foreground">{{ preview.relation.label }} ({{ preview.total }})</h2>
+                {% for link in preview.links %}
+                    <div class="min-w-0 break-words">
+                        <a class="font-semibold text-foreground underline underline-offset-2"
+                           href="{{ link.href }}">{{ link.title }}</a>
+                        {% if link.record_id %}<span class="ml-1 font-mono text-xs text-muted-foreground">{{ link.record_id }}</span>{% endif %}
+                        {% if link.detail %}<span class="ml-1 text-muted-foreground">{{ link.detail }}</span>{% endif %}
+                    </div>
+                {% empty %}
+                    <span class="text-muted-foreground">None</span>
+                {% endfor %}
+                {% if preview.searchable and preview.total > preview.links|length %}
+                    <form method="get" action="{{ preview.all_url }}" class="flex gap-2 mt-1">
+                        <input class="quill-input flex-1 min-w-0"
+                               type="search"
+                               name="search"
+                               placeholder="Find by email or name"
+                               aria-label="Find in {{ preview.relation.label|lower }}" />
+                        <button type="submit"
+                                class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
+                            Find
+                        </button>
+                    </form>
+                {% endif %}
+                {% if preview.total > preview.links|length %}
+                    <a class="text-foreground underline underline-offset-2"
+                       href="{{ preview.all_url }}">All {{ preview.total }} &rarr;</a>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+</section>
