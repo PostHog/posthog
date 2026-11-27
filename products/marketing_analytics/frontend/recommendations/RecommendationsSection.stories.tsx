@@ -322,11 +322,16 @@ const MOCKS: Mocks = {
     post: respondWith({}),
 }
 
+const INTRO_SEEN_KEY = 'products.marketingAnalytics.recommendationsLogic.introSeen'
+const resetIntro = (): void => localStorage.removeItem(INTRO_SEEN_KEY)
+
 const meta: Meta<typeof RecommendationsSection> = {
     title: 'Scenes-App/Marketing Analytics/Recommendations',
     component: RecommendationsSection,
     beforeEach: () => {
         localStorage.removeItem('997__.scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter')
+        // Opening the recommendations in one story marks the intro as seen for the next ones.
+        localStorage.setItem(INTRO_SEEN_KEY, 'true')
         const originalNow = performance.now
         performance.now = () => 0
         return () => {
@@ -361,7 +366,10 @@ const meta: Meta<typeof RecommendationsSection> = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const Summary: Story = {}
+export const Summary: Story = {
+    beforeEach: resetIntro,
+    parameters: { testOptions: { waitForSelector: '[data-attr="marketing-recommendations-intro-open"]' } },
+}
 
 export const Loading: Story = {
     parameters: {
@@ -564,7 +572,7 @@ export const ResolvedInModal: Story = {
         await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Review 3 dismissed or applied'))
-        await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+        await modal.findByText('Dismissed and applied')
     },
 }
 

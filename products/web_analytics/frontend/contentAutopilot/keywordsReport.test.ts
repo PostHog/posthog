@@ -1,5 +1,15 @@
-import type { AEOKeywordModifierApi } from '../generated/api.schemas'
-import { isCitationGap, keywordLines, keywordsAddedMessage, modifierGroups } from './keywordsReport'
+import type { AEOKeywordModifierApi, AEOKeywordReportRowApi } from '../generated/api.schemas'
+import {
+    MIN_RATED_ANSWERS,
+    type SampledRate,
+    compareSampledRates,
+    isCitationGap,
+    isRated,
+    keywordLines,
+    keywordsAddedMessage,
+    modifierGroups,
+    reportRate,
+} from './keywordsReport'
 
 const modifier = (term: string, kind: AEOKeywordModifierApi['kind'], answers: number): AEOKeywordModifierApi => ({
     term,
@@ -53,5 +63,36 @@ describe('keywordsReport', () => {
         [0.2, null, false],
     ])('flags cited rate %p against baseline %p as a gap: %p', (citedRate, baseline, expected) => {
         expect(isCitationGap({ cited_rate: citedRate }, baseline)).toBe(expected)
+    })
+
+    it.each([
+        ['a share over enough answers', { rate: 0.5, sample: MIN_RATED_ANSWERS }, true],
+        ['one answer short', { rate: 1, sample: MIN_RATED_ANSWERS - 1 }, false],
+        ['no answers', { rate: null, sample: 0 }, false],
+    ])('rates %s: %p', (_name, sampled: SampledRate, expected) => {
+        expect(isRated(sampled)).toBe(expected)
+    })
+
+    const sortedKeys = (rates: Record<string, SampledRate>, order: 1 | -1): string[] =>
+        Object.keys(rates).sort((a, b) => order * compareSampledRates(order)(rates[a], rates[b]))
+
+    it.each<[1 | -1, string[]]>([
+        [-1, ['high', 'low', 'few-more', 'few', 'none']],
+        [1, ['low', 'high', 'few-more', 'few', 'none']],
+    ])('sorts rows without enough answers below rated rows with order %p', (order, expected) => {
+        const rates: Record<string, SampledRate> = {
+            few: { rate: 1, sample: 1 },
+            low: { rate: 0.1, sample: 40 },
+            none: { rate: null, sample: 0 },
+            high: { rate: 0.9, sample: 12 },
+            'few-more': { rate: 0, sample: 3 },
+        }
+        expect(sortedKeys(rates, order)).toEqual(expected)
+    })
+
+    it('measures the searched share over every answer in the window', () => {
+        const row = { searched_rate: 0.2, searched_checks: 3, answer_checks: 9 } as AEOKeywordReportRowApi
+        expect(reportRate(row, 'searched', 15)).toEqual({ rate: 0.2, sample: 15 })
+        expect(reportRate(row, 'searched_cited', 15).sample).toBe(3)
     })
 })

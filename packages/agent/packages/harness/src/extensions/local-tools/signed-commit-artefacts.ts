@@ -101,6 +101,7 @@ const REPORT_TIMEOUT_MS = 15_000;
 export function withReportDeadline<T>(
   work: (signal: AbortSignal) => Promise<T>,
   what: string,
+  timeoutMs: number = REPORT_TIMEOUT_MS,
 ): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -112,8 +113,8 @@ export function withReportDeadline<T>(
     new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         controller.abort();
-        reject(new Error(`${what} timed out after ${REPORT_TIMEOUT_MS}ms`));
-      }, REPORT_TIMEOUT_MS);
+        reject(new Error(`${what} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
       timer.unref?.();
     }),
   ]).finally(() => clearTimeout(timer));

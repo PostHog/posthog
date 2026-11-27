@@ -162,6 +162,64 @@
                     }
                 ]
             }
+        },
+        {
+            // Overrides replace rule options, so the global fetch/node-fetch/undici bans are repeated here.
+            "files": ["src/cdp/**/*.ts"],
+            "rules": {
+                "typescript/switch-exhaustiveness-check": ["error", { "considerDefaultExhaustiveForUnions": true }],
+                "eslint/no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "node-fetch",
+                                "message": "Use the request util from ~/common/utils/request instead of node-fetch"
+                            },
+                            {
+                                "name": "undici",
+                                "message": "Use the request util from ~/common/utils/request instead of undici"
+                            },
+                            {
+                                "name": "@aws-sdk/client-sesv2",
+                                "message": "Send email through SesTransport in src/cdp/services/messaging/ses-transport.ts instead of building an SES client"
+                            }
+                        ],
+                        "patterns": [
+                            {
+                                "group": ["fetch"],
+                                "message": "Use the request util from ~/common/utils/request instead of importing fetch directly"
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["src/cdp/services/messaging/ses-transport.ts"],
+            "rules": {
+                "eslint/no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "node-fetch",
+                                "message": "Use the request util from ~/common/utils/request instead of node-fetch"
+                            },
+                            {
+                                "name": "undici",
+                                "message": "Use the request util from ~/common/utils/request instead of undici"
+                            }
+                        ],
+                        "patterns": [
+                            {
+                                "group": ["fetch"],
+                                "message": "Use the request util from ~/common/utils/request instead of importing fetch directly"
+                            }
+                        ]
+                    }
+                ]
+            }
         }
     ]
 }

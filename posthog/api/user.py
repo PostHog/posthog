@@ -1387,7 +1387,7 @@ class UserViewSet(
         user_uuid = body.validated_data["uuid"]
 
         try:
-            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user: Optional[User] = User.objects.humans().filter(is_active=True).get(uuid=user_uuid)
         except (User.DoesNotExist, ValidationError):
             user = None
 

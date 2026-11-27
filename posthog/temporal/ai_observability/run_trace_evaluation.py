@@ -79,6 +79,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.facade.evaluation_runtime import (
+    JUDGE_TRACE_FALLBACK_MAX_CHARS,
     JUDGE_TRACE_MAX_CHARS,
     build_trace_hog_globals,
     execute_hog_eval_bytecode,
@@ -98,6 +99,7 @@ from products.ai_observability.backend.text_repr.formatters import (
 )
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 from products.ai_observability.backend.text_repr.formatters.message_formatter import has_message_content
+from products.ai_observability.backend.text_repr.formatters.repeated_input import RepeatedInputHistory
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -587,7 +589,15 @@ def build_trace_system_prompt(
 {config.instructions}"""
 
 
-def format_trace_for_judge(trace: LLMTrace, media_marker: MediaMarker | None = None) -> str:
+@frozen
+class JudgeTranscript:
+    text: str
+    truncated: bool
+
+
+def format_trace_for_judge(
+    trace: LLMTrace, media_marker: MediaMarker | None = None, max_chars: int = JUDGE_TRACE_MAX_CHARS
+) -> JudgeTranscript:
     """Serialize a trace into the canonical text representation for the LLM judge.
 
     Preserve complete generation outputs before truncating them so the judge does not grade
@@ -601,23 +611,26 @@ def format_trace_for_judge(trace: LLMTrace, media_marker: MediaMarker | None = N
         "preserve_generation_output": True,
         "include_line_numbers": True,
         "max_length": None,
-        "max_render_length": JUDGE_TRACE_MAX_CHARS,
+        "max_render_length": max_chars,
     }
     if media_marker is not None:
         options["media_marker"] = media_marker
     for truncated in (False, True):
         options["truncated"] = truncated
+        options["repeated_input_history"] = RepeatedInputHistory()
         try:
             text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-            return text
+            return JudgeTranscript(text=text, truncated=truncated)
         except RenderBudgetExceeded:
             pass
 
     del options["max_render_length"]
     options["preserve_generation_output"] = False
-    options["max_length"] = JUDGE_TRACE_MAX_CHARS
+    options["max_length"] = max_chars
+    # Sampling drops lines anywhere, so it could keep a reference and drop the message it points at.
+    del options["repeated_input_history"]
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-    return text
+    return JudgeTranscript(text=text, truncated=True)
 
 
 def _has_state_content(state: object, *, is_output: bool = False) -> bool:
@@ -702,19 +715,46 @@ def run_trace_llm_judge(
         return _build_trace_skip_result(allows_na, "trace_not_found", output_type=output_type)
 
     trace = outcome.trace
-    user_prompt = format_trace_for_judge(trace)
-    return call_llm_judge(
-        evaluation=evaluation,
-        system_prompt=build_trace_system_prompt(
-            prompt, allows_na, output_type=output_type, output_config=output_config
-        ),
-        user_prompt=user_prompt,
-        allows_na=allows_na,
-        backfill=inputs.backfill_id is not None,
-        attachment_prompt=build_attachment_prompt(
-            evaluation, user_prompt, lambda media_marker: format_trace_for_judge(trace, media_marker)
-        ),
-    )
+    system_prompt = build_trace_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
+
+    def judge(max_chars: int) -> tuple[EvaluationActivityResult, JudgeTranscript]:
+        transcript = format_trace_for_judge(trace, max_chars=max_chars)
+        marked: list[JudgeTranscript] = []
+
+        def render_marked(media_marker: MediaMarker) -> str:
+            marked.append(format_trace_for_judge(trace, media_marker, max_chars))
+            return marked[-1].text
+
+        attachment_prompt = build_attachment_prompt(evaluation, transcript.text, render_marked)
+        # Every judge path sends the marked render when there is one: the chat call with its attachments, and
+        # decision models and the retry after a rejected attachment without them. The two renders can be cut
+        # differently, because inline base64 renders in full in the plain one and as a short marker in the other.
+        sent = marked[-1] if attachment_prompt is not None else transcript
+        result = call_llm_judge(
+            evaluation=evaluation,
+            system_prompt=system_prompt,
+            user_prompt=attachment_prompt.unnumbered_text() if attachment_prompt is not None else transcript.text,
+            allows_na=allows_na,
+            backfill=inputs.backfill_id is not None,
+            attachment_prompt=attachment_prompt,
+            # The 150k retry keeps the attachments, so a judge asked about a screenshot still sees it.
+            retry_without_attachments_on_overflow=len(sent.text) <= JUDGE_TRACE_FALLBACK_MAX_CHARS,
+        )
+        if sent.truncated:
+            result["input_truncated"] = True
+        return result, sent
+
+    result, sent = judge(JUDGE_TRACE_MAX_CHARS)
+    if result.get("skip_reason") == "context_window_exceeded" and len(sent.text) > JUDGE_TRACE_FALLBACK_MAX_CHARS:
+        result, _ = judge(JUDGE_TRACE_FALLBACK_MAX_CHARS)
+        logger.info(
+            "trace_judge_context_window_fallback",
+            evaluation_id=evaluation["id"],
+            team_id=inputs.team_id,
+            first_transcript_chars=len(sent.text),
+            recovered=not result.get("skipped", False),
+        )
+    return result
 
 
 @temporalio.activity.defn
