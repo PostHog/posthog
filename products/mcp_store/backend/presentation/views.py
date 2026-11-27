@@ -37,7 +37,6 @@ from posthog.event_usage import report_user_action
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.oauth_provenance import get_oauth_access_token
 from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
@@ -52,7 +51,6 @@ from products.cdp.backend.presentation.icons import CDPIconsService
 
 from ..agents import sync_built_in_agents
 from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
-from ..facade.run_scope_hooks import run_installation_allowlist
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
@@ -96,6 +94,7 @@ from ..proxy import (
 )
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
+from .run_scope import request_run_installation_allowlist
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):
@@ -788,11 +787,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         Mounting decides which servers the sandbox is told about. This applies the same selection to the API the token
         calls, so the two agree."""
-        access_token = get_oauth_access_token(self.request)
-        sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
-        if sandbox_task_id is None:
-            return None
-        return run_installation_allowlist(sandbox_task_id)
+        return request_run_installation_allowlist(self.request)
 
     def _within_run_allowlist(self, queryset: QuerySet) -> QuerySet:
         allowlist = self._run_installation_allowlist()

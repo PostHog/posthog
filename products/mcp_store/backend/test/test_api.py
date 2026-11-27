@@ -2636,7 +2636,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
 
 class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    def _sandbox_client(self, sandbox_task_id: uuid.UUID | None) -> APIClient:
+    def _sandbox_client(self, sandbox_task_id: uuid.UUID | None) -> tuple[APIClient, OAuthAccessToken]:
         application = OAuthApplication.objects.create(
             name="Sandbox run",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
@@ -2657,7 +2657,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         )
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
-        return client
+        return client, access_token
 
     @parameterized.expand(
         [
@@ -2685,18 +2685,20 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
                 installation=installation, tool_name="search", last_seen_at=timezone.now()
             )
         base = f"/api/environments/{self.team.id}/mcp_server_installations/"
-        client = self._sandbox_client(uuid.uuid4() if from_a_run else None)
+        client, token = self._sandbox_client(uuid.uuid4() if from_a_run else None)
 
-        with patch(
-            "products.mcp_store.backend.facade.run_scope_hooks._resolvers",
-            [lambda _task_id: [str(mounted.id)] if selected else None],
-        ):
+        def resolver(_task_id: uuid.UUID, token_id: str) -> list[str] | None:
+            # The token resolves to its own run, never to the task as a whole.
+            return [str(mounted.id)] if selected and token_id == str(token.id) else None
+
+        with patch("products.mcp_store.backend.facade.run_scope_hooks._resolvers", [resolver]):
             listed = {row["id"] for row in client.get(base).json()["results"]}
             tools = {row["installation_id"] for row in client.get(f"{base}available_tools/").json()["servers"]}
             retrieved = client.get(f"{base}{other.id}/")
             proxied = client.post(f"{base}{other.id}/proxy/", data={"jsonrpc": "2.0", "id": 1}, format="json")
             called = client.post(f"{base}{other.id}/call_tool/", data={"tool_name": "search"}, format="json")
             # Empty requests, so a caller that may install stops at validation and never reaches an upstream.
+            gateway = client.get(f"/api/environments/{self.team.id}/mcp_gateway/servers/")
             installs = [
                 client.get(f"{base}authorize/"),
                 client.post(f"{base}install_template/", data={}, format="json"),
@@ -2713,9 +2715,11 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             assert [retrieved.status_code, proxied.status_code, called.status_code] == [404, 404, 404]
             # These routes look installations up directly, so a narrowed run may not call them at all.
             assert refused == [True, True, True]
+            assert gateway.status_code == 403
         else:
             assert retrieved.status_code == 200
             assert refused == [False, False, False]
+            assert gateway.status_code == 200
 
     def test_create_not_allowed(self):
         response = self.client.post(

@@ -44,7 +44,7 @@ from products.tasks.backend.facade.profiles import (
     get_task_profile,
 )
 from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
-from products.tasks.backend.mcp_store_hooks import mcp_installation_allowlist_for_task
+from products.tasks.backend.mcp_store_hooks import mcp_installation_allowlist_for_token
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -2487,22 +2487,30 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @parameterized.expand(
         [
-            ("no_run_snapshots", [None, None], None),
-            ("one_run_snapshots", [["a"], None], ["a"]),
-            # A later run cannot widen what an earlier run narrowed, and a broken snapshot narrows to nothing.
-            ("union_of_snapshots", [["b"], ["a"]], ["a", "b"]),
-            ("malformed_snapshot", ["not-a-list"], []),
+            # Each run keeps its own selection, so another run's selection never widens it.
+            (
+                "own_run_selection",
+                [("tok", {"mcp_installation_ids": ["a"]}), ("other", {"mcp_installation_ids": ["b"]})],
+                ["a"],
+            ),
+            ("own_run_without_selection", [("tok", None), ("other", {"mcp_installation_ids": ["b"]})], None),
+            # A selection that is present but broken allows nothing.
+            ("malformed_selection", [("tok", "not-an-object")], []),
+            ("unbound_token_on_a_selecting_task", [("other", {"mcp_installation_ids": ["b"]})], []),
+            ("unbound_token_on_a_plain_task", [("other", None)], None),
         ]
     )
-    def test_mcp_installation_allowlist_for_task(self, _name: str, snapshots: list, expected) -> None:
+    def test_mcp_installation_allowlist_for_token(self, _name: str, runs: list, expected) -> None:
         task = self._make_task()
-        for ids in snapshots:
-            state = {} if ids is None else {"config_snapshot": {"connectors": {"mcp_installation_ids": ids}}}
+        for token_id, snapshot in runs:
+            state: dict = {"sandbox_oauth_token_ids": [token_id]}
+            if snapshot is not None:
+                state["config_snapshot"] = {"connectors": snapshot} if isinstance(snapshot, dict) else snapshot
             TaskRun.objects.create(task=task, team=self.team, state=state)
 
-        assert mcp_installation_allowlist_for_task(task.id) == expected
+        assert mcp_installation_allowlist_for_token(task.id, "tok") == expected
         # Without the registration the MCP Store would never narrow a run token.
-        assert mcp_installation_allowlist_for_task in get_run_installation_allowlist_resolvers()
+        assert mcp_installation_allowlist_for_token in get_run_installation_allowlist_resolvers()
 
 
 def _tool_update(tool_response: object) -> dict:

@@ -4,8 +4,9 @@ because the MCP Store cannot import them. Loads on django.setup(), so keep it li
 from collections.abc import Callable
 from uuid import UUID
 
-# Maps the task a sandbox token is bound to onto the installation ids its runs may reach. None means nothing narrows it.
-RunInstallationAllowlist = Callable[[UUID], list[str] | None]
+# Maps a sandbox token, by the task it is bound to and its own id, onto the installation ids its run may reach. None
+# means nothing narrows it.
+RunInstallationAllowlist = Callable[[UUID, str], list[str] | None]
 
 _resolvers: list[RunInstallationAllowlist] = []
 
@@ -19,10 +20,10 @@ def get_run_installation_allowlist_resolvers() -> tuple[RunInstallationAllowlist
     return tuple(_resolvers)
 
 
-def run_installation_allowlist(sandbox_task_id: UUID) -> list[str] | None:
+def run_installation_allowlist(sandbox_task_id: UUID, token_id: str) -> list[str] | None:
     """The installations the run behind a sandbox token may reach. When several resolvers narrow it, only the ids every
     one of them allows remain."""
-    narrowed = [allowlist for resolver in _resolvers if (allowlist := resolver(sandbox_task_id)) is not None]
+    narrowed = [allowlist for resolver in _resolvers if (allowlist := resolver(sandbox_task_id, token_id)) is not None]
     if not narrowed:
         return None
     return sorted(set(narrowed[0]).intersection(*narrowed[1:]))
