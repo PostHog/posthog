@@ -38,6 +38,7 @@ _LAZY = {
     "TrendsDisplay": "trends.display",
     "TrendsQueryRunner": "trends.trends_query_runner",
     "precomputed_series_values": "trends.series_values_rewrite",
+    "rewriting_series_values": "trends.series_values_rewrite",
     "trends_actors_date_window": "trends.trends_actors_date_window",
     "anchored_segment_to_funnels_query": "paths_v2.funnel_converter",
     "edge_to_funnels_query": "paths_v2.funnel_converter",
@@ -73,6 +74,7 @@ if TYPE_CHECKING:
     from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay  # noqa: F401
     from products.product_analytics.backend.hogql_queries.trends.series_values_rewrite import (  # noqa: F401
         precomputed_series_values,
+        rewriting_series_values,
     )
     from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (  # noqa: F401
         SlopeGraphTrendsQueryRunner,

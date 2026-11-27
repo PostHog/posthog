@@ -9,7 +9,7 @@ import structlog
 import posthoganalytics
 from temporalio.exceptions import CancelledError
 
-from posthog.schema import TrendsQuery
+from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsQuery
 
 from posthog.hogql.constants import HogQLGlobalSettings
 
@@ -21,16 +21,22 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import dashboard_filter_from_dict
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.tasks.alerts.trends import _has_breakdown
 
 from products.alerts.backend.evaluation.attempt_budget import attempt_outlasts
 from products.alerts.backend.evaluation.query_slot import QuerySlotFull
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.contracts import PrecomputedSeriesValues, SeriesValuesUnavailable
-from products.product_analytics.backend.facade.queries import TrendsQueryRunner, precomputed_series_values
+from products.product_analytics.backend.facade.queries import (
+    TrendsQueryRunner,
+    precomputed_series_values,
+    rewriting_series_values,
+)
 
 logger = structlog.get_logger(__name__)
 
 SERIES_VALUES_PRECOMPUTE_FLAG = "alerts-series-values-precompute"
+SERIES_VALUES_SERVE_FLAG = "alerts-series-values-serve"
 SHADOW_COMPARISON_EVENT = "alert series values shadow compared"
 SHADOW_BUILD_BUDGET_SECONDS = 60
 # The shadow run reads only stored rows, after the build. The cap keeps a slow read inside the margin below.
@@ -55,11 +61,11 @@ class ShadowComparison:
     features: tuple[str, ...] = ()
 
 
-def is_series_values_precompute_enabled(team: Team) -> bool:
+def _flag_enabled(team: Team, key: str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                SERIES_VALUES_PRECOMPUTE_FLAG,
+                key,
                 str(team.uuid),
                 groups={
                     "organization": str(team.organization_id),
@@ -78,6 +84,58 @@ def is_series_values_precompute_enabled(team: Team) -> bool:
     except Exception as err:
         capture_exception(err, {"feature": "alerts", "phase": "series_values_flag_check", "team_id": team.pk})
         return False
+
+
+def _can_serve(query: TrendsQuery) -> bool:
+    # The shadow validates one result series. Comparisons, formulas and specialized displays can return more.
+    trends = query.trendsFilter
+    return (
+        len(query.series) == 1
+        and isinstance(query.series[0], EventsNode)
+        and query.series[0].math in (None, "total")
+        and query.interval in (None, IntervalType.DAY, IntervalType.HOUR)
+        and not query.modifiers
+        and not _has_breakdown(query)
+        and not (query.compareFilter and query.compareFilter.compare)
+        and not (trends and (trends.formulaNodes or trends.formulas or trends.formula))
+        and (
+            not trends
+            or trends.display
+            in (
+                None,
+                ChartDisplayType.AUTO,
+                ChartDisplayType.ACTIONS_LINE_GRAPH,
+                ChartDisplayType.ACTIONS_AREA_GRAPH,
+                ChartDisplayType.ACTIONS_BAR,
+                ChartDisplayType.ACTIONS_STACKED_BAR,
+                ChartDisplayType.ACTIONS_UNSTACKED_BAR,
+            )
+        )
+    )
+
+
+def calculate_alert_trends(
+    alert: AlertConfiguration | None,
+    query: TrendsQuery,
+    filters_override: dict | None,
+    *,
+    alert_kind: AlertKind,
+    calculate: Callable[[], InsightResult],
+) -> InsightResult:
+    if alert is None:
+        return calculate()
+
+    if _can_serve(query) and _flag_enabled(alert.team, SERIES_VALUES_SERVE_FLAG):
+        with rewriting_series_values("serve", build_on_miss=False) as rewrite:
+            result = calculate()
+        # A serving-cache hit may also contain stored values. Neither is an independent shadow baseline.
+        if rewrite.built or result.is_cached:
+            return result
+    else:
+        result = calculate()
+
+    compare_series_values_shadow(alert, query, filters_override, result, alert_kind=alert_kind)
+    return result
 
 
 def effective_trends_runner(
@@ -227,7 +285,7 @@ def compare_series_values_shadow(
     alert_kind: AlertKind,
 ) -> None:
     requested = _requested.get()
-    if requested is not None and is_series_values_precompute_enabled(alert.team):
+    if requested is not None and _flag_enabled(alert.team, SERIES_VALUES_PRECOMPUTE_FLAG):
         requested.append(
             ShadowComparisonRequest(
                 alert=alert,
@@ -241,7 +299,7 @@ def compare_series_values_shadow(
 
 def record_unsupported_insight_kind(alert: AlertConfiguration, insight_kind: str) -> None:
     try:
-        if _requested.get() is None or not is_series_values_precompute_enabled(alert.team):
+        if _requested.get() is None or not _flag_enabled(alert.team, SERIES_VALUES_PRECOMPUTE_FLAG):
             return
         _record(
             alert,

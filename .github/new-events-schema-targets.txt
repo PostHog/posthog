@@ -49,6 +49,7 @@ products/ai_observability/backend/tests/test_facade_list_traces.py
 products/ai_observability/backend/tests/test_facade_sessions.py
 products/ai_observability/backend/tests/test_facade_trace_metrics.py
 products/ai_observability/backend/tests/presentation/views
+products/alerts/backend/evaluation/test/test_series_values.py
 products/cohorts
 products/customer_analytics/backend/hogql_queries
 products/customer_analytics/backend/test/test_account_automations.py

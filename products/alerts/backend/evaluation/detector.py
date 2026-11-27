@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
+from functools import partial
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -49,7 +50,7 @@ from products.alerts.backend.evaluation.delay import (
     apply_evaluation_delay,
     validate_evaluation_delay,
 )
-from products.alerts.backend.evaluation.series_values_shadow import compare_series_values_shadow
+from products.alerts.backend.evaluation.series_values_shadow import calculate_alert_trends
 from products.alerts.backend.facade.contracts import MovedAlertCheck
 from products.alerts.backend.forecast import scorer as forecast_scorer
 from products.alerts.backend.forecast.access import FORECAST_DETECTOR_NO_CREATOR_MESSAGE
@@ -119,16 +120,21 @@ def extract_detector_series(
         query, detector_config, evaluation_delay_intervals=evaluation_delay_intervals, date_from=date_from
     )
 
-    calculation_result = calculate_for_query_based_insight(
-        insight,
-        team=team,
-        execution_mode=execution_mode,
-        cache_age_seconds=cache_age_seconds,
-        user=user,
-        filters_override=filters_override,
+    calculation_result = calculate_alert_trends(
+        alert,
+        query,
+        filters_override,
+        alert_kind="detector",
+        calculate=partial(
+            calculate_for_query_based_insight,
+            insight,
+            team=team,
+            execution_mode=execution_mode,
+            cache_age_seconds=cache_age_seconds,
+            user=user,
+            filters_override=filters_override,
+        ),
     )
-    if alert is not None:
-        compare_series_values_shadow(alert, query, filters_override, calculation_result, alert_kind="detector")
 
     if calculation_result.result is None:
         raise RuntimeError(f"No results found for insight with id = {insight.id}")

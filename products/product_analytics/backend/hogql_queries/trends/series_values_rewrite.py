@@ -22,6 +22,8 @@ from functools import partial
 from typing import ClassVar, Literal
 from zoneinfo import ZoneInfo
 
+from django.db import DatabaseError
+
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.compilation import compilation_budget
@@ -34,6 +36,7 @@ from posthog.hogql.transforms.preaggregated_table_transformation import is_integ
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
@@ -50,7 +53,10 @@ from products.product_analytics.backend.facade.contracts import (
     SeriesValuesFeature as Feature,
     SeriesValuesUnavailable,
 )
-from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import (
+    TrendsQueryRunner,
+    series_values_cache_variant,
+)
 
 INSERT_QUERY_TEMPLATE = """
 SELECT
@@ -375,6 +381,7 @@ class SeriesValuesRewrite:
     """
 
     mode: RewriteMode
+    build_on_miss: bool = True
     # A `time.monotonic()` value. No build starts after it, and no INSERT of a build runs past it.
     deadline: float | None = None
     today_start: datetime = field(
@@ -499,8 +506,13 @@ class _Rewriter(CloningVisitor):
             # The first call only looks for stored values, so a query that finds them all builds no
             # database, and a build makes one database for all of its windows.
             result = ensure(run_inserts=False)
-            if not result.ready:
+            if not result.ready and self.request.build_on_miss:
                 result = ensure(run_inserts=True, database=_insert_database(team))
+        except DatabaseError as err:
+            if self.request.build_on_miss:
+                raise
+            capture_exception(err)
+            return None
         finally:
             hogql_select_rewrite.reset(hook)
         if self.request.mode == "stored_only" and not result.ready and result.errors and not result.wait_timed_out:
@@ -517,16 +529,18 @@ class _Rewriter(CloningVisitor):
 
 @contextmanager
 def rewriting_series_values(
-    mode: RewriteMode, *, wait_timeout_seconds: float | None = None
+    mode: RewriteMode, *, wait_timeout_seconds: float | None = None, build_on_miss: bool = True
 ) -> Iterator[SeriesValuesRewrite]:
     # One deadline for every build the caller's queries start, so together they cannot outlast its budget.
     deadline = None if wait_timeout_seconds is None else time.monotonic() + wait_timeout_seconds
-    request = SeriesValuesRewrite(mode=mode, deadline=deadline)
+    request = SeriesValuesRewrite(mode=mode, deadline=deadline, build_on_miss=build_on_miss)
+    variant = series_values_cache_variant.set(f":series_values_{mode}")
     token = hogql_select_rewrite.set(request.rewrite)
     try:
         yield request
     finally:
         hogql_select_rewrite.reset(token)
+        series_values_cache_variant.reset(variant)
 
 
 def precomputed_series_values(
