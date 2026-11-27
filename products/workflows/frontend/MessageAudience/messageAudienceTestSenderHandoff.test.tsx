@@ -19,7 +19,11 @@ const properties: MessageAudience['properties'] = [
     { key: 'id', type: PropertyFilterType.Cohort, value: 7, operator: PropertyOperator.In },
 ]
 const email = draftMessage({ kind: 'feature_available', featureName: 'Dark mode' })
-const draftSource: EmailDraftRequestApi = { source: 'early_access', source_id: 'feature-1' }
+const featureDraftSource: EmailDraftRequestApi = {
+    source: 'early_access',
+    source_id: '0190f1e2-7c4a-7b3e-9a51-3c2d8e4f6a10',
+}
+const cohortDraftSource: EmailDraftRequestApi = { source: 'cohort', source_id: '7' }
 
 describe('continuing a broadcast in a workflow with the test sender', () => {
     let draftRequests: unknown[]
@@ -60,10 +64,19 @@ describe('continuing a broadcast in a workflow with the test sender', () => {
     it.each<{ case: string; audience: MessageAudience; subject: string | null }>([
         {
             case: 'an email audience',
-            audience: { source: 'early_access_feature', properties, broadcastEmail: email, draftSource },
+            audience: {
+                source: 'early_access_feature',
+                properties,
+                broadcastEmail: email,
+                draftSource: featureDraftSource,
+            },
             subject: email.subject,
         },
-        { case: 'a cohort', audience: { source: 'cohort', properties }, subject: null },
+        {
+            case: 'a cohort',
+            audience: { source: 'cohort', properties, draftSource: cohortDraftSource },
+            subject: null,
+        },
     ])('opens the editor on the same people for $case', async ({ audience, subject }) => {
         router.actions.push('/cohorts/7')
         await openMessageAudience(audience, 'broadcast')
@@ -84,6 +97,6 @@ describe('continuing a broadcast in a workflow with the test sender', () => {
                 subject: (action.config as Record<string, any>).inputs?.email?.value?.subject,
             }))
         ).toEqual(subject ? [{ type: 'email_sandbox', subject }] : [])
-        expect(draftRequests).toEqual(subject ? [expect.objectContaining(draftSource)] : [])
+        expect(draftRequests).toEqual(subject ? [expect.objectContaining(featureDraftSource)] : [])
     })
 })

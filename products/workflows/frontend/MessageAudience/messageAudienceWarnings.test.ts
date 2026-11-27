@@ -119,12 +119,15 @@ describe('loadMessageAudienceWarnings', () => {
             expected: [TEST_SENDER_FOR_BROADCAST],
         },
         {
-            case: 'only the test sender, for a broadcast to a list still matching',
+            case: 'only the test sender, for a broadcast to a list that failed to match',
             destination: 'broadcast',
             senders: [],
             sandbox: testSender,
-            cohort: matchingList,
-            expected: [TEST_SENDER_FOR_BROADCAST],
+            cohort: { name: 'Signups', is_static: true, is_calculating: false, errors_calculating: 1 },
+            expected: [
+                TEST_SENDER_FOR_BROADCAST,
+                '"Signups" couldn\'t match its people. Remove it from the recipients, or upload the list again.',
+            ],
         },
         {
             case: 'the test sender while sending is suspended',

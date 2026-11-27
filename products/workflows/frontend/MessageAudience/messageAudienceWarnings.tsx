@@ -87,12 +87,11 @@ export async function loadMessageAudienceWarnings(
         !!senderWarning &&
         suspension?.email_sending_suspended === false &&
         canAdoptSandboxSender(await testSenderStatus)
-    if (offerTest && destination === 'broadcast') {
-        return [TEST_SENDER_ONLY_BROADCAST_MESSAGE]
-    }
+    const testSenderMessage =
+        destination === 'broadcast' ? TEST_SENDER_ONLY_BROADCAST_MESSAGE : TEST_SENDER_ONLY_WORKFLOW_MESSAGE
     return [
         suspension?.email_sending_suspended ? EMAIL_SENDING_SUSPENDED_MESSAGE : null,
-        offerTest ? TEST_SENDER_ONLY_WORKFLOW_MESSAGE : senderWarning,
+        offerTest ? testSenderMessage : senderWarning,
         ...cohorts.map((cohort) => (cohort ? audienceCohortLaunchError(cohort) : null)),
     ].filter((warning): warning is string => !!warning)
 }
