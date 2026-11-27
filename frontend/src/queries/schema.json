@@ -6587,8 +6587,8 @@
                     "description": "Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile."
                 },
                 "doPathCleaning": {
-                    "default": false,
-                    "description": "Apply the team's path-cleaning rules to the returned paths.",
+                    "default": true,
+                    "description": "Apply the team's path-cleaning rules to the returned paths, so `/project/123/settings` and `/project/456/settings` roll up into one row. On by default, like the Web vitals tab; a team with no rules sees raw paths either way.",
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
@@ -6603,6 +6603,10 @@
                 "metric": {
                     "$ref": "#/definitions/WebVitalsMetric",
                     "description": "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms)."
+                },
+                "minSamples": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Drop pages with fewer than this many samples in the period. Each row carries its `count`; set this (e.g. 50 or 100 on a busy site) so one-off slow loads on rarely visited pages do not fill the `poor` band ahead of real problems."
                 },
                 "percentile": {
                     "$ref": "#/definitions/WebVitalsPercentile",
@@ -67094,6 +67098,10 @@
                 "metric": {
                     "$ref": "#/definitions/WebVitalsMetric"
                 },
+                "minSamples": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Drop pages with fewer samples than this in the period, so a page with a handful of slow loads does not outrank a busy page with a real problem. No floor when omitted."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -67269,6 +67277,10 @@
         "WebVitalsPathBreakdownResultItem": {
             "additionalProperties": false,
             "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets."
+                },
                 "path": {
                     "type": "string"
                 },
