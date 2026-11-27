@@ -1716,8 +1716,9 @@ class ActivityLoggingMiddleware:
         entry_credential = activity_storage.get_credential()
 
         def request_credential() -> ActivityCredential | None:
-            # Logout and rotation change the key but keep this resolver, so log the session that authenticated
-            # the request. A login or a bearer authentication class replaces the resolver with its own credential.
+            # The session resolver reads the session key when it is called. Logout and a password change replace
+            # the key but keep the resolver, so return the credential read at entry, which names the session that
+            # authenticated the request. A login or a bearer authentication class sets a new resolver.
             if activity_storage.get_credential_resolver() is entry_resolver and _session_key(request) != session_key:
                 return entry_credential
             return activity_storage.get_credential()
@@ -1727,8 +1728,9 @@ class ActivityLoggingMiddleware:
             response = self.get_response(request)
             _buffer_mcp_intent(request, response)
         finally:
+            # django-structlog's RequestMiddleware wraps this one, so it logs request_finished after clear_all()
+            # below. request_failed fires inside the view, so it calls the live resolver set above instead.
             credential = request_credential()
-            # django-structlog writes request_finished above this middleware, after the cleanup below.
             setattr(request, REQUEST_CREDENTIAL_RESOLVER_ATTR, lambda: credential)
             # Clean up activity storage after request
             activity_storage.clear_all()
