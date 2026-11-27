@@ -1,4 +1,9 @@
+// TODO(2026-11-27): Replace with quill once it can; the app does not mount quill's ToastProvider yet.
+// oxlint-disable-next-line no-restricted-imports
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { downloadFile } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { slugify } from 'lib/utils/strings'
 
 import type { MenuAction } from '../../menu/menuAction'
 import type { RunQuery } from '../../query/queryTypes'
@@ -6,9 +11,10 @@ import { type PanelType, type PanelMenuContext, definePanel } from '../core/pane
 import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading } from '../core/PanelView'
 import { chartMenuActions } from './chartMenuActions'
-import { ChartPanel } from './ChartPanel'
+import { ChartPanel, shownFramesOf } from './ChartPanel'
 import { ChartSampleData } from './ChartSampleData'
 import { type ChartConfig, chartSpec } from './chartSpec'
+import { framesToCsv } from './data/framesToCsv'
 import { AreaLoading } from './viz/area/AreaLoading'
 import { areaSpec } from './viz/area/areaSpec'
 import { BarLoading } from './viz/bar/BarLoading'
@@ -98,6 +104,16 @@ export const DEFAULT_VIZ_TYPES: VizDefinition[] = [
     defineViz({ ...flameGraphSpec, Component: FlameGraphViz, Loading: FlameGraphLoading }),
 ]
 
+// The file holds the data the chart drew, so it matches the chart whatever runner, time range and filters gave it.
+function downloadCsv(panel: ContentPanel<ChartConfig>): void {
+    const frames = shownFramesOf(panel)
+    if (!frames || frames.every((frame) => frame.fields.every((field) => field.values.length === 0))) {
+        lemonToast.warning('This chart has no data to download.')
+        return
+    }
+    downloadFile(new File([framesToCsv(frames)], `${slugify(panel.title ?? '') || 'chart'}.csv`, { type: 'text/csv' }))
+}
+
 // A host's `states` replace the built-in kinds' own states, but not those of the host's own kinds.
 function withExtraVizTypes(extra: VizDefinition[], states: ChartStates | undefined): VizDefinition[] {
     const builtIn = DEFAULT_VIZ_TYPES.map(
@@ -176,7 +192,23 @@ export function createChartPanel({
         Component: Chart,
         Loading: ChartLoading,
         menuActions: (actions, context) => {
-            const withChart = [...actions, ...chartMenuActions(vizTypes, context)]
+            const csv: MenuAction = {
+                key: 'csv',
+                label: 'CSV',
+                dataAttr: 'dashboard-v2-chart-download-csv',
+                disabledReason: null,
+                onSelect: () => downloadCsv(context.panel),
+            }
+            // Without a runner the chart draws no data, or made-up data, so there is nothing to put in a file.
+            const offersCsv = !!runQuery && !sampleData
+            const withChart = [
+                ...actions.map((action) =>
+                    offersCsv && action.key === 'download' && action.submenu
+                        ? { ...action, submenu: [...action.submenu, csv] }
+                        : action
+                ),
+                ...chartMenuActions(vizTypes, context),
+            ]
             return menuActions ? menuActions(withChart, context) : withChart
         },
     })

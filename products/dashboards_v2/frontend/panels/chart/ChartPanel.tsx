@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Suspense, useContext, useMemo } from 'react'
+import { Suspense, useContext, useEffect, useMemo } from 'react'
 
 import { FiltersContext } from '../../filters/filtersContext'
 import type { DataFrame, RunQuery } from '../../query/queryTypes'
@@ -39,6 +39,14 @@ function TargetFailures({ failures }: { failures: TargetFailure[] }): JSX.Elemen
     )
 }
 
+// A menu entry is built before the chart's data arrives and outside its component, so it reads the frames from here.
+const shownFrames = new WeakMap<ContentPanel<ChartConfig>, DataFrame[]>()
+
+/** The frames the panel's chart last drew, or undefined while it has none, such as before its first result. */
+export function shownFramesOf(panel: ContentPanel<ChartConfig>): DataFrame[] | undefined {
+    return shownFrames.get(panel)
+}
+
 function hasNoValues(frames: DataFrame[]): boolean {
     return frames.every((frame) => frame.fields.every((field) => field.values.length === 0))
 }
@@ -73,6 +81,13 @@ function ChartData({
         () => combineTargetResults(chartTargets(panel.config), results, !!panel.config.targets),
         [results, panel.config]
     )
+    useEffect(() => {
+        if (result.status === 'ready') {
+            shownFrames.set(panel, result.frames)
+        } else {
+            shownFrames.delete(panel)
+        }
+    }, [panel, result])
     // The kind of chart wins over the host's defaults, which win over the built-in states.
     const Loading = viz.Loading ?? states?.Loading ?? PanelLoading
     const Empty = viz.Empty ?? states?.Empty ?? DefaultEmpty
