@@ -43,8 +43,7 @@ counts_cache = caches["workflows_audience_counts"]
 
 # The editor re-sizes the audience on every open and every filter edit, so the same audience is counted again and
 # again within minutes, and each count reads the team's whole person table. The preview is a sampled estimate, so a
-# few minutes of staleness doesn't change what it tells the user. The team's person total is the same for every
-# audience, so it is cached on its own and a new filter only pays for its own count.
+# few minutes of staleness doesn't change what it tells the user. The person total is cached on its own.
 AUDIENCE_COUNT_CACHE_SECONDS = 600
 COUNTING_LOCK_SECONDS = 200
 # Below the 120s ingress timeout, so a waiter whose leader died still answers before the client gives up.
@@ -122,7 +121,6 @@ def _cached_count_audience(
     )
     # One deadline for the audience lock and the person-total lock inside it, so a request never waits on both in turn.
     wait_until = monotonic() + COUNTING_WAIT_SECONDS
-    # v2 stores the result object. Pods on the previous release keep their tuples under the old key.
     return _shared_count(
         f"workflows:audience_count:v2:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}",
         lambda: _count_audience(team, filters, group_type_index, dedupe_key, refresh=refresh, wait_until=wait_until),
@@ -169,8 +167,7 @@ def get_audience_size(
         # email dedupe.
         return AudienceSize(
             affected=realtime_cohort.count or 0,
-            # An open send screen re-sizes a realtime cohort audience every few seconds while the cohort
-            # calculates, and the total only gives the count context, so even a refresh reuses it.
+            # A send screen re-sizes a calculating realtime cohort every few seconds, so even a refresh reuses the total.
             total=_person_total(team, refresh=False, wait_until=monotonic() + COUNTING_WAIT_SECONDS),
             limit=audience_limit.limit,
             dedupe_key=None,

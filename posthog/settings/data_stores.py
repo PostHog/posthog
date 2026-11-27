@@ -827,8 +827,7 @@ CACHES["ingress_dedup"] = {
     "LOCATION": REDIS_URL,
 }
 
-# Workflows audience counts share a lock between requests. A replica that has not seen the primary's lock or result
-# would let a second request run the same full person-table count.
+# Audience count locks must read what the primary holds, or a replica's lag lets two requests run the same count.
 CACHES["workflows_audience_counts"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
