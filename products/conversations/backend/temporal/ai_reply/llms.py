@@ -31,19 +31,15 @@ def anthropic_output_config(model: type[BaseModel]) -> dict[str, Any]:
     return {"output_config": {"format": {"type": "json_schema", "schema": anthropic_json_schema(model)}}}
 
 
-def tracing_kwargs(trace_id: str, ticket_id: str) -> dict[str, Any]:
-    """Per-ticket gateway attribution to splat into a `create_message(...)` call.
+def tracing_kwargs(trace_id: str) -> dict[str, Any]:
+    """Per-ticket `metadata` to splat into a `create_message(...)` call, omitted when `trace_id` is empty.
 
-    `metadata.user_id` becomes the generation's `$ai_trace_id` (so every utility call for one
-    ticket shares a trace), and `x-posthog-property-ticket_id` is merged into the captured
-    `$ai_generation` properties. Each key is omitted when its value is empty so we never send a
-    null metadata/header; add another tracing property here and all callers pick it up.
+    The ticket id and trace reach the captured generation through the client from
+    `build_conversations_client`.
     """
     kwargs: dict[str, Any] = {}
     if trace_id:
         kwargs["metadata"] = {"user_id": trace_id}
-    if ticket_id:
-        kwargs["extra_headers"] = {"x-posthog-property-ticket_id": ticket_id}
     return kwargs
 
 

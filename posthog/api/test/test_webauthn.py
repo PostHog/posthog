@@ -25,6 +25,7 @@ from posthog.models import Organization, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import UserType
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.models import Session
 
@@ -268,6 +269,32 @@ class TestWebAuthnLogin(APIBaseTest):
         User.objects.filter(pk=self.user.pk).update(is_active=False)
 
         self.assertIsNone(WebauthnBackend().get_user(self.user.pk))
+
+    @patch("posthog.auth.verify_passkey_authentication_response")
+    def test_login_complete_is_refused_for_a_service_account(self, mock_verify):
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+        self.client.logout()
+        self.client.post("/api/webauthn/login/begin/")
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        response = self.client.post(
+            "/api/webauthn/login/complete/",
+            {
+                "id": bytes_to_base64url(self.credential.credential_id),
+                "rawId": bytes_to_base64url(self.credential.credential_id),
+                "type": "public-key",
+                "response": {
+                    "authenticatorData": "data",
+                    "clientDataJSON": "data",
+                    "signature": "sig",
+                    "userHandle": bytes_to_base64url(user_uuid_to_handle(self.user.uuid)),
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch(
         "posthog.api.webauthn.refuse_blocked_account",

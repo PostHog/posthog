@@ -5,12 +5,17 @@ import type { ErrorTrackingIssueTagDefinitionApi } from '../../generated/api.sch
 import type { IssueTagState, IssueTagsFilter } from '../IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueTagSelect } from './IssueTagSelect'
 
-type TagDefinition = Pick<ErrorTrackingIssueTagDefinitionApi, 'key' | 'label' | 'description'>
+type TagDefinition = Pick<ErrorTrackingIssueTagDefinitionApi, 'key' | 'label' | 'description' | 'color'>
 
 const FEW_TAGS: TagDefinition[] = [
-    { key: 'frontend', label: 'Frontend', description: 'The stack trace has a frame from browser code.' },
-    { key: 'third_party', label: 'Third party', description: 'The top frame is in a vendor script.' },
-    { key: 'payments', label: 'Payments', description: '' },
+    {
+        key: 'frontend',
+        label: 'Frontend',
+        description: 'The stack trace has a frame from browser code.',
+        color: 'blue',
+    },
+    { key: 'third_party', label: 'Third party', description: 'The top frame is in a vendor script.', color: 'orange' },
+    { key: 'payments', label: 'Payments', description: '', color: null },
 ]
 
 const MANY_TAGS: TagDefinition[] = [
@@ -29,6 +34,7 @@ const MANY_TAGS: TagDefinition[] = [
         key: label.toLowerCase().replace(/ /g, '_'),
         label,
         description: `Errors raised in ${label.toLowerCase()} code.`,
+        color: null,
     })),
 ]
 

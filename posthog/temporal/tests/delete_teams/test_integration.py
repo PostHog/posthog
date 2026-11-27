@@ -21,6 +21,7 @@ from posthog.temporal.delete_teams.types import (
 from posthog.temporal.delete_teams.workflows import (
     DeleteOrganizationWorkflow,
     DeleteProjectDataWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
     DeleteTeamsDataWorkflow,
 )
 
@@ -33,7 +34,12 @@ pytestmark = [
     ),
 ]
 
-WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizationWorkflow]
+WORKFLOWS = [
+    DeleteTeamsDataWorkflow,
+    DeleteProjectDataWorkflow,
+    DeleteOrganizationWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
+]
 
 # Activities that reach out to Temporal schedules / email are stubbed so the test stays
 # hermetic; every Postgres-deletion activity runs for real against the test DB.

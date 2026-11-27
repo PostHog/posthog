@@ -144,7 +144,6 @@ export interface TaskRunStartedProperties {
   model?: string;
   initial_mode?: string;
   adapter?: string;
-  gateway_mode?: "legacy" | "go";
 }
 
 export interface TaskRunCompletedProperties {

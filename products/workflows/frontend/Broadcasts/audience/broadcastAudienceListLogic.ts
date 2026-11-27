@@ -8,6 +8,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, CohortType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
+import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 
 import { workflowPeopleImportsCreate } from '../../generated/api'
 import type { PeopleImportApi } from '../../generated/api.schemas'
@@ -33,7 +34,7 @@ export interface broadcastAudienceListLogicActions {
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     } // broadcastWizardLogic
-    cohortCreated: (cohort: CohortType) => {
+    cohortCreated: (cohort: CohortApi | CohortType) => {
         cohort: CohortType
     } // cohortsModel
     closeListModal: () => {

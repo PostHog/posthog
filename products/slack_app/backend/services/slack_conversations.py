@@ -19,6 +19,7 @@ from django.core.cache import cache
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -98,18 +99,41 @@ def _channel_privacy_from_slack(
     return ConversationType.PRIVATE_CHANNEL if channel["is_private"] else ConversationType.PUBLIC_CHANNEL
 
 
+@frozen
+class ChannelInfoLookup:
+    """A `conversations.info` result: the channel record, or the Slack error code when Slack refused."""
+
+    channel: dict[str, Any] | None = None
+    error: str | None = None
+
+
+def lookup_channel_info(slack: SlackIntegration, channel_id: str) -> ChannelInfoLookup:
+    """Like `fetch_channel_info`, for a caller that acts on why the lookup failed."""
+    try:
+        channel: dict[str, Any] = slack.client.conversations_info(channel=channel_id).get("channel") or {}
+    except SlackApiError as error:
+        code = str((error.response or {}).get("error") or "unknown")
+        logger.warning("slack_app_channel_info_lookup_failed", channel_id=channel_id, error=code)
+        return ChannelInfoLookup(error=code)
+    except Exception:
+        logger.warning("slack_app_channel_info_lookup_failed", channel_id=channel_id, exc_info=True)
+        return ChannelInfoLookup(error="request_failed")
+    _remember_channel_name(slack, channel_id, channel)
+    return ChannelInfoLookup(channel=channel)
+
+
+def fetch_channel_info(slack: SlackIntegration, channel_id: str) -> dict[str, Any] | None:
+    """The channel's `conversations.info` record, or None when Slack could not say. Warms the name cache."""
+    return lookup_channel_info(slack, channel_id).channel
+
+
 def resolve_channel_name(slack: SlackIntegration, channel_id: str) -> str | None:
     if channel_id.startswith("D"):
         return None
     cached = cache.get(_channel_name_key(slack, channel_id))
-    if cached is not None:
-        return cached or None
-    try:
-        channel = slack.client.conversations_info(channel=channel_id).get("channel") or {}
-    except Exception:
-        logger.warning("slack_app_channel_name_lookup_failed", channel_id=channel_id, exc_info=True)
-        return None
-    return _remember_channel_name(slack, channel_id, channel)
+    if cached is None and fetch_channel_info(slack, channel_id) is not None:
+        cached = cache.get(_channel_name_key(slack, channel_id))
+    return cached or None
 
 
 def _remember_channel_name(slack: SlackIntegration, channel_id: str, channel: dict[str, Any]) -> str | None:
