@@ -4854,11 +4854,13 @@ def test_a_push_refreshes_a_broadcast_request_once_stamphog_decided_the_new_head
 
 
 @pytest.mark.parametrize(
-    "approval_dismissed, expect_status, expect_cards",
+    "approval_dismissed, github_review_state, expect_status, expect_cards",
     [
         # Retention kept the approval over a push that left the diff unchanged, so the new head has no run.
-        pytest.param(False, BroadcastRequestStatus.STAMPHOG_APPROVED, 0, id="approval_retained"),
-        pytest.param(True, BroadcastRequestStatus.OPEN, 1, id="retained_approval_dismissed"),
+        pytest.param(False, "APPROVED", BroadcastRequestStatus.STAMPHOG_APPROVED, 0, id="approval_retained"),
+        pytest.param(True, "DISMISSED", BroadcastRequestStatus.OPEN, 1, id="retained_approval_dismissed"),
+        # A maintainer dismissed the approval on GitHub, which the product DB does not see.
+        pytest.param(False, "DISMISSED", BroadcastRequestStatus.OPEN, 1, id="approval_dismissed_on_github"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -4866,6 +4868,7 @@ def test_a_head_that_kept_stamphogs_approval_asks_nobody(
     team,
     stamphog_chain: StamphogChain,
     approval_dismissed: bool,
+    github_review_state: str,
     expect_status: BroadcastRequestStatus,
     expect_cards: int,
 ) -> None:
@@ -4888,8 +4891,12 @@ def test_a_head_that_kept_stamphogs_approval_asks_nobody(
         team_id=team.id, pull_request=pull_request, head_sha="sha177a", requested_via=BroadcastRequestSource.API
     )
     stamphog_chain.recorder.register_pr(REPO, 177, _silent_review_pr(177, "sha177b"), _pr_files())
+    stamphog_chain.recorder.pr_reviews[(REPO, 177)] = [
+        {"user": {"login": "stamphog[bot]", "type": "Bot"}, "state": github_review_state, "commit_id": "sha177a"}
+    ]
 
-    request = _refresh(request, decided_head_sha="sha177b")
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
+        request = _refresh(request, decided_head_sha="sha177b")
 
     assert (request.status, request.head_sha) == (expect_status, "sha177b")
     assert len(_cards()) == expect_cards

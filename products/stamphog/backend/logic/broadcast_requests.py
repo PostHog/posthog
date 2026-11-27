@@ -195,9 +195,15 @@ class LinkAsk:
 
 
 def stamphog_approval_live(reviews: list[dict[str, Any]]) -> bool:
-    """Whether GitHub still shows an approval by this App. GitHub reports a dismissed review as ``DISMISSED``."""
+    """Whether GitHub still shows an approval by this App. GitHub reports a dismissed review as ``DISMISSED``.
+
+    True when the App slug is not configured, because no review can then be identified as this App's, and the
+    product DB is the only record left.
+    """
     own_login = expected_app_bot_login()
-    return own_login is not None and any(
+    if own_login is None:
+        return True
+    return any(
         (review.get("user") or {}).get("login") == own_login and review.get("state") == "APPROVED" for review in reviews
     )
 
@@ -542,8 +548,8 @@ def _next_state(
         return None
     reviews = client.get_pr_reviews(pull_request.repo_config.repository, pull_request.pr_number)
     if status == BroadcastRequestStatus.STAMPHOG_APPROVED:
-        # A link request answers a person, so an approval that a maintainer dismissed on GitHub must not end it.
-        if request.requested_via != BroadcastRequestSource.SLACK_LINK or stamphog_approval_live(reviews):
+        # The product DB misses a maintainer dismissing the approval on GitHub, so GitHub must still show it.
+        if stamphog_approval_live(reviews):
             return _NextState(status=status, approved_by_login="", run=run)
         status, run = BroadcastRequestStatus.OPEN, None
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
