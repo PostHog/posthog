@@ -22,6 +22,7 @@ from django.http.request import RawPostDataException
 import grpc
 import requests
 import structlog
+import posthoganalytics
 from cryptography.fernet import InvalidToken
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -73,7 +74,7 @@ from posthog.auth import (
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_event_source, report_team_action, report_user_action
 from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -169,6 +170,7 @@ from products.feature_flags.backend.flag_analytics import (
     increment_local_evaluation_request_counts,
     increment_request_count,
 )
+from products.feature_flags.backend.flag_description import FlagDescription, describe_flag
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
     STALE_ACTIVE_PARAM_DESCRIPTION,
@@ -314,6 +316,19 @@ def _mirror_stored_fields(source: FeatureFlag, target: FeatureFlag) -> None:
     """Bring a stale copy of a flag up to date with the row that was just written."""
     for field in source._meta.concrete_fields:
         setattr(target, field.attname, getattr(source, field.attname))
+
+
+def _describe_for_launch_check(flag: FeatureFlag) -> FlagDescription | None:
+    try:
+        return describe_flag(flag)
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
+def _send_launch_check(team: Team, properties: dict[str, Any]) -> None:
+    with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
+        report_team_action(team, "feature flag launch checked", properties)
 
 
 def _carry_loaded_state(source: FeatureFlag, target: FeatureFlag) -> None:
@@ -2908,6 +2923,16 @@ class FeatureFlagSerializer(
 
         return instance
 
+    def _register_launch_check(self, before: FlagDescription | None, flag: FeatureFlag, request: Any) -> None:
+        try:
+            after = before and describe_flag(flag)
+            if after and before and after != before:
+                properties = {"source": get_event_source(request), "was_impersonated": is_impersonated(request)}
+                properties |= {"before": asdict(before), "after": asdict(after)}
+                transaction.on_commit(functools.partial(_send_launch_check, flag.team, properties), robust=True)
+        except Exception as error:
+            capture_exception(error)
+
     @approval_gate(list(FLAG_WRITE_APPROVAL_ACTIONS))
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
@@ -2926,6 +2951,7 @@ class FeatureFlagSerializer(
         )
         rollback_input.is_valid(raise_exception=True)
         rollback_change: ExposureChange | None = None
+        launch_before: FlagDescription | None = None
         # Prevent DRF from attempting to set reverse FK relation directly
         validated_data.pop("evaluation_contexts", None)
 
@@ -3010,6 +3036,7 @@ class FeatureFlagSerializer(
                 # (setting deleted=False) can acquire the lock.
                 locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
                 locked_version = locked_instance.version or 0
+                launch_before = None if self._v2_write else _describe_for_launch_check(locked_instance)
 
                 # V1 cleanup must not strip unknown keys from a v2 document before validation.
                 if not self._v2_write:
@@ -3133,6 +3160,7 @@ class FeatureFlagSerializer(
                 team=instance.team,
                 request=request,
             )
+        self._register_launch_check(launch_before, instance, request)
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key
