@@ -515,6 +515,29 @@ class TestInteractivityRegionRouting(TestCase):
         assert response["Content-Type"] == "application/xml"
         assert response.content == b"<xml/>"
 
+    @parameterized.expand([("local_integration", True), ("integration_in_another_region", False)])
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_registered_product_button_runs_in_the_region_that_owns_its_integration(
+        self, _name, local, mock_config, mock_proxy
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_proxy.return_value = self._proxy_response(200, b'{"forwarded": true}')
+        clicked: list[dict] = []
+
+        def handler(_payload: dict, clicked_action: dict) -> None:
+            clicked.append(clicked_action)
+
+        integration_id = self.posthog_code_integration.id if local else self.posthog_code_integration.id + 1000
+        action = {"action_id": "test_product.look", "value": json.dumps({"integration_id": integration_id})}
+
+        with patch.dict("posthog.slack.block_actions._handlers", {"test_product.": handler}):
+            response = self._post({"type": "block_actions", "user": {"id": "U123"}, "actions": [action]})
+
+        assert response.status_code == 200
+        assert clicked == ([action] if local else [])
+        assert response.content == (b"" if local else b'{"forwarded": true}')
+
 
 class TestSignalsDismissReport(TestCase):
     def setUp(self):
