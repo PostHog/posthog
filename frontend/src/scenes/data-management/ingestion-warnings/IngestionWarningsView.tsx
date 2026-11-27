@@ -25,10 +25,10 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
-    cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
-    merge_move_limit_exceeded: 'A merge exceeded its distinct id move limit and was dropped',
+    cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct ID',
+    merge_move_limit_exceeded: 'A merge exceeded its distinct ID move limit and was dropped',
     merge_settled_failure: 'A merge settled without merging and cannot be retried',
-    skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
+    skipping_event_invalid_uuid: 'Refused to process event with invalid UUID',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
@@ -88,13 +88,35 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     event_timestamp_in_future: 'an-event-was-sent-more-than-23-hours-in-the-future',
     ingestion_capacity_overflow: 'event-ingestion-has-overflowed-capacity',
     message_size_too_large: 'discarded-event-exceeding-1mb-limit',
+    person_properties_depth_violation: 'person-properties-nested-too-deep',
     replay_timestamp_invalid: 'replay-event-timestamp-is-invalid',
     replay_timestamp_too_far: 'replay-event-timestamp-was-too-far-in-the-future',
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
+    invalid_group_set: 'discarded-groupidentify-event-with-invalid-group_set',
+    group_type_too_long: 'discarded-groupidentify-event-with-group_type-exceeding-400-characters',
     high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
+    distinct_id_truncated: 'ingested-event-after-shortening-its-distinct-id-to-the-200-character-limit',
     cookieless_team_disabled: 'discarded-cookieless-event-because-cookieless-tracking-is-disabled',
+    missing_event_name: 'discarded-event-with-no-event-name',
+    missing_distinct_id: 'discarded-event-with-no-distinct-id',
+    event_name_too_long: 'capture-v1-validation-warnings',
+    distinct_id_too_large: 'capture-v1-validation-warnings',
+    invalid_event_timestamp: 'capture-v1-validation-warnings',
+    malformed_event_properties: 'capture-v1-validation-warnings',
+    invalid_options: 'capture-v1-validation-warnings',
+    empty_batch: 'capture-v1-validation-warnings',
+    invalid_batch: 'capture-v1-validation-warnings',
+    missing_event_uuid: 'capture-v1-validation-warnings',
+    invalid_event_uuid: 'capture-v1-validation-warnings',
+    duplicate_event_uuid: 'capture-v1-validation-warnings',
+    invalid_ai_event: 'discarded-ai-events',
+    invalid_ai_payload: 'discarded-ai-events',
+    no_ai_spans_ingested: 'discarded-ai-events',
     misrouted_event: 'discarded-ai-events',
+    missing_session_id: 'discarded-session-replay-batches',
+    invalid_session_id: 'discarded-session-replay-batches',
+    missing_snapshot_data: 'discarded-session-replay-batches',
 }
 
 export const WARNING_TYPE_RENDERER = {
@@ -180,7 +202,7 @@ export const WARNING_TYPE_RENDERER = {
         }
         return (
             <>
-                Refused to process event with invalid uuid: <code>{details.eventUuid}</code>.
+                Refused to process event with invalid UUID: <code>{details.eventUuid}</code>.
             </>
         )
     },
