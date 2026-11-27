@@ -355,33 +355,39 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.pollShares).toEqual(shares)
     })
 
-    it.each<[string, object]>([
-        ['without the answer', { ...DAY_TWO_ANSWERED, answer: null }],
-        [
-            'with the answer at older shares',
-            {
-                ...DAY_TWO_ANSWERED,
-                shares: [
-                    { option: 'james', share: 50 },
-                    { option: 'tim', share: 50 },
-                ],
-            },
+    const OLDER_DAY_TWO = {
+        ...DAY_TWO_ANSWERED,
+        shares: [
+            { option: 'james', share: 50 },
+            { option: 'tim', share: 50 },
         ],
+    }
+
+    it.each<[string, object, 'answer' | 'read']>([
+        ['an answer save, without the answer', { ...DAY_TWO_ANSWERED, answer: null }, 'answer'],
+        ['an answer save, with the answer at older shares', OLDER_DAY_TWO, 'answer'],
+        ['a newer results read, with the answer at older shares', OLDER_DAY_TWO, 'read'],
     ])(
-        'keeps the shares of a saved answer when the results the calendar loaded first arrive later %s',
-        async (_, lateQuestion) => {
+        'keeps the newer shares when the results the calendar loaded first arrive after %s',
+        async (_, lateQuestion, overtakenBy) => {
             let release = (): void => {}
             const api = calendarApi({}, resultsOf(lateQuestion), new Promise((done) => (release = done)))
             useMocks(api.mocks)
+            if (overtakenBy === 'read') {
+                window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
+            }
             logic.unmount()
             logic = adventCalendarLogic()
             logic.mount()
             await waitFor(() => expect(api.reads).toEqual([1]))
             useMocks(calendarApi().mocks)
-            logic.actions.activateDoor('door-1')
-            logic.actions.finishReveal()
-
-            logic.actions.answerDoor('door-2', 'tim')
+            if (overtakenBy === 'answer') {
+                logic.actions.activateDoor('door-1')
+                logic.actions.finishReveal()
+                logic.actions.answerDoor('door-2', 'tim')
+            } else {
+                logic.actions.loadPollResults()
+            }
             await waitFor(() => expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } }))
             release()
             await expectLogic(logic).toFinishAllListeners()

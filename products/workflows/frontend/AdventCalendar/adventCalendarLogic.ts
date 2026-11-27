@@ -86,8 +86,7 @@ async function resultsOrNull(request: Promise<AdventCalendarResultsApi>): Promis
 
 function mergeResults(
     current: AdventCalendarResultsApi | null,
-    next: AdventCalendarResultsApi | null,
-    keepAnswered: boolean
+    next: AdventCalendarResultsApi | null
 ): AdventCalendarResultsApi | null {
     if (!current?.questions || !next?.questions) {
         return next ?? current
@@ -97,7 +96,7 @@ function mergeResults(
         ...next,
         questions: next.questions.map((question) => {
             const answered = known.get(question.day)
-            return answered?.answer && (keepAnswered || !question.answer) ? answered : question
+            return !question.answer && answered?.answer ? answered : question
         }),
     }
 }
@@ -332,25 +331,23 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         preloadImages: true,
     }),
     loaders(({ values, cache }) => {
-        // A results read that an answer's save resolved during holds shares older than the ones that save
-        // returned, so the answered questions already in the state win over it.
         const mergedResults = async (
-            request: Promise<AdventCalendarResultsApi>,
-            isAnswer: boolean
+            request: Promise<AdventCalendarResultsApi>
         ): Promise<AdventCalendarResultsApi | null> => {
-            const savesBefore = cache.answerSaves ?? 0
+            const read = (cache.resultReads = (cache.resultReads ?? 0) + 1)
             const results = await resultsOrNull(request)
-            cache.answerSaves = (cache.answerSaves ?? 0) + (isAnswer ? 1 : 0)
-            return mergeResults(values.pollResults, results, !isAnswer && cache.answerSaves !== savesBefore)
+            const isStale = read < (cache.appliedRead ?? 0)
+            cache.appliedRead = Math.max(read, cache.appliedRead ?? 0)
+            return isStale ? mergeResults(results, values.pollResults) : mergeResults(values.pollResults, results)
         }
         return {
             pollResults: [
                 null as AdventCalendarResultsApi | null,
                 {
                     loadPollResults: async () =>
-                        mergedResults(api.workflowAdventCalendarResults(String(values.currentProjectId)), false),
+                        mergedResults(api.workflowAdventCalendarResults(String(values.currentProjectId))),
                     savePollAnswer: async (answer: AdventCalendarAnswerApi) =>
-                        mergedResults(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer), true),
+                        mergedResults(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer)),
                 },
             ],
         }
