@@ -217,6 +217,19 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 # Printed as a Trino date, though the function registry declares no return type for them.
 _DATE_FUNCTIONS = frozenset({"tomonday", "tolastdayofmonth", "tolastdayofweek"})
+_BOOLEAN_PRINTED_FUNCTIONS = frozenset(
+    {
+        "bittest",
+        "bittestall",
+        "bittestany",
+        "empty",
+        "isvalidjson",
+        "isvalidutf8",
+        "jsonhas",
+        "multisearchanycaseinsensitive",
+        "notempty",
+    }
+)
 _ANY_HEAVY_CAPACITY = 10
 _SCALAR_ARRAY_ITEM_TYPES = (
     ast.BooleanType,
@@ -1679,12 +1692,7 @@ class TrinoPrinter(PostgresPrinter):
             if node.name.lower() == "tuplehammingdistance":
                 return ast.IntegerType()
             return self._tuple_arithmetic_type(node)
-        if isinstance(node, ast.Call) and node.name.lower() in {
-            "empty",
-            "notempty",
-            "jsonhas",
-            "multisearchanycaseinsensitive",
-        }:
+        if isinstance(node, ast.Call) and node.name.lower() in _BOOLEAN_PRINTED_FUNCTIONS:
             return ast.BooleanType()
         offset = self._date_offset_of(node)
         if offset is not None:

@@ -583,6 +583,8 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ),
         ("(id > 0) != 0", '(CAST(("users"."id" > 0) AS INTEGER) != 0)'),
         ("(id > 0) = (id < 5)", '(("users"."id" > 0) = ("users"."id" < 5))'),
+        ("isValidUTF8(user_id) = 1", '(CAST(IF("users"."user_id" IS NULL, NULL, true) AS INTEGER) = 1)'),
+        ("bitTest(id, 1) = 1", "BIGINT '1', CAST(1 AS INTEGER))) <> 0) AS INTEGER) = 1)"),
         (
             "notEmpty(user_id) = 1",
             '(CAST(("users"."user_id" IS NOT NULL AND "users"."user_id" <> \'\') AS INTEGER) = 1)',
@@ -702,6 +704,7 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         ("SELECT x = 1 FROM (SELECT argMax(is_active, id) AS x FROM flagged)", '(CAST("x" AS INTEGER) = 1)'),
         ("WITH c AS (SELECT min(is_active) AS x FROM flagged) SELECT x = 1 FROM c", '(CAST("c"."x" AS INTEGER) = 1)'),
         ("SELECT max(score) = 1 FROM flagged", '(max("flagged"."score") = 1)'),
+        ("SELECT flag = 1 FROM json_flags", '(CAST("json_flags"."flag" AS INTEGER) = 1)'),
         ("SELECT id FROM copy_history WHERE NOT is_copy", 'WHERE (NOT CAST("copy_history"."is_copy" AS BOOLEAN))'),
         (
             "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
@@ -760,6 +763,17 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
         )
     )
 
+    context.database.tables.add_child(
+        TableNode(
+            name="json_flags",
+            table=SavedQuery(
+                id="json_flags",
+                name="json_flags",
+                query="SELECT isValidJSON(user_id) AS flag FROM users",
+                fields={"flag": BooleanDatabaseField(name="flag")},
+            ),
+        )
+    )
     context.database.tables.add_child(
         TableNode(
             name="copies",
