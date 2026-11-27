@@ -64,7 +64,7 @@ function longRows(frames: DataFrame[]): Cell[][] {
 
 /** A chart's frames as CSV text: a header row, then the rows a person would expect to see in a spreadsheet. */
 export function framesToCsv(frames: DataFrame[]): string {
-    const withFields = frames.filter((frame) => frame.fields?.length > 0)
+    const withFields = frames.filter((frame) => frame.fields.length > 0)
     const joinable = withFields.length > 0 && withFields.every((frame) => keyFieldOf(frame) && !hasRepeatedKeys(frame))
     // A cell that starts with `=` would run as a formula when the file opens in a spreadsheet.
     return Papa.unparse(joinable ? wideRows(withFields) : longRows(withFields), { escapeFormulae: true })

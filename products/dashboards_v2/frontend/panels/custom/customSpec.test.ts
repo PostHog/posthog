@@ -9,20 +9,17 @@ describe('customSpec', () => {
     const wide = { w: 24, h: 6, minW: 12, minH: 4 }
     const Component = (): null => null
     const spec = definePanelSpec(
-        customSpec(
-            [
-                defineContentPackage('test', {
-                    banner: { Component, size: wide, showOnInteractiveOnly: true, movable: true, keepMounted: true },
-                    plain: { Component },
-                    copied: { Component, duplicable: true },
-                    service: defineContent({
-                        Component,
-                        propsSchema: z.strictObject({ service: z.string(), limit: z.int().optional() }),
-                    }),
+        customSpec([
+            defineContentPackage('test', {
+                banner: { Component, size: wide, showOnInteractiveOnly: true, movable: true, keepMounted: true },
+                plain: { Component },
+                copied: { Component, duplicable: true },
+                service: defineContent({
+                    Component,
+                    propsSchema: z.strictObject({ service: z.string(), limit: z.int().optional() }),
                 }),
-            ],
-            []
-        )
+            }),
+        ])
     )
 
     it.each([
@@ -91,7 +88,7 @@ describe('customSpec', () => {
     })
 
     it('throws when two packages share a namespace', () => {
-        expect(() => customSpec([defineContentPackage('test', {}), defineContentPackage('test', {})], [])).toThrow(
+        expect(() => customSpec([defineContentPackage('test', {}), defineContentPackage('test', {})])).toThrow(
             'Two custom content packages use the namespace "test"'
         )
     })
