@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -31,6 +31,9 @@ from products.warehouse_sources.sources.sdk.testing import (
     Script,
     ScriptedResponse,
     SourceDriver,
+    activate_safe_point,
+    scripted_network,
+    source_inputs,
 )
 
 
@@ -295,7 +298,7 @@ class TestSourceResponse:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == (None if config.kind == "dated_fanout" else "asc")
+        assert response.sort_mode == (None if config.kind in ("dated_fanout", "console_ratings") else "asc")
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]
@@ -380,20 +383,73 @@ def _dated_api(
 
 
 class TestDatedFanOut:
+    @pytest.mark.parametrize(
+        "endpoint,path,body",
+        [
+            (
+                "reviews_replies_speed",
+                "/reviews/stats/replies/speed",
+                {"replies_time_stat": [{"answer_user_id": "10"}]},
+            ),
+            ("reviews_version_stats", "/reviews/stats/version", {"tags_stat": {"versions": ["0.1"], "tags": []}}),
+        ],
+    )
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_daily_walk_requests_each_day_from_the_lookback_and_stamps_the_day(self) -> None:
-        api = _dated_api(lambda request: {"replies_time_stat": [{"answer_user_id": "10", "replies_time": []}]})
+    def test_daily_walk_requests_each_day_from_the_lookback_and_stamps_the_day(
+        self, endpoint: str, path: str, body: dict[str, Any]
+    ) -> None:
+        api = _dated_api(lambda request: body)
         result = _run(
-            "reviews_replies_speed",
+            endpoint,
             api,
             should_use_incremental_field=True,
             db_incremental_field_last_value=date(2026, 6, 13),
         )
         assert result.raised is None
-        days = [request.param("date") for request in _requests_to(result, "/reviews/stats/replies/speed")]
+        days = [request.param("date") for request in _requests_to(result, path)]
         assert days == [(date(2026, 6, 6) + timedelta(days=n)).isoformat() for n in range(10)]
         assert [row["date"] for row in result.rows] == days
         assert all(row["ext_id"] == "111" for row in result.rows)
+
+    @pytest.mark.parametrize(
+        "endpoint,path,window_days",
+        [
+            ("reviews_version_stats", "/reviews/stats/version", 1),
+            ("console_ratings", "/meta/ratings/console/gp", 14),
+        ],
+    )
+    @pytest.mark.parametrize("watermark", [None, date(2026, 4, 15)])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_initial_backfill_does_not_cut_off_dates_after_an_interruption(
+        self, endpoint: str, path: str, window_days: int, watermark: date | None
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "tags_stat": {"tags": []},
+                    "fields": {request.param("fields"): [{"date": request.param("from"), "value": 1}]},
+                }
+            )
+
+        script = _console_api(respond) if endpoint == "console_ratings" else _dated_api(respond)
+        result = _run(endpoint, script, should_use_incremental_field=True, db_incremental_field_last_value=watermark)
+        assert result.raised is None
+        requests_ = _requests_to(result, path)
+        if endpoint == "console_ratings":
+            requests_ = [
+                r for r in requests_ if r.param("collection_name") == "first" and r.param("fields") == "ratings"
+            ]
+        windows = [
+            (
+                date.fromisoformat(r.param("from") or r.param("date") or ""),
+                date.fromisoformat(r.param("to") or r.param("date") or ""),
+            )
+            for r in requests_
+        ]
+        assert windows[0][0] == (date(2026, 4, 8) if watermark else date(2026, 5, 16))
+        assert windows[-1][1] == date(2026, 6, 15)
+        assert all((end - start).days < window_days for start, end in windows)
+        assert all(nxt[0] == prev[1] + timedelta(days=1) for prev, nxt in zip(windows, windows[1:]))
 
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_window_backfill_is_split_into_requests_of_one_month_at_most(self) -> None:
@@ -484,6 +540,19 @@ class TestDatedFanOut:
                 {"reviews": [{"review_id": 5, "sentiment": "Negative", "tags": ["Bugs"]}]},
                 [{"review_id": 5, "sentiment": "Negative", "tags": ["Bugs"], "ext_id": "111"}],
             ),
+            (
+                "reviews_version_stats",
+                {"tags_stat": {"tags": [{"version": "0.1", "count": 2}], "bt_tags": [], "versions": ["0.1"]}},
+                [
+                    {
+                        "tags": [{"version": "0.1", "count": 2}],
+                        "bt_tags": [],
+                        "versions": ["0.1"],
+                        "ext_id": "111",
+                        "date": "2026-06-15",
+                    }
+                ],
+            ),
         ],
     )
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
@@ -499,6 +568,167 @@ class TestDatedFanOut:
         )
         assert result.raised is None
         assert result.rows == expected
+
+
+class TestFeaturedApps:
+    @pytest.mark.parametrize("resume_country", [None, "gb"])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_features_keep_the_app_and_country_scope_when_resuming(self, resume_country: str | None) -> None:
+        discovery = _V2Api(
+            collections=[{"id": 10, "countries": ["us"]}, {"id": 20, "countries": ["gb"]}],
+            apps_by_collection={
+                10: [{"ext_id": "111", "store": "as"}, {"ext_id": "example.app", "store": "gp"}],
+                20: [{"ext_id": "111", "store": "as"}, {"ext_id": "111", "store": "as"}],
+            },
+        )
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if not request.path.endswith("/aso/featured"):
+                return discovery(request)
+            return ScriptedResponse(
+                json={
+                    "data": {
+                        "111": {"data": [{"title": "Example collection", "date": "2026-06-10", "pos": 2}, None]},
+                        "other.app": {"data": [{"title": "Unrelated app"}]},
+                    }
+                }
+            )
+
+        resume = AppfollowResumeConfig(ext_id="111", country=resume_country) if resume_country else None
+        result = _run("featured_apps", script, resume_state=resume)
+        assert result.raised is None
+        expected_countries = ["gb"] if resume_country else ["us", "gb"]
+        requests_ = _requests_to(result, "/aso/featured")
+        assert [r.param("country") for r in requests_] == expected_countries
+        assert all(r.param("ext_id") == "111" for r in requests_)
+        assert all((r.param("from"), r.param("to")) == ("2025-06-15", "2026-06-15") for r in requests_)
+        assert result.rows == [
+            {"title": "Example collection", "date": "2026-06-10", "pos": 2, "ext_id": "111", "country": country}
+            for country in expected_countries
+        ]
+        assert result.saved_states == ([] if resume_country else [AppfollowResumeConfig(ext_id="111", country="gb")])
+        assert result.committed_states == ([resume] if resume else result.saved_states)
+
+    @pytest.mark.parametrize("body", [{"data": {}}, {"data": {"111": {"data": []}}}, {"data": None}])
+    def test_empty_feature_history_yields_no_rows(self, body: dict[str, Any]) -> None:
+        result = _run("featured_apps", _dated_api(lambda _: body))
+        assert result.raised is None
+        assert result.rows == []
+
+
+def _console_api(respond: Callable[[RecordedRequest], ScriptedResponse]) -> Script:
+    discovery = _V2Api(
+        collections=[{"id": 10, "title_normalized": "first"}, {"id": 20, "title_normalized": "second"}],
+        apps_by_collection={
+            10: [{"ext_id": "example.app", "store": "gp"}, {"ext_id": "111", "store": "as"}],
+            20: [{"ext_id": "example.app", "store": "gp"}, {"ext_id": "example.app", "store": "gp"}],
+        },
+    )
+
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        return respond(request) if request.path.endswith("/meta/ratings/console/gp") else discovery(request)
+
+    return script
+
+
+class TestConsoleRatings:
+    @pytest.mark.parametrize("has_google_play_app", [False, True])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_discovery_reaches_safe_points_between_empty_collections(self, has_google_play_app: bool) -> None:
+        discovery = _V2Api(
+            collections=[{"id": n, "title_normalized": f"collection-{n}"} for n in range(8)],
+            apps_by_collection={7: [{"ext_id": "example.app", "store": "gp"}]} if has_google_play_app else {},
+        )
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/meta/ratings/console/gp"):
+                return ScriptedResponse(
+                    json={"fields": {request.param("fields"): [{"date": "2026-06-15", "value": 1}]}}
+                )
+            return discovery(request)
+
+        source = AppfollowSource()
+        inputs = source_inputs("console_ratings")
+        manager = source.get_resumable_source_manager(inputs)
+        with (
+            scripted_network(script) as network,
+            activate_safe_point(network.note_progress, covers_framework_checkpoints=False),
+        ):
+            response = source.source_for_pipeline(AppfollowSourceConfig(api_key="tok"), manager, inputs)
+            rows = []
+            batches = response.items()
+            assert isinstance(batches, Iterable)
+            for batch in batches:
+                rows.extend(batch)
+                network.note_progress()
+            assert network.longest_run_without_progress <= 3
+            assert len(network.requests_log) >= 9
+        assert bool(rows) == has_google_play_app
+
+    @pytest.mark.parametrize("incremental", [False, True])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_both_metrics_keep_the_collection_and_walk_the_date_windows(self, incremental: bool) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            metric = request.param("fields")
+            return ScriptedResponse(
+                json={
+                    "fields": {metric: [{"date": request.param("from"), "value": 4.25 if metric == "ratings" else 7}]}
+                }
+            )
+
+        result = _run(
+            "console_ratings",
+            _console_api(respond),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=date(2026, 6, 14),
+        )
+        assert result.raised is None
+        windows = (
+            [("2026-06-07", "2026-06-15")]
+            if incremental
+            else [("2026-05-16", "2026-05-29"), ("2026-05-30", "2026-06-12"), ("2026-06-13", "2026-06-15")]
+        )
+        requests_ = _requests_to(result, "/meta/ratings/console/gp")
+        assert [(r.param("collection_name"), r.param("from"), r.param("to"), r.param("fields")) for r in requests_] == [
+            (collection, start, end, metric)
+            for collection in ("first", "second")
+            for start, end in windows
+            for metric in ("ratings", "users")
+        ]
+        assert all(r.param("ext_id") == "example.app" and r.param("period") == "daily" for r in requests_)
+        assert result.rows == [
+            {"collection_name": collection, "ext_id": "example.app", "date": start, "metric": metric, "value": value}
+            for collection in ("first", "second")
+            for start, _ in windows
+            for metric, value in (("ratings", 4.25), ("users", 7))
+        ]
+        assert result.saved_states == [
+            *[
+                AppfollowResumeConfig(ext_id="example.app", collection_id=10, slice_start=start)
+                for start, _ in windows[1:]
+            ],
+            AppfollowResumeConfig(ext_id="example.app", collection_id=20),
+            *[
+                AppfollowResumeConfig(ext_id="example.app", collection_id=20, slice_start=start)
+                for start, _ in windows[1:]
+            ],
+        ]
+        assert result.committed_states == result.saved_states
+
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_resume_keeps_the_saved_collection_and_day_with_nullable_metrics(self) -> None:
+        result = _run(
+            "console_ratings",
+            _console_api(lambda _: ScriptedResponse(json={"fields": {"ratings": None}})),
+            resume_state=AppfollowResumeConfig(ext_id="example.app", collection_id=20, slice_start="2026-06-14"),
+        )
+        assert result.raised is None
+        requests_ = _requests_to(result, "/meta/ratings/console/gp")
+        assert [(r.param("collection_name"), r.param("from"), r.param("fields")) for r in requests_] == [
+            ("second", "2026-06-14", "ratings"),
+            ("second", "2026-06-14", "users"),
+        ]
+        assert result.rows == []
 
 
 class _V3Api:
