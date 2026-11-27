@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { BUSY_ERROR, MAX_STREAMS, createQueryBatchRunner } from './queryBatchRunner'
+import { BUSY_ERROR, MAX_STREAMS, PROJECT_NOT_ALLOWED_ERROR, createQueryBatchRunner } from './queryBatchRunner'
 import { QUERY_BATCH_TIMING_EVENT } from './queryBatchTiming'
 import type { QueryRequest } from './queryTypes'
 
@@ -129,7 +129,7 @@ describe('createQueryBatchRunner', () => {
     })
 
     it("sends a query that names another project to that project's endpoint, in its own stream", async () => {
-        const runQuery = createQueryBatchRunner(7)
+        const runQuery = createQueryBatchRunner(7, { allowsProject: (project) => project === 9 })
         const own = runQuery(SQL)
         const other = runQuery({ ...SQL, project: 9 })
         const ownAgain = runQuery(TRENDS)
@@ -145,6 +145,17 @@ describe('createQueryBatchRunner', () => {
         await expect(other).resolves.toEqual(totalOf(9))
         await expect(own).resolves.toEqual(totalOf(1))
         await expect(ownAgain).resolves.toEqual(totalOf(2))
+    })
+
+    it.each([
+        ['no check', undefined],
+        ['a check that refuses it', (project: number): boolean => project === 9],
+    ])('sends nothing for a query that names a project outside the organization, with %s', async (_, allowsProject) => {
+        const runQuery = createQueryBatchRunner(7, { allowsProject })
+        await expect(runQuery({ ...SQL, project: 8 })).rejects.toThrow(PROJECT_NOT_ALLOWED_ERROR)
+        await flush()
+
+        expect(globalThis.fetch).not.toHaveBeenCalled()
     })
 
     it('rejects the queries a stream ended without answering', async () => {

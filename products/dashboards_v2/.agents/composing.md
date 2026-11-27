@@ -71,7 +71,7 @@ export function ServiceHealth(): JSX.Element | null {
 - `dashboard` is null only when the JSON does not have the shape of a dashboard. A panel that fails its own type's check still renders, and its tile says why.
 - `problems` lists each problem with its `path`, such as `tabs[0].tiles[1].panel.config.query`. Assert it is empty in a test of your JSON, so a typo fails CI instead of showing a broken tile.
 - `query.language` is `hogql`, `query` (a `QuerySchema` node), `promql` or `logql`. Your runner decides which languages it runs.
-- `config.project`, or `project` on one of `config.targets`, is the id of the project a query reads. Left out, the query reads the project your runner was made for. A viewer without access to that project sees an error on that tile only.
+- `config.project`, or `project` on one of `config.targets`, is the id of the project a query reads. Left out, the query reads the project your runner was made for. `createQueryBatchRunner` runs a query in another project only when its `allowsProject` option accepts it, so pass a check that keeps queries inside the viewer's organization. A refused project, or one the viewer cannot access, shows an error on that tile only.
 - With no `runQuery`, nothing runs. `createChartPanel({ sampleData: true })` draws made-up data, for a story or an empty project.
 
 ## Run your own queries
