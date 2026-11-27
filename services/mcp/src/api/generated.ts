@@ -69746,6 +69746,26 @@ export namespace Schemas {
     }
 
     /**
+     * Body of a search sent with POST, which keeps the query text out of the request URL.
+     */
+    export interface KnowledgeSearchRequest {
+      /**
+         * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
+         * @maxLength 2000
+         */
+      query: string;
+      /** Maximum number of ranked chunks to return. Defaults to 10, capped at 20. */
+      limit?: number;
+      /** When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure. */
+      rerank?: boolean;
+      /**
+         * Limit retrieval to sources in this library. Omit to search every ready source.
+         * @nullable
+         */
+      library_id?: string | null;
+    }
+
+    /**
      * * `keyword` - Keyword
      * * `semantic` - Semantic
      * * `both` - Keyword and semantic
@@ -141652,7 +141672,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
      */
     query: string;
     /**
