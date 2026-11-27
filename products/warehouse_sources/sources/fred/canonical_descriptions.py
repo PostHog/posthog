@@ -182,7 +182,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "series_updates": {
-        "description": "Series whose observations FRED updated in the last two weeks, newest first. FRED keeps no older updates, so each sync replaces the table.",
+        "description": "Series whose observations FRED updated in the last two weeks, newest first. FRED keeps no older updates, so each sync replaces the table. A series that FRED updates while a sync runs can be missing until the next sync.",
         "docs_url": f"{DOCS_BASE_URL}/series_updates.html",
         "columns": _SERIES_COLUMNS,
     },

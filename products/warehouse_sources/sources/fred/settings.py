@@ -191,8 +191,11 @@ FRED_ENDPOINTS: dict[str, FredEndpointConfig] = {
         paginated=True,
         params={"order_by": "release_id", "sort_order": "asc"},
     ),
-    # FRED keeps only the last two weeks of updates and always sorts them newest first, so a
-    # series updated again during the walk moves to the top and shifts the later pages down.
+    # FRED keeps only the last two weeks of updates and always sorts them newest first, with no
+    # stable order to page by. A series updated during the walk moves to the top: the rows it
+    # pushes onto the next page are dropped as repeats, but if it was on a page not read yet,
+    # this run misses it and the next sync picks it up. A fixed end_time does not help, because
+    # a series updated again then leaves the window and a later row is skipped instead.
     "series_updates": FredEndpointConfig(
         name="series_updates",
         path="/series/updates",
