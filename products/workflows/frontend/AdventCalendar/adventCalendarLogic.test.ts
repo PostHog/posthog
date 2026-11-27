@@ -46,6 +46,7 @@ function calendarApi(
         open?: Reply
         openedAt?: (day: number) => string
         storedOffset?: number | null
+        openHeld?: Promise<void>
     } = {},
     results = resultsOf(DAY_TWO_ANSWERED),
     resultsHeld: Promise<void> = Promise.resolve()
@@ -69,6 +70,7 @@ function calendarApi(
             [`${CALENDAR_API}/open/`]: async ({ request }) => {
                 const open = (await request.json()) as { day: number; utc_offset_minutes: number }
                 opens.push(open)
+                await replies.openHeld
                 const openedAt = replies.openedAt?.(open.day) ?? '2026-12-03T09:00:00Z'
                 const storedOffset = replies.storedOffset === undefined ? open.utc_offset_minutes : replies.storedOffset
                 return replyWith(replies.open ?? 200, {
@@ -249,6 +251,26 @@ describe('adventCalendarLogic', () => {
         }
     )
 
+    it('keeps a ticket the server confirms after the calendar closed', async () => {
+        let reply: () => void = () => {}
+        useMocks(calendarApi({ openHeld: new Promise((resolve) => (reply = resolve)) }).mocks)
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        logic.actions.answerDoor('door-2', 'james')
+        logic.actions.finishReveal()
+        logic.actions.activateDoor('door-3-upper')
+        logic.unmount()
+
+        reply()
+        await waitFor(() =>
+            expect(JSON.parse(window.localStorage.getItem(TICKETS_KEY) ?? '{}')).toEqual({ [UUID]: [3] })
+        )
+        logic = adventCalendarLogic()
+        logic.mount()
+
+        expect(logic.values.tickets).toBe(1)
+    })
+
     it('earns a ticket for every door a preview opens, and saves none of them', async () => {
         const api = calendarApi()
         useMocks(api.mocks)
@@ -313,6 +335,7 @@ describe('adventCalendarLogic', () => {
 
         await expectLogic(logic, () => logic.actions.answerDoor('door-2', 'james')).toFinishAllListeners()
         const shares = logic.values.pollShares
+        await waitFor(() => expect(logic.values.tickets).toBe(1))
         logic.unmount()
         logic = adventCalendarLogic()
         logic.mount()
