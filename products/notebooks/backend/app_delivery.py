@@ -101,10 +101,19 @@ def app_output_tabs(
         if not isinstance(result, dict) or not isinstance(result.get("columns"), list):
             continue
         columns = result["columns"]
-        rows = result.get("first_page") or []
+        retained = (release.sql_rows or {}).get(props.get("runId"))
+        rows = retained if isinstance(retained, list) else result.get("first_page") or []
         if not isinstance(rows, list) or not all(isinstance(column, str) for column in columns):
             continue
         if tenant_column is not None:
+            row_count = result.get("row_count")
+            partial = (isinstance(row_count, int) and len(rows) < row_count) or (
+                retained is None and bool(result.get("has_more") or result.get("previewOnly"))
+            )
+            if partial:
+                raise serializers.ValidationError(
+                    "Save and republish the complete SQL results before creating an embed."
+                )
             if columns.count(tenant_column) != 1:
                 raise serializers.ValidationError(
                     {"tenant_column": "Every displayed SQL output must include this tenant column exactly once."}

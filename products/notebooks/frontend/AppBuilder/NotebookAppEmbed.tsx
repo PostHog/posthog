@@ -66,6 +66,9 @@ export function NotebookAppEmbed({ project, shortId }: { project: string; shortI
             <LemonModal
                 isOpen={open}
                 onClose={() => {
+                    if (busy) {
+                        return
+                    }
                     setOpen(false)
                     setOrigin('')
                     setColumn('')

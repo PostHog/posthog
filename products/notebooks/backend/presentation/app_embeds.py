@@ -11,9 +11,23 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import serializers
 
 from posthog.models import Team, User
+from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
+from posthog.utils import get_trusted_client_ip
 
 from products.notebooks.backend.facade.app_embeds import read_embed_audience, redeem_signed_embed
 from products.notebooks.backend.presentation.app_serializers import notebook_app_builder_enabled
+
+PUBLIC_IP_BUDGET = Budget(burst=120, per_hour=1200)
+PUBLIC_EMBED_BUDGET = Budget(burst=300, per_hour=6000)
+
+
+def public_embed_rate_limit(key: str, budget: Budget) -> HttpResponse | None:
+    decision = consume(key, budget)
+    if isinstance(decision, BucketUnavailable):
+        return HttpResponse(status=503, headers={"Retry-After": "5"})
+    if isinstance(decision, BucketDecision) and not decision.allowed:
+        return HttpResponse(status=429, headers={"Retry-After": str(decision.retry_after)})
+    return None
 
 
 class AppEmbedRequestSerializer(serializers.Serializer):
@@ -44,11 +58,15 @@ class AppEmbedRequestSerializer(serializers.Serializer):
             or "*" in parsed.netloc
         ):
             raise serializers.ValidationError("Enter an HTTPS origin without a path, credentials, or wildcard.")
+        if ":" in parsed.hostname:
+            raise serializers.ValidationError(
+                "Use a hostname for the site origin. Browsers cannot frame this embed from an IPv6 address."
+            )
         try:
             port = parsed.port
         except ValueError as exc:
             raise serializers.ValidationError("Enter a valid HTTPS port.") from exc
-        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        host = parsed.hostname
         return f"https://{host}:{port}" if port and port != 443 else f"https://{host}"
 
 
@@ -59,10 +77,16 @@ class AppEmbedRequestSerializer(serializers.Serializer):
 def notebook_app_embed(request: HttpRequest, team_id: int, embed_id: UUID) -> HttpResponse:
     from django.template.response import TemplateResponse
 
+    if limited := public_embed_rate_limit(
+        f"notebooks:embed:ip:{get_trusted_client_ip(request) or 'unknown'}", PUBLIC_IP_BUDGET
+    ):
+        return limited
     team = get_object_or_404(Team.objects.select_related("organization"), pk=team_id)
     audience = read_embed_audience(team_id, embed_id)
     if audience is None:
         raise Http404()
+    if limited := public_embed_rate_limit(f"notebooks:embed:view:{embed_id}", PUBLIC_EMBED_BUDGET):
+        return limited
     issuer = get_object_or_404(User, pk=audience.issued_by_id)
     if not notebook_app_builder_enabled(issuer, team):
         raise Http404()

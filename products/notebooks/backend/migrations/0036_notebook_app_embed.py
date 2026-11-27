@@ -32,7 +32,7 @@ class Migration(migrations.Migration):
                 ("tenant_value", models.CharField(max_length=256)),
                 ("verification_key", models.BinaryField()),
                 ("snapshot", models.JSONField()),
-                ("expires_at", models.DateTimeField()),
+                ("expires_at", models.DateTimeField(db_index=True)),
                 (
                     "issued_by",
                     models.ForeignKey(

@@ -9,8 +9,10 @@ from django.test import Client
 from django.utils import timezone
 
 from posthog.models import OrganizationMembership
+from posthog.token_bucket import BucketDecision, BucketUnavailable
 
 from products.notebooks.backend.models import Notebook, NotebookAppEmbed, NotebookAppRelease
+from products.notebooks.backend.tasks.app_embeds import cleanup_expired_app_embeds
 
 
 class TestNotebookAppEmbeds(APIBaseTest):
@@ -103,9 +105,59 @@ class TestNotebookAppEmbeds(APIBaseTest):
         )
         assert not NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).exists()
 
+    def test_tenant_rows_after_the_preview_and_incomplete_releases(self) -> None:
+        self.release.markdown = '<SQLV2 nodeId="usage" code="SELECT 1" runId="retained" outputTab="results" result={{"columns":["workspace_id","project"],"first_page":[["grove","Grove survey"]],"has_more":true,"row_count":2}} />'
+        self.release.sql_rows = {"retained": [["grove", "Grove survey"], ["coast", "Tidal survey"]]}
+        self.release.save(update_fields=["markdown", "sql_rows"])
+        path, token = self.issue("coast")
+        output = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
+        self.assertContains(output, "Tidal survey")
+        self.assertNotContains(output, "Grove survey")
+        self.release.sql_rows = {}
+        self.release.save(update_fields=["sql_rows"])
+        response = self.client.post(self.management, self.configuration("coast"), format="json")
+        assert response.status_code == 400
+        self.assertContains(response, "complete SQL results", status_code=400)
+
+    def test_unicode_tenant_redeems_within_the_size_limit(self) -> None:
+        path, token = self.issue("🌲" * 256)
+        assert len(token) <= 4096
+        assert self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe").status_code == 200
+
+    def test_audience_limit_allows_renewal_and_expired_rows_are_removed(self) -> None:
+        self.issue("coast")
+        with patch("products.notebooks.backend.app_embeds.MAX_PROJECT_AUDIENCES", 1):
+            self.issue("coast")
+            response = self.client.post(self.management, self.configuration("grove"), format="json")
+            assert response.status_code == 400
+        self.issue("grove")
+        audiences = NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release)
+        audiences.filter(tenant_value="grove").update(expires_at=timezone.now() - timedelta(seconds=1))
+        cleanup_expired_app_embeds()
+        assert list(audiences.values_list("tenant_value", flat=True)) == ["coast"]
+
+    def test_restricted_requests_leave_existing_audiences_revocable(self) -> None:
+        path, token = self.issue("coast")
+        denied = BucketDecision(allowed=False, remaining=0, limit=1, retry_after=12, reset=12)
+        with patch("products.notebooks.backend.presentation.app_embeds.consume", return_value=denied):
+            assert self.public.get(path).status_code == 429
+            response = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
+            assert response.status_code == 429
+            assert response.headers["Retry-After"] == "12"
+        with patch(
+            "products.notebooks.backend.presentation.app_embeds.consume",
+            return_value=BucketUnavailable(error="unavailable"),
+        ):
+            assert self.public.get(path).status_code == 503
+        with patch("products.notebooks.backend.app_embeds.consume", return_value=denied):
+            assert self.client.post(self.management, self.configuration("grove"), format="json").status_code == 429
+            response = self.client.post(self.management, {**self.configuration("coast"), "revoke": True}, format="json")
+            assert response.status_code == 200
+
     def test_missing_tenant_column_and_invalid_audience_are_rejected(self) -> None:
         for override in (
             {"origin": "https://*.example.com"},
+            {"origin": "https://[2001:db8::1]"},
             {"origin": "https://portal.example.com/a"},
             {"tenant_column": "missing"},
         ):

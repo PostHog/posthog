@@ -1,6 +1,7 @@
 import json
 from dataclasses import asdict
 from datetime import timedelta
+from hashlib import sha256
 from uuid import UUID
 
 from django.db import transaction
@@ -9,7 +10,10 @@ from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
+
+from posthog.models.team import Team
+from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
@@ -19,6 +23,8 @@ from products.notebooks.backend.facade.contracts import AppEmbedAudience, AppOut
 from products.notebooks.backend.models import Notebook, NotebookAppEmbed, NotebookAppRelease
 
 ISSUER = "posthog:notebook-app-embed"
+MAX_PROJECT_AUDIENCES = 100
+ISSUE_BUDGET = Budget(burst=10, per_hour=60)
 
 
 @transaction.atomic
@@ -36,10 +42,13 @@ def change_signed_embed(
         return AppViewGrantResult(url=None, expires_at=None)
     if not notebook.team.organization.allow_publicly_shared_resources:
         raise PermissionDenied("Public sharing is disabled for this organization.")
+    admission = consume(f"notebooks:embed:issue:{team_id}", ISSUE_BUDGET)
+    if isinstance(admission, BucketDecision) and not admission.allowed:
+        raise Throttled(wait=admission.retry_after)
     release = (
         NotebookAppRelease.objects.for_team(team_id)
         .filter(notebook=notebook)
-        .defer("sql_rows", "variables")
+        .defer("variables")
         .order_by("-revision")
         .first()
     )
@@ -52,6 +61,12 @@ def change_signed_embed(
     if len(json.dumps(snapshot).encode()) > 1024 * 1024:
         raise ValidationError("Reduce the saved result size before creating an embed.")
     expires_at = timezone.now() + timedelta(hours=24)
+    Team.objects.select_for_update().only("pk").get(pk=team_id)
+    existing = NotebookAppEmbed.objects.for_team(team_id)
+    if existing.count() >= MAX_PROJECT_AUDIENCES and not existing.filter(release=release, **audience).exists():
+        raise ValidationError(
+            "This project has reached its embed audience limit. Revoke an existing embed and try again."
+        )
     private_key = Ed25519PrivateKey.generate()
     embed, _ = NotebookAppEmbed.objects.for_team(team_id).update_or_create(
         team_id=team_id,
@@ -74,7 +89,7 @@ def change_signed_embed(
             "exp": expires_at,
             "project": team_id,
             "release": str(release.pk),
-            "tenant": tenant_value,
+            "tenant": sha256(tenant_value.encode()).hexdigest(),
         },
         private_key,
         algorithm="EdDSA",
@@ -135,7 +150,7 @@ def redeem_signed_embed(team_id: int, embed_id: UUID, token: str) -> AppOutput |
     if (
         claims["project"] != team_id
         or claims["release"] != str(embed.release_id)
-        or claims["tenant"] != embed.tenant_value
+        or claims["tenant"] not in (sha256(embed.tenant_value.encode()).hexdigest(), embed.tenant_value)
     ):
         return None
     return AppOutput(
