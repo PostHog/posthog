@@ -1592,6 +1592,40 @@ LegacyDriftSource = Callable[[int | None, UUID | None, int], Sequence[LegacyCopy
 
 
 @frozen
+class PlatformAlertListFilters:
+    """Narrows the alerts list. An alert matches a facet when it matches any value given for it,
+    and matches the filters when it matches every facet given. An empty facet matches every alert."""
+
+    states: tuple[str, ...] = ()
+    mutes: tuple[str, ...] = ()
+    # `(key, value)` pairs. Values of one key widen the match, and different keys narrow it.
+    labels: tuple[tuple[str, str], ...] = ()
+
+
+@frozen
+class PlatformAlertFacetValue:
+    value: str
+    count: int
+
+
+@frozen
+class PlatformAlertLabelFacet:
+    key: str
+    values: tuple[PlatformAlertFacetValue, ...]
+
+
+@frozen
+class PlatformAlertFacets:
+    """How many alerts match each value the list filters on, counted over every alert the caller
+    can read and not narrowed by any filter. An alert counts once for each value it matches."""
+
+    states: tuple[PlatformAlertFacetValue, ...]
+    mutes: tuple[PlatformAlertFacetValue, ...]
+    source_kinds: tuple[PlatformAlertFacetValue, ...]
+    labels: tuple[PlatformAlertLabelFacet, ...]
+
+
+@frozen
 class PlatformAlertConfigurationPage:
     """One page of configurations, with the total the reader needs to paginate."""
 

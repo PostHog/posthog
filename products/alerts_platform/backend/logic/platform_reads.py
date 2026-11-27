@@ -5,14 +5,29 @@ outside the product, so they return views rather than rows and never change one.
 """
 
 import operator
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections import Counter
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from functools import reduce
 from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Case, Exists, FloatField, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    FloatField,
+    Max,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
@@ -29,7 +44,11 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
     PlatformAlertEvents,
+    PlatformAlertFacets,
+    PlatformAlertFacetValue,
     PlatformAlertHistory,
+    PlatformAlertLabelFacet,
+    PlatformAlertListFilters,
     PlatformAlertListHistory,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
@@ -43,6 +62,8 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
+    PlatformAlertListState,
+    PlatformAlertMute,
     PlatformAlertOwner,
     PlatformAlertState,
 )
@@ -126,6 +147,88 @@ def _readable(team_id: int, source_kinds: Sequence[str]) -> QuerySet[PlatformAle
     )
 
 
+def _state_matches(state: str, team_id: int) -> Q:
+    """Configurations in `state` as `instance_view` shows their instances: a failing check status
+    takes the place of each instance's own state."""
+    instances = PlatformAlert.objects.for_team(team_id, canonical=True).filter(configuration_id=OuterRef("pk"))
+    if state == PlatformAlertListState.DISABLED:
+        return Q(enabled=False)
+    if state == PlatformAlertListState.NOT_CHECKED:
+        return Q(enabled=True) & ~Q(Exists(instances))
+    own_state = Q(check_status=PlatformAlertCheckStatus.OK) & Q(Exists(instances.filter(state=state)))
+    if state in (PlatformAlertCheckStatus.ERRORED, PlatformAlertCheckStatus.BROKEN):
+        return Q(enabled=True) & ((Q(check_status=state) & Q(Exists(instances))) | own_state)
+    return Q(enabled=True) & own_state
+
+
+def _mute_matches(mute: str, team_id: int, now: datetime) -> Q:
+    if mute == PlatformAlertMute.QUIET_HOURS:
+        # The scheduler skips a restriction with no windows, so it is no quiet hours.
+        return (
+            Q(schedule_restriction__has_key="blocked_windows")
+            & ~Q(schedule_restriction__blocked_windows=None)
+            & ~Q(schedule_restriction__blocked_windows=[])
+        )
+    snoozed_groups = PlatformAlert.objects.for_team(team_id, canonical=True).filter(
+        configuration_id=OuterRef("pk"), snooze_until__gt=now
+    )
+    return Q(snooze_until__gt=now) | Q(Exists(snoozed_groups))
+
+
+def _any_of(conditions: Iterable[Q]) -> Q:
+    return reduce(operator.or_, conditions)
+
+
+def _filtered(
+    readable: QuerySet[PlatformAlertConfiguration], filters: PlatformAlertListFilters, team_id: int
+) -> QuerySet[PlatformAlertConfiguration]:
+    if filters.states:
+        readable = readable.filter(_any_of(_state_matches(state, team_id) for state in filters.states))
+    if filters.mutes:
+        now = timezone.now()
+        readable = readable.filter(_any_of(_mute_matches(mute, team_id, now) for mute in filters.mutes))
+    values_by_key: dict[str, list[str]] = {}
+    for key, value in filters.labels:
+        values_by_key.setdefault(key, []).append(value)
+    for key, values in values_by_key.items():
+        readable = readable.filter(_any_of(Q(labels__contains={key: value}) for value in values))
+    return readable
+
+
+def configuration_facets(*, team_id: int, source_kinds: Sequence[str]) -> PlatformAlertFacets:
+    """The count of readable configurations for each value the list filters on. One aggregate
+    covers the states and mutes, so their counts and the list filters share one definition."""
+    readable = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind__in=list(source_kinds)
+    )
+    now = timezone.now()
+    counts = readable.aggregate(
+        **{f"state_{state}": Count("pk", filter=_state_matches(state, team_id)) for state in PlatformAlertListState},
+        **{f"mute_{mute}": Count("pk", filter=_mute_matches(mute, team_id, now)) for mute in PlatformAlertMute},
+    )
+    kinds = dict(readable.order_by().values_list("source_kind").annotate(count=Count("pk")))
+    labels: Counter[tuple[str, str]] = Counter()
+    for stored in readable.values_list("labels", flat=True):
+        labels.update((key, value) for key, value in (stored or {}).items() if isinstance(value, str))
+    keys = sorted({key for key, _ in labels})
+    return PlatformAlertFacets(
+        states=tuple(PlatformAlertFacetValue(state, counts[f"state_{state}"]) for state in PlatformAlertListState),
+        mutes=tuple(PlatformAlertFacetValue(mute, counts[f"mute_{mute}"]) for mute in PlatformAlertMute),
+        source_kinds=tuple(PlatformAlertFacetValue(kind, kinds[kind]) for kind in sorted(kinds)),
+        labels=tuple(
+            PlatformAlertLabelFacet(
+                key,
+                tuple(
+                    PlatformAlertFacetValue(value, count)
+                    for (label_key, value), count in sorted(labels.items())
+                    if label_key == key
+                ),
+            )
+            for key in keys
+        ),
+    )
+
+
 def list_configurations(
     *,
     team_id: int,
@@ -136,11 +239,13 @@ def list_configurations(
     configuration_ids: Collection[UUID] | None = None,
     created_by_uuid: UUID | None = None,
     held_only: bool = False,
+    filters: PlatformAlertListFilters | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations, newest first, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
     With `created_by_uuid`, only the ones that user created. With `held_only`, only the ones whose
-    settings the platform holds: those with no source row, and the copies it owns.
+    settings the platform holds: those with no source row, and the copies it owns. With `filters`,
+    only the ones that match them.
 
     The page is taken in the database rather than in the caller, so a team with many alerts
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
@@ -155,6 +260,8 @@ def list_configurations(
         readable = readable.filter(created_by__uuid=created_by_uuid)
     if held_only:
         readable = readable.filter(_HELD)
+    if filters is not None:
+        readable = _filtered(readable, filters, team_id)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),

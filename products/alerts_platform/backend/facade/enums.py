@@ -57,6 +57,27 @@ class PlatformAlertCheckStatus(LabeledStrEnum):
     BROKEN = "broken", "Broken"
 
 
+class PlatformAlertListState(LabeledStrEnum):
+    """A state the alerts list filters on. An enabled alert is in each state one of its groups is in,
+    as the API shows that group. An alert with no group is not checked yet, and a disabled alert is
+    only disabled."""
+
+    BROKEN = "broken", "Broken"
+    ERRORED = "errored", "Errored"
+    FIRING = "firing", "Firing"
+    SNOOZED = "snoozed", "Snoozed"
+    NOT_FIRING = "not_firing", "Not firing"
+    DISABLED = "disabled", "Disabled"
+    NOT_CHECKED = "not_checked", "Not checked yet"
+
+
+class PlatformAlertMute(LabeledStrEnum):
+    """Why an alert holds its messages, as the alerts list filters on it."""
+
+    SNOOZED = "snoozed", "Snoozed"
+    QUIET_HOURS = "quiet_hours", "Quiet hours"
+
+
 class PlatformAlertConfigurationRecurrenceUnit(LabeledStrEnum):
     """The calendar unit a configuration recurs on, when it does not recur on a minute interval."""
 
