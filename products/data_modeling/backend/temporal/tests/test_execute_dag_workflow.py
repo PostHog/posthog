@@ -18,7 +18,10 @@ from temporalio import (
     activity as temporal_activity,
     workflow as temporal_workflow,
 )
-from temporalio.api.enums.v1 import EventType
+from temporalio.api.enums.v1 import (
+    EventType,
+    ParentClosePolicy as HistoryParentClosePolicy,
+)
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.workflow import ParentClosePolicy
@@ -675,7 +678,9 @@ class TestExecuteDAGWorkflowWithMocks:
         @temporal_activity.defn(name="publish_notebook_model")
         async def publish(run: ModelRun) -> int:
             nonlocal publishing_workflow
-            publishing_workflow = temporal_activity.info().workflow_id
+            workflow_id = temporal_activity.info().workflow_id
+            assert workflow_id is not None
+            publishing_workflow = workflow_id
             _mock_workflow_calls.append("publish")
             if publish_fails:
                 raise temporalio.exceptions.ApplicationError(
@@ -729,7 +734,7 @@ class TestExecuteDAGWorkflowWithMocks:
             [] if publish_fails else [f"retire-notebook-upload-1-{prepared[0]}"]
         )
         if retirements:
-            assert retirements[0].parent_close_policy == ParentClosePolicy.ABANDON
+            assert retirements[0].parent_close_policy == HistoryParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
             assert env.client.data_converter.payload_converter.from_payloads(
                 retirements[0].input.payloads, [RetiredNotebookUpload]
             ) == [RetiredNotebookUpload(team_id=1, generation=previous)]
