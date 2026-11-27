@@ -3,8 +3,10 @@ import datetime as dt
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -35,6 +37,7 @@ from products.aeo.backend.test.factories import (
     create_own_brand,
     store_what_the_runner_stores,
 )
+from products.aeo.backend.test.fake_decisions import FakeDecisionModel
 
 
 class TestSyncBrandsFromRun(BaseTest):
@@ -460,6 +463,15 @@ class TestCompetitorCandidates(BaseTest):
         assert [candidate.domain for candidate in competitor_candidates(self.team.id, limit=20)] == [
             "beacon.example.org"
         ]
+
+        # With Jev on, a brand the model says is not a competitor leaves the list, whatever its counts.
+        model = FakeDecisionModel(lambda text: 0.1 if text.startswith("Lantern") else 0.9)
+        with (
+            override_settings(AEO_JEV_COMPETITORS=True),
+            patch("products.aeo.backend.decisions.build_system_one_client", return_value=model),
+        ):
+            assert [c.domain for c in competitor_candidates(self.team.id, limit=20)] == ["beacon.example.org"]
+        assert model.requests[0]["site"] == "example.com"
 
 
 class TestListDomainsAcrossTeams(BaseTest):
