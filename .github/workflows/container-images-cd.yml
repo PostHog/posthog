@@ -245,7 +245,7 @@ jobs:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
-                  sbom: true
+                  sbom: generator=docker/buildkit-syft-scanner:1.12.1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
@@ -319,7 +319,6 @@ jobs:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
-                  sbom: true
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
