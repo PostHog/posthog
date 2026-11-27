@@ -2487,6 +2487,11 @@ class TestResolver(BaseTest):
         with self.assertRaisesRegex(QueryError, f"can never match {subject}\\."):
             resolve_types(expr, self.context, dialect="clickhouse")
 
+    def test_blank_date_literal_hint_quotes_the_column(self):
+        expr = self._select("SELECT date AS `Ordered At` FROM exchange_rate WHERE `Ordered At` = ''")
+        with self.assertRaisesRegex(QueryError, "use `Ordered At` IS NOT NULL\\."):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
     @parameterized.expand(
         [
             ("loose_date_form", "SELECT rate FROM exchange_rate WHERE date = '2026-1-5'", "clickhouse"),

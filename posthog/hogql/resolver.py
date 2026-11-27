@@ -51,7 +51,7 @@ from posthog.hogql.errors import (
     ResolutionDepthExceededError,
     ResolutionError,
 )
-from posthog.hogql.escape_sql import safe_identifier
+from posthog.hogql.escape_sql import quote_hogql_identifier, safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.clickhouse.conversions import NUMERIC_CONVERSION_ALIASES
@@ -151,11 +151,12 @@ def _canonical_uuid(value: str) -> str | None:
 
 
 def _compared_field_name(node: ast.Expr) -> str | None:
+    """The field as it would be written in HogQL, quoted where needed, such as `Ordered At`."""
     # The resolver wraps each field it resolves in a hidden alias that carries the field's name.
     if isinstance(node, ast.Alias):
-        return node.alias
+        return quote_hogql_identifier(node.alias)
     if isinstance(node, ast.Field):
-        return ".".join(str(part) for part in node.chain)
+        return ".".join(str(part) if isinstance(part, int) else quote_hogql_identifier(part) for part in node.chain)
     return None
 
 
