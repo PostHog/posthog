@@ -308,10 +308,7 @@ def _own_events(team: Team, user: User | None, detail: TransactionalEmailLogDeta
 def _clicks(
     team: Team, user: User | None, detail: TransactionalEmailLogDetail, own_events: list[_OwnEvent]
 ) -> list[TransactionalEmailClick]:
-    # Own events keep each kind's earliest rows, so keeping the earliest clicks keeps each one's link.
-    click_times = [event.at for event in detail.timeline if event.kind == EmailLogEventKind.CLICKED][
-        :MAX_OWN_EVENTS_PER_KIND
-    ]
+    click_times = [event.at for event in detail.timeline if event.kind == EmailLogEventKind.CLICKED]
     if not click_times:
         return []
     click_events: dict[datetime, list[_OwnEvent]] = {}
