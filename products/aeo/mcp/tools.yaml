@@ -413,8 +413,8 @@ tools:
             `cited` how many of those answers cited the project. `domains` lists the sites those answers cited most,
             with `share_of_answers` (0-1) over `answers` and `is_target` marking the project's own domain, which is
             listed even when it ranks lower; `target_rank` is its place among all `domains_cited`. Citations are stored
-            per answer, not per search, and most answers run several searches, so a site may come from another search
-            of the same answer. `related_searches` lists the other searches the same answers ran, `keywords` the tracked
+            per answer, not per search, and most answers run several searches, so a site may come from another search of
+            the same answer. `related_searches` lists the other searches the same answers ran, `keywords` the tracked
             keywords the search contains, and `top_prompts` the prompts that ran it most. `branded`, `engine` and
             `topic` narrow the checks as in `aeo-prompts-overview-get`. Take `search` from `top_searches` there. To read
             the answers themselves, pass the same search to `aeo-prompts-citations-list`. Searches and domains are
