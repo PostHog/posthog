@@ -1010,6 +1010,20 @@ tools:
             the earlier version in the history, and a request that changes nothing records no new version. A revoked
             instruction cannot change: create a new one instead.
         feature_flag: signals-reviewer-exclusions-mcp
+    inbox-source-alert-pattern-preview:
+        operation: signals_source_configs_alert_pattern_preview_create
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview inbox alert name patterns
+        description: >
+            Try the proposed allow and block patterns together before updating the product analytics source. Include
+            any saved patterns you intend to keep. An omitted list is empty. The preview checks the alert and insight
+            names for up to 100 of the newest enabled alerts you can view. Inspect each alert's outcome, check
+            `has_more` for additional alerts, and correct any pattern errors before saving. Saves nothing.
+        feature_flag: signals-analytics-all-alerts
     inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: true
@@ -1068,7 +1082,9 @@ tools:
             you pass change. To turn the scout source off, set `enabled=false` on its `signals_scout` /
             `cross_source_issue` config. Prefer `config_set` and `config_remove` over `config`, which replaces the whole
             object. For example, set `config_set.steering` and remove `default_not_actionable` with `config_remove`. The
-            full resulting configuration is validated before saving.
+            full resulting configuration is validated before saving. Check candidate `hogql_filter` expressions with
+            `inbox-source-filter-preview`. Check both alert name pattern lists together with
+            `inbox-source-alert-pattern-preview` before saving either list.
     inbox-source-configs-retrieve:
         operation: signals_source_configs_retrieve
         enabled: true

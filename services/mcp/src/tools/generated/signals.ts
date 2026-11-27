@@ -1415,6 +1415,36 @@ const inboxReviewerExclusionsUpdate = (): ToolBase<
     },
 })
 
+const InboxSourceAlertPatternPreviewSchema = () => {
+    const SignalsSourceConfigsAlertPatternPreviewCreateBody =
+        orvalSchemas.SignalsSourceConfigsAlertPatternPreviewCreateBody()
+    return SignalsSourceConfigsAlertPatternPreviewCreateBody
+}
+
+const inboxSourceAlertPatternPreview = (): ToolBase<
+    ReturnType<typeof InboxSourceAlertPatternPreviewSchema>,
+    Schemas.AlertPatternPreviewResponse
+> => ({
+    name: 'inbox-source-alert-pattern-preview',
+    schema: InboxSourceAlertPatternPreviewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSourceAlertPatternPreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.alert_allow_patterns !== undefined) {
+            body['alert_allow_patterns'] = params.alert_allow_patterns
+        }
+        if (params.alert_block_patterns !== undefined) {
+            body['alert_block_patterns'] = params.alert_block_patterns
+        }
+        const result = await context.api.request<Schemas.AlertPatternPreviewResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/alert_pattern_preview/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxSourceConfigsCreateSchema = () => {
     const SignalsSourceConfigsCreateBody = orvalSchemas.SignalsSourceConfigsCreateBody()
     return SignalsSourceConfigsCreateBody
@@ -4414,6 +4444,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reviewer-exclusions-list': inboxReviewerExclusionsList,
     'inbox-reviewer-exclusions-revoke': inboxReviewerExclusionsRevoke,
     'inbox-reviewer-exclusions-update': inboxReviewerExclusionsUpdate,
+    'inbox-source-alert-pattern-preview': inboxSourceAlertPatternPreview,
     'inbox-source-configs-create': inboxSourceConfigsCreate,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,

@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "alert_allow_patterns": {
+            "description": "Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.",
+            "items": {
+                "maxLength": 1000,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "alert_block_patterns": {
+            "description": "Block patterns to try, as they would be saved in `config.alert_block_patterns`.",
+            "items": {
+                "maxLength": 1000,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        }
+    },
+    "type": "object"
+}

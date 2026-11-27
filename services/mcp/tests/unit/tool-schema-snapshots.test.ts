@@ -141,6 +141,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'platform-alerts-source-warehouse': true,
         'logs-agent-tools': true,
         'signals-source-filters': true,
+        'signals-analytics-all-alerts': true,
         'release-objects': true,
         'workflows-email-activity': true,
     }

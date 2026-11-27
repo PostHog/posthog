@@ -9765,6 +9765,22 @@
         },
         "feature_flag": "signals-reviewer-exclusions-mcp"
     },
+    "inbox-source-alert-pattern-preview": {
+        "description": "Try the proposed allow and block patterns together before updating the product analytics source. Include any saved patterns you intend to keep. An omitted list is empty. The preview checks the alert and insight names for up to 100 of the newest enabled alerts you can view. Inspect each alert's outcome, check `has_more` for additional alerts, and correct any pattern errors before saving. Saves nothing.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Preview inbox alert name patterns",
+        "title": "Preview inbox alert name patterns",
+        "required_scopes": ["inbox:read"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/source_configs/alert_pattern_preview/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "signals-analytics-all-alerts"
+    },
     "inbox-source-configs-create": {
         "description": "Switch an inbox source on for the current project. A source config ties a `source_product` and a `source_type` to an `enabled` flag and optional `config`. A project has at most one config per (source_product, source_type); if one exists, update it instead. To surface AI observability evaluation report findings, create `source_product=llm_analytics`, `source_type=evaluation_report`; there is no per-evaluation-run source. The scout source is on by default, so scout findings reach the inbox with no config row. Create a `source_product=signals_scout`, `source_type=cross_source_issue` row only to opt out, with `enabled=false`; set each scout's own `emit` flag with `scout-config-update`. Get Linear team ids from `integrations-linear-teams-retrieve`.",
         "category": "Signals",
@@ -9796,7 +9812,7 @@
         }
     },
     "inbox-source-configs-partial-update": {
-        "description": "Partially update an inbox source config by ID, usually to flip `enabled` or adjust `config`. Only the fields you pass change. To turn the scout source off, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. Prefer `config_set` and `config_remove` over `config`, which replaces the whole object. For example, set `config_set.steering` and remove `default_not_actionable` with `config_remove`. The full resulting configuration is validated before saving.",
+        "description": "Partially update an inbox source config by ID, usually to flip `enabled` or adjust `config`. Only the fields you pass change. To turn the scout source off, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. Prefer `config_set` and `config_remove` over `config`, which replaces the whole object. For example, set `config_set.steering` and remove `default_not_actionable` with `config_remove`. The full resulting configuration is validated before saving. Check candidate `hogql_filter` expressions with `inbox-source-filter-preview`. Check both alert name pattern lists together with `inbox-source-alert-pattern-preview` before saving either list.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update inbox source config",

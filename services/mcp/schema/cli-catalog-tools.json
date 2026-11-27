@@ -29417,6 +29417,47 @@
             "validators": []
         }
     },
+    "inbox-source-alert-pattern-preview": {
+        "name": "inbox-source-alert-pattern-preview",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/source_configs/alert_pattern_preview/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "alert_allow_patterns",
+                    "key": "alert_allow_patterns"
+                },
+                {
+                    "param": "alert_block_patterns",
+                    "key": "alert_block_patterns"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "inbox-source-configs-create": {
         "name": "inbox-source-configs-create",
         "kind": "http",
