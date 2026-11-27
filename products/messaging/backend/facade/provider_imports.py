@@ -259,7 +259,7 @@ def _to_state(run: ProviderImportRun, with_items: bool = True) -> ProviderImport
         provider=run.provider,
         status=run.status,
         steps=tuple(
-            _step_progress(step, specs.get(step), run.progress.get(step, {}), with_items, run.progress)
+            _step_progress(step, specs.get(step), run.progress.get(step, {}), run.progress, with_items)
             for step in run.steps
         ),
         created_at=run.created_at,
@@ -273,11 +273,11 @@ def _step_progress(
     key: str,
     spec: ImportStepSpec | None,
     progress: dict[str, Any],
+    run_progress: Mapping[str, dict[str, Any]],
     with_items: bool = True,
-    run_progress: Mapping[str, dict[str, Any]] | None = None,
 ) -> ImportStepProgress:
     counts = progress.get("counts", {})
-    total, seconds_left = _estimate(spec, progress, run_progress or {})
+    total, seconds_left = _estimate(spec, progress, run_progress)
     stored_items = progress.get("items", [])
     items = stored_items if with_items else []
     return ImportStepProgress(
@@ -312,18 +312,20 @@ def _estimate(
     if spec is None or progress.get("status") != ImportStepStatus.RUNNING.value or progress.get("continued"):
         return None, None
     totals = [
-        run_progress[step].get("processed", 0)
+        source["processed"]
         for step in spec.total_from
-        if run_progress.get(step, {}).get("status") == ImportStepStatus.COMPLETED.value
+        if (source := run_progress.get(step, {})).get("status") == ImportStepStatus.COMPLETED.value
+        and not source.get("continued")
     ]
-    if not totals:
+    processed = progress.get("processed", 0)
+    # Contacts added since the earlier step can take the count past it, and then the total says nothing.
+    if not totals or processed >= max(totals):
         return None, None
     total = max(totals)
-    processed = progress.get("processed", 0)
     since = progress.get("reading_since") or {}
     started_at = parse_datetime(since["at"]) if isinstance(since.get("at"), str) else None
     read = processed - since.get("processed", processed)
     elapsed = (timezone.now() - started_at).total_seconds() if started_at else 0
     if read <= 0 or elapsed <= 0:
         return total, None
-    return total, round(max(total - processed, 0) * elapsed / read)
+    return total, round((total - processed) * elapsed / read)

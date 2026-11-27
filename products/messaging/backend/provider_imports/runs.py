@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import logging
 from collections.abc import Callable, Mapping
+from contextlib import closing
 from dataclasses import asdict, replace
 from datetime import timedelta
 from typing import Any
@@ -180,11 +181,13 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> list[People
     )
     try:
         _check_required_steps(provider, run, step)
-        for page in provider.run_step(step, context, claim.checkpoint):
-            _check_creator_access(team_id, run.created_by_id)
-            _save_page(team_id, run_id, step, attempt, page)
-            if page.checkpoint is None:
-                return _people_imports(team_id, run_id, step)
+        # Closed on a failed save too, so a provider reading ahead stops sending requests before the step retries.
+        with closing(provider.run_step(step, context, claim.checkpoint)) as pages:
+            for page in pages:
+                _check_creator_access(team_id, run.created_by_id)
+                _save_page(team_id, run_id, step, attempt, page)
+                if page.checkpoint is None:
+                    return _people_imports(team_id, run_id, step)
         _update_owned_step(team_id, run_id, step, attempt, _mark_completed)
         return _people_imports(team_id, run_id, step)
     except (StaleImportAttempt, ImportRunClosed):
@@ -405,9 +408,6 @@ def _continue_failed_steps(
         # A cursor from another key can point into another account, so a new key starts the step over.
         if previous.get("key_id") == key_id and step not in fresh:
             step_progress["checkpoint"] = previous.get("checkpoint")
-            # The run read the records before the checkpoint without counting them, so its count can't say how many
-            # are left.
-            step_progress["continued"] = bool(previous.get("checkpoint"))
 
 
 def _key_id(api_key: str | None) -> str | None:
@@ -476,6 +476,10 @@ def _claim_step(team_id: int, run_id: UUID, step: str, attempt: int) -> _StepCla
         progress = run.progress.setdefault(step, _new_step_progress())
         if progress["status"] == ImportStepStatus.COMPLETED:
             return _StepClaim(completed=True, checkpoint=None)
+        if progress.get("checkpoint") and not progress["processed"]:
+            # Continued from an earlier run, which read the records before the checkpoint, so this run's count can't
+            # say how many there are.
+            progress["continued"] = True
         progress.update(
             status=ImportStepStatus.RUNNING.value,
             attempt=attempt,
@@ -570,6 +574,7 @@ def _new_step_progress() -> dict[str, Any]:
 def _mark_completed(progress: dict[str, Any]) -> None:
     progress.update(status=ImportStepStatus.COMPLETED.value, last_error=None, checkpoint=None)
     progress.pop("error_class", None)
+    progress.pop("reading_since", None)
 
 
 def _step_outcomes(progress: Mapping[str, Any]) -> dict[str, int]:

@@ -29,7 +29,7 @@ function stepCounts(step: ImportStepProgressApi): string {
         return 'Not started'
     }
     const read =
-        step.total !== null
+        typeof step.total === 'number'
             ? `${step.processed.toLocaleString()} of about ${step.total.toLocaleString()} read`
             : `${step.processed.toLocaleString()} read`
     return `${read} · ${step.imported.toLocaleString()} new or changed`
@@ -123,7 +123,7 @@ export function ProviderImportRunProgress({
                             {stepCounts(step)}
                         </span>
                     </div>
-                    {step.seconds_left !== null && (
+                    {typeof step.seconds_left === 'number' && (
                         <div className="ml-6 text-xs text-secondary" data-attr={`${step.key}-import-time-left`}>
                             {timeLeft(step.seconds_left)}
                         </div>

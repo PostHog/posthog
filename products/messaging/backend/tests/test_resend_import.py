@@ -693,6 +693,34 @@ class TestResendImport(BaseTest):
         # Half of the contacts the opt-outs step read took a minute, so the other half should too.
         assert (topic_opt_outs.processed, topic_opt_outs.total, topic_opt_outs.seconds_left) == (2, 4, 60)
 
+    def test_no_time_left_when_the_step_it_counts_from_continued_an_earlier_import(self) -> None:
+        self.resend.page_size = 1
+        first = runs.start_run(self.team.id, "resend", ["opt_outs", "topic_opt_outs"], API_KEY, self.user.id)
+        read = self.resend.get
+
+        def fail_second_page(url: str, params: dict | None = None, **kwargs: Any) -> MagicMock:
+            if urlparse(url).path == "/contacts" and params and params.get("after"):
+                return FakeResend._response(503, {"name": "service_unavailable", "message": "Down"})
+            return read(url, params, **kwargs)
+
+        with patch("products.messaging.backend.services.resend_client.requests.get", fail_second_page):
+            with self.assertRaises(ImportProviderUnavailable):
+                runs.run_step(self.team.id, first.id, "opt_outs", attempt=1)
+        runs.finish_run(self.team.id, first.id)
+        self.resend.failures = {"/contacts/c0000000-0000-4000-8000-000000000003/topics": [(503, {})] * 4}
+        second = runs.start_run(self.team.id, "resend", ["opt_outs", "topic_opt_outs"], API_KEY, self.user.id)
+
+        runs.run_step(self.team.id, second.id, "opt_outs", attempt=1)
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, second.id, "topic_opt_outs", attempt=1)
+        state = get_provider_import_run(self.team.id, second.id)
+
+        assert state is not None
+        opt_outs, topic_opt_outs = state.steps
+        # The resumed step counted only the contacts after its checkpoint, so it can't give the total.
+        assert (opt_outs.processed, topic_opt_outs.processed) == (3, 2)
+        assert (topic_opt_outs.total, topic_opt_outs.seconds_left) == (None, None)
+
 
 class TestResendContacts(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
