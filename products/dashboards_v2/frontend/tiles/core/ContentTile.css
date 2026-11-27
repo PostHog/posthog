@@ -39,7 +39,30 @@
     }
 }
 
+/* A long description would take the chart's room, so it stops at two lines. Its `title` holds the rest. */
+.dash-ContentTile__description {
+    display: -webkit-box;
+
+    /* An image leaves the tile's actions out, and without a set place the description would take their column. */
+    grid-row: 2;
+    grid-column: 1;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+/* Only an image or a printed page shows it, because on screen the icon next to the title opens the description. */
+@media screen {
+    .dash-ContentTile .dash-ContentTile__description--image-only:not(.dash-capturing *) {
+        display: none;
+    }
+}
+
 @media print {
+    .dash-ContentTile__description-icon {
+        display: none;
+    }
+
     .dash-ContentTile--interactive-only {
         visibility: hidden;
     }

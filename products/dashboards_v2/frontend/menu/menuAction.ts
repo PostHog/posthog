@@ -1,7 +1,7 @@
 type MenuActionBase = {
     /**
      * Stable, so a panel type's `menuActions` or a host's `tileActions`, `tilePlacementActions` and `dashboardActions` can
-     * find an action by it. Built in for a content tile: `download`, `copy`, `parts`, `background-color`, plus a chart's
+     * find an action by it. Built in for a content tile: `download`, `copy`, `parts`, `background-color`, `description`, plus a chart's
      * `chart-type` and `chart-options`. Built in for a section: `rename`, `download`, `copy`, `auto-layout`, `parts`, `background-color`. Built
      * in for where a tile sits: `slideshow`, `move`, `add-to-tab`, `duplicate`, `remove`, and `duplicate` and `remove` for a section. Built in for the
      * dashboard: `download`, `copy`, `tab-appearance`, `allow-filters`.

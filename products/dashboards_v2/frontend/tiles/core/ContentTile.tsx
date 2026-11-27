@@ -7,6 +7,7 @@ import { IconInfo } from '@posthog/icons'
 import {
     Card,
     CardContent,
+    CardDescription,
     CardFooter,
     CardHeader,
     CardTitle,
@@ -28,6 +29,8 @@ import { TileContextMenu, hasTileMenu } from './TileContextMenu'
 import { isPartShown } from './tileParts'
 
 export const INTERACTIVE_ONLY_CLASS = 'dash-ContentTile--interactive-only'
+/** An image has no hover, so it leaves the description icon out and shows the description under the title instead. */
+export const DESCRIPTION_ICON_CLASS = 'dash-ContentTile__description-icon'
 
 const NO_ACTIONS: MenuAction[] = []
 
@@ -56,7 +59,7 @@ function DescriptionInfo({ description }: { description: string }): JSX.Element 
                 render={
                     <button
                         type="button"
-                        className="inline-flex shrink-0 text-muted-foreground"
+                        className={clsx(DESCRIPTION_ICON_CLASS, 'inline-flex shrink-0 text-muted-foreground')}
                         aria-label={description}
                         onClick={() => setOpen(true)}
                     />
@@ -98,6 +101,8 @@ export function ContentTile({
     const showFooter = isPartShown(panel, 'footer', slots)
     const [backgroundFromPanel, setBackgroundFromPanel] = useState<string | null>(null)
     const look = cardLook(panel, definition?.allowedCustomizations ?? [], backgroundFromPanel)
+    const descriptionMode = panel.appearance?.description ?? 'icon'
+    const description = descriptionMode === 'hidden' ? undefined : panel.description
     const HeaderExtra = definition?.HeaderExtra
     const Footer = definition?.Footer
     // Placement goes first so the slideshow stays above the image download in the shared view group.
@@ -121,8 +126,19 @@ export function ContentTile({
                     <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                         <CardTitle className="flex items-center gap-1 min-w-0">
                             <span className="TileGrid__text truncate">{panel.title}</span>
-                            {panel.description && <DescriptionInfo description={panel.description} />}
+                            {description && descriptionMode === 'icon' && <DescriptionInfo description={description} />}
                         </CardTitle>
+                        {description && (
+                            <CardDescription
+                                className={clsx(
+                                    'dash-ContentTile__description TileGrid__text',
+                                    descriptionMode === 'icon' && 'dash-ContentTile__description--image-only'
+                                )}
+                                title={description}
+                            >
+                                {description}
+                            </CardDescription>
+                        )}
                         {(HeaderExtra || hasMenu) && (
                             <TileActions menu={hasMenu}>
                                 {HeaderExtra && (
