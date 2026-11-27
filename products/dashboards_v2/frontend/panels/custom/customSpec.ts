@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { MenuAction } from '../../menu/menuAction'
 import type { PanelMenuContext } from '../core/panelDefinition'
-import type { PanelSize, PanelSpec, TileCustomization } from '../core/panelSpec'
+import type { PanelSize, PanelSpec } from '../core/panelSpec'
 
 export const CUSTOM_PANEL_SIZE: PanelSize = { w: 12, h: 8, minW: 3, minH: 3 }
 
@@ -75,10 +75,7 @@ export function contentsByName(packages: ContentPackage[]): Map<string, CustomCo
 }
 
 // A document is JSON and cannot hold a component, so the config names one of the host's contents instead.
-export function customSpec(
-    packages: ContentPackage[],
-    allowedCustomizations: TileCustomization[]
-): PanelSpec<CustomConfig, 'custom'> {
+export function customSpec(packages: ContentPackage[]): PanelSpec<CustomConfig, 'custom'> {
     const contents = contentsByName(packages)
     return {
         type: 'custom',
@@ -98,7 +95,8 @@ export function customSpec(
                 },
                 { message: "These props don't match what this custom content takes", path: ['props'] }
             ),
-        allowedCustomizations,
+        // A content turns Background on for its own tiles with `backgroundColor`.
+        allowedCustomizations: ['backgroundColor'],
         showOnInteractiveOnly: (panel) => !!contents.get(panel.config.content)?.showOnInteractiveOnly,
         movable: (panel) => !!contents.get(panel.config.content)?.movable,
         duplicable: (panel) => !!contents.get(panel.config.content)?.duplicable,

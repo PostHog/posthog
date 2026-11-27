@@ -5,15 +5,6 @@
     height: 100%;
 }
 
-/* Mixed into the card's own background, so a theme color reads in light and dark mode. */
-.dash-ContentTile--tinted {
-    background-color: color-mix(in oklab, var(--dv2-tile-background-color) 8%, var(--card));
-}
-
-.dash-ContentTile--no-background {
-    background-color: transparent;
-}
-
 .dash-ContentTile--no-border > .quill-card__footer {
     border-top: 0;
 }
