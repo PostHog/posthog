@@ -103,6 +103,18 @@ describe('SES feedback per ramp step', () => {
         expect(rowsOf(hundred)).toMatchObject({ 'ses_feedback_ms.p50_1x': 50, 'ses_feedback_ms.p99_1x': 99 })
     })
 
+    it('names every count unmeasured on a run where no SES feedback post went out', () => {
+        const measured = measure([{ name: 'ses_feedback_posts', params: {} }], evidence([]))
+
+        expect(measured.length).toBeGreaterThan(0)
+        expect(
+            measured.filter(
+                ({ value, censored, unmeasured }) =>
+                    value !== null || censored !== true || unmeasured !== 'no SES feedback post went out in this run'
+            )
+        ).toEqual([])
+    })
+
     it('gives no rows to a step with no window', () => {
         const steps: Step[] = [ramp[0], { scale: 3, fromMs: MINUTE, toMs: MINUTE }, ramp[1]]
 

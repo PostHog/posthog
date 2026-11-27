@@ -247,22 +247,32 @@ export const sesFeedbackPosts: MeasurementDefinition = {
     name: 'ses_feedback_posts',
     params: z.object({}).strict(),
     unit: 'posts',
-    measure: (evidence) =>
-        evidence.unread !== undefined
-            ? truthUnread(evidence, evidence.unread)
-            : feedbackPostsByStep(evidence).flatMap(([{ scale }, posts]) =>
-                  [
-                      { key: `posted_${scale}x`, value: posts.length },
-                      {
-                          key: `errors_${scale}x`,
-                          value: posts.filter(({ status }) => status === 0 || status >= 500).length,
-                      },
-                      {
-                          key: `rejected_${scale}x`,
-                          value: posts.filter(({ status }) => status >= 400 && status < 500).length,
-                      },
-                  ].map((row) => ({ ...row, ...feedbackCompleteness(evidence) }))
-              ),
+    measure: (evidence) => {
+        if (evidence.unread !== undefined) {
+            return truthUnread(evidence, evidence.unread)
+        }
+        const byStep = feedbackPostsByStep(evidence)
+        const nonePosted = byStep.every(([, posts]) => posts.length === 0)
+        return byStep.flatMap(([{ scale }, posts]) =>
+            [
+                { key: `posted_${scale}x`, value: posts.length },
+                {
+                    key: `errors_${scale}x`,
+                    value: posts.filter(({ status }) => status === 0 || status >= 500).length,
+                },
+                {
+                    key: `rejected_${scale}x`,
+                    value: posts.filter(({ status }) => status >= 400 && status < 500).length,
+                },
+            ].map(({ key, value }) => ({
+                key,
+                ...(nonePosted
+                    ? { value: null, censored: true as const, unmeasured: 'no SES feedback post went out in this run' }
+                    : { value }),
+                ...feedbackCompleteness(evidence),
+            }))
+        )
+    },
 }
 
 export type Phase = { from: number; to: number }
