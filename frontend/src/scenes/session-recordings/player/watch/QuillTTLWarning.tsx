@@ -14,7 +14,7 @@ export function QuillTTLWarning(): JSX.Element | null {
         return null
     }
     return (
-        <div className="text-xs text-destructive">
+        <div className="text-xs text-destructive-foreground">
             Expires in {ttl} days.{' '}
             <Button
                 variant="link"
