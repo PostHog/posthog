@@ -38,6 +38,7 @@ export function ReportCheckMetricChart({
     version,
     monitoring,
     timeline,
+    queryTeamId,
 }: {
     reportId: string
     metric: ReportMetricApi
@@ -47,6 +48,7 @@ export function ReportCheckMetricChart({
     version: string
     monitoring?: ReportMonitoringChartWindow
     timeline?: MonitoringTimeline | null
+    queryTeamId?: number
 }): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const [observedAt] = useState(() => Date.now())
@@ -56,6 +58,7 @@ export function ReportCheckMetricChart({
         query: chartQuery,
         dataNodeCollectionId: `report-metrics-${reportId}`,
         autoLoad: true,
+        queryTeamId,
     }
     const { response, responseError, responseLoading } = useValues(dataNodeLogic(props))
     const responsePoints = reportMetricSeriesPoints(response)
@@ -67,6 +70,7 @@ export function ReportCheckMetricChart({
         query: aggregateQuery?.source ?? query,
         dataNodeCollectionId: `report-metrics-${reportId}`,
         autoLoad: !monitoring && goalGrain === 'whole_window' && aggregateQuery !== null,
+        queryTeamId,
     }
     const {
         response: aggregateResponse,

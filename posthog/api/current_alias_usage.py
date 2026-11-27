@@ -12,8 +12,11 @@ import posthoganalytics
 from posthog.api.request_scope import ShadowOutcome, request_scope_shadow
 from posthog.api.scope_resolution import (
     CURRENT_ALIAS,
+    ScopeSource,
     TokenOnProjectPath,
     is_flat_route,
+    pins_one_project,
+    reads_user_state,
     scope_resolution,
     token_on_project_path,
 )
@@ -83,7 +86,9 @@ def current_alias_scope(path: str) -> CurrentAliasScope | None:
     return _SCOPE_BY_COLLECTION.get(segments[1])
 
 
-def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -> None:
+def record_scope_usage(
+    request: HttpRequest, *, route: str, status_class: str, drf_request: object | None = None
+) -> None:
     """Report a request that names its scope as `@current`, reaches a route that takes the project from the user,
     or names its project in the path and also carries a token that decides it."""
     try:
@@ -94,7 +99,7 @@ def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -
     token_on_path: TokenOnProjectPath | None = None
     if scope := current_alias_scope(request.path):
         report = _CURRENT_ALIAS_REPORT
-    elif is_flat_route(request):
+    elif is_flat_route(request) or reads_user_state(request, drf_request):
         report, scope = _FLAT_ROUTE_REPORT, CurrentAliasScope.PROJECT
     elif token_on_path := token_on_project_path(request):
         report, scope = _TOKEN_ON_PROJECT_PATH_REPORT, CurrentAliasScope.PROJECT
@@ -109,6 +114,7 @@ def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -
             route=route,
             status_class=status_class,
             token_on_path=token_on_path,
+            authenticator=getattr(drf_request, "successful_authenticator", None),
         )
     except Exception:
         logger.warning("scope_usage_record_failed", exc_info=True)
@@ -163,6 +169,7 @@ def _record(
     route: str,
     status_class: str,
     token_on_path: TokenOnProjectPath | None,
+    authenticator: object | None,
 ) -> None:
     user = request.user
     access_method = _access_method(request)
@@ -171,8 +178,13 @@ def _record(
     method = request.method or ""
     token_attributes = {"token_matches_path": token_on_path.token_matches_path} if token_on_path else {}
     resolution = scope_resolution(request)
-    project_from = resolution.source.value if resolution else ""
-    credential_pins_scope = resolution.credential_pins_scope if resolution else False
+    if resolution is None and report is _FLAT_ROUTE_REPORT:
+        # A view outside TeamAndOrgViewSetMixin records no resolution. It reads the user's state by definition, and
+        # its credential can still confine it to one project.
+        project_from, credential_pins_scope = ScopeSource.USER.value, pins_one_project(authenticator)
+    else:
+        project_from = resolution.source.value if resolution else ""
+        credential_pins_scope = resolution.credential_pins_scope if resolution else False
 
     client = posthoganalytics.default_client
     if client is not None:
