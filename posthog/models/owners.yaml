@@ -30,6 +30,8 @@ rules:
       owners: team-analytics-platform
     - match: '/resource_transfer/'
       owners: team-platform-features
+    - match: '/service_account_state.py'
+      owners: team-platform-features
     - match: '/sessions/'
       owners: team-analytics-platform
     - match: '/web_preaggregated/'
