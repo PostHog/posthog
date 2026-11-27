@@ -13834,10 +13834,10 @@ Today (12): `candidates`, `departments`, `hiring_processes`, `job_hiring_team`, 
 
 Diffed against: <https://developers.smartrecruiters.com/llms.txt>
 
-- [ ] `Candidate status history (GET /candidates/{id}/status/history)` — stage transitions per candidate for time-in-stage and funnel analysis; fan-out over candidates (high)
-- [ ] `Interviews (GET /interviews)` — interview schedule and outcome per application (high)
-- [ ] `Reviews (GET /reviews)` — reviewer scores per candidate and job; needs candidateId and jobId so fan-out over applications (medium)
-- [ ] `Audit events (GET /audit-events)` — admin change log; needs ADMINISTRATOR role (medium)
+- [x] `Candidate status history (GET /candidates/{id}/status/history)` — stage transitions per candidate for time-in-stage and funnel analysis; fan-out over candidates (high)
+- [x] `Interviews (GET /interviews)` — interview schedule and outcome per application (high)
+- [x] `Reviews (GET /reviews)` — reviewer scores per candidate and job; needs candidateId and jobId so fan-out over applications (medium)
+- [x] `Audit events (GET /audit-events)` — admin change log; needs ADMINISTRATOR role (medium)
 - [ ] `Candidate properties (GET /configuration/candidate-properties)` — lookup for custom candidate fields and their values (medium)
 - [ ] `Job properties (GET /configuration/job-properties)` — lookup for custom job fields and their values (medium)
 - [ ] `Access groups (GET /configuration/access-groups)` — lookup for access groups; users we sync carry access and role data (low)
