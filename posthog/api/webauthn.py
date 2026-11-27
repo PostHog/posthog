@@ -19,6 +19,7 @@ from webauthn.helpers.decode_credential_public_key import decode_credential_publ
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.authentication import EmailVerificationPending, axes_locked_out, require_verified_email_for_login
+from posthog.api.email_verification import EmailVerificationCodeUndeliverable
 from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend, refuse_blocked_account
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.email_utils import EmailLookupHandler
@@ -306,9 +307,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
         except AxesBackendPermissionDenied:
             return axes_locked_out(request)
-        except EmailVerificationPending:
-            # The DRF handler formats this as a 401 with the user uuid, the same
-            # response as the password login path.
+        except (EmailVerificationPending, EmailVerificationCodeUndeliverable):
+            # The DRF handler formats these the same way as on the password login path.
             raise
         except AuthenticationFailed:
             raise

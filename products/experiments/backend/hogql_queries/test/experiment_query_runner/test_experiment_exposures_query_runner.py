@@ -2036,6 +2036,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")},
             {
                 "share_off_split": 0.1667,
+                "mismatch_started_on": "2024-01-03",
                 "located_dimensions": "library,library_version",
                 "library_1": "web",
                 "library_1_exposed_control": 100,
