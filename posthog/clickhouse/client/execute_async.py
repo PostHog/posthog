@@ -352,6 +352,9 @@ def execute_process_query(
         if is_user_safe_error or (is_staff_user and not isinstance(err, ClickHouseDriverError)):
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
+            if not user_id:
+                # A shared-link viewer is not signed in, so an error's signed-in detail, such as a flag key, stays out.
+                query_status.error_message = getattr(err, "public_message", query_status.error_message)
             if isinstance(err, APIException):
                 # get_codes() returns a list/dict for compound validation errors; only scalar codes
                 # are meaningful to the frontend, which matches on specific code strings.
