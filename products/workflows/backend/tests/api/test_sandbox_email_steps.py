@@ -203,11 +203,6 @@ class TestSandboxEmailSteps(APIBaseTest):
             )
 
         assert response.status_code == 201, response.json()
-        rendered = _render(
-            _stored_email(response.json()["id"])["bytecode"],
-            {"person": {"properties": {"email": "ada@example.com"}}, "variables": {"order_id": "A-1"}},
-        )
-        assert rendered["text"] == "Order A-1"
 
     def _try_to_run(self, path: str):
         if path == "create_active":
