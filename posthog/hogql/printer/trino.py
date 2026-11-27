@@ -1277,7 +1277,9 @@ class TrinoPrinter(PostgresPrinter):
             binary_args = self._visit_binary_args(node)
             return f"any_match({binary_args.right}, __hogql_needle -> strpos(lower({binary_args.left}), lower(__hogql_needle)) > 0)"
         if name == "arrayelement":
-            return self._visit_binary_function(node, "element_at")
+            if len(node.args) != 2:
+                self._invalid_function_arguments(node, f"{node.name} expects exactly 2 arguments in Trino mode.")
+            return self._visit_element_at(node.args[0], node.args[1])
         if name == "arraydistinct":
             return self._visit_unary_function(node, "array_distinct")
         if name == "extractall":
@@ -3383,6 +3385,18 @@ class TrinoPrinter(PostgresPrinter):
             self._unsupported(
                 "TRINO_DEFAULT_VALUE_TYPE_UNSUPPORTED", f"{node.name} requires a known result type in Trino mode.", node
             )
+        default = self._known_default_value(value_type)
+        if default is None:
+            self._unsupported(
+                "TRINO_DEFAULT_VALUE_TYPE_UNSUPPORTED",
+                f"{node.name} requires a supported result type in Trino mode.",
+                node,
+            )
+        return default
+
+    def _known_default_value(self, value_type: ast.ConstantType | None) -> str | None:
+        if isinstance(value_type, ast.UnknownType):
+            return None
         if value_type is not None and value_type.nullable:
             return "NULL"
         if isinstance(value_type, ast.StringType):
@@ -3400,10 +3414,11 @@ class TrinoPrinter(PostgresPrinter):
         if isinstance(value_type, ast.ArrayType):
             return "ARRAY[]"
         if isinstance(value_type, ast.TupleType):
-            return f"ROW({', '.join(self._default_value(item, node) for item in value_type.item_types)})"
-        self._unsupported(
-            "TRINO_DEFAULT_VALUE_TYPE_UNSUPPORTED", f"{node.name} requires a supported result type in Trino mode.", node
-        )
+            items = [self._known_default_value(item) for item in value_type.item_types]
+            if None in items:
+                return None
+            return f"ROW({', '.join(item for item in items if item is not None)})"
+        return None
 
     def _visit_vector_rewrite(self, node: ast.Call) -> str:
         name = node.name.lower()
@@ -4883,7 +4898,22 @@ class TrinoPrinter(PostgresPrinter):
                 else "json_extract_scalar"
             )
             return f"{function}({self.visit(node.array)}, {self._json_path([self._constant_string(node.property)])})"
-        return f"element_at({self.visit(node.array)}, {self.visit(node.property)})"
+        return self._visit_element_at(node.array, node.property)
+
+    def _visit_element_at(self, container: ast.Expr, key: ast.Expr) -> str:
+        container_type = self._resolve_type(container)
+        if not isinstance(container_type, ast.ArrayType):
+            return f"element_at({self.visit(container)}, {self.visit(key)})"
+        element = f"element_at({self.visit(container)}, {self._array_index(key)})"
+        default = self._known_default_value(container_type.item_type)
+        if default is None or default == "NULL":
+            return element
+        return f"coalesce({element}, {default})"
+
+    def _array_index(self, index: ast.Expr) -> str:
+        if isinstance(index, ast.Constant) and isinstance(index.value, int) and index.value != 0:
+            return self.visit(index)
+        return f"NULLIF({self.visit(index)}, 0)"
 
     def _constant_string(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):

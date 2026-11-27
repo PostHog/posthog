@@ -400,7 +400,17 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("arrayFilter(value -> value > 1, [1, 2])", 'filter(ARRAY[1, 2], "value" -> ("value" > 1))'),
         ("arrayFold((state, value) -> state + value, [1, 2], 0)", "reduce(ARRAY[1, 2], 0,"),
         ("arrayReverseSort(value -> value, [1, 2])", "reverse(transform(array_sort("),
-        ("arrayElement([1, 2], 1)", "element_at(ARRAY[1, 2], 1)"),
+        ("arrayElement([1, 2], 1)", "coalesce(element_at(ARRAY[1, 2], 1), 0)"),
+        (
+            "arrayElement([1, 2], length(user_id) - 1)",
+            'coalesce(element_at(ARRAY[1, 2], NULLIF((length("users"."user_id") - 1), 0)), 0)',
+        ),
+        (
+            "['a', 'b'][length(user_id) % 3]",
+            "coalesce(element_at(ARRAY['a', 'b'], NULLIF(",
+        ),
+        ("[1, NULL][length(user_id)]", 'element_at(ARRAY[1, NULL], NULLIF(length("users"."user_id"), 0)) FROM'),
+        ("[1, 2][-1]", "coalesce(element_at(ARRAY[1, 2], -1), 0)"),
         ("indexOf([1, 2], 2)", "array_position(ARRAY[1, 2], 2)"),
         ("leftPad(user_id, 4, '0')", 'lpad("users"."user_id", 4,'),
         ("right(user_id, 2)", 'substr("users"."user_id", -(2))'),
