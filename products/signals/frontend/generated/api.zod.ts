@@ -233,6 +233,9 @@ export const SignalsMonitorPrCreateBody = /* @__PURE__ */ zod.object({
 
 export const signalsOnboardingCreateBodyScannerIdsMax = 100
 
+export const signalsOnboardingCreateBodySuggestionsItemGoalDefault = ``
+export const signalsOnboardingCreateBodySuggestionsItemGoalMax = 200
+
 export const signalsOnboardingCreateBodyActivationScoutsItemMax = 200
 
 export const signalsOnboardingCreateBodyActivationScoutsMax = 50
@@ -489,6 +492,13 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
                     ),
                 title: zod.string().describe('Short sentence-case title: what the scout watches.'),
                 why_here: zod.string().describe('Project-specific evidence for this suggestion, in prose.'),
+                goal: zod
+                    .string()
+                    .max(signalsOnboardingCreateBodySuggestionsItemGoalMax)
+                    .default(signalsOnboardingCreateBodySuggestionsItemGoalDefault)
+                    .describe(
+                        'One plain sentence saying what the scout would do. Blank on batches stored before the field existed, so a client falls back to `description`, then to the first sentence of `why_here`.'
+                    ),
                 description: zod
                     .string()
                     .describe('Custom only: the one-line description the scout would be created with.'),
@@ -537,6 +547,9 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const signalsOnboardingCompleteCreateBodyScannerIdsMax = 100
+
+export const signalsOnboardingCompleteCreateBodySuggestionsItemGoalDefault = ``
+export const signalsOnboardingCompleteCreateBodySuggestionsItemGoalMax = 200
 
 export const signalsOnboardingCompleteCreateBodyActivationScoutsItemMax = 200
 
@@ -794,6 +807,13 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
                     ),
                 title: zod.string().describe('Short sentence-case title: what the scout watches.'),
                 why_here: zod.string().describe('Project-specific evidence for this suggestion, in prose.'),
+                goal: zod
+                    .string()
+                    .max(signalsOnboardingCompleteCreateBodySuggestionsItemGoalMax)
+                    .default(signalsOnboardingCompleteCreateBodySuggestionsItemGoalDefault)
+                    .describe(
+                        'One plain sentence saying what the scout would do. Blank on batches stored before the field existed, so a client falls back to `description`, then to the first sentence of `why_here`.'
+                    ),
                 description: zod
                     .string()
                     .describe('Custom only: the one-line description the scout would be created with.'),
@@ -4883,9 +4903,9 @@ export const signalsScoutSendMessageBodyRouteMax = 64
 
 export const signalsScoutSendMessageBodyReportIdMax = 64
 
-export const signalsScoutSendMessageBodyTitleMax = 150
+export const signalsScoutSendMessageBodyTitleMax = 80
 
-export const signalsScoutSendMessageBodyBodyMax = 3000
+export const signalsScoutSendMessageBodyBodyMax = 500
 
 export const signalsScoutSendMessageBodyDedupeKeyMax = 200
 
@@ -4907,12 +4927,12 @@ export const SignalsScoutSendMessageBody = /* @__PURE__ */ zod
         title: zod
             .string()
             .max(signalsScoutSendMessageBodyTitleMax)
-            .describe('Short plain-text title. At most 150 characters.'),
+            .describe('Short plain-text title. At most 80 characters.'),
         body: zod
             .string()
             .max(signalsScoutSendMessageBodyBodyMax)
             .describe(
-                'Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.'
+                'Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.'
             ),
         dedupe_key: zod
             .string()

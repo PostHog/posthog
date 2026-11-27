@@ -1,3 +1,4 @@
+import json
 import threading
 from datetime import timedelta
 from typing import cast
@@ -33,6 +34,7 @@ from posthog.test.waiting import wait_until
 
 PANELS = "posthog.admin.console.deletion_request_panels"
 CREATE_URL = "/admin/console/tools/new-deletion-request/create/"
+BULK_APPROVE_URL = "/admin/console/tools/deletion-requests/approve/"
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
@@ -74,11 +76,17 @@ class TestDeletionRequestConsole(BaseTest):
         ):
             return self.client.post(
                 self._url(obj, "workflow", "approve"),
-                {"execution_mode": mode.value, "criteria_revision": revision, "reason": "Ticket 123"},
+                {"execution_mode": mode.value, "criteria_revision": revision},
             )
 
     def test_record_page_shows_the_request_and_django_admin_links_to_it(self) -> None:
-        obj = self._request(status=RequestStatus.FAILED, attempt_count=2, last_dagster_run_id="run-1")
+        obj = self._request(
+            status=RequestStatus.FAILED,
+            attempt_count=2,
+            last_dagster_run_id="run-1",
+            created_by=self.user,
+            hogql_predicate="properties.$browser = 'Chrome' AND " * 10,
+        )
 
         with override_settings(DAGSTER_DOMAIN="dagster.example.com"):
             response = self.client.get(self._url(obj))
@@ -96,6 +104,8 @@ class TestDeletionRequestConsole(BaseTest):
         ):
             assert title in content
         assert f"/admin/console/teams/{self.team.pk}/" in content
+        assert f"By {self.user.email}" in content
+        assert "Show all" in content
         for panel in console.panels_for("deletion-request"):
             assert len(panel.facts(obj)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
         admin_page = self.client.get(f"/admin/posthog/datadeletionrequest/{obj.pk}/change/").content.decode()
@@ -327,8 +337,57 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.status == status
 
+    def _bulk_approve(self, picked: list[DataDeletionRequest], mode: ExecutionMode, revisions: str):
+        return self.client.post(
+            BULK_APPROVE_URL,
+            {
+                "requests": [str(obj.pk) for obj in picked],
+                "execution_mode": mode.value,
+                "criteria_revisions": revisions,
+            },
+        )
+
+    def test_bulk_approve_approves_the_ticked_requests_whose_criteria_did_not_change(self) -> None:
+        kept, edited, not_picked = (self._request(status=RequestStatus.PENDING) for _ in range(3))
+        self._request(status=RequestStatus.DRAFT)
+
+        listing = BeautifulSoup(self.client.get("/admin/console/tools/deletion-requests/").content, "html.parser")
+        boxes = {box["value"] for box in listing.select('form[data-console-select] input[name="requests"]')}
+        opened = self.client.get(
+            BULK_APPROVE_URL,
+            {"requests": [str(kept.pk), str(edited.pk)], "execution_mode": ExecutionMode.IMMEDIATE.value},
+        )
+        form = opened.context["form"]
+        preview = self._bulk_approve([kept, edited], ExecutionMode.DEFERRED, form.initial["criteria_revisions"])
+        assert boxes == {str(obj.pk) for obj in (kept, edited, not_picked)}
+        assert set(form.initial["requests"]) == {str(kept.pk), str(edited.pk)}
+        assert form.initial["execution_mode"] == ExecutionMode.DEFERRED.value
+        assert preview.status_code == 200
+        DataDeletionRequest.objects.filter(pk=edited.pk).update(criteria_updated_at=timezone.now())
+        confirmed = self.client.post(BULK_APPROVE_URL, {"confirm_token": preview.context["confirm_token"]}, follow=True)
+
+        statuses = {obj.pk: DataDeletionRequest.objects.get(pk=obj.pk).status for obj in (kept, edited, not_picked)}
+        assert statuses == {
+            kept.pk: RequestStatus.APPROVED,
+            edited.pk: RequestStatus.PENDING,
+            not_picked.pk: RequestStatus.PENDING,
+        }
+        assert f"Skipped 1 request that changed since you reviewed them: {edited.pk}" in confirmed.content.decode()
+
+    @parameterized.expand([("unsupported_mode", ExecutionMode.DEFERRED, ""), ("revision_not_a_string", None, 5)])
+    def test_bulk_approve_refuses_what_it_cannot_run(
+        self, _name: str, mode: ExecutionMode | None, revision: object
+    ) -> None:
+        obj = self._request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"], status=RequestStatus.PENDING)
+
+        response = self._bulk_approve([obj], mode or ExecutionMode.IMMEDIATE, json.dumps({str(obj.pk): revision}))
+
+        assert response.status_code == 400
+        obj.refresh_from_db()
+        assert obj.status == RequestStatus.PENDING
+
     @parameterized.expand([("clickhouse_team", True), ("other_staff", False)])
-    def test_requests_list_links_pending_requests_to_approval_for_the_clickhouse_team(
+    def test_requests_list_offers_pending_requests_for_approval_to_the_clickhouse_team(
         self, _name: str, member: bool
     ) -> None:
         pending = self._request(status=RequestStatus.PENDING)
@@ -349,6 +408,8 @@ class TestDeletionRequestConsole(BaseTest):
         approve_url = f"{self._url(pending)}workflow/approve/"
         expected = {self._url(pending), approve_url} if member else {self._url(pending)}
         assert request_links == expected
+        boxes = {box["value"] for box in soup.select('input[name="requests"]')}
+        assert boxes == ({str(pending.pk)} if member else set())
 
     @parameterized.expand([("staff", {True}), ("not-staff", {False, None})])
     def test_requests_list_filters_by_whether_staff_created_the_request(

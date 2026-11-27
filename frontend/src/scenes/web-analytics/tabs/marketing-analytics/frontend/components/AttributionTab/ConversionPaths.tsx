@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react'
 import { LemonSegmentedButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatCurrency } from 'lib/utils/currency'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -27,16 +28,21 @@ import {
 } from '../../logic/marketingAttributionLogic'
 import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
 import { ConversionPathChips } from './ConversionPathChips'
+import { QuillConversionPaths } from './QuillConversionPaths'
 
 // The segmented control offers exact lengths up to this, then an open-ended "N+" bucket.
 const MAX_EXACT_TOUCHPOINTS = 3
 
 // LemonSegmentedButton values must be React.Keys, so "any" stands in for the filter's null.
-const TOUCHPOINT_OPTIONS: {
-    value: number | 'any' | 'four_plus'
+export type TouchpointOptionValue = number | 'any' | 'four_plus'
+
+export interface TouchpointOption {
+    value: TouchpointOptionValue
     label: string
     tooltip?: string
-}[] = [
+}
+
+const TOUCHPOINT_OPTIONS: TouchpointOption[] = [
     { value: 'any', label: 'Any' },
     ...Array.from({ length: MAX_EXACT_TOUCHPOINTS }, (_, i) => ({
         value: i + 1,
@@ -49,6 +55,16 @@ const TOUCHPOINT_OPTIONS: {
         tooltip: 'Only journeys with four or more touchpoints',
     },
 ]
+
+const SHARE_TOOLTIP = `This path's share of every conversion that had at least one touchpoint, whatever its length — so shares stay comparable when the touchpoint filter changes.`
+
+export type ConversionPathSorter = (
+    a: MarketingAnalyticsAttributionPathRow,
+    b: MarketingAnalyticsAttributionPathRow
+) => number
+
+const sortByConversions: ConversionPathSorter = (a, b) => a.conversions - b.conversions
+const sortByValue: ConversionPathSorter = (a, b) => (a.conversionValue ?? -1) - (b.conversionValue ?? -1)
 
 let uniqueNode = 0
 
@@ -71,6 +87,7 @@ export function ConversionPaths({
     const { breakdownBy, pathTouchpointFilter } = useValues(marketingAttributionLogic)
     const { setPathTouchpointFilter } = useActions(marketingAttributionLogic)
     const { baseCurrency } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     useAttachedLogic(logic, attachTo)
 
     const pathsResponse = response as MarketingAnalyticsAttributionPathsQueryResponse | undefined
@@ -94,6 +111,11 @@ export function ConversionPaths({
     }, [rows])
 
     const maxConversions = Math.max(0, ...rows.map((row) => row.conversions))
+    const conversionsFillPercent = (row: MarketingAnalyticsAttributionPathRow): number =>
+        maxConversions > 0 ? Math.round((row.conversions / maxConversions) * 100) : 0
+
+    const onTouchpointOptionChange = (value: TouchpointOptionValue): void =>
+        setPathTouchpointFilter((value === 'any' ? null : value) as PathTouchpointFilter)
 
     const columns: LemonTableColumns<MarketingAnalyticsAttributionPathRow> = [
         {
@@ -109,18 +131,16 @@ export function ConversionPaths({
             align: 'right',
             width: 140,
             render: (_, row) => humanFriendlyNumber(row.conversions),
-            sorter: (a, b) => a.conversions - b.conversions,
+            sorter: sortByConversions,
             className: 'ConversionPaths__magnitude-cell',
             style: (_, row) =>
                 ({
-                    '--conversion-paths-fill': `${
-                        maxConversions > 0 ? Math.round((row.conversions / maxConversions) * 100) : 0
-                    }%`,
+                    '--conversion-paths-fill': `${conversionsFillPercent(row)}%`,
                 }) as React.CSSProperties,
         },
         {
             title: 'Share',
-            tooltip: `This path's share of every conversion that had at least one touchpoint, whatever its length — so shares stay comparable when the touchpoint filter changes.`,
+            tooltip: SHARE_TOOLTIP,
             key: 'share',
             align: 'right',
             width: 100,
@@ -130,7 +150,7 @@ export function ConversionPaths({
                 ) : (
                     <span className="text-secondary">-</span>
                 ),
-            sorter: (a, b) => a.conversions - b.conversions,
+            sorter: sortByConversions,
         },
         ...(hasValue
             ? [
@@ -145,8 +165,7 @@ export function ConversionPaths({
                           ) : (
                               formatCurrency(row.conversionValue, baseCurrency)
                           ),
-                      sorter: (a: MarketingAnalyticsAttributionPathRow, b: MarketingAnalyticsAttributionPathRow) =>
-                          (a.conversionValue ?? -1) - (b.conversionValue ?? -1),
+                      sorter: sortByValue,
                   },
               ]
             : []),
@@ -160,6 +179,39 @@ export function ConversionPaths({
               : `No conversion journeys had exactly ${pathTouchpointFilter} touchpoint${
                     pathTouchpointFilter === 1 ? '' : 's'
                 } in this date range.`
+
+    const errorState = responseError ? (
+        <InsightErrorState
+            queryId={responseErrorObject?.queryId ?? queryId}
+            query={query}
+            excludeDetail
+            title={responseError}
+            onRetry={() => loadData('force_blocking')}
+        />
+    ) : null
+
+    if (todayRailNav) {
+        return (
+            <QuillConversionPaths
+                rows={rows}
+                loading={responseLoading}
+                errorState={errorState}
+                dimensionLabel={dimensionLabel}
+                touchpointOptions={TOUCHPOINT_OPTIONS}
+                touchpointValue={pathTouchpointFilter ?? 'any'}
+                onTouchpointChange={onTouchpointOptionChange}
+                colorFor={colorFor}
+                conversionsFillPercent={conversionsFillPercent}
+                attributedConversions={attributedConversions}
+                hasValue={hasValue}
+                baseCurrency={baseCurrency}
+                sorters={{ conversions: sortByConversions, share: sortByConversions, value: sortByValue }}
+                shareTooltip={SHARE_TOOLTIP}
+                emptyState={emptyState}
+                hasMore={!!pathsResponse?.hasMore}
+            />
+        )
+    }
 
     return (
         <div className="ConversionPaths flex flex-col gap-2 rounded border bg-surface-primary p-4">
@@ -176,9 +228,7 @@ export function ConversionPaths({
                     <LemonSegmentedButton
                         size="small"
                         value={pathTouchpointFilter ?? 'any'}
-                        onChange={(value) =>
-                            setPathTouchpointFilter((value === 'any' ? null : value) as PathTouchpointFilter)
-                        }
+                        onChange={onTouchpointOptionChange}
                         options={TOUCHPOINT_OPTIONS.map((option) => ({
                             ...option,
                             'data-attr': `marketing-attribution-path-touchpoints-${option.value}`,
@@ -186,15 +236,7 @@ export function ConversionPaths({
                     />
                 </div>
             </div>
-            {responseError ? (
-                <InsightErrorState
-                    queryId={responseErrorObject?.queryId ?? queryId}
-                    query={query}
-                    excludeDetail
-                    title={responseError}
-                    onRetry={() => loadData('force_blocking')}
-                />
-            ) : (
+            {errorState ?? (
                 <LemonTable
                     columns={columns}
                     dataSource={rows}
