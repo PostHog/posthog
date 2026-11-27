@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -16,8 +28,10 @@ export interface workflowSurveyPickerLogicValues {
     currentProjectId: number | string // teamLogic
     limitingSurveyId: string | null
     search: string
+    missingSurveyId: string | null
     selectedSurvey: SurveyApi | null
     selectedSurveyLoading: boolean
+    selectedSurveyUnavailable: boolean
     surveys: SurveyApi[]
     surveysLoading: boolean
 }
@@ -91,6 +105,14 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
         limitingSurveyId: [null as string | null, { setLimitingSurveyId: (_, { surveyId }) => surveyId }],
+        missingSurveyId: [
+            null as string | null,
+            {
+                loadSelectedSurvey: () => null,
+                loadSelectedSurveySuccess: (_, { selectedSurvey, payload }) =>
+                    !selectedSurvey && payload ? payload : null,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         surveys: [
@@ -135,6 +157,14 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
             },
         ],
     })),
+    selectors({
+        selectedSurveyUnavailable: [
+            (s, p) => [s.selectedSurvey, s.missingSurveyId, p.surveyId],
+            (selectedSurvey, missingSurveyId, surveyId): boolean =>
+                !!surveyId &&
+                (missingSurveyId === surveyId || (selectedSurvey?.id === surveyId && !!selectedSurvey.archived)),
+        ],
+    }),
     listeners(({ actions, values, props }) => ({
         setSearch: () => {
             actions.loadSurveys()

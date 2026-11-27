@@ -1,14 +1,15 @@
 import { uuid } from 'lib/utils/dom'
 
+import { SurveyEventName, SurveyEventProperties } from '~/types'
+
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
 
 export const SHOW_SURVEY_TEMPLATE_ID = 'template-posthog-show-survey'
 export const HIDE_SURVEY_TEMPLATE_ID = 'template-posthog-hide-survey'
-export const SURVEY_SENT_EVENT = 'survey sent'
 export const SURVEY_RESPONSE_MAX_WAIT = '3d'
 
 type WorkflowGraph = Pick<HogFlow, 'actions' | 'edges'>
-type FunctionConfig = Extract<HogFlowAction, { type: 'function' }>['config']
+type FunctionInputs = Extract<HogFlowAction, { type: 'function' }>['config']['inputs']
 
 function surveySentEntry(
     surveyId: string
@@ -18,10 +19,12 @@ function surveySentEntry(
         filters: {
             events: [
                 {
-                    id: SURVEY_SENT_EVENT,
-                    name: SURVEY_SENT_EVENT,
+                    id: SurveyEventName.SENT,
+                    name: SurveyEventName.SENT,
                     type: 'events',
-                    properties: [{ key: '$survey_id', type: 'event', operator: 'exact', value: [surveyId] }],
+                    properties: [
+                        { key: SurveyEventProperties.SURVEY_ID, type: 'event', operator: 'exact', value: [surveyId] },
+                    ],
                 },
             ],
         },
@@ -29,7 +32,7 @@ function surveySentEntry(
 }
 
 function surveyIdFromFilter(properties: { key?: string; value?: unknown }[] | undefined): string | null {
-    const value = properties?.find((property) => property.key === '$survey_id')?.value
+    const value = properties?.find((property) => property.key === SurveyEventProperties.SURVEY_ID)?.value
     const surveyId = Array.isArray(value) ? value[0] : value
     return typeof surveyId === 'string' && surveyId ? surveyId : null
 }
@@ -40,8 +43,13 @@ export function getAwaitedSurveyId(action: HogFlowAction | undefined): string | 
     }
     const surveySentEvents = (action.config.events ?? [])
         .flatMap((entry) => entry.filters?.events ?? [])
-        .filter((event) => event.id === SURVEY_SENT_EVENT)
+        .filter((event) => event.id === SurveyEventName.SENT)
     return surveySentEvents.map((event) => surveyIdFromFilter(event.properties)).find(Boolean) ?? null
+}
+
+export function canInsertSurveyResponseWait(workflow: WorkflowGraph, showSurveyActionId: string): boolean {
+    const outgoing = workflow.edges.filter((edge) => edge.from === showSurveyActionId)
+    return outgoing.length === 1 && outgoing[0].type === 'continue'
 }
 
 export function getNextAction(workflow: WorkflowGraph, actionId: string): HogFlowAction | undefined {
@@ -55,9 +63,9 @@ export function getNextAction(workflow: WorkflowGraph, actionId: string): HogFlo
 export function retargetSurveyResponseWait(
     workflow: WorkflowGraph,
     showSurveyActionId: string,
-    surveyId: string,
-    now: number = Date.now()
+    surveyId: string
 ): WorkflowGraph | null {
+    const now = Date.now()
     const waitAction = getNextAction(workflow, showSurveyActionId)
     const previousSurveyId = getAwaitedSurveyId(waitAction)
     if (!waitAction || !previousSurveyId) {
@@ -68,7 +76,7 @@ export function retargetSurveyResponseWait(
     const actions = workflow.actions.map((action): HogFlowAction => {
         if (action.id === waitAction.id && action.type === 'wait_until_condition') {
             const events = (action.config.events ?? []).map((entry) =>
-                entry.filters?.events?.some((event) => event.id === SURVEY_SENT_EVENT)
+                entry.filters?.events?.some((event) => event.id === SurveyEventName.SENT)
                     ? surveySentEntry(surveyId)
                     : entry
             )
@@ -95,13 +103,13 @@ export function insertSurveyResponseWait(
     workflow: WorkflowGraph,
     showSurveyActionId: string,
     surveyId: string,
-    hideSurveyConfig: FunctionConfig,
-    now: number = Date.now()
+    hideSurveyInputs: FunctionInputs
 ): (WorkflowGraph & { waitActionId: string }) | null {
-    const outgoing = workflow.edges.filter((edge) => edge.from === showSurveyActionId)
-    if (outgoing.length !== 1 || outgoing[0].type !== 'continue') {
+    if (!canInsertSurveyResponseWait(workflow, showSurveyActionId)) {
         return null
     }
+    const now = Date.now()
+    const outgoing = workflow.edges.filter((edge) => edge.from === showSurveyActionId)
     const nextActionId = outgoing[0].to
 
     const waitAction = {
@@ -124,9 +132,8 @@ export function insertSurveyResponseWait(
         name: 'Hide survey',
         description: 'Stops showing the survey to this person.',
         config: {
-            ...hideSurveyConfig,
             template_id: HIDE_SURVEY_TEMPLATE_ID,
-            inputs: { ...hideSurveyConfig.inputs, survey_id: { value: surveyId } },
+            inputs: { ...hideSurveyInputs, survey_id: { value: surveyId } },
         },
         created_at: now,
         updated_at: now,

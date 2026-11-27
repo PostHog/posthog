@@ -24,12 +24,24 @@ function surveyStatusLabel(survey: SurveyApi): string {
     return survey.end_date ? 'complete' : 'running'
 }
 
+function NoRecentSurveysShownWarning(): JSX.Element | null {
+    const { surveysShownRecently } = useValues(surveysShownRecentlyLogic)
+    if (surveysShownRecently !== false) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning">
+            No survey has been shown in this project in the last 30 days. Check that your app loads surveys and uses a
+            recent PostHog SDK, or people may not see this one.
+        </LemonBanner>
+    )
+}
+
 function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
     const logic = workflowSurveyPickerLogic({ surveyId: survey.id })
     const { limitingSurveyId } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const { limitToWorkflowRecipients } = useActions(logic)
-    const { surveysShownRecently } = useValues(surveysShownRecentlyLogic)
 
     if (!IN_APP_SURVEY_TYPES.has(survey.type)) {
         return (
@@ -47,12 +59,7 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
                     <Link to={urls.settings('environment-surveys', 'surveys-interface')}>Turn them on</Link>
                 </LemonBanner>
             )}
-            {currentTeam?.surveys_opt_in && surveysShownRecently === false && (
-                <LemonBanner type="warning">
-                    No survey has been shown in this project in the last 30 days. Check that your app loads surveys and
-                    uses a recent PostHog SDK, or people may not see this one.
-                </LemonBanner>
-            )}
+            {currentTeam?.surveys_opt_in && <NoRecentSurveysShownWarning />}
             {!survey.start_date ? (
                 <LemonBanner type="warning">
                     This survey is a draft. <Link to={urls.survey(survey.id)}>Launch it</Link> so people can see it.
@@ -89,19 +96,17 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
 
 function SelectedSurveyStatus({
     survey,
-    selectedId,
-    loading,
+    unavailable,
     showReadiness,
 }: {
     survey: SurveyApi | null
-    selectedId: string
-    loading: boolean
+    unavailable: boolean
     showReadiness: boolean
 }): JSX.Element | null {
     if (survey && !survey.archived) {
         return showReadiness ? <SurveyReadiness survey={survey} /> : null
     }
-    if (selectedId && !loading) {
+    if (unavailable) {
         return <LemonBanner type="error">This survey was archived or deleted. Pick another one.</LemonBanner>
     }
     return null
@@ -114,7 +119,8 @@ export default function CyclotronJobInputSurveyPicker({
 }: CustomInputRendererProps): JSX.Element {
     const selectedId = typeof value === 'string' ? value : ''
     const logic = workflowSurveyPickerLogic({ surveyId: selectedId || null })
-    const { surveys, surveysLoading, selectedSurvey, selectedSurveyLoading } = useValues(logic)
+    const { surveys, surveysLoading, selectedSurvey, selectedSurveyLoading, selectedSurveyUnavailable } =
+        useValues(logic)
     const { loadSurveys, loadSelectedSurvey, setSearch } = useActions(logic)
 
     const currentSurvey = selectedSurvey?.id === selectedId ? selectedSurvey : null
@@ -169,8 +175,7 @@ export default function CyclotronJobInputSurveyPicker({
             </div>
             <SelectedSurveyStatus
                 survey={currentSurvey}
-                selectedId={selectedId}
-                loading={selectedSurveyLoading}
+                unavailable={selectedSurveyUnavailable}
                 showReadiness={templateId !== HIDE_SURVEY_TEMPLATE_ID}
             />
         </div>

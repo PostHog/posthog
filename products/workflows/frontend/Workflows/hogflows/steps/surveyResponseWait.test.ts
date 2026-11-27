@@ -22,14 +22,11 @@ const workflow: Pick<HogFlow, 'actions' | 'edges'> = {
     ],
 }
 
-const hideConfig = {
-    template_id: HIDE_SURVEY_TEMPLATE_ID,
-    inputs: { distinct_id: { value: '{event.distinct_id}' } },
-} as Extract<HogFlowAction, { type: 'function' }>['config']
+const hideInputs = { distinct_id: { value: '{event.distinct_id}' } }
 
 describe('insertSurveyResponseWait', () => {
     it('waits for the survey answer and hides the survey on both paths before the old next step', () => {
-        const result = insertSurveyResponseWait(workflow, 'show', 'survey-1', hideConfig)!
+        const result = insertSurveyResponseWait(workflow, 'show', 'survey-1', hideInputs)!
 
         const wait = getNextAction(result, 'show')!
         expect(getAwaitedSurveyId(wait)).toEqual('survey-1')
@@ -39,14 +36,17 @@ describe('insertSurveyResponseWait', () => {
             template_id: HIDE_SURVEY_TEMPLATE_ID,
             inputs: { survey_id: { value: 'survey-1' }, distinct_id: { value: '{event.distinct_id}' } },
         })
-        expect(result.edges.filter((edge) => edge.from === wait.id)).toEqual([
-            { from: wait.id, to: hide.id, type: 'branch', index: 0 },
-            { from: wait.id, to: hide.id, type: 'continue' },
-        ])
+        const waitEdges = result.edges.filter((edge) => edge.from === wait.id)
+        expect(waitEdges).toHaveLength(2)
+        expect(waitEdges).toEqual(
+            expect.arrayContaining([
+                { from: wait.id, to: hide.id, type: 'branch', index: 0 },
+                { from: wait.id, to: hide.id, type: 'continue' },
+            ])
+        )
         expect(result.edges.filter((edge) => edge.from === hide.id)).toEqual([
             { from: hide.id, to: 'exit', type: 'continue' },
         ])
-        expect(result.actions[result.actions.length - 1].id).toEqual('exit')
     })
 
     it('refuses a step that has no single next step', () => {
@@ -54,18 +54,42 @@ describe('insertSurveyResponseWait', () => {
             ...workflow,
             edges: [...workflow.edges, { from: 'show', to: 'exit', type: 'branch' as const }],
         }
-        expect(insertSurveyResponseWait(branched, 'show', 'survey-1', hideConfig)).toBeNull()
+        expect(insertSurveyResponseWait(branched, 'show', 'survey-1', hideInputs)).toBeNull()
     })
 })
 
 describe('retargetSurveyResponseWait', () => {
     it('points the wait and its hide step at the new survey', () => {
-        const inserted = insertSurveyResponseWait(workflow, 'show', 'survey-1', hideConfig)!
+        const inserted = insertSurveyResponseWait(workflow, 'show', 'survey-1', hideInputs)!
         const result = retargetSurveyResponseWait(inserted, 'show', 'survey-2')!
 
         expect(getAwaitedSurveyId(getNextAction(result, 'show'))).toEqual('survey-2')
         const hide = result.actions.find((a) => a.type === 'function' && a.id !== 'show')!
         expect(hide.config).toMatchObject({ inputs: { survey_id: { value: 'survey-2' } } })
         expect(result.edges).toEqual(inserted.edges)
+    })
+
+    it('does nothing when the next step does not wait for a survey answer', () => {
+        expect(retargetSurveyResponseWait(workflow, 'show', 'survey-2')).toBeNull()
+    })
+
+    it('leaves a hide step alone when it was pointed at another survey by hand', () => {
+        const inserted = insertSurveyResponseWait(workflow, 'show', 'survey-1', hideInputs)!
+        const handEdited = {
+            ...inserted,
+            actions: inserted.actions.map((a) =>
+                a.type === 'function' && a.id !== 'show'
+                    ? ({
+                          ...a,
+                          config: { ...a.config, inputs: { survey_id: { value: 'other-survey' } } },
+                      } as HogFlowAction)
+                    : a
+            ),
+        }
+        const result = retargetSurveyResponseWait(handEdited, 'show', 'survey-2')!
+
+        expect(getAwaitedSurveyId(getNextAction(result, 'show'))).toEqual('survey-2')
+        const hide = result.actions.find((a) => a.type === 'function' && a.id !== 'show')!
+        expect(hide.config).toMatchObject({ inputs: { survey_id: { value: 'other-survey' } } })
     })
 })

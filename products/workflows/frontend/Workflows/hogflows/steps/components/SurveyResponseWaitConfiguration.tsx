@@ -9,16 +9,14 @@ import { workflowSurveyPickerLogic } from 'products/surveys/frontend/components/
 
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
-import type { HogFlowAction } from '../../types'
 import {
     HIDE_SURVEY_TEMPLATE_ID,
+    canInsertSurveyResponseWait,
     getAwaitedSurveyId,
     getNextAction,
     insertSurveyResponseWait,
     retargetSurveyResponseWait,
 } from '../surveyResponseWait'
-
-type FunctionConfig = Extract<HogFlowAction, { type: 'function' }>['config']
 
 function addWaitDisabledReason(
     surveyId: string | null,
@@ -67,7 +65,8 @@ function RetargetWaitBanner({
                 'data-attr': 'workflow-survey-retarget-answer-wait',
             }}
         >
-            The next step waits for an answer to a different survey.
+            The next step waits for an answer to a different survey. People already waiting keep waiting for the old
+            one.
         </LemonBanner>
     )
 }
@@ -82,9 +81,7 @@ export function SurveyResponseWaitConfiguration({
     const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
     const { setWorkflowInfo } = useActions(workflowLogic)
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
-    const { selectedSurvey, selectedSurveyLoading } = useValues(workflowSurveyPickerLogic({ surveyId }))
-    const surveyUnavailable =
-        !!surveyId && !selectedSurveyLoading && (selectedSurvey?.id !== surveyId || !!selectedSurvey?.archived)
+    const { selectedSurveyUnavailable: surveyUnavailable } = useValues(workflowSurveyPickerLogic({ surveyId }))
 
     const awaitedSurveyId = getAwaitedSurveyId(getNextAction(workflow, actionId))
 
@@ -100,11 +97,12 @@ export function SurveyResponseWaitConfiguration({
         if (!surveyId || !hideSurveyTemplate) {
             return
         }
-        const hideSurveyConfig = {
-            template_id: HIDE_SURVEY_TEMPLATE_ID,
-            inputs: templateToConfiguration(hideSurveyTemplate).inputs ?? {},
-        } as FunctionConfig
-        const result = insertSurveyResponseWait(workflow, actionId, surveyId, hideSurveyConfig)
+        const result = insertSurveyResponseWait(
+            workflow,
+            actionId,
+            surveyId,
+            templateToConfiguration(hideSurveyTemplate).inputs ?? {}
+        )
         if (!result) {
             return
         }
@@ -131,7 +129,7 @@ export function SurveyResponseWaitConfiguration({
                         surveyId,
                         surveyUnavailable,
                         !!hideSurveyTemplate,
-                        getNextAction(workflow, actionId) !== undefined
+                        canInsertSurveyResponseWait(workflow, actionId)
                     )}
                 >
                     Add wait for answer
