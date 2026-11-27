@@ -18,6 +18,10 @@ function mountAt(now: Date): typeof adventEntryProgressLogic {
     return adventEntryProgressLogic
 }
 
+function openedDoorDays(logic: typeof adventEntryProgressLogic): number[] | null {
+    return logic.values.doors?.filter((door) => door.status === 'open').map((door) => door.day) ?? null
+}
+
 function decemberMorning(day: number): Date {
     return day > 0 ? new Date(ADVENT_YEAR, 11, day, 9) : new Date(ADVENT_YEAR, 10, 27, 9)
 }
@@ -51,7 +55,7 @@ describe('adventEntryProgressLogic', () => {
 
         const logic = mountAt(decemberMorning(3))
 
-        expect(logic.values.progress?.opened ?? null).toEqual(opened)
+        expect(openedDoorDays(logic)).toEqual(opened)
     })
 
     it.each([
@@ -87,7 +91,7 @@ describe('adventEntryProgressLogic', () => {
         storeProgress({ [MOCK_DEFAULT_USER.uuid]: { opened: [1] } })
         window.dispatchEvent(new StorageEvent('storage', { key: PROGRESS_STORAGE_KEY }))
 
-        expect(logic.values.progress?.opened).toEqual([1])
+        expect(openedDoorDays(logic)).toEqual([1])
         expect(logic.values.nextDoorDay).toBe(2)
     })
 })

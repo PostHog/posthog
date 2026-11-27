@@ -197,6 +197,10 @@ function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
     return isMessagingSetupTab(tab) ? 'messaging-setup' : 'workflows'
 }
 
+function isWorkflowListTab(tab: WorkflowsSceneTab): tab is 'workflows' | 'templates' | 'calendar' {
+    return tab === 'workflows' || tab === 'templates' || tab === 'calendar'
+}
+
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
@@ -210,7 +214,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         content: <WorkflowsTable />,
         link: urls.workflows(),
     }
-    const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
+    const showsNewWorkflowButton = isWorkflowListTab(currentTab)
     const onNewWorkflow = (): void => {
         void addProductIntent({
             product_type: ProductKey.WORKFLOWS,
@@ -268,7 +272,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 )}
                             </AccessControlAction>
                         )}
-                        {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (
+                        {!showsNewWorkflowButton && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}
                     </>
