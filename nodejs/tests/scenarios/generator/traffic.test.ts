@@ -8,7 +8,6 @@ import express from 'ultimate-express'
 import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
-import { INTAKE_ACK_DEADLINE_MS } from '~/cdp/intake/intake-producer'
 import { HogFlowSchema } from '~/cdp/schema/hogflow'
 import {
     TEMPLATE_SEND_TOKEN_CLAIMS,
@@ -27,7 +26,6 @@ import { Hub } from '~/types'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
 import {
-    INTAKE_ANSWER_TIMEOUT_MS,
     OfferContext,
     REAL_CLOCK,
     SendClock,
@@ -42,7 +40,7 @@ const SECRET = 'scenario-transactional-secret'
 const UNIT = { unitId: 'run-a-1', teamId: 7, flowId: 'flow-7' }
 const ROUTE = `/api/projects/${UNIT.teamId}/hog_flows/${UNIT.flowId}/transactional_email`
 
-type Answer = { status: number; body: object; takesMs?: number }
+type Answer = { status: number; body: object; takesMs?: number; answersAfterMs?: number }
 
 const NEVER_ABORTED = new AbortController().signal
 
@@ -74,7 +72,13 @@ function startCdpApi(answers: Answer[], clock: ServerClock = { now: Date.now }):
             received.push({ method: req.method, url: req.url, authorized, body })
             receivedAt.push(clock.now())
             clock.pass?.(answer.takesMs ?? 0)
-            res.writeHead(answer.status, { 'content-type': 'application/json' }).end(JSON.stringify(answer.body))
+            setTimeout(
+                () =>
+                    res
+                        .writeHead(answer.status, { 'content-type': 'application/json' })
+                        .end(JSON.stringify(answer.body)),
+                answer.answersAfterMs ?? 0
+            )
         })
     })
     return new Promise((resolve) =>
@@ -218,28 +222,19 @@ describe('traffic', () => {
                 }
             })
 
-            it("waits for cdp-api's answer past its broker's ack deadline, so a refusal it retries is not cut off", () => {
-                expect(INTAKE_ANSWER_TIMEOUT_MS).toBeGreaterThan(INTAKE_ACK_DEADLINE_MS)
-            })
-
-            it.each<[string, Answer, object]>([
-                [
-                    'an attempt cdp-api could not confirm',
-                    UNAVAILABLE,
-                    { accepted: false, status: 429, outcome: 'quota_limited', retries: 1, unconfirmedAttempt: true },
-                ],
-                [
-                    'a failure that queued nothing',
-                    { status: 500, body: { error: 'internal_error' } },
-                    { accepted: false, status: 429, outcome: 'quota_limited', retries: 1 },
-                ],
-            ])('journals a refusal on a retry after %s', async (_story, first, journaled) => {
+            it("retries a 5xx that cdp-api answers only after its broker's ack deadline", async () => {
                 const clock = controlledClock()
-                const cdpApi = await startCdpApi([first, { status: 429, body: { error: 'quota_limited' } }], clock)
+                const cdpApi = await startCdpApi(
+                    [
+                        { ...UNAVAILABLE, answersAfterMs: 3_500 },
+                        { status: 202, body: { status: 'queued' } },
+                    ],
+                    clock
+                )
                 try {
                     expect(
                         await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
-                    ).toEqual(journaled)
+                    ).toEqual({ accepted: true, retries: 1 })
                 } finally {
                     await cdpApi.close()
                 }
@@ -255,13 +250,7 @@ describe('traffic', () => {
                 try {
                     expect(
                         await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
-                    ).toEqual({
-                        accepted: false,
-                        status: 503,
-                        outcome: 'intake_unavailable',
-                        retries: backoffs.length,
-                        unconfirmedAttempt: true,
-                    })
+                    ).toEqual({ accepted: false, status: 503, outcome: 'intake_unavailable', retries: backoffs.length })
                     expect(cdpApi.receivedAt).toEqual(
                         backoffs.reduce((sentAt, backoff) => [...sentAt, sentAt[sentAt.length - 1] + backoff], [0])
                     )
@@ -374,12 +363,11 @@ describe('traffic', () => {
 
         it("journals cdp-api's reason when it refuses a webhook it could not queue", async () => {
             const flow = await insertHogFlow(hub.postgres, await workflowWebhook.flow(teamId, 0, 1))
-            let now = 0
-            mockProducerObserver.produceSpy.mockImplementationOnce(() => {
-                now = 120_000
-                return Promise.reject(new Error('Broker: Not enough in-sync replicas'))
-            })
-            const pastTheDeadline: SendClock = { now: () => now, wait: () => Promise.resolve() }
+            mockProducerObserver.produceSpy.mockImplementationOnce(() =>
+                Promise.reject(new Error('Broker: Not enough in-sync replicas'))
+            )
+            const readings = [0, 120_000]
+            const pastTheDeadline: SendClock = { now: () => readings.shift() ?? 120_000, wait: () => Promise.resolve() }
             const context = contextFor(url, undefined, pastTheDeadline)
 
             expect(
