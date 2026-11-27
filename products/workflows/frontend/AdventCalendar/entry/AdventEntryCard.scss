@@ -56,7 +56,19 @@
     }
 
     .AdventSnow__flake {
+        top: var(--advent-snow-rest);
         scale: 0.6;
+        animation: none;
+    }
+
+    @container advent-entry (max-width: 38rem) {
+        @include advent-entry-two-rows;
+    }
+
+    @container advent-entry (max-width: 47rem) {
+        &.AdventEntryCard--some {
+            @include advent-entry-two-rows;
+        }
     }
 
     @container advent-entry (max-width: 67rem) {
@@ -65,8 +77,14 @@
         }
     }
 
-    @container advent-entry (max-width: 30rem) {
-        @include advent-entry-two-rows;
+    @container advent-entry (max-width: 19rem) {
+        .AdventEntryCard__doors {
+            gap: 2px;
+        }
+
+        .AdventEntryCard__door {
+            font-size: 0.5625rem;
+        }
     }
 
     @container advent-entry (min-width: 63rem) {
@@ -75,7 +93,7 @@
         }
     }
 
-    @container advent-entry (min-width: 71rem) {
+    @container advent-entry (min-width: 73rem) {
         &.AdventEntryCard--some {
             @include advent-entry-inline;
         }

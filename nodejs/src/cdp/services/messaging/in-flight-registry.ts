@@ -17,7 +17,15 @@ const PLAIN_BATCH_ALLOWANCE_BYTES = 512 * MIB
 const FIRST_DEFERRAL_MS = 5_000
 const LONGEST_DEFERRAL_MS = 120_000
 
-export type DeferralReason = 'over_budget' | 'over_heap' | 'at_cap' | 'refused'
+const DEFERRAL_REASONS = ['over_budget', 'over_heap', 'at_cap', 'refused'] as const
+export type DeferralReason = (typeof DEFERRAL_REASONS)[number]
+
+declare const mintedByTheRegistry: unique symbol
+export type Admission = {
+    readonly files: readonly Readonly<EmailAttachmentMetadata>[]
+    readonly [mintedByTheRegistry]: true
+}
+type UnadmittedReason = 'outside_any_admission' | 'released' | 'other_files'
 
 const sendsInFlight = new Gauge({
     name: 'cdp_email_attachments_sends_in_flight',
@@ -34,6 +42,28 @@ export const deferralTokensSpent = new Counter({
     help: 'Sends with files that the email worker had no room for and deferred. Each one spent the SES rate-limit token its dequeue claimed without sending',
     labelNames: ['reason'],
 })
+
+for (const reason of DEFERRAL_REASONS) {
+    deferralTokensSpent.labels({ reason }).inc(0)
+}
+
+const unadmittedLoads = new Counter({
+    name: 'cdp_email_attachments_unadmitted_loads_total',
+    help: 'Loads of attachment files that the email worker refused because no live admission reserved memory for exactly those files, by reason',
+    labelNames: ['reason'],
+})
+
+export class AttachmentsNotAdmittedError extends Error {
+    constructor(readonly reason: UnadmittedReason) {
+        super(`The attachment files of this send hold no admission (${reason}), so they were not loaded`)
+        this.name = 'AttachmentsNotAdmittedError'
+    }
+}
+
+function refusedUnadmitted(reason: UnadmittedReason): AttachmentsNotAdmittedError {
+    unadmittedLoads.labels({ reason }).inc()
+    return new AttachmentsNotAdmittedError(reason)
+}
 
 export type InFlightLimits = { budgetBytes: number; heapLimitBytes: number; maxInFlight: number }
 
@@ -86,11 +116,13 @@ export function inFlightLimitsFor(
     return { limits: { budgetBytes, heapLimitBytes: machine.heapLimitBytes, maxInFlight: settings.maxInFlight } }
 }
 
-export function fileBytesOf(invocation: CyclotronJobInvocation): number | null {
-    const sent = (invocation.state as { send?: { attachments?: readonly EmailAttachmentMetadata[] } } | null)?.send
-    const queued = invocation.queueParameters?.type === 'email' ? invocation.queueParameters.attachments : undefined
-    const files = sent?.attachments ?? queued
-    return files?.length ? declaredFileBytes(files) : null
+export function filesOf(invocation: CyclotronJobInvocation): readonly EmailAttachmentMetadata[] | null {
+    const files =
+        invocation.queueParameters?.type === 'email'
+            ? invocation.queueParameters.attachments
+            : (invocation.state as { send?: { attachments?: readonly EmailAttachmentMetadata[] } } | null)?.send
+                  ?.attachments
+    return files?.length ? files : null
 }
 
 export const declaredFileBytes = (files: readonly EmailAttachmentMetadata[]): number =>
@@ -107,6 +139,40 @@ export function deferralDelayMs(earlierDeferrals: number, random: () => number =
 }
 
 const sendCalls = new AsyncLocalStorage<Set<Promise<unknown>>>()
+const sendAdmission = new AsyncLocalStorage<Admission>()
+const liveAdmissions = new WeakSet<Admission>()
+
+export function requireAdmission(files: readonly EmailAttachmentMetadata[]): Admission {
+    const admission = sendAdmission.getStore()
+    if (!admission) {
+        throw refusedUnadmitted('outside_any_admission')
+    }
+    if (!sameFiles(admittedFiles(admission), files)) {
+        throw refusedUnadmitted('other_files')
+    }
+    return admission
+}
+
+export function admittedFiles(admission: Admission): readonly Readonly<EmailAttachmentMetadata>[] {
+    if (!liveAdmissions.has(admission)) {
+        throw refusedUnadmitted('released')
+    }
+    if (sendAdmission.getStore() !== admission) {
+        throw refusedUnadmitted('outside_any_admission')
+    }
+    return admission.files
+}
+
+const sameFiles = (admitted: readonly EmailAttachmentMetadata[], files: readonly EmailAttachmentMetadata[]): boolean =>
+    admitted.length === files.length &&
+    admitted.every(
+        (file, at) =>
+            file.sha256 === files[at].sha256 &&
+            file.sizeBytes === files[at].sizeBytes &&
+            file.filename === files[at].filename &&
+            file.contentType === files[at].contentType &&
+            file.contentId === files[at].contentId
+    )
 
 export function settledBeforeAbort<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
@@ -180,9 +246,11 @@ export class InFlightRegistry {
     ) {}
 
     public tryStart<T>(
-        fileBytes: number,
+        files: readonly EmailAttachmentMetadata[],
         send: () => Promise<T>
     ): { started: Promise<T> } | { deferred: DeferralReason } {
+        const admitted = Object.freeze(files.map((file) => Object.freeze({ ...file })))
+        const fileBytes = declaredFileBytes(admitted)
         const reason = this.whyNoRoom(fileBytes)
         if (reason) {
             deferralTokensSpent.labels({ reason }).inc()
@@ -190,13 +258,18 @@ export class InFlightRegistry {
         }
         const estimate = estimateSend(fileBytes)
         this.hold(estimate, 1)
-        const started = sendCalls.run(new Set(), async () => {
-            try {
-                return await send()
-            } finally {
-                void everyCallSettled().then(() => this.hold(estimate, -1))
-            }
-        })
+        const admission = Object.freeze({ files: admitted }) as Admission
+        liveAdmissions.add(admission)
+        const started = sendAdmission.run(admission, () =>
+            sendCalls.run(new Set(), async () => {
+                try {
+                    return await send()
+                } finally {
+                    liveAdmissions.delete(admission)
+                    void everyCallSettled().then(() => this.hold(estimate, -1))
+                }
+            })
+        )
         return { started }
     }
 

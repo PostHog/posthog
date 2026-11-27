@@ -27,7 +27,11 @@ from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
 from posthog.api.authentication import BrowserTokenField
-from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.api.email_verification import (
+    EmailVerificationCodeUndeliverable,
+    email_verification_code_verifier,
+    is_email_verification_disabled,
+)
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
@@ -128,9 +132,14 @@ def _save_session_with_recovery(session: SessionBase) -> None:
 
 
 def verify_email_or_login(request: Request, user: User) -> bool:
-    """Send a verification code, or log the user in when none is needed. Returns whether a code went out."""
+    """Send a verification code, or log the user in when none is needed. Returns whether the user must verify."""
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        email_verification_code_verifier.send_code(user)
+        try:
+            email_verification_code_verifier.send_code(user)
+        except EmailVerificationCodeUndeliverable:
+            # The account already exists and signup still has work to do after this call, so the
+            # refusal must not abort it. A resend from the verify page or the next login reports the failure.
+            pass
         return True
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     return False

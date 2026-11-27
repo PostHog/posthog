@@ -85,11 +85,16 @@ function doorOf(
 describe('adventCalendarLogic', () => {
     let logic: ReturnType<typeof adventCalendarLogic.build>
     let capture: jest.SpyInstance
+    let sent: [string, unknown][]
 
     beforeEach(async () => {
         jest.useFakeTimers({ now: new Date(2026, 11, 3, 9, 0), advanceTimers: true })
         window.localStorage.clear()
-        capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        sent = []
+        capture = jest.spyOn(posthog, 'capture').mockImplementation((event: string, properties?: unknown) => {
+            sent.push([event, properties])
+            return undefined
+        })
         initKeaTests()
         await expectLogic(userLogic).toFinishAllListeners()
         signIn({ uuid: UUID, is_staff: false })
@@ -104,20 +109,30 @@ describe('adventCalendarLogic', () => {
         jest.useRealTimers()
     })
 
-    it.each<[string, number | null, boolean, boolean | null]>([
-        ['nothing has looked for workflows yet', null, false, null],
-        ['the Workflows page found none', 0, true, false],
-        ['the Workflows page found some', 1, true, true],
-        ['an earlier visit to the Workflows page found some', 1, false, true],
-    ])('reports the view, with whether the project has workflows, when %s', async (_, count, open, hasWorkflows) => {
+    it.each<[string, number[], boolean, boolean | null]>([
+        ['nothing has looked for workflows yet', [], false, null],
+        ['the Workflows page found none', [0], true, false],
+        ['the Workflows page found some', [1], true, true],
+        ['an earlier visit to the Workflows page found some', [1], false, true],
+        ['the Workflows page found none after an earlier visit found some', [1, 0], true, null],
+    ])('reports the view, with whether the project has workflows, when %s', async (_, counts, open, hasWorkflows) => {
         logic.unmount()
         capture.mockClear()
-        if (count !== null) {
-            useMocks({ get: { '/api/projects/:team_id/hog_flows/': { count, results: [] } } })
+        for (const [visit, count] of counts.entries()) {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/': {
+                        count,
+                        results: count ? [{ id: 'workflow-1', name: 'Welcome series' }] : [],
+                        next: null,
+                        previous: null,
+                    },
+                },
+            })
             const setup = workflowsSetupLogic()
             setup.mount()
-            await expectLogic(setup).toDispatchActions(['detectStatusSuccess']).toFinishAllListeners()
-            if (!open) {
+            await expectLogic(setup).toFinishAllListeners()
+            if (!open || visit < counts.length - 1) {
                 setup.unmount()
             }
         }
@@ -132,7 +147,7 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-1')
 
         expect(doorOf(logic, 'door-1')?.status).toBe('open')
-        expect(capture).toHaveBeenCalledWith('workflows advent door opened', { day: 1, on_time: false })
+        expect(sent).toContainEqual(['workflows advent door opened', { day: 1, on_time: false }])
 
         logic.unmount()
         logic = adventCalendarLogic()
@@ -222,7 +237,7 @@ describe('adventCalendarLogic', () => {
         expect({
             saved: logic.values.progressByUser,
             opens: api.opens,
-            events: capture.mock.calls.filter(([event]) => event === 'workflows advent door opened'),
+            events: sent.filter(([event]) => event === 'workflows advent door opened'),
         }).toEqual({ saved: {}, opens: [], events: [] })
     })
 
@@ -244,8 +259,10 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-4-upper')?.status).toBe('ready')
     })
 
-    it('keeps the progress and the pick another tab saved, and sends no second answer, when this tab answers again', async () => {
+    it('keeps the progress and the pick another tab saved, shows its shares, and sends no second answer, when this tab answers again', async () => {
         const other = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e02'
+        useMocks(calendarApi({}, resultsOf({ ...DAY_TWO_ANSWERED, answer: null })).mocks)
+        await expectLogic(logic, () => logic.actions.loadPollResults()).toFinishAllListeners()
         const api = calendarApi()
         useMocks(api.mocks)
         logic.actions.activateDoor('door-1')
@@ -266,6 +283,7 @@ describe('adventCalendarLogic', () => {
         })
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
         expect(logic.values.tickets).toBe(1)
+        expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
         expect(api.answers).toEqual([])
     })
 
@@ -295,19 +313,27 @@ describe('adventCalendarLogic', () => {
     it.each([
         ['an answer no option has', { opened: [1, 2, 3], answers: { 2: 'tmi' } }],
         ['no answer', { opened: [1, 2, 3], answers: {} }],
-    ])('lets the person answer a question again when storage holds %s for it', (_, progress) => {
-        logic.unmount()
-        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: progress }))
-        logic = adventCalendarLogic()
-        logic.mount()
+    ])(
+        'lets the person answer a question again when storage holds %s for it, and keeps every saved open',
+        (_, progress) => {
+            const other = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e02'
+            logic.unmount()
+            window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: progress, [other]: progress }))
+            logic = adventCalendarLogic()
+            logic.mount()
 
-        expect(doorOf(logic, 'door-2')?.status).toBe('ready')
-        expect(logic.values.openCount).toBe(1)
+            expect(doorOf(logic, 'door-2')?.status).toBe('ready')
+            expect(logic.values.openCount).toBe(1)
 
-        logic.actions.answerDoor('door-2', 'tim')
+            logic.actions.answerDoor('door-2', 'tim')
 
-        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
-    })
+            expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+            expect(JSON.parse(window.localStorage.getItem(KEY)!)).toEqual({
+                [UUID]: { opened: [1, 2, 3], answers: { 2: 'tim' } },
+                [other]: { opened: [1, 2, 3], answers: {} },
+            })
+        }
+    )
 
     it.each(['null', `{"${UUID}":{"opened":3}}`])('keeps working when storage holds %s at load', (value) => {
         const uncaught: ErrorEvent[] = []
@@ -418,6 +444,63 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
     })
 
+    it.each(['before', 'after'])(
+        'shows the shares of both answers when the server reply to the first is held %s it saves the answer',
+        async (held) => {
+            let release = (): void => {}
+            const hold = new Promise<void>((done) => (release = done))
+            const dayFive = {
+                day: 5,
+                answer: 'yes',
+                shares: [
+                    { option: 'no', share: 30 },
+                    { option: 'yes', share: 70 },
+                ],
+            }
+            const saved: number[] = []
+            const snapshot = (): object =>
+                resultsOf(
+                    saved.includes(2) ? DAY_TWO_ANSWERED : { ...DAY_TWO_ANSWERED, answer: null },
+                    saved.includes(5) ? dayFive : { ...dayFive, answer: null }
+                )
+            useMocks({
+                post: {
+                    [`${CALENDAR_API}/answer/`]: async ({ request }) => {
+                        const { day } = (await request.json()) as { day: number }
+                        if (day === 2 && held === 'before') {
+                            await hold
+                        }
+                        saved.push(day)
+                        const reply = snapshot()
+                        if (day === 2 && held === 'after') {
+                            await hold
+                        }
+                        return [200, reply]
+                    },
+                    [`${CALENDAR_API}/open/`]: () => [200, {}],
+                },
+            })
+            jest.setSystemTime(new Date(2026, 11, 5, 9, 0))
+            logic.actions.refreshClock()
+            logic.actions.activateDoor('door-1')
+            logic.actions.finishReveal()
+            logic.actions.answerDoor('door-2', 'tim')
+            logic.actions.finishReveal()
+            for (const door of ['door-3-lower', 'door-4-lower']) {
+                logic.actions.activateDoor(door)
+                logic.actions.finishReveal()
+            }
+
+            logic.actions.answerDoor('door-5', 'yes')
+            await waitFor(() => expect(logic.values.pollShares[5]).toEqual({ no: 30, yes: 70 }))
+            release()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect([...saved].sort()).toEqual([2, 5])
+            expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 }, 5: { no: 30, yes: 70 } })
+        }
+    )
+
     it('sends no door opens or answers while a staff user previews another day, and keeps the live doors shut', async () => {
         const api = calendarApi()
         useMocks(api.mocks)
@@ -525,13 +608,12 @@ describe('adventCalendarLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(doorOf(logic, 'door-2')?.status).toBe('open')
-            const captured = (event: string): number => capture.mock.calls.filter(([name]) => name === event).length
             expect({
                 opens: api.opens.map((open) => (open as { day: number }).day),
                 answers: api.answers.length,
                 storesProgress: window.localStorage.getItem('workflows-advent-calendar-progress') !== storedBefore,
-                openEvents: captured('workflows advent door opened'),
-                answerEvents: captured('workflows advent answer picked'),
+                openEvents: sent.filter(([event]) => event === 'workflows advent door opened').length,
+                answerEvents: sent.filter(([event]) => event === 'workflows advent answer picked').length,
             }).toEqual({ opens, answers, storesProgress: isLive, openEvents: opens.length, answerEvents: answers })
         }
     )

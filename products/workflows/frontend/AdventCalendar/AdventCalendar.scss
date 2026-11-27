@@ -2,6 +2,10 @@
     animation: AdventDoor__ready 1800ms ease-in-out infinite;
 }
 
+.AdventTrigger {
+    border-radius: 1.75rem 0.75rem 0.75rem 1.75rem;
+}
+
 .AdventStage {
     position: relative;
     flex: 1 1 0;

@@ -24,6 +24,9 @@
             {% endfor %}
         </div>
     </div>
+    {% if related %}
+        {% include "admin_console/_related.html" %}
+    {% endif %}
     {% if attention %}
         <section class="quill-card group/card flex flex-col mb-4 console-attention"
                  data-quill

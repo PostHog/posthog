@@ -59,7 +59,13 @@ import { signalSourcesLogic } from '../signalSourcesLogic'
 import type { SourceProductStatus } from '../signalSourcesLogic'
 import { INBOX_REPORT_SECTION_KEYS } from '../types'
 import type { SignalSourceConfig } from '../types'
-import { newInboxSetupDraft, reconcileInboxSetupDraft, selectedSourceCount, setupSources } from '../utils/inboxSetup'
+import {
+    newInboxSetupDraft,
+    reconcileInboxSetupDraft,
+    selectedSourceCount,
+    setupSources,
+    withGuidedSetupActivationMode,
+} from '../utils/inboxSetup'
 import type { InboxSetupSource } from '../utils/inboxSetup'
 import { inboxSetupDefaultScouts, inboxSetupScoutChoices, inboxSetupScoutLimit } from '../utils/inboxSetupScouts'
 import type { InboxSetupScoutLimit } from '../utils/inboxSetupScouts'
@@ -119,6 +125,7 @@ interface InboxSetupErrorDetails {
 export interface inboxSetupLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     githubIntegrations: IntegrationType[] // integrationsLogic
+    integrations: IntegrationType[] | null // integrationsLogic
     integrationsLoading: boolean // integrationsLogic
     searchParams: Record<string, any> // router
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
@@ -137,6 +144,7 @@ export interface inboxSetupLogicValues {
     visionScannersLoading: boolean // signalSourcesLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
+    activatesWithoutGithub: boolean
     activationDisabledReason: string | undefined
     completed: boolean
     defaultScouts: ScoutSuggestionItemApi[]
@@ -145,6 +153,9 @@ export interface inboxSetupLogicValues {
     error: string | null
     failedOperation: 'activation' | 'other' | 'scouts' | 'sources' | null
     firstReportProgress: FirstReportProgressState | null
+    githubIsOptional: boolean
+    githubSkipConfirmationOpen: boolean
+    githubSkipConfirmationVisible: boolean
     hasGithubIntegration: boolean
     inProgress: boolean
     isFinalStep: boolean
@@ -156,6 +167,7 @@ export interface inboxSetupLogicValues {
     quickSetupDraft: InboxOnboardingDraftApi | null
     quickSetupGithubReturnUrl: string
     quickSetupReady: boolean
+    quickSetupSkipsGithub: boolean
     ready: boolean
     refreshingSources: boolean
     resumingSetup: boolean
@@ -231,6 +243,9 @@ export interface inboxSetupLogicActions {
     reportStepViewed: () => {
         value: true
     }
+    requestActivation: () => {
+        value: true
+    }
     resumeQuickSetup: () => {
         value: true
     }
@@ -250,6 +265,9 @@ export interface inboxSetupLogicActions {
         errorDetails: InboxSetupErrorDetails | undefined
         failedOperation: 'activation' | 'other' | 'scouts' | 'sources'
         failureReason: 'draft_save_failed' | 'github_redirect_failed' | null
+    }
+    setGithubSkipConfirmationOpen: (open: boolean) => {
+        open: boolean
     }
     setPendingQuickActivation: (activationSource: 'button' | 'github_return' | 'retry' | null) => {
         activationSource: 'button' | 'github_return' | 'retry' | null
@@ -306,6 +324,7 @@ export interface inboxSetupLogicMeta {
         quickSetupGithubReturnUrl: (onboardingOrigin: NonNullable<InboxOnboardingOriginEnumApi | undefined>) => string
         isGithubOptionalSetup: (savedState: InboxOnboardingStateApi | null) => boolean
         isQuickSetup: (searchParams: Record<string, any>, savedState: InboxOnboardingStateApi | null) => boolean
+        quickSetupSkipsGithub: (isGithubOptionalSetup: boolean, searchParams: Record<string, any>) => boolean
         shouldResumeQuickSetup: (
             isQuickSetup: boolean,
             savedState: InboxOnboardingStateApi | null,
@@ -345,7 +364,9 @@ export interface inboxSetupLogicMeta {
             sources: InboxSetupSource[],
             visionScanners: ReplayScannerApi[] | null,
             scannerInventoryKnown: boolean,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            isQuickSetup: boolean,
+            githubIsOptional: boolean
         ) => InboxOnboardingDraftApi
         scoutsLoading: (
             scoutConfigsLoading: boolean,
@@ -372,6 +393,14 @@ export interface inboxSetupLogicMeta {
         firstReportProgress: (savedState: InboxOnboardingStateApi | null) => FirstReportProgressState | null
         sourceCount: (draft: InboxOnboardingDraftApi) => number
         hasGithubIntegration: (githubIntegrations: IntegrationType[]) => boolean
+        githubIsOptional: (
+            isGithubOptionalSetup: boolean,
+            hasGithubIntegration: boolean,
+            integrations: IntegrationType[] | null,
+            integrationsLoading: boolean
+        ) => boolean
+        activatesWithoutGithub: (githubIsOptional: boolean, draft: InboxOnboardingDraftApi) => boolean
+        githubSkipConfirmationVisible: (githubSkipConfirmationOpen: boolean, activatesWithoutGithub: boolean) => boolean
         isFinalStep: (draft: InboxOnboardingDraftApi) => boolean
         defaultScouts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
@@ -388,7 +417,8 @@ export interface inboxSetupLogicMeta {
             ready: boolean,
             draft: InboxOnboardingDraftApi,
             hasGithubIntegration: boolean,
-            sourceCount: number
+            sourceCount: number,
+            githubIsOptional: boolean
         ) => string | undefined
     }
 }
@@ -426,7 +456,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 'productDataEventsLoading',
             ],
             integrationsLogic,
-            ['githubIntegrations', 'integrationsLoading'],
+            ['githubIntegrations', 'integrations', 'integrationsLoading'],
             scoutFleetLogic,
             ['scoutConfigs', 'scoutConfigsLoading', 'scoutFleetSynced'],
             scoutSuggestionsLogic,
@@ -456,6 +486,8 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
         toggleSuggestion: (suggestion: ScoutSuggestionItemApi) => ({ suggestion }),
         goToStep: (step: InboxOnboardingDraftApi['step']) => ({ step }),
         activate: (activationSource: 'button' | 'github_return' | 'retry' = 'button') => ({ activationSource }),
+        requestActivation: true,
+        setGithubSkipConfirmationOpen: (open: boolean) => ({ open }),
         retry: true,
         syncTrialLogic: true,
         activateQuickSetup: (activationSource: 'button' | 'github_return' | 'retry' = 'button') => ({
@@ -505,6 +537,15 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             { setError: (_, { error, failedOperation }) => (error ? failedOperation : null) },
         ],
         started: [false, { startSetup: () => true, openSetup: () => true }],
+        githubSkipConfirmationOpen: [
+            false,
+            {
+                setGithubSkipConfirmationOpen: (_, { open }) => open,
+                // The dialog covers the step, and the step is where a failure of either action shows.
+                activate: () => false,
+                connectGithub: () => false,
+            },
+        ],
         // Kept through an error so Retry resumes the queued activation; cleared once activation starts or the person switches to manual setup.
         pendingQuickActivation: [
             null as 'button' | 'github_return' | 'retry' | null,
@@ -557,6 +598,12 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             (params: Record<string, any>, state: InboxOnboardingStateApi | null): boolean =>
                 params.onboarding_step === 'quick' ||
                 (!state?.draft && !['signals', 'scouts', 'github'].includes(String(params.onboarding_step))),
+        ],
+        // The welcome screen asks for GitHub even in the pilot, so that a person who skips it goes through the guided
+        // steps and their confirmation. The pilot link that the MCP offers to agents is the one quick path without it.
+        quickSetupSkipsGithub: [
+            (s) => [s.isGithubOptionalSetup, s.searchParams],
+            (pilot: boolean, params: Record<string, any>): boolean => pilot && params.agent_setup === 'without_github',
         ],
         shouldResumeQuickSetup: [
             (s) => [
@@ -636,17 +683,28 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 setupSources(configs ?? [], statuses, scanners?.length ?? 0, !!team?.ingested_event),
         ],
         draft: [
-            (s) => [s.editedDraft, s.savedState, s.sources, s.visionScanners, s.scannerInventoryKnown, s.featureFlags],
+            (s) => [
+                s.editedDraft,
+                s.savedState,
+                s.sources,
+                s.visionScanners,
+                s.scannerInventoryKnown,
+                s.featureFlags,
+                s.isQuickSetup,
+                s.githubIsOptional,
+            ],
             (
                 editedDraft: InboxOnboardingDraftApi | null,
                 savedState: InboxOnboardingStateApi | null,
                 sources: InboxSetupSource[],
                 scanners: ReplayScannerApi[] | null,
                 scannerInventoryKnown: boolean,
-                flags: FeatureFlagsSet
+                flags: FeatureFlagsSet,
+                quick: boolean,
+                githubIsOptional: boolean
             ): InboxOnboardingDraftApi => {
                 const draft = editedDraft ?? savedState?.draft
-                const reconciled = draft
+                const current = draft
                     ? reconcileInboxSetupDraft(
                           draft,
                           sources,
@@ -656,9 +714,14 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                           sources,
                           (scanners ?? []).map((scanner) => scanner.id)
                       )
+                const usageBasedPricing = !!flags[FEATURE_FLAGS.SELF_DRIVING_UBP]
+                // Quick setup sets the activation mode when it builds its own draft.
+                const reconciled = quick
+                    ? current
+                    : withGuidedSetupActivationMode(current, githubIsOptional, usageBasedPricing)
                 return reconciled.activation_mode === 'github_optional'
                     ? { ...reconciled, automatic_implementation: false }
-                    : flags[FEATURE_FLAGS.SELF_DRIVING_UBP]
+                    : usageBasedPricing
                       ? reconciled
                       : { ...reconciled, automatic_implementation: true }
             },
@@ -715,6 +778,22 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             (integrations: IntegrationType[]): boolean =>
                 integrations.some((integration) => integration.installation_status !== 'unavailable'),
         ],
+        // The first integrations load must settle before this is true, because an unknown connection is not a missing one.
+        githubIsOptional: [
+            (s) => [s.isGithubOptionalSetup, s.hasGithubIntegration, s.integrations, s.integrationsLoading],
+            (pilot: boolean, connected: boolean, integrations: IntegrationType[] | null, loading: boolean): boolean =>
+                pilot && !connected && !(integrations === null && loading),
+        ],
+        activatesWithoutGithub: [
+            (s) => [s.githubIsOptional, s.draft],
+            (optional: boolean, draft: InboxOnboardingDraftApi): boolean =>
+                optional && draft.activation_mode === 'github_optional',
+        ],
+        // A person can link an existing installation from the dialog, and then its question no longer applies.
+        githubSkipConfirmationVisible: [
+            (s) => [s.githubSkipConfirmationOpen, s.activatesWithoutGithub],
+            (open: boolean, withoutGithub: boolean): boolean => open && withoutGithub,
+        ],
         isFinalStep: [(s) => [s.draft], (draft: InboxOnboardingDraftApi): boolean => draft.step === 'github'],
         defaultScouts: [
             (s) => [s.scoutConfigs, s.sources, s.currentTeam, s.productStatusBySource],
@@ -737,17 +816,20 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 inboxSetupScoutChoices(suggestions.length ? suggestions : defaults, draft.suggestions),
         ],
         activationDisabledReason: [
-            (s) => [s.ready, s.draft, s.hasGithubIntegration, s.sourceCount],
+            (s) => [s.ready, s.draft, s.hasGithubIntegration, s.sourceCount, s.githubIsOptional],
             (
                 ready: boolean,
                 draft: InboxOnboardingDraftApi,
                 connected: boolean,
-                sourceCount: number
+                sourceCount: number,
+                githubIsOptional: boolean
             ): string | undefined =>
                 !ready
                     ? 'Loading setup'
                     : !connected && draft.activation_mode !== 'github_optional'
-                      ? 'Connect GitHub to continue'
+                      ? githubIsOptional
+                          ? 'Connect GitHub or turn off automatic implementation to continue'
+                          : 'Connect GitHub to continue'
                       : !sourceCount && !draft.suggestions.length
                         ? 'Select a signal source or scout'
                         : undefined,
@@ -762,7 +844,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             if (!activationSource || values.error || values.saving || values.completed) {
                 return
             }
-            if (values.quickSetupReady && (values.hasGithubIntegration || values.isGithubOptionalSetup)) {
+            if (values.quickSetupReady && (values.hasGithubIntegration || values.quickSetupSkipsGithub)) {
                 actions.activateQuickSetup(activationSource)
                 return
             }
@@ -791,6 +873,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     ? (values.quickSetupDraft?.automatic_implementation ?? null)
                     : values.draft.automatic_implementation,
                 implementation_priority: values.draft.implementation_priority,
+                activation_mode: (values.isQuickSetup ? values.quickSetupDraft : values.draft)?.activation_mode ?? null,
                 ...properties,
             })
         }
@@ -934,6 +1017,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                         implementation_toggle_shown:
                             values.draft.step === 'github' && !!values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP],
                         github_connected: values.hasGithubIntegration,
+                        github_optional: values.githubIsOptional,
                     })
                     cache.viewedStep = key
                 }
@@ -1134,7 +1218,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 if (values.saving || values.completed) {
                     return
                 }
-                if (!values.quickSetupReady || (!values.hasGithubIntegration && !values.isGithubOptionalSetup)) {
+                if (!values.quickSetupReady || (!values.hasGithubIntegration && !values.quickSetupSkipsGithub)) {
                     actions.setPendingQuickActivation(activationSource)
                     // Restart every prerequisite load: one that already failed would never re-enter the continuation.
                     actions.startSetup()
@@ -1149,6 +1233,14 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 })
                 actions.setEditedDraft(values.quickSetupDraft!)
                 actions.activate(activationSource)
+            },
+            requestActivation: () => {
+                if (values.activatesWithoutGithub) {
+                    actions.setGithubSkipConfirmationOpen(true)
+                    capture('self-driving onboarding github skip confirmation viewed')
+                } else {
+                    actions.activate()
+                }
             },
             activate: async ({ activationSource }) => {
                 if (values.saving || cache.activating || values.activationDisabledReason) {

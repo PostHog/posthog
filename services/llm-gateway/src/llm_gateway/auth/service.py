@@ -176,7 +176,7 @@ class AuthService:
         UserAccessControl.get_user_access_level for resource="project": org
         admins bypass, rows apply only when the organization has the
         access_control feature, and no rows means the open project default.
-        Rows resolve most-specific-first (_most_specific_rows_decision): the
+        Rows resolve most-specific-first (_rows_decision): the
         user's own member row decides when one exists, then the highest row
         among the roles the user holds, then the default row. A less specific
         row never overrides a more specific one. Role rows count only when

@@ -27,6 +27,7 @@ from products.experiments.backend.recalculation.admission import (
     RecalculationWorkflowNotStarted,
     start_metrics_recalculation,
 )
+from products.experiments.backend.recalculation.kill_switch import recalculation_enabled
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.recalculation.dispatch import metrics_recalculation_workflow_id
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
@@ -35,6 +36,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     SKIP_DISPATCH_UNCERTAIN,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
+    SKIP_RECALCULATION_PAUSED,
     SKIP_START_WINDOW_ELAPSED,
     ScheduledRecalculationDiscovery,
     count_total_exposures,
@@ -86,6 +88,9 @@ def capture_started(experiment: Experiment, hour: int, recalculation_id: str) ->
 @database_sync_to_async_pool
 def _discover_scheduled_recalculation_candidates_sync() -> ScheduledRecalculationDiscovery:
     close_old_connections()
+    if not recalculation_enabled():
+        logger.info("scheduled_recalculation_paused")
+        return ScheduledRecalculationDiscovery(hour=timezone.now().hour, candidates=[])
     selection = find_scheduled_recalculation_candidates()
     hour = selection.discovery.hour
     for skip in selection.skips:
@@ -107,6 +112,8 @@ async def discover_scheduled_recalculation_candidates() -> ScheduledRecalculatio
 @database_sync_to_async_pool
 def _check_experiment_exposures_sync(experiment_id: int, hour: int) -> bool:
     close_old_connections()
+    if not recalculation_enabled():
+        return False
     experiment = Experiment.objects.filter(id=experiment_id, deleted=False).first()
     if experiment is None:
         return False
@@ -143,6 +150,10 @@ def _start_scheduled_recalculation_sync(
         )
 
     close_old_connections()
+    if not recalculation_enabled():
+        return ScheduledRecalculationStartResult(
+            experiment_id=experiment_id, started=False, skip_reason=SKIP_RECALCULATION_PAUSED
+        )
     # Re-check RUNNING, not just deleted: discovery ran before the exposure query, and an
     # experiment stopped in between should not get a scheduled run.
     experiment = (

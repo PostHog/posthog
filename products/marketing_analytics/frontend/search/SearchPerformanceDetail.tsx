@@ -2,86 +2,118 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 
 import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 import { ChangeValueCell } from '../dashboard/tables/ChangeValueCell'
+import { QuillSearchPerformanceDetail } from './QuillSearchPerformanceDetail'
 import { SEARCH_PLATFORM_LABELS } from './searchPerformance'
 import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
+
+type DetailMetric = 'clicks' | 'impressions' | 'ctr' | 'position' | 'conversions'
+
+const METRIC_LABELS: Record<DetailMetric, string> = {
+    clicks: 'Clicks',
+    impressions: 'Impressions',
+    ctr: 'CTR',
+    position: 'Average position',
+    conversions: 'Conversions',
+}
 
 export function SearchPerformanceDetail(): JSX.Element {
     const { wrapText, selectedRow, detailQuery, detailSourceNotices, compareFilter, hasSearchConsole } =
         useValues(searchPerformanceLogic)
     const { selectRow } = useActions(searchPerformanceLogic)
     const organic = selectedRow?.platform === 'GoogleSearchConsole'
-    const metricKeys: ('clicks' | 'impressions' | 'ctr' | 'position' | 'conversions')[] = [
-        'clicks',
-        'impressions',
-        'ctr',
-        organic ? 'position' : 'conversions',
-    ]
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const metricKeys: DetailMetric[] = ['clicks', 'impressions', 'ctr', organic ? 'position' : 'conversions']
+    const title = selectedRow?.page ?? selectedRow?.keyword ?? 'Search details'
+    const description = selectedRow ? SEARCH_PLATFORM_LABELS[selectedRow.platform] : undefined
+    const metrics = selectedRow
+        ? metricKeys.map((metric) => ({
+              key: metric,
+              label: METRIC_LABELS[metric],
+              value: (
+                  <ChangeValueCell
+                      value={
+                          selectedRow[metric] == null
+                              ? null
+                              : [selectedRow[metric], selectedRow.previous?.[metric] ?? null]
+                      }
+                      compare={!!compareFilter?.compare}
+                      kind={
+                          metric === 'ctr'
+                              ? 'percentage'
+                              : metric === 'position' || metric === 'conversions'
+                                ? 'decimal'
+                                : 'number'
+                      }
+                      currency={CurrencyCode.USD}
+                      reverseColors={metric === 'position'}
+                  />
+              ),
+          }))
+        : []
+    const tableHeading = selectedRow?.page ? 'Organic queries for this page' : 'Organic pages for this keyword'
+    const tableDescription = `${
+        selectedRow?.page
+            ? 'See which Google searches bring people to this page.'
+            : 'See the pages that appear in Google for this search.'
+    }${
+        !organic && !selectedRow?.page
+            ? ' Ad keywords can match different searches; these organic results are for the same text.'
+            : ''
+    }`
+    const connectSearchConsoleUrl = marketingSourceConnectUrl(
+        'GoogleSearchConsole',
+        'marketing_analytics_search_detail',
+        `${urls.marketingAnalyticsApp()}?tab=search-performance`
+    )
+
+    if (todayRailNav) {
+        return (
+            <QuillSearchPerformanceDetail
+                isOpen={!!selectedRow}
+                onClose={() => selectRow(null)}
+                title={title}
+                description={description}
+                metrics={metrics}
+                tableHeading={tableHeading}
+                tableDescription={tableDescription}
+                sourceNotices={detailSourceNotices}
+                detailQuery={detailQuery}
+                wrapText={wrapText}
+                hasSearchConsole={hasSearchConsole}
+                connectSearchConsoleUrl={connectSearchConsoleUrl}
+            />
+        )
+    }
 
     return (
         <LemonModal
             isOpen={!!selectedRow}
             onClose={() => selectRow(null)}
-            title={<span className="break-all">{selectedRow?.page ?? selectedRow?.keyword ?? 'Search details'}</span>}
-            description={selectedRow ? SEARCH_PLATFORM_LABELS[selectedRow.platform] : undefined}
+            title={<span className="break-all">{title}</span>}
+            description={description}
             width={900}
         >
             {selectedRow && (
                 <div className="@container flex flex-col gap-4">
                     <dl className="grid grid-cols-2 @min-[40rem]:grid-cols-4 gap-4 m-0">
-                        {metricKeys.map((metric) => (
-                            <div key={metric}>
-                                <dt className="text-secondary text-xs mb-1">
-                                    {
-                                        {
-                                            clicks: 'Clicks',
-                                            impressions: 'Impressions',
-                                            ctr: 'CTR',
-                                            position: 'Average position',
-                                            conversions: 'Conversions',
-                                        }[metric]
-                                    }
-                                </dt>
-                                <dd className="m-0 text-lg font-semibold">
-                                    <ChangeValueCell
-                                        value={
-                                            selectedRow[metric] == null
-                                                ? null
-                                                : [selectedRow[metric], selectedRow.previous?.[metric] ?? null]
-                                        }
-                                        compare={!!compareFilter?.compare}
-                                        kind={
-                                            metric === 'ctr'
-                                                ? 'percentage'
-                                                : metric === 'position' || metric === 'conversions'
-                                                  ? 'decimal'
-                                                  : 'number'
-                                        }
-                                        currency={CurrencyCode.USD}
-                                        reverseColors={metric === 'position'}
-                                    />
-                                </dd>
+                        {metrics.map(({ key, label, value }) => (
+                            <div key={key}>
+                                <dt className="text-secondary text-xs mb-1">{label}</dt>
+                                <dd className="m-0 text-lg font-semibold">{value}</dd>
                             </div>
                         ))}
                     </dl>
                     <div>
-                        <h3 className="mb-1">
-                            {selectedRow.page ? 'Organic queries for this page' : 'Organic pages for this keyword'}
-                        </h3>
-                        <p className="text-secondary mb-0">
-                            {selectedRow.page
-                                ? 'See which Google searches bring people to this page.'
-                                : 'See the pages that appear in Google for this search.'}
-                            {!organic &&
-                                !selectedRow.page &&
-                                ' Ad keywords can match different searches; these organic results are for the same text.'}
-                        </p>
+                        <h3 className="mb-1">{tableHeading}</h3>
+                        <p className="text-secondary mb-0">{tableDescription}</p>
                     </div>
                     {detailSourceNotices.map(({ sourceId, name, message }) => (
                         <LemonBanner
@@ -105,14 +137,7 @@ export function SearchPerformanceDetail(): JSX.Element {
                         </LemonBanner>
                     ) : null}
                     {!hasSearchConsole && (
-                        <LemonButton
-                            type="primary"
-                            to={marketingSourceConnectUrl(
-                                'GoogleSearchConsole',
-                                'marketing_analytics_search_detail',
-                                `${urls.marketingAnalyticsApp()}?tab=search-performance`
-                            )}
-                        >
+                        <LemonButton type="primary" to={connectSearchConsoleUrl}>
                             Connect Google Search Console
                         </LemonButton>
                     )}
