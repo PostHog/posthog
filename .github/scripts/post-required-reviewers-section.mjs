@@ -7,7 +7,6 @@ import {
     gh,
     postSection,
     resolvePrContext,
-    updateSectionIfPresent,
 } from '../../frontend/bin/ci-report/update-ci-report.mjs'
 
 const SECTION_ID = 'required-reviewers'
@@ -124,10 +123,10 @@ export function buildRequiredReviewersSection(reviews, { baseRef, teamSlugs, org
     }
 }
 
-async function listChangedFiles({ token, repo, prNumber }) {
+export async function listChangedFiles({ token, repo, prNumber }, fetchJson = gh) {
     const files = []
     for (let page = 1; page <= MAX_FILE_PAGES; page++) {
-        const batch = await gh(token, `/repos/${repo}/pulls/${prNumber}/files?per_page=${FILES_PER_PAGE}&page=${page}`)
+        const batch = await fetchJson(token, `/repos/${repo}/pulls/${prNumber}/files?per_page=${FILES_PER_PAGE}&page=${page}`)
         for (const file of batch) {
             files.push(file.filename)
             if (file.previous_filename) {
@@ -151,8 +150,8 @@ async function requestedTeamSlugs({ token, repo, prNumber }) {
     }
 }
 
-async function markUnchecked(body) {
-    await updateSectionIfPresent({ id: SECTION_ID, status: 'info', summary: 'not checked on this push', body })
+async function postUnchecked(body) {
+    await postSection({ id: SECTION_ID, status: 'info', summary: 'not checked on this push', body })
 }
 
 async function main() {
@@ -169,7 +168,7 @@ async function main() {
         changed = await listChangedFiles(context)
     } catch (err) {
         console.warn(`Could not check ruleset required reviewers: ${err.message}`)
-        await markUnchecked('The ruleset or the changed files could not be read on this push. Check the merge box.')
+        await postUnchecked('The ruleset or the changed files could not be read on this push. Check the merge box.')
         return
     }
     const reviews = findRequiredReviews(rules, changed.files)
