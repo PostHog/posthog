@@ -25,8 +25,6 @@ const LIST_MATCHING = '"Signups" is still matching people. You can launch when i
 const NO_SENDER = 'Set up an email sender before sending'
 const TEST_SENDER_FOR_WORKFLOW =
     "You don't have a verified email sender yet. You can send a test from the PostHog test sender to verified members of your organization. To email your users, set up your own domain."
-const TEST_SENDER_FOR_BROADCAST =
-    "Broadcasts need a verified email sender, and you don't have one yet. To try this email first, continue in a workflow and send a test from the PostHog test sender to verified members of your organization."
 
 const testSender = {
     integration_id: null,
@@ -112,26 +110,15 @@ describe('loadMessageAudienceWarnings', () => {
             expected: [TEST_SENDER_FOR_WORKFLOW],
         },
         {
-            case: 'only the test sender, for a broadcast',
-            destination: 'broadcast',
-            senders: [unverified],
-            sandbox: testSender,
-            expected: [TEST_SENDER_FOR_BROADCAST],
-        },
-        {
-            case: 'only the test sender, for a broadcast to a list that failed to match',
+            case: "today's warning for a broadcast, which cannot send from the test sender",
             destination: 'broadcast',
             senders: [],
             sandbox: testSender,
-            cohort: { name: 'Signups', is_static: true, is_calculating: false, errors_calculating: 1 },
-            expected: [
-                TEST_SENDER_FOR_BROADCAST,
-                '"Signups" couldn\'t match its people. Remove it from the recipients, or upload the list again.',
-            ],
+            expected: [NO_SENDER],
         },
         {
             case: 'the test sender while sending is suspended',
-            destination: 'broadcast',
+            destination: 'workflow',
             suspended: true,
             senders: [],
             sandbox: testSender,
@@ -167,7 +154,7 @@ describe('loadMessageAudienceWarnings', () => {
         },
         {
             case: 'the test sender to a caller that does not offer it',
-            destination: 'broadcast',
+            destination: 'workflow',
             senders: [],
             sandbox: testSender,
             caller: 'other',

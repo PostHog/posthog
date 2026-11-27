@@ -20,12 +20,10 @@ import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from '
 import {
     EMAIL_SENDING_SUSPENDED_MESSAGE,
     NO_EMAIL_SENDER_MESSAGE,
-    TEST_SENDER_ONLY_BROADCAST_MESSAGE,
     TEST_SENDER_ONLY_WORKFLOW_MESSAGE,
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
 import { canAdoptSandboxSender } from '../Channels/sandboxSender'
-import { urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
 
 export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]): string | null {
@@ -70,7 +68,7 @@ export async function loadMessageAudienceWarnings(
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
     const testSenderStatus =
-        offerTestSender && inProjectEnvironment
+        offerTestSender && destination === 'workflow' && inProjectEnvironment
             ? withinTimeout(workflowEmailSandboxStatus(projectId))
             : Promise.resolve(null)
     const [suspension, integrations, cohorts] = await Promise.all([
@@ -87,11 +85,9 @@ export async function loadMessageAudienceWarnings(
         !!senderWarning &&
         suspension?.email_sending_suspended === false &&
         canAdoptSandboxSender(await testSenderStatus)
-    const testSenderMessage =
-        destination === 'broadcast' ? TEST_SENDER_ONLY_BROADCAST_MESSAGE : TEST_SENDER_ONLY_WORKFLOW_MESSAGE
     return [
         suspension?.email_sending_suspended ? EMAIL_SENDING_SUSPENDED_MESSAGE : null,
-        offerTest ? testSenderMessage : senderWarning,
+        offerTest ? TEST_SENDER_ONLY_WORKFLOW_MESSAGE : senderWarning,
         ...cohorts.map((cohort) => (cohort ? audienceCohortLaunchError(cohort) : null)),
     ].filter((warning): warning is string => !!warning)
 }
@@ -114,16 +110,6 @@ export async function openMessageAudience(
         const navigate = async (): Promise<void> => {
             router.actions.push(messageAudienceUrl(audience, destination))
         }
-        const continueInWorkflow = async (): Promise<void> => {
-            router.actions.push(
-                urlForNewWorkflowWithTrigger(
-                    { type: 'batch', filters: { properties: audience.properties } },
-                    audience.source,
-                    audience.broadcastEmail,
-                    audience.draftSource
-                )
-            )
-        }
         const startedOn = router.values.location.pathname
         const warnings = await loadMessageAudienceWarnings(audience, destination, { offerTestSender: true })
         if (router.values.location.pathname !== startedOn) {
@@ -145,22 +131,15 @@ export async function openMessageAudience(
                 </ul>
             ),
             shouldAwaitSubmit: true,
-            primaryButton: warnings.includes(TEST_SENDER_ONLY_BROADCAST_MESSAGE)
-                ? {
-                      children: 'Continue in a workflow',
-                      onClick: continueInWorkflow,
-                      'data-attr': `message-audience-${audience.source}-continue-in-workflow`,
-                  }
-                : {
-                      children: 'Continue',
-                      onClick: navigate,
-                      'data-attr': `message-audience-${audience.source}-continue`,
-                  },
+            primaryButton: {
+                children: 'Continue',
+                onClick: navigate,
+                'data-attr': `message-audience-${audience.source}-continue`,
+            },
             secondaryButton: [
                 NO_EMAIL_SENDER_MESSAGE,
                 UNVERIFIED_SENDER_MESSAGE,
                 TEST_SENDER_ONLY_WORKFLOW_MESSAGE,
-                TEST_SENDER_ONLY_BROADCAST_MESSAGE,
             ].some((message) => warnings.includes(message))
                 ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
                 : { children: 'Cancel' },
