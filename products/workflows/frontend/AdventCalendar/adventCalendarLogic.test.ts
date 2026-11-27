@@ -85,11 +85,16 @@ function doorOf(
 describe('adventCalendarLogic', () => {
     let logic: ReturnType<typeof adventCalendarLogic.build>
     let capture: jest.SpyInstance
+    let sent: [string, unknown][]
 
     beforeEach(async () => {
         jest.useFakeTimers({ now: new Date(2026, 11, 3, 9, 0), advanceTimers: true })
         window.localStorage.clear()
-        capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        sent = []
+        capture = jest.spyOn(posthog, 'capture').mockImplementation((event: string, properties?: unknown) => {
+            sent.push([event, properties])
+            return undefined
+        })
         initKeaTests()
         await expectLogic(userLogic).toFinishAllListeners()
         signIn({ uuid: UUID, is_staff: false })
@@ -132,7 +137,7 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-1')
 
         expect(doorOf(logic, 'door-1')?.status).toBe('open')
-        expect(capture).toHaveBeenCalledWith('workflows advent door opened', { day: 1, on_time: false })
+        expect(sent).toContainEqual(['workflows advent door opened', { day: 1, on_time: false }])
 
         logic.unmount()
         logic = adventCalendarLogic()
@@ -222,7 +227,7 @@ describe('adventCalendarLogic', () => {
         expect({
             saved: logic.values.progressByUser,
             opens: api.opens,
-            events: capture.mock.calls.filter(([event]) => event === 'workflows advent door opened'),
+            events: sent.filter(([event]) => event === 'workflows advent door opened'),
         }).toEqual({ saved: {}, opens: [], events: [] })
     })
 
@@ -525,7 +530,7 @@ describe('adventCalendarLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(doorOf(logic, 'door-2')?.status).toBe('open')
-            const captured = (event: string): number => capture.mock.calls.filter(([name]) => name === event).length
+            const captured = (event: string): number => sent.filter(([name]) => name === event).length
             expect({
                 opens: api.opens.map((open) => (open as { day: number }).day),
                 answers: api.answers.length,

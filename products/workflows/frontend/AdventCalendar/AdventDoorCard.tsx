@@ -98,6 +98,31 @@ function headline(door: AdventDoor): { title: string; detail: string | null } {
         : { title: 'Ready to open', detail: 'Select the door to see who is behind it.' }
 }
 
+function AdventCardText({ door, withRaffle }: { door: AdventDoor; withRaffle: boolean }): JSX.Element {
+    const { title, detail } = headline(door)
+    return (
+        <div className="AdventCard__fade flex min-w-0 flex-1 flex-col gap-0.5">
+            {door.day !== ADVENT_LAST_DAY && (
+                <span className="text-[11px] text-secondary" translate="no">
+                    {adventWeekday(door.day)}
+                </span>
+            )}
+            {title && <span className="text-sm font-semibold leading-tight">{title}</span>}
+            {detail && (
+                <span
+                    className={cn(
+                        'text-xs leading-snug text-secondary',
+                        door.lockReason === 'date' && 'whitespace-nowrap'
+                    )}
+                >
+                    {detail}
+                </span>
+            )}
+            {withRaffle && <AdventRaffleDetails />}
+        </div>
+    )
+}
+
 export function AdventDoorCard({
     door,
     shares,
@@ -112,7 +137,6 @@ export function AdventDoorCard({
     onMouseEnter,
     onMouseLeave,
 }: AdventDoorCardProps): JSX.Element {
-    const { title, detail } = headline(door)
     const isPresent = door.day === ADVENT_LAST_DAY
     const detailsBesideFace = isPresent && door.status !== 'open'
     const { style, faceShift, isLeftward, facesDown } = cardLayout(door, face, stage, isOpen)
@@ -136,25 +160,7 @@ export function AdventDoorCard({
                     style={faceShift}
                     onClick={() => onPin(door.id)}
                 />
-                <div className="AdventCard__fade flex min-w-0 flex-1 flex-col gap-0.5">
-                    {!isPresent && (
-                        <span className="text-[11px] text-secondary" translate="no">
-                            {adventWeekday(door.day)}
-                        </span>
-                    )}
-                    {title && <span className="text-sm font-semibold leading-tight">{title}</span>}
-                    {detail && (
-                        <span
-                            className={cn(
-                                'text-xs leading-snug text-secondary',
-                                door.lockReason === 'date' && 'whitespace-nowrap'
-                            )}
-                        >
-                            {detail}
-                        </span>
-                    )}
-                    {detailsBesideFace && <AdventRaffleDetails />}
-                </div>
+                <AdventCardText door={door} withRaffle={detailsBesideFace} />
                 {isPinned && (
                     <LemonButton
                         className="AdventCard__fade shrink-0 self-start"
