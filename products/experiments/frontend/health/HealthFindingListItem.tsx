@@ -13,7 +13,6 @@ export function HealthFindingListItem({
 }: {
     finding: HealthPanelFinding
     isSelected: boolean
-    /** The `as_of` of the check that reported the finding, when that check is out of date. */
     outOfDateAsOf: string | null
     /** Returns whether the pick puts the detail of the finding on screen. */
     onSelect: () => boolean

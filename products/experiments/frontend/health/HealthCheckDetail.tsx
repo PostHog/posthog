@@ -27,7 +27,6 @@ export function HealthCheckDetail({
                 </h3>
                 <span className="pl-7 flex flex-wrap items-center gap-1 text-xs text-secondary">
                     <span>{healthCheckStatusText(check)}</span>
-                    {/* An exposure answer cached before the server added `as_of` doesn't say how current it is. */}
                     {check.as_of && (
                         <>
                             <span>·</span>

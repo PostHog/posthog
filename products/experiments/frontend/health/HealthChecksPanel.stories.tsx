@@ -28,8 +28,6 @@ const DESCRIPTIONS: Partial<Record<HealthPanelCheck['key'], string>> = {
         'Counts the users exposed to more than one variant, which the results leave out. A high share usually means that one person has several IDs, and the variants can then lose different users, which biases the results.',
 }
 
-// The checks on settings read them at the request. The checks on exposures and stored results read the latest run,
-// which ended 20 hours before the mocked now, so they are past the 12-hour cutoff.
 const CHECKED_AT = '2026-11-03T12:00:00Z'
 const RUN_END = '2026-11-02T16:00:00Z'
 const STALE_BEFORE = '2026-11-03T00:00:00Z'

@@ -47,7 +47,6 @@ export function HealthChecksPanel({
     exposures: ExperimentExposureQueryResponse | null
     isDraft: boolean
     exposureChecks: ExposureChecksState
-    /** A check whose `as_of` is earlier is out of date. Null when no check can be. */
     staleBefore: string | null
     onFindingActedOn?: () => void
 }): JSX.Element {

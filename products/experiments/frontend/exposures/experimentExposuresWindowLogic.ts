@@ -42,8 +42,7 @@ export type experimentExposuresWindowLogicType = MakeLogicType<
 >
 
 /**
- * Reloads the exposures and the health when the window of the metric results moves, so all three end at the same
- * instant.
+ * Reloads the exposures and the health when the window of the metric results moves, so all three end together.
  * Separate from experimentLogic because that logic is keyed by id and cannot connect to the metrics logic,
  * which needs the experiment in its props.
  */
@@ -72,8 +71,7 @@ export const experimentExposuresWindowLogic = kea<experimentExposuresWindowLogic
         /** Every poll dispatches this action, so react only when the window moves, not on every poll. */
         setCurrentRecalculation: (_, __, ___, previousState) => {
             if (selectors.resultsQueryTo(previousState) !== values.resultsQueryTo) {
-                // The health loads with the experiment and reads the latest run then, so the page's first read of
-                // that run needs no reload. A run that lands later changes what the checks on results read.
+                // The health request on page load already read the first run, so only a later run reloads it.
                 if (selectors.currentRecalculation(previousState) !== null) {
                     actions.loadExperimentHealth('results_run')
                 }
