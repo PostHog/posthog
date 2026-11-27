@@ -937,6 +937,19 @@ class AEOSetupSustainedRateThrottle(_TeamBucketRateThrottle):
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
 # team bucket bounds how often a browser or a script can start that work. The two endpoints share it.
+class AEOTopicRelabelBurstRateThrottle(_TeamBucketRateThrottle):
+    """A topic rename, merge or removal rewrites the label on every past check of the topic, so the project's
+    rewrites are capped, whoever sends them."""
+
+    scope = "aeo_topic_relabel_burst"
+    rate = "10/minute"
+
+
+class AEOTopicRelabelSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_topic_relabel_sustained"
+    rate = "60/hour"
+
+
 class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_keyword_report_burst"
     rate = "30/minute"

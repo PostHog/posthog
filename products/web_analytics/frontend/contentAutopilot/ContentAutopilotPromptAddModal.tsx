@@ -13,7 +13,6 @@ import {
     Field,
     FieldDescription,
     FieldLabel,
-    Input,
     Textarea,
 } from '@posthog/quill'
 
@@ -24,6 +23,7 @@ import {
     aeoPromptsBulkImportBodyPromptsMax,
 } from 'products/web_analytics/frontend/generated/api.zod'
 
+import { AiVisibilityTopicInput } from './AiVisibilityTopicInput'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { promptLines } from './utils'
 
@@ -78,12 +78,13 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
                     </Field>
                     <Field>
                         <FieldLabel htmlFor={`${id}-topic`}>Topic</FieldLabel>
-                        <Input
+                        <AiVisibilityTopicInput
                             id={`${id}-topic`}
                             value={topic}
-                            onChange={(event) => setTopic(event.target.value)}
+                            onChange={setTopic}
                             maxLength={aeoPromptsBulkImportBodyPromptsItemTopicMax}
                             placeholder="Scheduling software"
+                            dataAttr="content-autopilot-prompts-add-topic"
                         />
                         <FieldDescription>Optional. Groups the prompts in the overview and the list.</FieldDescription>
                     </Field>

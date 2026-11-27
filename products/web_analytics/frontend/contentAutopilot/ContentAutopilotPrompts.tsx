@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import {
     Button,
+    Checkbox,
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
@@ -31,15 +32,17 @@ import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { promptsTabFilters } from './aiVisibilityFilters'
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { AiVisibilityTag } from './AiVisibilityTag'
+import { aiVisibilityTopicsLogic } from './aiVisibilityTopicsLogic'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
-import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { ContentAutopilotMentionResultTag } from './ContentAutopilotMentionResultTag'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
+import { ContentAutopilotPromptsSelectionBar } from './ContentAutopilotPromptsSelectionBar'
+import { ContentAutopilotPromptsSetTopicDialog } from './ContentAutopilotPromptsSetTopicDialog'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
 import { engineLabel, isNoSearchEngine, promptSearches } from './utils'
 
@@ -103,6 +106,50 @@ const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element |
 }
 
 const LOADING_ROWS = 6
+
+const SelectPageCheckbox = (): JSX.Element => {
+    const { selectablePromptIds, selectedPromptIds, promptsLoading } = useValues(contentAutopilotPromptsLogic)
+    const { selectPrompts, clearPromptSelection } = useActions(contentAutopilotPromptsLogic)
+    const all = selectablePromptIds.length > 0 && selectedPromptIds.length === selectablePromptIds.length
+    return (
+        <Checkbox
+            size="sm"
+            checked={all}
+            indeterminate={!all && selectedPromptIds.length > 0}
+            onCheckedChange={(checked) => (checked ? selectPrompts(selectablePromptIds) : clearPromptSelection())}
+            disabledReason={
+                promptsLoading
+                    ? 'Wait for the prompts to load'
+                    : selectablePromptIds.length === 0
+                      ? 'No prompts on this page can be changed'
+                      : undefined
+            }
+            aria-label="Select every prompt on this page"
+            data-attr="content-autopilot-prompts-select-page"
+        />
+    )
+}
+
+const SelectPromptCheckbox = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element => {
+    const { selectedPromptIds, promptsLoading } = useValues(contentAutopilotPromptsLogic)
+    const { togglePromptSelected } = useActions(contentAutopilotPromptsLogic)
+    return (
+        <Checkbox
+            size="sm"
+            checked={selectedPromptIds.includes(prompt.id)}
+            onCheckedChange={() => togglePromptSelected(prompt.id)}
+            disabledReason={
+                promptsLoading
+                    ? 'Wait for the prompts to load'
+                    : prompt.archived_at
+                      ? 'Restore the prompt to change it'
+                      : undefined
+            }
+            aria-label={`Select ${prompt.prompt}`}
+            data-attr="content-autopilot-prompt-select"
+        />
+    )
+}
 
 const PromptLimitCount = (): JSX.Element | null => {
     const { setupContext } = useValues(contentAutopilotPromptsLogic)
@@ -193,7 +240,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
     const { loadAeoPrompts, setNeedsImprovement, setPromptsPage, setShowArchived } =
         useActions(contentAutopilotPromptsLogic)
     // The topic list counts every prompt that is not archived, so an empty one means the project has no prompts yet.
-    const { promptTopics, promptTopicsError } = useValues(contentAutopilotFilterBarLogic)
+    const { promptTopics, promptTopicsError } = useValues(aiVisibilityTopicsLogic)
     const { filters } = useValues(contentAutopilotFiltersLogic)
     const { setTopic } = useActions(contentAutopilotFiltersLogic)
 
@@ -231,6 +278,8 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 PostHog sends each active prompt to AI assistants on each engine's schedule and records whether the
                 answer cites your site. Open a prompt to see the answers, edit it, or archive it.
             </Text>
+            <ContentAutopilotPromptsSelectionBar />
+            <ContentAutopilotPromptsSetTopicDialog />
 
             {promptsError === 'failed' ? (
                 <AiVisibilityBanner
@@ -301,6 +350,12 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                         onBackward: promptsPage > 1 ? () => setPromptsPage(promptsPage - 1) : undefined,
                     }}
                     columns={[
+                        {
+                            title: <SelectPageCheckbox />,
+                            key: 'select',
+                            className: 'w-0',
+                            render: (_, prompt) => <SelectPromptCheckbox prompt={prompt} />,
+                        },
                         {
                             title: 'Prompt',
                             key: 'prompt',
