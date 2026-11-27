@@ -66,6 +66,10 @@ SLACK_APP_FRUSTRATION_GIF_FLAG = "slack-app-frustration-gif"
 SLACK_APP_WEB_SETTINGS_FLAG = "slack-app-web-settings"
 SLACK_APP_CHATGPT_APPS_FLAG = "slack-app-chatgpt-apps"
 WEB_SETTINGS_FLAG_CACHE_SECONDS = 60
+SLACK_APP_CHANNEL_CONTEXT_FLAG = "slack-app-channel-context"
+
+# Reading a channel's topic and purpose is a `conversations.info` call, which needs the read scope.
+CHANNEL_CONTEXT_REQUIRED_SCOPES: frozenset[str] = frozenset({"channels:read"})
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -302,6 +306,16 @@ def is_slack_app_web_settings_enforced(integration: IntegrationRecord) -> bool:
     )
     cache.set(cache_key, enabled, timeout=WEB_SETTINGS_FLAG_CACHE_SECONDS)
     return enabled
+
+
+def is_slack_app_channel_context_enabled(integration: IntegrationRecord) -> bool:
+    """Gate for building a channel's context from Slack. The context belongs to the channel, not to one person,
+    so no distinct ID is passed."""
+    return has_scopes(integration, CHANNEL_CONTEXT_REQUIRED_SCOPES) and _workspace_flag_enabled(
+        SLACK_APP_CHANNEL_CONTEXT_FLAG,
+        integration,
+        failure_log_key="slack_app_channel_context_feature_flag_check_failed",
+    )
 
 
 def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:

@@ -11,8 +11,9 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/dashboard-v2': ['DashboardV2', 'dashboardV2'],
+        '/dashboard-v2/:uid': ['DashboardV2', 'dashboardV2'],
     },
     urls: {
-        dashboardV2: (): string => '/dashboard-v2',
+        dashboardV2: (uid?: string): string => (uid ? `/dashboard-v2/${encodeURIComponent(uid)}` : '/dashboard-v2'),
     },
 }

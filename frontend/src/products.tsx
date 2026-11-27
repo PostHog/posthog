@@ -170,6 +170,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
     '/dashboard-v2': ['DashboardV2', 'dashboardV2'],
+    '/dashboard-v2/:uid': ['DashboardV2', 'dashboardV2'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
@@ -1644,7 +1645,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dashboardV2: (): string => '/dashboard-v2',
+    dashboardV2: (uid?: string): string => (uid ? `/dashboard-v2/${encodeURIComponent(uid)}` : '/dashboard-v2'),
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
     dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
