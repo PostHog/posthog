@@ -9380,6 +9380,7 @@ export type MarketingAnalyticsRecommendationRule =
     | 'striking_distance'
     | 'keyword_tracking'
     | 'conversion_mismatch'
+    | 'search_settings'
 
 export type MarketingAnalyticsRecommendationLevel = 'account' | 'campaign' | 'search_term'
 

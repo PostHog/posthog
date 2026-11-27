@@ -16,6 +16,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     FlaggedAd,
     Keyword,
     KeywordTracking,
+    NetworkSpend,
     OrganicQueryStats,
     PolicyAds,
     PolicyTopic,
@@ -1614,6 +1615,68 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         assert [(rec.level, rec.subject, rec.reason.split(". ")[0], (rec.steps or [])[0].linkText) for rec in rows] == (
             [("account", "Acme Ads", f"Google Ads counts {expected[0]}", expected[1])] if expected else []
+        )
+
+    @parameterized.expand(
+        [
+            ("partners_cost_more", {"targets_search_partners": True}, (120.0, "estimated", 2)),
+            (
+                "partners_convert_almost_as_well",
+                {"targets_search_partners": True, "search_partners_spend": NetworkSpend(cost=200, conversions=4)},
+                None,
+            ),
+            (
+                "partners_spend_little",
+                {"targets_search_partners": True, "search_partners_spend": NetworkSpend(cost=40, conversions=0)},
+                None,
+            ),
+            ("partners_off", {"targets_search_partners": False}, None),
+            ("display_without_conversions", {"targets_display": True}, (200.0, "measured", 2)),
+            (
+                "display_below_the_cost_of_one_conversion",
+                {"targets_display": True, "display_spend": NetworkSpend(cost=55, conversions=0)},
+                None,
+            ),
+            (
+                "partners_and_display",
+                {"targets_search_partners": True, "targets_display": True},
+                (320.0, "estimated", 2),
+            ),
+            (
+                "too_few_google_search_conversions",
+                {"targets_search_partners": True, "google_search_spend": NetworkSpend(cost=400, conversions=10)},
+                None,
+            ),
+            ("presence_or_interest", {"positive_geo_target_type": "PRESENCE_OR_INTEREST"}, (None, "measured", 2)),
+            (
+                "partners_and_presence_or_interest",
+                {"targets_search_partners": True, "positive_geo_target_type": "PRESENCE_OR_INTEREST"},
+                (120.0, "estimated", 3),
+            ),
+            ("paused", {"positive_geo_target_type": "PRESENCE_OR_INTEREST", "primary_status": "PAUSED"}, None),
+            (
+                "not_search",
+                {"positive_geo_target_type": "PRESENCE_OR_INTEREST", "channel_type": "PERFORMANCE_MAX"},
+                None,
+            ),
+        ]
+    )
+    def test_search_settings_flag_defaults_that_spend_outside_google_search(
+        self, _name: str, settings: dict[str, object], expected: tuple[float | None, str, int] | None
+    ) -> None:
+        campaign = _campaign(
+            **{
+                "google_search_spend": NetworkSpend(cost=800, conversions=20),
+                "search_partners_spend": NetworkSpend(cost=200, conversions=2),
+                "display_spend": NetworkSpend(cost=200, conversions=0),
+                **settings,
+            }
+        )
+
+        rows = [rec for rec in recommend(_inputs((campaign,))) if rec.rule == "search_settings"]
+
+        assert [(rec.subject, rec.impact, rec.impactType, len(rec.steps or [])) for rec in rows] == (
+            [("Search", *expected)] if expected else []
         )
 
 

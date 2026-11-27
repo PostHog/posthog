@@ -13,7 +13,9 @@ from posthog.dataclasses import frozen
 # These rules read only Search Console data, which has no ad account, so one decision covers every ad account.
 ACCOUNT_AGNOSTIC_RULES = frozenset({Rule.CONTENT_GAP, Rule.KEYWORD_GAP, Rule.STRIKING_DISTANCE})
 SEARCH_TERM_RULES = frozenset({Rule.BRAND_OVERLAP, Rule.SPEND_WITHOUT_CONVERSIONS}) | ACCOUNT_AGNOSTIC_RULES
-CAMPAIGN_RULES = frozenset({Rule.BRAND_LEAK, Rule.POLICY_LIMITED, Rule.REVIEW_CAMPAIGN, Rule.SCALE_CAMPAIGN})
+CAMPAIGN_RULES = frozenset(
+    {Rule.BRAND_LEAK, Rule.POLICY_LIMITED, Rule.REVIEW_CAMPAIGN, Rule.SCALE_CAMPAIGN, Rule.SEARCH_SETTINGS}
+)
 
 
 class InvalidRecommendationIdentity(ValueError):
