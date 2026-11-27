@@ -16,9 +16,11 @@ from parameterized import parameterized
 
 from posthog.csp_middleware import (
     CSPMiddleware,
+    PosthogJsSession,
     app_csp_header_name,
     narrowed_app_policy,
     object_storage_upload_source,
+    parse_posthog_js_session,
     posthog_js_session_id,
 )
 from posthog.ph_client import PH_US_API_KEY
@@ -731,10 +733,38 @@ class TestObjectStorageUploadSource(SimpleTestCase):
 
 
 NOW = datetime(2026, 6, 1, 12, tzinfo=UTC)
+NOW_MS = NOW.timestamp() * 1000
 REPORT_ENDPOINT = "https://us.i.posthog.com/report/?token=phc_reports&v=2"
 
 
-class TestPosthogJsSessionId(SimpleTestCase):
+def _sesid_cookie(sesid: object) -> str:
+    return quote(json.dumps({"distinct_id": "someone", "$sesid": sesid}))
+
+
+class TestPosthogJsSession(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "session",
+                _sesid_cookie([NOW_MS, SESSION_ID, NOW_MS - 1000]),
+                PosthogJsSession(id=SESSION_ID, last_activity_ms=NOW_MS, started_ms=NOW_MS - 1000),
+            ),
+            # posthog-js writes [null, null, null] when it resets, for example on logout.
+            ("reset_session", _sesid_cookie([None, None, None]), None),
+            # The browser controls the cookie and the id ends up in the policy header.
+            ("id_that_adds_a_directive", _sesid_cookie([NOW_MS, "x; script-src *", NOW_MS]), None),
+            ("timestamp_that_is_not_a_number", _sesid_cookie(["soon", SESSION_ID, NOW_MS]), None),
+            ("too_few_items", _sesid_cookie([NOW_MS, SESSION_ID]), None),
+            ("no_session_yet", quote(json.dumps({"distinct_id": "someone"})), None),
+            ("json_that_is_not_an_object", quote(json.dumps([NOW_MS, SESSION_ID, NOW_MS])), None),
+            ("not_json", "not-json", None),
+        ]
+    )
+    def test_parses_the_session_from_the_cookie(
+        self, _name: str, cookie: str, expected: PosthogJsSession | None
+    ) -> None:
+        assert parse_posthog_js_session(cookie) == expected
+
     @parameterized.expand(
         [
             (
@@ -756,13 +786,6 @@ class TestPosthogJsSessionId(SimpleTestCase):
                 _posthog_js_cookie(NOW, timedelta(minutes=1), SESSION_ID, timedelta(hours=25)),
                 None,
             ),
-            # The value ends up in the policy header, so a cookie must not be able to add a directive.
-            (
-                "not_a_uuid",
-                "ph_phc_reports_posthog",
-                _posthog_js_cookie(NOW, timedelta(minutes=1), "x; script-src *", timedelta(hours=2)),
-                None,
-            ),
             # A session from another project names no recording in the project the reports land in.
             (
                 "another_projects_cookie",
@@ -770,8 +793,6 @@ class TestPosthogJsSessionId(SimpleTestCase):
                 _posthog_js_cookie(NOW, timedelta(minutes=1), SESSION_ID, timedelta(hours=2)),
                 None,
             ),
-            ("unreadable_cookie", "ph_phc_reports_posthog", "not-json", None),
-            ("no_session_yet", "ph_phc_reports_posthog", quote(json.dumps({"distinct_id": "someone"})), None),
         ]
     )
     def test_reads_only_a_live_session_of_the_reporting_project(
@@ -781,7 +802,9 @@ class TestPosthogJsSessionId(SimpleTestCase):
         request.COOKIES[cookie_name] = cookie_value
 
         with time_machine.travel(NOW, tick=False):
-            assert posthog_js_session_id(request, REPORT_ENDPOINT) == expected
+            session_id = posthog_js_session_id(request, REPORT_ENDPOINT)
+
+        assert session_id == expected
 
 
 class TestViewManagedCsp(SimpleTestCase):

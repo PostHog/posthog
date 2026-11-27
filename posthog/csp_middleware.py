@@ -15,14 +15,14 @@ from django.http import HttpRequest, HttpResponse
 
 from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
+from posthog.dataclasses import frozen
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 
 _POSTHOG_CSP_REPORT_ENDPOINT = f"{PH_US_HOST}/report/?token={PH_US_API_KEY}&v=2"
 
-# posthog-js starts a new session after 30 minutes without activity (its default, which the app keeps)
-# or after 24 hours. The header is built before posthog-js runs, so a session past either limit is one
-# the page is about to replace, and a report tagged with it would land in the wrong recording.
+# posthog-js replaces a session after 30 minutes idle (its default, which the app keeps) or after 24 hours.
+# The header is built before posthog-js runs, so a session past either limit is about to be replaced.
 POSTHOG_JS_SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000
 POSTHOG_JS_SESSION_LENGTH_LIMIT_MS = 24 * 60 * 60 * 1000
 
@@ -46,30 +46,49 @@ def csp_report_endpoint(**params: str) -> str:
     return parts._replace(query=urlencode(query)).geturl()
 
 
-def posthog_js_session_id(request: HttpRequest, report_endpoint: str) -> str | None:
-    """The session posthog-js records in this browser for the project that `report_endpoint` reports to.
+@frozen
+class PosthogJsSession:
+    id: str
+    last_activity_ms: float
+    started_ms: float
 
-    The cookie is named after the project token, so a session from any other project is never read.
+    def is_live(self, now_ms: float) -> bool:
+        idle_ms = now_ms - self.last_activity_ms
+        age_ms = now_ms - self.started_ms
+        return idle_ms <= POSTHOG_JS_SESSION_IDLE_TIMEOUT_MS and age_ms <= POSTHOG_JS_SESSION_LENGTH_LIMIT_MS
+
+
+def parse_posthog_js_session(cookie: str) -> PosthogJsSession | None:
+    """Reads `$sesid` from a posthog-js cookie, which is URL-encoded JSON.
+
+    `$sesid` holds [last activity in ms, session id, session start in ms].
     """
+    try:
+        last_activity_ms, session_id, started_ms = json.loads(unquote(cookie))["$sesid"]
+
+        # The browser controls the cookie and the id lands in a response header, so only a UUID passes.
+        return PosthogJsSession(
+            id=str(UUID(session_id)),
+            last_activity_ms=float(last_activity_ms),
+            started_ms=float(started_ms),
+        )
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def posthog_js_session_id(request: HttpRequest, report_endpoint: str) -> str | None:
+    """The live posthog-js session in this browser for the project that `report_endpoint` reports to."""
+    # posthog-js names its cookie after the project token, so only that project's session is read.
     token = dict(parse_qsl(urlsplit(report_endpoint).query)).get("token")
     cookie = request.COOKIES.get(f"ph_{token}_posthog") if token else None
     if not cookie:
         return None
-    try:
-        # posthog-js stores the cookie as URL-encoded JSON, with `$sesid` as
-        # [last activity in ms, session id, session start in ms].
-        last_activity_ms, session_id, session_start_ms = json.loads(unquote(cookie))["$sesid"]
-        # The browser controls the cookie and the value lands in a response header, so only a UUID passes.
-        session_id = str(UUID(session_id))
-        now_ms = time.time() * 1000
-        if (
-            now_ms - last_activity_ms > POSTHOG_JS_SESSION_IDLE_TIMEOUT_MS
-            or now_ms - session_start_ms > POSTHOG_JS_SESSION_LENGTH_LIMIT_MS
-        ):
-            return None
-    except (ValueError, TypeError, KeyError, AttributeError):
+
+    session = parse_posthog_js_session(cookie)
+    if session is None or not session.is_live(now_ms=time.time() * 1000):
         return None
-    return session_id
+
+    return session.id
 
 
 def object_storage_upload_source() -> str:
@@ -555,9 +574,11 @@ class CSPMiddleware:
             identity: dict[str, str] = {}
             if distinct_id:
                 identity["distinct_id"] = distinct_id
+
             session_id = posthog_js_session_id(request, report_uri) if report_uri else None
             if session_id:
                 identity["session_id"] = session_id
+
             if report_uri:
                 report_endpoint = csp_report_endpoint(**report_params, **identity) if identity else report_uri
                 # The policy has no `report-to` directive, even though CSP3 marks `report-uri` as
