@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 35 enabled ops
+ * PostHog API - MCP 39 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -725,6 +725,36 @@ export const AeoPromptsBulkImportBody = () => zod.object({
 })
 
 /**
+ * Sets one topic on the chosen prompts, or removes their topic. Their past checks keep the topic they ran with, as when one prompt's topic changes. Prompt versions don't change. Nothing is saved when a prompt is missing or archived.
+ * @summary Set the topic of several AEO prompts
+ */
+export const AeoPromptsBulkSetTopicParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aeoPromptsBulkSetTopicBodyPromptIdsMax = 500
+
+export const aeoPromptsBulkSetTopicBodyTopicMax = 200
+
+export const AeoPromptsBulkSetTopicBody = () => zod.object({
+    prompt_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aeoPromptsBulkSetTopicBodyPromptIdsMax)
+        .describe('Ids of the prompts to change, from GET aeo_prompts\/. At most 500. Archived prompts are refused.'),
+    topic: zod
+        .string()
+        .max(aeoPromptsBulkSetTopicBodyTopicMax)
+        .describe(
+            "The topic to set. A name that matches an existing topic in another letter case takes that topic's spelling. An empty string removes the topic."
+        ),
+})
+
+/**
  * Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one domain, or ran one web search, from 'date_from' to 'date_to' (default the last 30 days) in the project's timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview or the rankings, with the same 'date_from', 'date_to' and 'branded' values.
  * @summary List the answers behind a cited page, site or search
  */
@@ -1037,7 +1067,7 @@ export const AeoPromptsSuggestionRetrieveParams = () => zod.object({
 })
 
 /**
- * Lists the topics in the project's AEO prompt set, with the number of prompts in each.
+ * Lists the topics in the project's AEO prompt set, with the number of prompts in each. Archived prompts are not counted, and a topic only archived prompts have is left out.
  * @summary List AEO prompt topics
  */
 export const AeoPromptsTopicsParams = () => zod.object({
@@ -1045,6 +1075,85 @@ export const AeoPromptsTopicsParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Moves every prompt of one topic, archived prompts included, to another topic, along with the past checks that ran with it. The first topic is gone afterwards. Prompt versions don't change.
+ * @summary Merge two AEO prompt topics
+ */
+export const AeoPromptsTopicsMergeParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aeoPromptsTopicsMergeBodyTopicMax = 200
+
+export const aeoPromptsTopicsMergeBodyIntoTopicMax = 200
+
+export const AeoPromptsTopicsMergeBody = () => zod.object({
+    topic: zod
+        .string()
+        .max(aeoPromptsTopicsMergeBodyTopicMax)
+        .describe("The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored."),
+    into_topic: zod
+        .string()
+        .max(aeoPromptsTopicsMergeBodyIntoTopicMax)
+        .describe(
+            'The topic to keep, as listed by GET aeo_prompts\/topics\/. It keeps its current spelling. Letter case is ignored.'
+        ),
+})
+
+/**
+ * Removes a topic from every prompt that has it, archived prompts included, and from the past checks that ran with it. The prompts are kept and have no topic afterwards. Prompt versions don't change.
+ * @summary Remove an AEO prompt topic
+ */
+export const AeoPromptsTopicsRemoveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aeoPromptsTopicsRemoveBodyTopicMax = 200
+
+export const AeoPromptsTopicsRemoveBody = () => zod.object({
+    topic: zod
+        .string()
+        .max(aeoPromptsTopicsRemoveBodyTopicMax)
+        .describe('The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored.'),
+})
+
+/**
+ * Renames a topic on every prompt that has it, archived prompts included, and on the past checks that ran with it, so the reports show its history under the new name. Prompt versions don't change.
+ * @summary Rename an AEO prompt topic
+ */
+export const AeoPromptsTopicsRenameParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aeoPromptsTopicsRenameBodyTopicMax = 200
+
+export const aeoPromptsTopicsRenameBodyNewTopicMax = 200
+
+export const AeoPromptsTopicsRenameBody = () => zod.object({
+    topic: zod
+        .string()
+        .max(aeoPromptsTopicsRenameBodyTopicMax)
+        .describe('The topic to rename, as listed by GET aeo_prompts\/topics\/. Letter case is ignored.'),
+    new_topic: zod
+        .string()
+        .max(aeoPromptsTopicsRenameBodyNewTopicMax)
+        .describe(
+            'The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 when another topic already has the name: merge the two instead.'
         ),
 })
 
