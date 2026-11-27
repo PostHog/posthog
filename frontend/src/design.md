@@ -240,6 +240,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Default: layout + spacing, no container
   - Card: a self-contained unit the user acts on or scans as a peer (entity summary, settings block)
   - Cards may contain an `ItemGroup`; never nest cards; never wrap a whole page section in a card
+  - A Card that floats over the page (`fixed`, `absolute`, or given a `shadow-*`) takes `border border-border`. Card draws its outline with `box-shadow`, so any `shadow-*` class replaces the outline, and in dark mode the card loses its edge
 - Table vs Item list:
   - Table: rows share columns users compare, sort, or scan vertically (DataTable when sorting/filtering/selection is needed)
   - Rows the user picks for a bulk action: `DataTable` with `selectable`, never a checkbox column built by hand. It adds the header checkbox and shift-click range selection. Pass `getRowId`, `rowSelection` and `onRowSelectionChange`, keep the selection in the list's logic, and clear it when the filters change.
