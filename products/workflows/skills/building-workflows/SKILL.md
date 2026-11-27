@@ -1,6 +1,6 @@
 ---
 name: building-workflows
-description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP. Author the action/edge graph so it runs and opens cleanly in the visual editor, then change drafts surgically with patch operations. Use when asked to build, set up, automate, change, fix, or debug a workflow, campaign, broadcast, drip sequence, or event-triggered automation in the workflows product, including first-time messaging setup (email channel, sending domain, frequency cap) before the first workflow. A broadcast (one email to an audience, sent once or on a schedule) is not a workflow: this skill routes it to broadcasts-create instead of building and running a batch workflow.'
+description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP. Author the action/edge graph so it runs and opens cleanly in the visual editor, then change drafts surgically with patch operations. Use when asked to build, set up, automate, change, fix, or debug a workflow, campaign, broadcast, drip sequence, or event-triggered automation in the workflows product, including first-time messaging setup (email channel, sending domain, frequency cap) before the first workflow. A broadcast (one email or push notification to an audience, sent once or on a schedule) is not a workflow: this skill routes it to broadcasts-create instead of building and running a batch workflow.'
 ---
 
 # Building workflows
@@ -13,13 +13,13 @@ A one-off email that the user's code sends to one person, such as a password res
 
 ## Broadcasts are not workflows
 
-A **broadcast** is one email to an audience, sent once or on a schedule: an announcement, a newsletter, a product update, a maintenance notice. When the user asks for a broadcast, or for an email like that with no other steps, create it with `broadcasts-create` and call it a broadcast. Do not build it with `workflows-create`, and do not send it with `workflows-enable`, `workflows-run-batch` or `workflows-schedule-create`.
+A **broadcast** is one email or push notification to an audience, sent once or on a schedule: an announcement, a newsletter, a product update, a maintenance notice. When the user asks for a broadcast, or for an email or push like that with no other steps, create it with `broadcasts-create` and call it a broadcast. Do not build it with `workflows-create`, and do not send it with `workflows-enable`, `workflows-run-batch` or `workflows-schedule-create`.
 
-- **Create the draft.** `broadcasts-create` takes exactly a `batch` trigger with the audience, one `function_email` step and an exit; its tool description has the ids and the email shape. The audience rules in [Hard rules](#hard-rules-to-surface-to-the-user-not-work-around) apply. Put a verified sender in `from` when the project has one.
-- **Refine the email** with `workflows-patch-action-email`, and design it with the **`designing-email-templates`** skill.
+- **Create the draft.** `broadcasts-create` takes exactly a `batch` trigger with the audience, one message step and an exit. For email the message step is one `function_email`; the tool description has the ids and the email shape, and `from` takes a verified sender when the project has one. For push it is one `function_push` instead ([references/graph-schema.md](references/graph-schema.md) has the shape), with the project's push integration ids in `channels`. The audience rules in [Hard rules](#hard-rules-to-surface-to-the-user-not-work-around) apply.
+- **Refine the message.** An email step: `workflows-patch-action-email`, designed with the **`designing-email-templates`** skill. A push step: `workflows-patch-graph`.
 - **Leave the launch to the user.** Do not enable it, start a run or attach a schedule. Give the user the broadcast link: they pick the timing, review the audience and launch it from the broadcast wizard.
 
-Build a workflow instead only when the message needs what a broadcast can't hold: more than one email, delays, branches, an event trigger, or SMS or push (broadcasts send only email today). Say so to the user before you build it, because it shows under workflows, not broadcasts.
+Build a workflow instead only when the message needs what a broadcast can't hold: more than one message, delays, branches, an event trigger, or SMS (a broadcast sends one email or one push, never SMS). Say so to the user before you build it, because it shows under workflows, not broadcasts.
 
 When the user has an existing workflow that is only a batch trigger, one email and an exit, and wants it under broadcasts, offer `workflows-convert-to-broadcast`. It can't be undone, so ask first.
 
