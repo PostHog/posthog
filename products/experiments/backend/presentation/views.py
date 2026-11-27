@@ -1044,6 +1044,13 @@ class EnterpriseExperimentsViewSet(
         each check, so a check that found no problem can be told from one that did not apply or could
         not read an input.
 
+        Each check's `as_of` is the end of the data it read. The checks on stored metric results
+        (`metric_calculation_failed`, `metric_all_zero`, `early_significance`, `result_ready`) read
+        the latest calculation, so their `as_of` can be a day or more before the request when the
+        results are out of date. A check that reads the flag's calls by release condition reads a
+        scan that is cached for up to a day. A check that reads only settings gives the time of the
+        request.
+
         The checks here read the experiment, its flag, its linked metrics, the project's event and
         property definitions, the cohorts of the exposure criteria, and the changes of the flag's
         variant split since launch. The checks that read exposure counts come with the

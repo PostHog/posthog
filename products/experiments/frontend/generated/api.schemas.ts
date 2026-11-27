@@ -3082,6 +3082,8 @@ export interface ExperimentHealthCheckResultApi {
     rule: ExperimentHealthCheckRuleApi | null
     /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. A release condition change also gives the conditions as the flag stores them, in before_filters and after_filters. Empty when the check reads no such list. */
     rows: ExperimentHealthCheckResultApiRowsItem[]
+    /** The end of the data that the check read, in UTC. For a check on the stored metric results, the end of the data of the latest calculation or of the current result. For a check on the feature flag's calls, the time of the scan, which is cached for up to a day. The time of the check for a check that reads only settings. A check that reads several of these gives the earliest. */
+    as_of: string
 }
 
 export interface ExperimentHealthReleaseConditionApi {

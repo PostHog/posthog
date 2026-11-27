@@ -326,6 +326,11 @@ class PrimaryMetric:
     significance: SignificanceHistory | None = None
 
     @property
+    def data_until(self) -> datetime | None:
+        """The end of the data of the current stored result. None without a stored result."""
+        return self.significance.current_until if self.significance is not None else None
+
+    @property
     def samples(self) -> int | None:
         """The total that the running time estimate's "Target reached" compares, so a check that reads it and the
         estimate agree. None without a stored result."""
@@ -390,6 +395,8 @@ class ExposureTotals:
     # Whether the totals come from precomputed exposures. These lag the events that the count without the test account
     # filter scans, so a burst of new users would read as users that the filter removes. Only the exposure query sets it.
     reads_precomputed_exposures: bool = False
+    # The end of the window that the totals count. Only the exposure query sets it.
+    data_until: datetime | None = None
 
     @property
     def total(self) -> int:
@@ -517,6 +524,8 @@ class LatestCalculation:
     # The hours from launch to the end of the data of this calculation. None when no calculation has finished. The
     # page can show a calculation from days ago until its refresh finishes.
     hours_of_data: float | None = None
+    # The end of the data of this calculation. None when no calculation has finished.
+    data_until: datetime | None = None
 
 
 @frozen

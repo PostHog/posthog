@@ -87,8 +87,7 @@ def forced_variant_values(ctx: HealthContext) -> CheckValues:
     forced = sum(1 for condition in flag.reachable_conditions if condition.pinned_variant is not None)
     values = {ExperimentHealthValueKey.FORCED_CONDITION_COUNT: forced}
     measured = _measured_traffic(ctx)
-    traffic = ctx.condition_set_traffic
-    if measured is None or traffic is None:
+    if measured is None or (traffic := ctx.condition_set_traffic) is None:
         return values
     return {
         **values,
@@ -120,8 +119,8 @@ def forced_variant_rows(ctx: HealthContext) -> CheckRows:
 def _measured_traffic(ctx: HealthContext) -> PinnedTraffic | None:
     """The traffic that grades SOME_CONDITIONS_PINNED, under the same conditions as its grade."""
     graded = overrides_to_grade(ctx)
-    traffic = ctx.condition_set_traffic
-    if graded is None or not graded.weighted or traffic is None:
+    # Without pins to grade, the scan stays unread, because reading it dates the check's `as_of` to the scan.
+    if graded is None or not graded.weighted or (traffic := ctx.condition_set_traffic) is None:
         return None
     return pinned_traffic(graded, traffic)
 

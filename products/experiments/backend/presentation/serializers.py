@@ -417,6 +417,14 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
             "stores them, in before_filters and after_filters. Empty when the check reads no such list."
         ),
     )
+    as_of = serializers.DateTimeField(
+        help_text=(
+            "The end of the data that the check read, in UTC. For a check on the stored metric results, the end of "
+            "the data of the latest calculation or of the current result. For a check on the feature flag's calls, "
+            "the time of the scan, which is cached for up to a day. The time of the check for a check that reads "
+            "only settings. A check that reads several of these gives the earliest."
+        ),
+    )
 
 
 class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):

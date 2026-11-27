@@ -1745,7 +1745,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         srm_check = next(check for check in response.health_checks or [] if check.key == "srm")
         self.assertEqual(
-            (srm_check.values, srm_check.rule and srm_check.rule.model_dump(mode="json")),
+            (srm_check.values, srm_check.rule and srm_check.rule.model_dump(mode="json"), srm_check.as_of),
             (
                 {"p_value": response.sample_ratio_mismatch.p_value, "compared_count": 100, "multiple_variant_count": 0},
                 {
@@ -1755,6 +1755,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     "test": "chi_squared",
                     "minimum": {"value": "compared_count", "threshold": 100},
                 },
+                datetime(2024, 1, 7, tzinfo=UTC),
             ),
         )
 

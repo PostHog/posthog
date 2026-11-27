@@ -147,6 +147,7 @@ describe('health finding reporting', () => {
                     values: {},
                     rule: null,
                     rows: [],
+                    as_of: '2026-11-03T10:00:00Z',
                 },
             ],
         })

@@ -609,6 +609,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 reason=check.reason,
                 values={key.value: value for key, value in check.values.items()},
                 rule=ExperimentExposuresQueryRunner._health_check_rule(check.rule) if check.rule else None,
+                as_of=check.as_of,
             )
             for check in health.checks
         ]
@@ -813,6 +814,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                     filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
                     has_positive_test_account_filter=has_positive_test_account_filter(self.team),
                     reads_precomputed_exposures=self._reads_precomputed_exposures,
+                    data_until=ensure_utc(analysis_window_end(self.window_end_date, self.as_of)),
                 ),
                 exposure_params,
             )
