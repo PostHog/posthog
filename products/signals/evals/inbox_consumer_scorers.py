@@ -279,7 +279,41 @@ def _final_answer(output: dict[str, Any] | None, name: str) -> str | Score:
     return answer
 
 
-class AnswerStatesFact(JudgedScorer):
+class _BinaryJudge(JudgedScorer):
+    """Base for a judge that answers `yes` or `no`."""
+
+    def __init__(self, *, name: str, prompt_template: str, **kwargs: Any):
+        super().__init__(
+            name=name,
+            prompt_template=prompt_template.strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=JUDGE_MODEL,
+            max_completion_tokens=256,
+            **kwargs,
+        )
+
+
+class _AnswerJudge(_BinaryJudge):
+    """Base for a judge of the agent's final answer. Opts in via ``expected={<name>: {...}}``."""
+
+    def _expected(self, spec: dict[str, Any]) -> dict[str, Any] | None:
+        """The template's `expected` variables, taken from the case's entry. None when the template needs none."""
+        return None
+
+    def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
+        spec = expected_spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "Not requested by this case"})
+        answer = _final_answer(output, self._name())
+        if isinstance(answer, Score):
+            return answer
+        prepared: dict[str, Any] = {"output": {"prompt": output.get("prompt", ""), "last_message": answer}}
+        if (variables := self._expected(spec)) is not None:
+            prepared["expected"] = variables
+        return prepared
+
+
+class AnswerStatesFact(_AnswerJudge):
     """Does the final answer convey a fact? Opts in via ``expected={"answer_states_fact": {"fact": "..."}}``."""
 
     def __init__(self, **kwargs: Any):
@@ -304,27 +338,15 @@ The answer should convey this, which PostHog's own records state:
 </fact>
 
 Does the answer convey that fact? Different wording is fine. It also counts when the answer gives the fact as what a report or record says and then questions it. It does not count when any part of the fact is missing or stated wrongly. Answer `yes` or `no`.
-""".strip(),
-            choice_scores=BINARY_CHOICE_SCORES,
-            model=JUDGE_MODEL,
-            max_completion_tokens=256,
+""",
             **kwargs,
         )
 
-    def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
-        spec = expected_spec(expected, self._name())
-        if spec is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "Not requested by this case"})
-        answer = _final_answer(output, self._name())
-        if isinstance(answer, Score):
-            return answer
-        return {
-            "output": {"prompt": output.get("prompt", ""), "last_message": answer},
-            "expected": {"fact": spec["fact"]},
-        }
+    def _expected(self, spec: dict[str, Any]) -> dict[str, Any] | None:
+        return {"fact": spec["fact"]}
 
 
-class AnswerSurfacesReports(JudgedScorer):
+class AnswerSurfacesReports(_AnswerJudge):
     """Does the final answer tell the user about the reports that wait for them?
 
     Opts in via ``expected={"answer_surfaces_reports": {"reports": [<title>, ...]}}``.
@@ -352,24 +374,12 @@ PostHog had already researched these findings for this user:
 </findings>
 
 Does the answer tell the user about at least two of these findings? A finding counts when the answer describes the same problem, in any wording. Answer `yes` or `no`.
-""".strip(),
-            choice_scores=BINARY_CHOICE_SCORES,
-            model=JUDGE_MODEL,
-            max_completion_tokens=256,
+""",
             **kwargs,
         )
 
-    def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
-        spec = expected_spec(expected, self._name())
-        if spec is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "Not requested by this case"})
-        answer = _final_answer(output, self._name())
-        if isinstance(answer, Score):
-            return answer
-        return {
-            "output": {"prompt": output.get("prompt", ""), "last_message": answer},
-            "expected": {"reports": "\n".join(f"- {title}" for title in spec["reports"])},
-        }
+    def _expected(self, spec: dict[str, Any]) -> dict[str, Any] | None:
+        return {"reports": "\n".join(f"- {title}" for title in spec["reports"])}
 
 
 def pull_request_draft(output: dict[str, Any] | None) -> str:
@@ -396,17 +406,12 @@ Only the pull request's description counts. A link elsewhere in the agent's mess
 """.strip()
 
 
-class _PullRequestJudge(JudgedScorer):
+class _PullRequestJudge(_BinaryJudge):
     """Base for a judge of the pull request description. Opts in via ``expected={<name>: {"report": <key>}}``."""
 
     def __init__(self, *, name: str, question: str, **kwargs: Any):
         super().__init__(
-            name=name,
-            prompt_template=f"{_PULL_REQUEST_JUDGE_INTRO}\n\n{question} Answer `yes` or `no`.",
-            choice_scores=BINARY_CHOICE_SCORES,
-            model=JUDGE_MODEL,
-            max_completion_tokens=256,
-            **kwargs,
+            name=name, prompt_template=f"{_PULL_REQUEST_JUDGE_INTRO}\n\n{question} Answer `yes` or `no`.", **kwargs
         )
 
     def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
@@ -451,7 +456,7 @@ class PullRequestFramesReport(_PullRequestJudge):
         )
 
 
-class AutomationProposed(JudgedScorer):
+class AutomationProposed(_AnswerJudge):
     """Does the final answer propose an automation that implements inbox reports?
 
     Opts in via ``expected={"automation_proposed": {}}``.
@@ -474,17 +479,6 @@ The assistant's last message:
 </final_answer>
 
 Does the message propose to set up an automation that keeps checking the Self-driving inbox and implements its reports without the user asking each time? A scheduled or recurring agent run qualifies. An offer to fix another report now, or to check the inbox again on request, does not. Answer `yes` or `no`.
-""".strip(),
-            choice_scores=BINARY_CHOICE_SCORES,
-            model=JUDGE_MODEL,
-            max_completion_tokens=256,
+""",
             **kwargs,
         )
-
-    def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
-        if expected_spec(expected, self._name()) is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "Not requested by this case"})
-        answer = _final_answer(output, self._name())
-        if isinstance(answer, Score):
-            return answer
-        return {"output": {"prompt": output.get("prompt", ""), "last_message": answer}}
