@@ -195,6 +195,25 @@ class TestNotebookAppViewAccess(APIBaseTest):
         self.client.force_login(self.recipient)
         self.assertContains(self.client.get(partial_url), "Republish this app")
 
+    def test_shared_pie_omits_the_undisplayed_axis_and_raw_values(self) -> None:
+        run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+        chart = {
+            "display": "ActionsPie",
+            "chartSettings": {"xAxis": {"column": "Week"}, "yAxis": [{"column": "Signups"}, {"column": "Visits"}]},
+        }
+        self.release.markdown = (
+            f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery={{{json.dumps(chart)}}} />'
+        )
+        self.release.sql_rows[f"schema:{run_id}"]["columns"] = ["Week", "Signups", "Visits"]
+        self.release.sql_rows[run_id] = [["Oct 12", 222, 450], ["Oct 19", 91, 350]]
+        self.release.save(update_fields=["markdown", "sql_rows"])
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        output = self.client.get(url)
+        self.assertContains(output, "Publish this chart as a table or single number")
+        for private_value in ("Oct 12", "Oct 19", "<td>222</td>", "<td>450</td>"):
+            self.assertNotContains(output, private_value)
+
     @parameterized.expand(
         [
             ([], "Oct 12", "222"),
