@@ -15,7 +15,7 @@ import {
     buildNewBroadcastComposerContext,
 } from './broadcastAgentContext'
 import { broadcastPreviewLogic, broadcastPreviewScope } from './broadcastPreviewLogic'
-import { opensAsBroadcast, opensInWizard } from './broadcastsLogic'
+import { isSentBroadcast, opensAsBroadcast, opensInWizard } from './broadcastsLogic'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { BroadcastWizard } from './BroadcastWizard'
@@ -49,7 +49,8 @@ export function BroadcastScene({ id }: BroadcastWizardLogicProps): JSX.Element {
 }
 
 function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
-    const { broadcast, broadcastLoading } = useValues(broadcastWizardLogic)
+    const { broadcast, broadcastLoading, batchJobs, hasLoadedBatchJobs, batchJobsLoading } =
+        useValues(broadcastWizardLogic)
     const { aiComposerAvailable } = useValues(newBroadcastAgentLogic)
     // The escape hatch lands on the wizard instead (see `aiComposerAvailable`).
     const showAiComposer = id === 'new' && aiComposerAvailable
@@ -80,6 +81,14 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         // The wizard saves a broadcast back as its three-step graph, so any other graph (an edit made in the
         // workflow editor, or an agent-created one) stays read-only here rather than losing its extra steps.
         if (!opensInWizard(broadcast)) {
+            return <BroadcastSummary />
+        }
+        // A sent broadcast back in draft still can't change, so it opens as its summary.
+        const sent = isSentBroadcast(broadcast, hasLoadedBatchJobs ? batchJobs : null)
+        if (sent === null && batchJobsLoading) {
+            return <SpinnerOverlay sceneLevel />
+        }
+        if (sent) {
             return <BroadcastSummary />
         }
     }

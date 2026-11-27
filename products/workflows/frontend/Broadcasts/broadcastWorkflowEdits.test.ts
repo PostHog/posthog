@@ -6,7 +6,14 @@ import type {
     HogFlowScheduleApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-import { StoppableBroadcast, canEditInWizard, canMoveToDraft, opensInWizard } from './broadcastsLogic'
+import {
+    StoppableBroadcast,
+    canEditInWizard,
+    canMoveToDraft,
+    isSentBroadcast,
+    opensInWizard,
+    sendNowDisabledReason,
+} from './broadcastsLogic'
 import { DEFAULT_BROADCAST_CONVERSION, DEFAULT_BROADCAST_EMAIL, buildBroadcastPayload } from './broadcastWizardLogic'
 
 const trigger = (filters: Record<string, any> = { properties: [] }): Record<string, any> => ({
@@ -101,6 +108,37 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         }
         const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
         expect(canMoveToDraft(broadcast, jobs)).toBe(expected)
+    })
+
+    it.each<
+        [string, string | null, HogFlowScheduleApi['status'][], HogFlowBatchJobApi['status'][] | null, boolean | null]
+    >([
+        ['a broadcast that never ran', 'broadcasts', [], [], false],
+        ['a broadcast that sent once', 'broadcasts', [], ['completed'], true],
+        ['a broadcast whose only run failed', 'broadcasts', [], ['failed'], true],
+        ['a one-time broadcast whose schedule fired', 'broadcasts', ['completed'], ['completed'], true],
+        ['a recurring broadcast between runs', 'broadcasts', ['active'], ['completed'], false],
+        ['a recurring broadcast paused by an audience edit', 'broadcasts', ['paused'], ['completed'], false],
+        ['a recurring broadcast mid-send', 'broadcasts', ['active'], ['completed', 'active'], true],
+        ['a broadcast whose runs have not loaded', 'broadcasts', [], null, null],
+        ['a workflow shaped like a broadcast that ran', null, [], ['completed'], false],
+    ])('treats %s as sent: %s', (_, originProduct, scheduleStatuses, jobStatuses, expected) => {
+        const broadcast = {
+            origin_product: originProduct,
+            schedules: scheduleStatuses.map((scheduleStatus) => ({ status: scheduleStatus })),
+        }
+        const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
+        expect(isSentBroadcast(broadcast, jobs)).toBe(expected)
+    })
+
+    it.each<[string, string | null, HogFlowBatchJobApi['status'][] | null, boolean]>([
+        ['a broadcast that never ran', 'broadcasts', [], true],
+        ['a broadcast whose runs have not loaded', 'broadcasts', null, false],
+        ['a recurring broadcast stopped between runs', 'broadcasts', ['completed'], false],
+        ['a workflow shaped like a broadcast that ran', null, ['completed'], true],
+    ])('offers Send now on %s: %s', (_, originProduct, jobStatuses, expected) => {
+        const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
+        expect(sendNowDisabledReason(originProduct, jobs) === undefined).toBe(expected)
     })
 
     it.each([

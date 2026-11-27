@@ -37,6 +37,7 @@ from products.workflows.backend.facade.contracts import (
 )
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.presentation.views.workflow_imports import CustomerioSegmentSerializer
 from products.workflows.backend.services.customerio_import import conditions, liquid
@@ -1018,7 +1019,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         return response.json()["results"][0]
 
-    def test_reimport_updates_the_draft_until_it_is_enabled(self) -> None:
+    def test_reimport_updates_the_draft_until_it_is_enabled_or_sent(self) -> None:
         first = self._import()
         preview = self._import(dry_run=True)
         second = self._import()
@@ -1031,6 +1032,16 @@ class TestWorkflowImportAPI(APIBaseTest):
         third = self._import()
         assert third["status"] == "skipped"
         assert HogFlow.objects.get(pk=first["workflow_id"]).status == "active"
+
+        # A broadcast that started sending stays skipped after it goes back to draft, in the preview too.
+        HogFlow.objects.filter(pk=first["workflow_id"]).update(status="draft", origin_product="broadcasts")
+        with patch(
+            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+        ):
+            HogFlowBatchJob.objects.create(
+                team=self.team, hog_flow_id=first["workflow_id"], status="completed", filters={}, variables={}
+            )
+        assert (self._import(dry_run=True)["status"], self._import()["status"]) == ("skipped", "skipped")
 
     def test_segment_trigger_uses_the_mapped_realtime_cohort(self) -> None:
         cohort = Cohort.objects.create(

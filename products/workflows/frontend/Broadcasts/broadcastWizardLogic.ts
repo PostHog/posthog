@@ -1485,7 +1485,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             },
         ],
         hasLoadedBatchJobs: [
-            false,
+            // A broadcast this wizard creates has no runs to load.
+            props.id === 'new',
             {
                 loadBatchJobs: () => false,
                 loadBatchJobsSuccess: () => true,

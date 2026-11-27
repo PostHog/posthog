@@ -45,6 +45,10 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
 
     State = HogFlowBatchJobState
 
+    # A caller that saves inside a transaction turns this off and dispatches after the commit, since the
+    # resolver reads the row over its own connection.
+    dispatch_on_save = True
+
     team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING, related_name="+")
     hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.DO_NOTHING)
     variables = models.JSONField(default=dict)
@@ -148,7 +152,7 @@ def dispatch_queued_no_resolver(error: BaseException) -> bool:
 
 @receiver(post_save, sender=HogFlowBatchJob)
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
-    if created:
+    if created and instance.dispatch_on_save:
         dispatch_new_batch_job(instance)
 
 

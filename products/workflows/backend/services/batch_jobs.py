@@ -60,21 +60,17 @@ def create_batch_job(
         hog_flow = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
         if broadcast_is_locked(hog_flow):
             raise BroadcastLocked()
-        # bulk_create sends no post_save, so the row commits before the dispatch below. The resolver reads it
-        # over its own connection and gives up on a row it can't see.
-        (job,) = HogFlowBatchJob.objects.bulk_create(
-            [
-                HogFlowBatchJob(
-                    id=batch_job_id,
-                    team_id=team_id,
-                    hog_flow_id=hog_flow_id,
-                    created_by_id=created_by_id,
-                    variables=variables,
-                    filters=filters,
-                    **({} if status is None else {"status": status}),
-                )
-            ]
+        job = HogFlowBatchJob(
+            id=batch_job_id,
+            team_id=team_id,
+            hog_flow_id=hog_flow_id,
+            created_by_id=created_by_id,
+            variables=variables,
+            filters=filters,
+            **({} if status is None else {"status": status}),
         )
+        job.dispatch_on_save = False
+        job.save()
     dispatch_new_batch_job(job)
     return to_batch_job(job)
 

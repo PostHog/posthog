@@ -238,7 +238,7 @@ class TestBroadcastDispatchCommitsFirst(_BroadcastFixtures, NonAtomicAPIBaseTest
                 other.close()
             return MagicMock(status_code=200)
 
-        with patch(_DISPATCH, side_effect=resolver_reads_the_run):
+        with patch(_DISPATCH, autospec=True, side_effect=resolver_reads_the_run):
             response = self.client.post(self._url(flow_id, "/batch_jobs"), {}, format="json")
 
         assert response.status_code == 200, response.json()
