@@ -323,7 +323,10 @@ function TracingSceneContents(): JSX.Element {
                         compareActive ? 'The heatmap is unavailable while comparing time windows' : null
                     }
                 />
-                <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col">
+                {/* A short scene squeezes the span list to zero height, so the row keeps a fixed minimum and the
+                    scene scrolls. Stacked under the rail, the minimum also covers the rail. Not min-h-fit: the
+                    list sizes itself to its container. */}
+                <div className="flex flex-row gap-2 flex-1 min-h-80 @max-[48rem]/facet-rail-host:flex-col @max-[48rem]/facet-rail-host:min-h-[36rem]">
                     {facetRailEnabled && !facetRailCollapsed && <TracingFacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
