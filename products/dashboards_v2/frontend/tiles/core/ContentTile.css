@@ -51,18 +51,7 @@
     -webkit-box-orient: vertical;
 }
 
-/* Only an image or a printed page shows it, because on screen the icon next to the title opens the description. */
-@media screen {
-    :is(.dash-ContentTile, .SectionTile) .dash-ContentTile__description--image-only:not(.dash-capturing *) {
-        display: none;
-    }
-}
-
 @media print {
-    .dash-ContentTile__description-icon {
-        display: none;
-    }
-
     .dash-ContentTile--interactive-only {
         visibility: hidden;
     }

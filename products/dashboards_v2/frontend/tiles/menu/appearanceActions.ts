@@ -2,7 +2,7 @@ import { type Tile, isSectionPanel } from '../../dashboard/document/dashboardTyp
 import type { PresentationEdit } from '../../dashboard/edits/presentationEdits'
 import type { MenuAction } from '../../menu/menuAction'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
-import type { TileDescriptionMode } from '../../panels/core/panelSchema'
+import { type TileDescriptionMode, shownDescription } from '../../panels/core/panelSchema'
 import { findPanel } from '../../panels/core/panelSpec'
 import { TILE_BACKGROUND_COLORS } from '../../panels/core/tileBackground'
 import { NO_BACKGROUND, showsBorder } from '../core/tileAppearance'
@@ -144,7 +144,7 @@ function descriptionChoices(
         }
         // A section always shows its header.
         const header = isSectionPanel(panel) || showsPart(panel, 'header')
-        return [{ id, mode: panel.appearance?.description ?? 'icon', header }]
+        return [{ id, mode: shownDescription(panel).mode, header }]
     })
     if (applies.length === 0) {
         return []

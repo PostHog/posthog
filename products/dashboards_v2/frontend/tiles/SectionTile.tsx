@@ -30,7 +30,9 @@ import {
 } from '../dashboard/document/dashboardTypes'
 import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
-import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionInfo } from './core/ContentTile'
+import { shownDescription } from '../panels/core/panelSchema'
+import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionIcon } from './core/DescriptionIcon'
+import { TapTooltip } from './core/TapTooltip'
 import { TileActions } from './core/TileActions'
 import { showsBorder, tileBackgroundStyle } from './core/tileAppearance'
 import { TileContextMenu, hasTileMenu } from './core/TileContextMenu'
@@ -65,8 +67,7 @@ export function SectionTile({
 }): JSX.Element {
     const { onEdit, onSectionFoldedChange, can } = useDashboard()
     const collapsed = !!panel.collapsed
-    const descriptionMode = panel.appearance?.description ?? 'icon'
-    const description = descriptionMode === 'hidden' ? undefined : panel.description
+    const { mode: descriptionMode, text: description } = shownDescription(panel)
     const [draft, setDraft] = useState<string | null>(null)
     const ownActions = useSectionActions(id, panel, () => setDraft(panel.title))
     const [confirmingRemove, setConfirmingRemove] = useState(false)
@@ -119,12 +120,12 @@ export function SectionTile({
                         description={
                             description &&
                             descriptionMode === 'below' && (
-                                <DescriptionInfo
-                                    description={description}
+                                <TapTooltip
+                                    text={description}
                                     className="SectionTile__description TileGrid__text truncate text-left text-xs text-muted-foreground"
                                 >
                                     {description}
-                                </DescriptionInfo>
+                                </TapTooltip>
                             )
                         }
                         actions={
@@ -142,9 +143,13 @@ export function SectionTile({
                             draft={draft}
                             onDraftChange={setDraft}
                         />
-                        {description && descriptionMode === 'icon' && <DescriptionInfo description={description} />}
                         {description && descriptionMode === 'icon' && (
-                            <span className={clsx(DESCRIPTION_IMAGE_ONLY_CLASS, DESCRIPTION_TEXT)}>{description}</span>
+                            <>
+                                <DescriptionIcon description={description} />
+                                <span className={clsx(DESCRIPTION_IMAGE_ONLY_CLASS, DESCRIPTION_TEXT)}>
+                                    {description}
+                                </span>
+                            </>
                         )}
                     </SectionHeader>
                     {!collapsed && (
@@ -281,12 +286,12 @@ export function SectionTitle({
     } else {
         label = (
             // A tap opens the whole title, because a touch screen has no hover to show what the header cuts off.
-            <DescriptionInfo
-                description={title}
+            <TapTooltip
+                text={title}
                 className={clsx('quill-card__title TileGrid__text truncate text-left', TITLE_MAX_WIDTH)}
             >
                 {title}
-            </DescriptionInfo>
+            </TapTooltip>
         )
     }
 
