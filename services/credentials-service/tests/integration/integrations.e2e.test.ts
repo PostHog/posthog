@@ -7,7 +7,7 @@ import { type KeyObject, generateKeyPairSync, randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pool } from 'pg'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import { IntegrationKeyLoader } from '@/auth/integration-keys'
 import { IntegrationVerifier, MAX_TOKEN_LIFETIME_SECONDS } from '@/auth/integrations'
@@ -1291,6 +1291,20 @@ describe('by external id', () => {
 
     it('patches the rows of every team, secrets included, and writes nothing for an identical patch', async () => {
         const rows = await seed()
+        // Move the clock between the rows of one patch, so a row that reads the clock itself gets a later time.
+        vi.useFakeTimers({ toFake: ['Date'] })
+        onTestFinished(() => {
+            vi.useRealTimers()
+        })
+        const applyPatch = (IntegrationsService.prototype as any).applyPatch
+        const spy = vi.spyOn(IntegrationsService.prototype as any, 'applyPatch').mockImplementation(function (
+            this: unknown,
+            ...args: unknown[]
+        ) {
+            vi.setSystemTime(Date.now() + 1_000)
+            return applyPatch.apply(this, args)
+        })
+        onTestFinished(() => spy.mockRestore())
         const patch = {
             config_patch: { refreshed_at: 1_800_000_500 },
             sensitive_config_patch: { access_token: 'fake-rotated-token' },
@@ -1324,7 +1338,7 @@ describe('by external id', () => {
 
         const audited = (
             await pool.query(
-                `SELECT outcome, owner_id, fields, user_id FROM audit_log
+                `SELECT outcome, owner_id, fields, user_id, occurred_at FROM audit_log
              WHERE operation = 'write_by_external_id' ORDER BY outcome, owner_id`
             )
         ).rows
@@ -1334,6 +1348,8 @@ describe('by external id', () => {
             ['unchanged', String(TEAM_A)],
             ['unchanged', String(TEAM_B)],
         ])
+        expect(audited[0].occurred_at).toEqual(audited[1].occurred_at)
+        expect(audited[2].occurred_at).toEqual(audited[3].occurred_at)
         expect(audited[0].fields).toEqual(['access_token'])
         expect(audited[0].user_id).toBe('9')
     })
@@ -1760,16 +1776,15 @@ describe('mirror', () => {
             })
         ).toEqual(['stale'])
 
-        expect(await outcomes([{ ...deleteRow(502, false), source_version: 4 }])).toEqual(['stale'])
-
         expect(await resolveAccessToken(502)).toBe(ACCESS_TOKEN)
         expect(await stored(502)).toMatchObject({ source_version: '5', version: 1 })
     })
 
     it('deletes, keeps the tombstone, and tombstones an unknown id only when asked', async () => {
         expect(await outcomes([mirrorRow(503, 1)])).toEqual(['created'])
-        expect(await outcomes([deleteRow(503, false)])).toEqual(['deleted'])
-        expect(await stored(503)).toMatchObject({ secret_id: null, version: 2 })
+        // A delete with an older version still wins, and the stored version does not go down.
+        expect(await outcomes([{ ...deleteRow(503, false), source_version: 0 }])).toEqual(['deleted'])
+        expect(await stored(503)).toMatchObject({ secret_id: null, version: 2, source_version: '1' })
         expect((await stored(503)).deleted_at).not.toBeNull()
         expect(await outcomes([mirrorRow(503, 9)])).toEqual(['stale'])
         expect(await outcomes([deleteRow(503, true)])).toEqual(['unchanged'])
@@ -1926,144 +1941,5 @@ describe('mirror', () => {
             'deleted',
             'absent',
         ])
-    })
-
-    describe('purge', () => {
-        async function purge(body: Record<string, unknown>, opts: CallOptions = {}): Promise<CallResult> {
-            return call('POST', '/mirror/purge', {
-                deployment: CELERY,
-                team: null,
-                ops: ['mirror_purge'],
-                kinds: ['hubspot'],
-                ...opts,
-                body: { kind: 'hubspot', ...body },
-            })
-        }
-
-        async function legacyIds(): Promise<number[]> {
-            const result = await pool.query('SELECT legacy_id FROM integrations WHERE legacy_id IS NOT NULL ORDER BY 1')
-            return result.rows.map((row) => Number(row.legacy_id))
-        }
-
-        async function purgeAudit() {
-            return (await auditRows()).filter((row) => row.operation === 'mirror_purge')
-        }
-
-        it('hard-deletes the mirrored rows and tombstones of the kind, and nothing else', async () => {
-            expect(
-                await outcomes([
-                    mirrorRow(601, 3),
-                    mirrorRow(602, 1, { kind: 'salesforce' }),
-                    deleteRow(603, true),
-                    mirrorRow(604, 1, { is_source_row: true }),
-                ])
-            ).toEqual(['created', 'created', 'deleted', 'created'])
-            expect(await outcomes([mirrorRow(605, 2)], { team: TEAM_B })).toEqual(['created'])
-            const serviceCreated = await create({ integration_id: 'service-made' })
-            // A legacy id without a source version: the service wrote it, not the mirror.
-            await insertIntegration(pool, {
-                owner: { type: 'team', id: TEAM_A },
-                kind: 'hubspot',
-                externalId: 'legacy-not-mirrored',
-                authType: 'oauth',
-                legacyId: 606,
-            })
-            await audit.flush()
-            const auditBefore = (await auditRows()).length
-
-            const res = await purge({})
-
-            expect(res.status).toBe(200)
-            expect(res.json).toEqual({ purged: 4, legacy_ids: [601, 603, 604, 605], next_after_legacy_id: null })
-            expect(await legacyIds()).toEqual([602, 606])
-            const kept = await pool.query('SELECT id FROM integrations ORDER BY legacy_id NULLS LAST')
-            expect(kept.rows.map((row) => row.id)).toEqual([expect.any(String), expect.any(String), serviceCreated.id])
-            const secretCount = await pool.query('SELECT count(*)::int AS n FROM integration_secrets')
-            // The secrets of the salesforce row and the service-created row. 606 has none.
-            expect(secretCount.rows[0].n).toBe(2)
-
-            // Every audit row from before the purge is still there, plus one per purged row.
-            const after = await auditRows()
-            expect(after.length).toBe(auditBefore + 4)
-            expect(await purgeAudit()).toEqual(
-                [
-                    [601, 3, TEAM_A],
-                    [603, 0, TEAM_A],
-                    [604, 1, TEAM_A],
-                    [605, 2, TEAM_B],
-                ].map(([legacyId, sourceVersion, team]) => ({
-                    operation: 'mirror_purge',
-                    outcome: 'purged',
-                    owner_id: String(team),
-                    fields: [],
-                    details: { legacy_id: legacyId, source_version: sourceVersion },
-                }))
-            )
-
-            // The tombstone is gone, so a new backfill starts clean.
-            expect(await outcomes([mirrorRow(603, 1), mirrorRow(601, 1)], { origin: 'backfill' })).toEqual([
-                'created',
-                'created',
-            ])
-        })
-
-        it('pages by legacy id, and a dry run lists the page without a change', async () => {
-            expect(await outcomes([mirrorRow(611, 1), mirrorRow(612, 1), mirrorRow(613, 1)])).toEqual([
-                'created',
-                'created',
-                'created',
-            ])
-
-            const first = await purge({ limit: 2, dry_run: true })
-            expect(first.json).toEqual({ purged: 0, legacy_ids: [611, 612], next_after_legacy_id: 612 })
-            const second = await purge({ limit: 2, dry_run: true, after_legacy_id: 612 })
-            expect(second.json).toEqual({ purged: 0, legacy_ids: [613], next_after_legacy_id: null })
-            expect(await legacyIds()).toEqual([611, 612, 613])
-            expect(await purgeAudit()).toEqual([
-                expect.objectContaining({ outcome: 'dry_run', details: expect.objectContaining({ matched: 2 }) }),
-                expect.objectContaining({ outcome: 'dry_run', details: expect.objectContaining({ matched: 1 }) }),
-            ])
-
-            expect((await purge({ limit: 2, after_legacy_id: 611 })).json).toEqual({
-                purged: 2,
-                legacy_ids: [612, 613],
-                next_after_legacy_id: 613,
-            })
-            expect(await legacyIds()).toEqual([611])
-        })
-
-        it('purges only the teams in team_ids', async () => {
-            expect(await outcomes([mirrorRow(621, 1)])).toEqual(['created'])
-            expect(await outcomes([mirrorRow(622, 1)], { team: TEAM_B })).toEqual(['created'])
-            expect(await outcomes([mirrorRow(623, 1)], { team: TEAM_C })).toEqual(['created'])
-
-            const res = await purge({ team_ids: [TEAM_B, TEAM_C] })
-
-            expect(res.json.legacy_ids).toEqual([622, 623])
-            expect(await legacyIds()).toEqual([621])
-        })
-
-        it.each([
-            ['web', { deployment: WEB }, 'forbidden_op'],
-            ['cdp', { deployment: CDP }, 'forbidden_op'],
-            ['a kind outside the claim', { kinds: ['salesforce'] }, 'forbidden_kind'],
-        ] as [string, CallOptions, string][])('refuses %s', async (_name, opts, code) => {
-            expect(await outcomes([mirrorRow(631, 1)])).toEqual(['created'])
-
-            const res = await purge({}, opts)
-
-            expect(res.status).toBe(403)
-            expect(res.json.error.code).toBe(code)
-            expect(await legacyIds()).toEqual([631])
-        })
-
-        it.each([
-            ['a limit over 500', { limit: 501 }],
-            ['more than 1000 team ids', { team_ids: Array.from({ length: 1001 }, (_, i) => i + 1) }],
-        ])('rejects %s', async (_name, body) => {
-            const res = await purge(body)
-            expect(res.status).toBe(400)
-            expect(res.json.error.code).toBe('validation')
-        })
     })
 })

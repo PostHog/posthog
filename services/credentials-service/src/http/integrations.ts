@@ -15,7 +15,6 @@ import type { Caller, IntegrationsService } from '../integrations/service'
 import {
     crossTeamBody,
     mirrorBody,
-    mirrorPurgeBody,
     newIntegrationBody,
     parse,
     parseChangesQuery,
@@ -60,6 +59,7 @@ function caller<E extends Env>(c: Context<E>): Caller {
             jti: auth.jti,
             requestId: c.get('requestId'),
         },
+        requestedAt: new Date(),
     }
 }
 
@@ -199,17 +199,6 @@ export function createIntegrationRoutes(opts: IntegrationRoutesOptions): Hono<En
         const input = parse(mirrorBody, body(c))
         return c.json(await opts.mirror.mirror(caller(c), input))
     })
-
-    // The rollback of the mirror. The token's kinds claim must hold the kind of the request.
-    app.post(
-        '/mirror/purge',
-        readBody,
-        requireIntegrationAuth('mirror_purge', { kind: (c) => bodyField(c, 'kind') }),
-        async (c) => {
-            const input = parse(mirrorPurgeBody, body(c))
-            return c.json(await opts.mirror.purge(caller(c), input))
-        }
-    )
 
     app.get('/changes', requireIntegrationAuth('reverse_sync', { kind: (c) => c.req.queries('kind') }), async (c) => {
         const query = parseChangesQuery(c.req.queries())
