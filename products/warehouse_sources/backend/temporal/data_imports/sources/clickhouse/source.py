@@ -19,6 +19,10 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     BypassEnvProxy,
@@ -593,6 +597,25 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # entry covers the case where the server stays saturated past all in-process
             # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
             "TOO_MANY_SIMULTANEOUS_QUERIES",
+            # QUOTA_EXCEEDED (code 201) — the connecting user has a server-side quota (e.g. a
+            # rolling-hour execution_time budget) and this sync pushed it over. Unlike the
+            # Code: 241/243/396 capacity limits above, a quota clears on its own once its interval
+            # ends (the message names exactly when), so it must not disable the schema — that
+            # would leave every table on this source off until a person notices and re-enables
+            # each one, well after the cause already cleared. Temporal's own retry budget is far
+            # shorter than a typical quota window, so the schema staying enabled for its next
+            # scheduled run — after the window has had more time to close — is what actually
+            # recovers this. We match the error-code name, which a quota-enforcing proxy in front
+            # of ClickHouse (not just ClickHouse itself) could also raise, rather than "Code: 201".
+            "QUOTA_EXCEEDED",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            # Shown on `latest_error` once a run's retries run out while the quota is still active.
+            # The schema itself stays enabled (see `get_retryable_errors`), so this only replaces
+            # the raw driver text with something a customer can act on.
+            "QUOTA_EXCEEDED": "Your ClickHouse user has exceeded a query quota configured on the server (for example an hourly execution-time limit). This will retry automatically once the quota's interval resets. If it keeps happening, ask your ClickHouse administrator to raise the quota for this user.",
         }
 
     @contextmanager
@@ -748,6 +771,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # user-facing wording and neither is a PostHog defect, so they are not captured.
             return False, str(e)
         except BaseSSHTunnelForwarderError as e:
+            if isinstance(e, SSHGatewayClosedBeforeBannerError):
+                return False, SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE
             if _SSH_GATEWAY_SESSION_ERROR in (e.value or ""):
                 return False, _SSH_GATEWAY_UNREACHABLE_ERROR
             # Other sshtunnel messages are written for a traceback reader and can carry the host it dialed.

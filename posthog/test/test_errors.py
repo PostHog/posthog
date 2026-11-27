@@ -1,3 +1,8 @@
+from clickhouse_connect.driver.exceptions import (
+    DatabaseError as HttpClientDatabaseError,
+    OperationalError as HttpClientOperationalError,
+    StreamFailureError as HttpClientStreamFailureError,
+)
 from clickhouse_driver.errors import (
     Error as ClickHouseDriverError,
     ServerException,
@@ -7,24 +12,47 @@ from parameterized import parameterized
 
 from posthog.errors import (
     BAD_GET_FALLBACK_MESSAGE,
+    CH_TRANSIENT_ERRORS,
     CLICKHOUSE_ERROR_CODE_LOOKUP,
+    S3_ACCESS_DENIED_MESSAGE,
     CHQueryErrorBadGet,
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorMalformedCsvRow,
     CHQueryErrorNotImplemented,
+    CHQueryErrorQueryWasCancelled,
+    CHQueryErrorUnknownIdentifier,
     CHQueryErrorUnknownType,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
     clickhouse_error_message,
+    clickhouse_error_type,
     error_code_from_type,
     internal_ch_error_user_message,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseUDFTimeOut
+
+HTTP_CLIENT_URL = "https://clickhouse.example.com:8443"
+UDF_POOL_TIMEOUT = (
+    "User defined function 'aggregate_funnel_array_v13' failed. Command: 'v13/aggregate_funnel', Arguments: [3]. "
+    "Original error: Code: 159. DB::Exception: Pipe read timeout exceeded 10000 milliseconds. (TIMEOUT_EXCEEDED)"
+)
+
+
+def _http_client_response(code: int, detail: str, name: str) -> str:
+    return f"Code: {code}. DB::Exception: {detail} ({name}) (version 25.8.1.1 (official build))"
+
+
+def _http_client_error(code: int, detail: str, name: str) -> HttpClientDatabaseError:
+    return HttpClientDatabaseError(
+        f"Received ClickHouse exception, code: {code}, server response: "
+        f"{_http_client_response(code, detail, name)} (for url {HTTP_CLIENT_URL})"
+    )
 
 
 class TestWrapClickhouseQueryError:
@@ -42,15 +70,63 @@ class TestWrapClickhouseQueryError:
                 assert "private" not in wrapped.message, code
                 assert wrapped.nested is None, code
 
-    def test_argument_type_error_names_both_operand_types(self) -> None:
-        raw = ServerException(
-            "DB::Exception: Illegal types DateTime64(6, 'UTC') and String of arguments of function plus. "
-            "While processing private expression",
-            code=43,
-        )
-        assert str(wrap_clickhouse_query_error(raw)) == (
-            "`plus` cannot combine DateTime64 and String here. Check the types on both sides of the expression."
-        )
+    @parameterized.expand(
+        [
+            (
+                "arithmetic",
+                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
+                "`plus` cannot combine DateTime64 and String here. Check the types on both sides of the expression.",
+            ),
+            (
+                "comparison",
+                "Illegal types of arguments (`Array(UInt8)`, `UInt8`) of function `greater`",
+                "The > operator cannot compare Array(UInt8) and UInt8. Use compatible types on both sides of the comparison.",
+            ),
+            (
+                "comparison_with_type_parameters",
+                "Illegal types of arguments (`Tuple(private_field String)`, `DateTime64(3, 'UTC')`) of function `lessOrEquals`",
+                "The <= operator cannot compare Tuple and DateTime64. Use compatible types on both sides of the comparison.",
+            ),
+            (
+                "aggregate",
+                "Illegal type String of argument for aggregate function sum",
+                "`sum` cannot use an argument of type String here. Check the argument order and cast it to a supported type.",
+            ),
+            (
+                "date_argument",
+                "A value of illegal type was provided as 2nd argument 'startdate' to function 'dateDiff'. "
+                "Expected: Date[32] or DateTime[64], got: UInt8",
+                "The 2nd argument to `dateDiff` has type UInt8. Use a date or date-time value.",
+            ),
+            (
+                "date_argument_with_type_parameters",
+                "A value of illegal type was provided as 2nd argument 'startdate' to function 'dateDiff'. "
+                "Expected: Date[32] or DateTime[64], got: Array(Date)",
+                "The 2nd argument to `dateDiff` has type Array. Use a date or date-time value.",
+            ),
+            (
+                "validated_argument",
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'trimBoth'. "
+                "Expected: String or FixedString, got: Date32",
+                "The 1st argument to `trim` has type Date32. Convert it to String or FixedString.",
+            ),
+            (
+                "validated_argument_with_unlisted_expected_type",
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'arrayStringConcat'. "
+                "Expected: Enum8('private' = 1), got: String",
+                "The 1st argument to `arrayStringConcat` has type String. Convert it to a type the function accepts.",
+            ),
+            (
+                "validated_argument_with_type_parameters",
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'trimBoth'. "
+                "Expected: String or FixedString, got: Array(String)",
+                "Check the argument types for `trim`. Cast each argument to a type the function accepts.",
+            ),
+        ]
+    )
+    def test_argument_type_error_identifies_the_expression(self, _case: str, diagnostic: str, expected: str) -> None:
+        raw = ServerException(f"DB::Exception: {diagnostic}: In scope SELECT private_expression", code=43)
+        assert str(wrap_clickhouse_query_error(raw)) == expected
 
     @parameterized.expand([(": while executing",), (": While processing",), (". While processing",)])
     def test_throw_if_preserves_the_message_and_drops_the_expression(self, separator: str) -> None:
@@ -59,8 +135,18 @@ class TestWrapClickhouseQueryError:
         )
         assert str(wrap_clickhouse_query_error(raw)) == "Check the input date"
 
-    def test_unrecognized_type_and_function_use_fixed_guidance(self) -> None:
-        raw = ServerException("DB::Exception: Illegal type Secretthing of argument of function privateFn", code=43)
+    @parameterized.expand(
+        [
+            ("Illegal type Secretthing of argument of function privateFn",),
+            ("Unexpected argument: In scope SELECT 'Illegal type String of argument of function length'",),
+            (
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'privateFn'. "
+                "Expected: String, got: Int64",
+            ),
+        ]
+    )
+    def test_unrecognized_type_and_function_use_fixed_guidance(self, diagnostic: str) -> None:
+        raw = ServerException(f"DB::Exception: {diagnostic}", code=43)
         assert str(wrap_clickhouse_query_error(raw)) == CLICKHOUSE_ERROR_CODE_LOOKUP[43].user_safe
 
     def test_unknown_code_preserves_only_its_driver_number(self) -> None:
@@ -69,6 +155,45 @@ class TestWrapClickhouseQueryError:
         assert clickhouse_error_message(error) == (
             "ClickHouse couldn't complete this query. Contact support and include the error code 999999."
         )
+
+    @parameterized.expand(
+        [
+            (
+                "head_request_403",
+                "Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 403: "
+                "while reading exports/part-0.parquet: The table structure cannot be extracted from a Parquet format "
+                "file. (S3_ERROR)",
+            ),
+            (
+                "get_request_access_denied",
+                "Code: 499. DB::Exception: Access Denied: while reading key: exports/part-0.parquet, "
+                "from bucket: example-bucket. (S3_ERROR)",
+            ),
+        ]
+    )
+    def test_s3_access_denied_is_exposed_and_not_retried(self, _name: str, raw_message: str) -> None:
+        raw = ServerException(raw_message, code=499)
+
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)
+        assert str(wrapped) == S3_ACCESS_DENIED_MESSAGE
+        # PostHog's own bucket can deny too, so the denial still counts against the query SLO.
+        assert classify_query_error(wrapped) == QueryErrorCategory.ERROR
+        assert internal_ch_error_user_message(error_code_from_type(wrapped)) == S3_ACCESS_DENIED_MESSAGE
+
+    def test_s3_list_denial_keeps_the_generic_s3_error(self) -> None:
+        raw = ServerException(
+            "Code: 499. DB::Exception: Could not list objects in bucket 'example-bucket' with prefix 'exports/', "
+            "S3 exception: `AccessDenied`, message: 'Access Denied'. (S3_ERROR)",
+            code=499,
+        )
+
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert not isinstance(wrapped, ExposedCHQueryError)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
     def test_unregistered_status_code_is_not_displayed_as_a_clickhouse_error(self) -> None:
         assert internal_ch_error_user_message("other_database_error") is None
@@ -487,3 +612,110 @@ class TestWrapClickhouseQueryError:
 
         assert classify_query_error(raw) == category
         assert classify_query_error(wrap_clickhouse_query_error(raw)) == category
+
+    @parameterized.expand(
+        [
+            (
+                "cancelled",
+                _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED"),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "cancelled_on_retried_request",
+                HttpClientOperationalError(str(_http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED"))),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "cancelled_mid_stream",
+                HttpClientStreamFailureError(_http_client_response(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "per_query_memory_limit",
+                _http_client_error(
+                    241, "Query memory limit exceeded: would use 10.00 GiB, maximum: 9.31 GiB.", "MEMORY_LIMIT_EXCEEDED"
+                ),
+                ClickHouseQueryMemoryLimitExceeded,
+                QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+            ),
+            (
+                "funnel_udf_timeout",
+                _http_client_error(754, UDF_POOL_TIMEOUT, "UDF_EXECUTION_FAILED"),
+                ClickHouseUDFTimeOut,
+                QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+            ),
+            (
+                "unknown_identifier",
+                _http_client_error(47, "Missing columns: 'privat_column'.", "UNKNOWN_IDENTIFIER"),
+                CHQueryErrorUnknownIdentifier,
+                QueryErrorCategory.USER_ERROR,
+            ),
+        ]
+    )
+    def test_http_client_errors_wrap_like_native_driver_errors(
+        self, _name: str, raw: Exception, wrapped_type: type[Exception], category: QueryErrorCategory
+    ) -> None:
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert type(wrapped) is wrapped_type
+        assert classify_query_error(raw) == category
+        assert classify_query_error(wrapped) == category
+        assert HTTP_CLIENT_URL not in str(wrapped)
+
+    @parameterized.expand(
+        [
+            ("funnel_timeout", f"DB::Exception: {UDF_POOL_TIMEOUT}. (UDF_EXECUTION_FAILED)", True),
+            (
+                "funnel_timeout_name_only",
+                "DB::Exception: User defined function 'aggregate_funnel_v13' failed. (TIMEOUT_EXCEEDED)",
+                True,
+            ),
+            (
+                "funnel_script_error",
+                "DB::Exception: User defined function 'aggregate_funnel_v13' failed. Exit code 1. (UDF_EXECUTION_FAILED)",
+                False,
+            ),
+            (
+                "other_udf_timeout",
+                UDF_POOL_TIMEOUT.replace("aggregate_funnel_array_v13", "JSONDropKeysPool"),
+                False,
+            ),
+        ]
+    )
+    def test_only_a_funnel_udf_with_an_inner_timeout_is_a_timeout(
+        self, _name: str, raw_message: str, is_timeout: bool
+    ) -> None:
+        raw = ServerException(raw_message, code=754)
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        if is_timeout:
+            assert type(wrapped) is ClickHouseUDFTimeOut
+            assert "date range" in str(wrapped)
+            expected = QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+        else:
+            assert type(wrapped).__name__ == "CHQueryErrorUdfExecutionFailed"
+            expected = QueryErrorCategory.ERROR
+        assert classify_query_error(raw) == expected
+        assert classify_query_error(wrapped) == expected
+
+    def test_http_client_cancel_reports_its_clickhouse_type_and_is_not_retried(self) -> None:
+        raw = _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")
+
+        assert clickhouse_error_type(raw) == "CHQueryErrorQueryWasCancelled"
+        assert not isinstance(wrap_clickhouse_query_error(raw), CH_TRANSIENT_ERRORS)
+
+    @parameterized.expand(
+        [
+            ("no_code", HttpClientDatabaseError(f"HTTP driver received HTTP status 502 (for url {HTTP_CLIENT_URL})")),
+            (
+                "errors_hidden",
+                HttpClientDatabaseError(f"The ClickHouse server returned an error (for url {HTTP_CLIENT_URL})"),
+            ),
+        ]
+    )
+    def test_http_client_errors_without_a_code_pass_through(self, _name: str, raw: Exception) -> None:
+        assert wrap_clickhouse_query_error(raw) is raw
+        assert classify_query_error(raw) == QueryErrorCategory.ERROR

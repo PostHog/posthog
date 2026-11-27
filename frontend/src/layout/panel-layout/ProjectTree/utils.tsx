@@ -72,6 +72,8 @@ export function shortcutTelemetryName(type: string | null | undefined, name: str
 }
 
 // pinned: stored as each source star's type. Its source id `ref` keeps it apart from the ref-less Sources page star.
+// Deleting a source removes its stars through the backend copy of this value in
+// products/warehouse_sources/backend/models/external_data_source.py, so change both together.
 export const DATA_SOURCE_SHORTCUT_TYPE = 'data_source'
 
 type ProjectTreeDrop =

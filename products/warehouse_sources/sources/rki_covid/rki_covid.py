@@ -92,6 +92,19 @@ def _parse_keyed_history(body: dict[str, Any], config: RKICovidEndpointConfig) -
                 yield {config.key_field: key, **parent, **row}
 
 
+def _parse_keyed_nested_rows(body: dict[str, Any], config: RKICovidEndpointConfig) -> Iterator[dict[str, Any]]:
+    data = body.get("data")
+    if not isinstance(data, dict):
+        return
+    assert config.key_field is not None and config.nested_key_field is not None
+    for key, groups in data.items():
+        if not isinstance(groups, dict):
+            continue
+        for nested_key, value in groups.items():
+            if isinstance(value, dict):
+                yield {config.key_field: key, config.nested_key_field: nested_key, **value}
+
+
 def _parse_data_list(body: dict[str, Any], config: RKICovidEndpointConfig) -> Iterator[dict[str, Any]]:
     data = body.get("data")
     if not isinstance(data, list):
@@ -119,9 +132,15 @@ _PARSERS = {
     "dict_rows": _parse_dict_rows,
     "keyed_rows": _parse_keyed_rows,
     "keyed_history": _parse_keyed_history,
+    "keyed_nested_rows": _parse_keyed_nested_rows,
     "data_list": _parse_data_list,
     "data_history": _parse_data_history,
 }
+
+
+def _drop_null_typed_columns(rows: Iterator[dict[str, Any]], columns: frozenset[str]) -> Iterator[dict[str, Any]]:
+    for row in rows:
+        yield {k: v for k, v in row.items() if not (v is None and k in columns)}
 
 
 def get_rows(
@@ -134,8 +153,11 @@ def get_rows(
     session = make_tracked_session()
 
     body = _fetch(session, build_url(config, history_days))
+    rows = parser(body, config)
+    if config.null_column_types:
+        rows = _drop_null_typed_columns(rows, frozenset(name for name, _ in config.null_column_types))
     row_count = 0
-    for batch in batched(parser(body, config), ROW_BATCH_SIZE, strict=False):
+    for batch in batched(rows, ROW_BATCH_SIZE, strict=False):
         row_count += len(batch)
         yield list(batch)
     logger.debug(f"RKI COVID-19: fetched {row_count} rows for {endpoint}")
@@ -152,6 +174,7 @@ def rki_covid_source(
         name=endpoint,
         items=lambda: get_rows(endpoint=endpoint, history_days=history_days, logger=logger),
         primary_keys=config.primary_keys,
+        column_hints=dict(config.null_column_types) or None,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

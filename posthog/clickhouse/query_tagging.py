@@ -474,6 +474,8 @@ class QueryTags(BaseModel):
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None
+    # The caller's W3C trace context, so a query_log row joins to the trace of the request that sent it.
+    traceparent: Optional[str] = None
     http_user_agent: Optional[str] = None
 
     # frontend UI context (from QueryLogTags)
@@ -506,6 +508,8 @@ class QueryTags(BaseModel):
     # gate refused it with. A live read is otherwise indistinguishable from a precompute miss.
     # Web-only, so it carries the product prefix the shared fields above do not need.
     web_analytics_precompute_ineligible_reason: Optional[str] = None
+    # Why a web analytics read that tried the dimensional tables fell back: a `DimensionalIneligibleReason` value.
+    web_analytics_dimensional_ineligible_reason: Optional[str] = None
     entity_math: Optional[list[str]] = None
 
     # replays
@@ -543,6 +547,8 @@ class QueryTags(BaseModel):
     replay_combined_event_query_eligible: Optional[bool] = None
     replay_event_query_operand: Optional[Literal["AND", "OR"]] = None
     replay_event_query_range_days: Optional[float] = None
+    # The sessions table version a recordings-list read used, to compare v2 and v3 in the query log.
+    replay_sessions_table_version: Optional[str] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     # Why the metric-events side is not precomputable (set on the metric read when metric_events_path is
     # "not_applicable"): "breakdown", "cuped", "data_warehouse", "funnel_order_type", "non_event_source",

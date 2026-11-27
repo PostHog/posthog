@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
@@ -33,7 +34,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
+from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError, TransientQueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -144,7 +145,7 @@ class TestSavedViewBounds(SimpleTestCase):
                 clock.return_value = COMPILATION_TIMEOUT_SECONDS + 1
                 return node
 
-            with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+            with self.assertRaisesRegex(TransientQueryError, "compilation exceeded its time limit"):
                 prepare_and_print_ast(parse_select("select 1"), context, "hogql", prepared_ast_transform=advance_clock)
             sql, _ = prepare_and_print_ast(parse_select("select 1"), context, "hogql")
             self.assertIn("SELECT 1", sql)
@@ -159,7 +160,7 @@ class TestSavedViewBounds(SimpleTestCase):
                 return parsed
 
             with patch("posthog.hogql.resolver.parse_select", side_effect=parse_slow_view):
-                with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+                with self.assertRaisesRegex(TransientQueryError, "compilation exceeded its time limit"):
                     resolve_types(parse_select("select * from leaf"), context, "hogql")
 
 
@@ -199,6 +200,68 @@ class TestInheritedCtes(SimpleTestCase):
 class TestResolver(BaseTest):
     maxDiff = None
     snapshot: Any
+
+    @parameterized.expand(
+        [
+            ("invalid_json", "not JSON", "Invalid insight actor query"),
+            (
+                "sql_source",
+                json.dumps(
+                    {"kind": "ActorsQuery", "source": {"kind": "HogQLQuery", "query": "SELECT id FROM persons"}}
+                ),
+                "product analytics datapoint",
+            ),
+            (
+                "custom_funnel_aggregation",
+                json.dumps(
+                    {
+                        "kind": "ActorsQuery",
+                        "source": {
+                            "kind": "FunnelsActorsQuery",
+                            "source": {
+                                "kind": "FunnelsQuery",
+                                "series": [{"kind": "EventsNode", "event": "signup"}],
+                                "funnelsFilter": {"funnelAggregateByHogQL": "properties.$account_id"},
+                            },
+                        },
+                    }
+                ),
+                "does not identify PostHog users or groups",
+            ),
+            ("oversized", "x" * 100_001, "too large"),
+        ]
+    )
+    def test_matches_insight_rejects_invalid_selection(self, _name: str, selection: str, error: str) -> None:
+        expr = self._select(
+            "SELECT count() FROM events WHERE matchesInsight({selection})", {"selection": ast.Constant(value=selection)}
+        )
+        with self.assertRaisesRegex(QueryError, error):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_matches_insight_requires_events_scope(self) -> None:
+        with self.assertRaisesRegex(QueryError, "only be used with the events table"):
+            resolve_types(self._select("SELECT matchesInsight('{}') FROM persons"), self.context, dialect="clickhouse")
+
+    def test_matches_insight_rejects_nested_selection(self) -> None:
+        selection = {
+            "kind": "ActorsQuery",
+            "source": {
+                "kind": "InsightActorsQuery",
+                "day": "2026-01-02",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "properties": [{"type": "hogql", "key": "matchesInsight('{}')"}],
+                    "dateRange": {"date_from": "2026-01-01", "date_to": "2026-01-03"},
+                },
+            },
+        }
+        expr = self._select(
+            "SELECT count() FROM events WHERE matchesInsight({selection})",
+            {"selection": ast.Constant(value=json.dumps(selection))},
+        )
+        with self.assertRaisesRegex(QueryError, "cannot contain another"):
+            resolve_types(expr, self.context, dialect="clickhouse")
 
     def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(
@@ -1576,7 +1639,8 @@ class TestResolver(BaseTest):
             "(SELECT id, properties.email AS email FROM "
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
-            "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
+            "persons ON and(equals(persons.id, source.person_id), globalIn(persons.id, "
+            "(SELECT source.person_id FROM (SELECT DISTINCT person_id FROM events) AS source))) ORDER BY id ASC) "
             f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
@@ -2456,6 +2520,58 @@ class TestResolver(BaseTest):
         # so the canonical-form guard must not reject their queries
         expr = self._select("SELECT event FROM events WHERE person_id = 'not-a-uuid'")
         resolve_types(expr, self.context, dialect="postgres")
+
+    @parameterized.expand(
+        [
+            (
+                "datetime_not_eq_empty",
+                "SELECT event FROM events WHERE timestamp != ''",
+                "'timestamp', which holds dates and times",
+            ),
+            (
+                "date_column_not_eq_empty",
+                "SELECT rate FROM exchange_rate WHERE date != ''",
+                "'date', which holds dates",
+            ),
+            (
+                "blank_literal_on_left_ordering",
+                "SELECT event FROM events WHERE ' ' < timestamp",
+                "'timestamp', which holds dates and times",
+            ),
+            (
+                "in_tuple",
+                "SELECT rate FROM exchange_rate WHERE date IN ('2026-01-31', '')",
+                "'date', which holds dates",
+            ),
+        ]
+    )
+    def test_blank_date_literal_raises(self, _name, query, subject):
+        expr = self._select(query)
+        with self.assertRaisesRegex(QueryError, f"can never match {subject}\\."):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_blank_date_literal_hint_quotes_the_column(self):
+        expr = self._select("SELECT date AS `Ordered At` FROM exchange_rate WHERE `Ordered At` = ''")
+        with self.assertRaisesRegex(QueryError, "use `Ordered At` IS NOT NULL\\."):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            ("loose_date_form", "SELECT rate FROM exchange_rate WHERE date = '2026-1-5'", "clickhouse"),
+            ("datetime_month_name", "SELECT event FROM events WHERE timestamp < 'December'", "clickhouse"),
+            ("string_column_untouched", "SELECT event FROM events WHERE distinct_id != ''", "clickhouse"),
+            ("non_clickhouse_dialect", "SELECT event FROM events WHERE timestamp != ''", "postgres"),
+            (
+                # Direct queries resolve as HogQL, then run on their own database.
+                "hogql_dialect_cte",
+                "WITH q AS (SELECT timestamp FROM events) SELECT timestamp FROM q WHERE timestamp != ''",
+                "hogql",
+            ),
+        ]
+    )
+    def test_date_literal_comparison_allows(self, _name, query, dialect):
+        expr = self._select(query)
+        resolve_types(expr, self.context, dialect=dialect)
 
     @parameterized.expand(
         [

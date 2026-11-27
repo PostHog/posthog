@@ -111,7 +111,8 @@ export class ResultHandlingPipeline<
                 originalMessage,
                 stepName,
                 result.preserveKey ?? true,
-                result.awaitAck ?? true
+                result.awaitAck ?? true,
+                result.headers
             )
             sideEffects.push(redirectPromise)
         }

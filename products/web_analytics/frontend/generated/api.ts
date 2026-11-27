@@ -23,6 +23,7 @@ import type {
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
+    AEOPromptSetMoversApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
@@ -44,6 +45,7 @@ import type {
     AeoPromptsChecksParams,
     AeoPromptsCitationsParams,
     AeoPromptsListParams,
+    AeoPromptsMoversParams,
     AeoPromptsOverviewParams,
     AeoPromptsRankingsParams,
     ApplyPathCleaningSuggestionResponseApi,
@@ -242,7 +244,7 @@ export const getAeoBrandsCompetitorCandidatesUrl = (
 }
 
 /**
- * Lists suggested brands that are likely competitors, from the answers of the last 7 days. A brand is a candidate when answers to non-branded prompts both name it and cite its domain. Brands that are the project's own, confirmed or ignored are left out. The list is ordered by the smaller of the two counts, highest first. Nothing is saved: confirm a candidate as a competitor or ignore it with aeo_brands_partial_update.
+ * Lists suggested brands that are likely competitors, from the answers of the last 7 days. A brand is a candidate when answers to non-branded prompts both name it and cite its domain. Brands that are the project's own, confirmed or ignored are left out. Brands already labeled competitors, such as the ones setup found, come first; within each group the list is ordered by the smaller of the two counts, highest first. Nothing is saved: confirm a candidate as a competitor or ignore it with aeo_brands_partial_update.
  * @summary List likely AEO competitors
  */
 export const aeoBrandsCompetitorCandidates = async (
@@ -627,7 +629,7 @@ export const getAeoPromptsBulkImportUrl = (projectId: string) => {
 }
 
 /**
- * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.
+ * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped. New prompts are saved turned on, so an import that would take the project past its max_active_prompts (see GET aeo_setup/context/) is refused whole with a 400 that says how many more fit, and nothing is saved.
  * @summary Import AEO prompts
  */
 export const aeoPromptsBulkImport = async (
@@ -689,6 +691,37 @@ export const aeoPromptsCreateDashboard = async (
     return apiMutator<AEOVisibilityDashboardApi>(getAeoPromptsCreateDashboardUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAeoPromptsMoversUrl = (projectId: string, params?: AeoPromptsMoversParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/movers/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/movers/`
+}
+
+/**
+ * Gets the tracked prompts and the pages on the project's own domains that gained and lost the most visibility between 'date_from' and 'date_to' (default the last 30 days) in the project's timezone and the range of the same length before it. A prompt is ranked by the change in its mention rate, the share of its answers that name the brand, and a page by the change in its citation rate, the share of all answers that cite it. A prompt needs at least 3 answers in each window, and archived prompts are left out. Counts cover web-search checks. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
+ * @summary Get the AEO prompts and pages that moved most
+ */
+export const aeoPromptsMovers = async (
+    projectId: string,
+    params?: AeoPromptsMoversParams,
+    options?: RequestInit
+): Promise<AEOPromptSetMoversApi> => {
+    return apiMutator<AEOPromptSetMoversApi>(getAeoPromptsMoversUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -814,7 +847,7 @@ export const getAeoSetupCreateUrl = (projectId: string) => {
 }
 
 /**
- * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand; has PostHog suggest 20 prompts and saves them, with the competitors the model found saved as suggested competitors for a person to confirm; queues the first citation check run when run_first_check is set; and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and the first run uses the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Prompts that would pass the project's max_active_prompts are saved paused. Without run_first_check, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
  * @summary Set up AI visibility
  */
 export const aeoSetupCreate = async (
@@ -849,6 +882,21 @@ export const aeoSetupRetrieve = async (
     })
 }
 
+export const getAeoSetupCancelUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_setup/${id}/cancel/`
+}
+
+/**
+ * Cancels a pending setup job. It saves nothing more, and its first run is stopped, or skipped if it hasn't started. What the job already saved stays; POST aeo_setup/reset/ removes it. A finished job is returned unchanged.
+ * @summary Cancel AEO setup
+ */
+export const aeoSetupCancel = async (projectId: string, id: string, options?: RequestInit): Promise<AEOSetupJobApi> => {
+    return apiMutator<AEOSetupJobApi>(getAeoSetupCancelUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAeoSetupContextUrl = (projectId: string) => {
     return `/api/projects/${projectId}/aeo_setup/context/`
 }
@@ -861,6 +909,36 @@ export const aeoSetupContext = async (projectId: string, options?: RequestInit):
     return apiMutator<AEOSetupContextApi>(getAeoSetupContextUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAeoSetupResetUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_setup/reset/`
+}
+
+/**
+ * Undoes what setup saved so the project can be set up again, such as for another site: archives the prompts that have answers, deletes the rest, removes every keyword, and turns the own site and the competitors suggested for it back into cited domains. Checks already collected, confirmed competitors and engine settings stay. Run POST aeo_setup/ afterwards to set up again.
+ * @summary Reset AEO setup
+ */
+export const aeoSetupReset = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getAeoSetupResetUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAeoSetupStopChecksUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_setup/stop_checks/`
+}
+
+/**
+ * Stops the project's check run, such as the first run that setup queued. Checks already in flight finish and are kept; the rest are dropped, so they cost nothing. If setup has yet to queue its run, that run is skipped. Prompts and engines stay on, so the next scheduled run checks them as usual.
+ * @summary Stop the AEO check run
+ */
+export const aeoSetupStopChecks = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getAeoSetupStopChecksUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -7,8 +7,10 @@ import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes
 import type {
     InboxSummaryApi,
     PaginatedSignalReportListListApiPersonalRankingStatus,
+    SourceFilterPreviewResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import type { SourceFilterPreviewRequestError } from './components/config/SourceFilterPreviewPanel'
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
 import {
@@ -83,8 +85,12 @@ export const INBOX_EVENTS = {
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     SOURCE_FILTER_EDITOR_OPENED: 'Signal source filter editor opened',
     SOURCE_FILTER_EXPRESSION_CHANGED: 'Signal source filter expression changed',
+    SOURCE_FILTER_PREVIEW_SHOWN: 'Signal source filter preview shown',
     SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
     SOURCE_ALERT_PATTERNS_CHANGED: 'Signal source alert patterns changed',
+    // The server captures `inbox_slack_channel_scout_created` when the create succeeds.
+    SLACK_CHANNEL_SCOUT_FORM_OPENED: 'Slack channel scout form opened',
+    SLACK_CHANNEL_SCOUT_CREATE_FAILED: 'Slack channel scout create failed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -300,6 +306,9 @@ export type InboxQueryChange =
 /** Surface a scout-management event fired from. Matches the desktop values. */
 export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner' | 'report_detail'
 
+/** Which control a scout delete came from, where one surface offers more than one. */
+export type ScoutDeleteEntryPoint = 'header' | 'settings'
+
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
@@ -342,6 +351,7 @@ export type ScoutActionType =
     | 'click_ask_ai_starter'
     | 'ask_ai'
     | 'save_note_from_ai'
+    | 'stop_run'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -949,7 +959,8 @@ export function captureInboxReportSourceSuggestionClicked(params: { report: Sign
 export type InboxReportTagSurface = 'card' | 'detail'
 
 /**
- * A tag chip was clicked, which adds that tag to the Tags filter or removes it. The resulting query
+ * A tag chip was clicked. On a card it adds that tag to the Tags filter or removes it, and on the
+ * report detail it sets the filter to that tag alone and opens the Reports list. The resulting query
  * also fires `Inbox query changed`; this event says the chip, not the menu, was the way in.
  */
 export function captureInboxReportTagClicked(params: {
@@ -1117,6 +1128,17 @@ export function captureSignalSourceSteeringChanged(params: {
     })
 }
 
+export function captureSlackChannelScoutFormOpened(params: { channelCount: number }): void {
+    captureInboxEvent(INBOX_EVENTS.SLACK_CHANNEL_SCOUT_FORM_OPENED, { channel_count: params.channelCount })
+}
+
+export function captureSlackChannelScoutCreateFailed(params: { channelCount: number; status: number | null }): void {
+    captureInboxEvent(INBOX_EVENTS.SLACK_CHANNEL_SCOUT_CREATE_FAILED, {
+        channel_count: params.channelCount,
+        status: params.status,
+    })
+}
+
 export function captureSignalSourceFiltersChanged(params: {
     sourceProduct: string
     sourceType: string
@@ -1164,6 +1186,33 @@ export function captureSignalSourceFilterExpressionChanged(params: {
         action: params.action,
         expression_length: params.expressionLength,
         success: params.success,
+    })
+}
+
+/**
+ * Once per preview result or failed request the filter editor shows, with a null result for a failed request.
+ * Property names are pinned. It sends no expression or record, because both hold the customer's own data.
+ */
+export function captureSignalSourceFilterPreviewShown(params: {
+    sourceProduct: string
+    sourceType: string
+    result: SourceFilterPreviewResponseApi | null
+    requestError: SourceFilterPreviewRequestError | null
+}): void {
+    const { result } = params
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTER_PREVIEW_SHOWN, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        status: result?.status ?? null,
+        request_error: params.requestError,
+        ...(result?.status === 'ok'
+            ? {
+                  total_count: result.total_count,
+                  passing_count: result.passing_count,
+                  excluded_count: result.excluded_count,
+                  malformed_count: result.malformed_count,
+              }
+            : {}),
     })
 }
 

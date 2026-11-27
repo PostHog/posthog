@@ -1,7 +1,7 @@
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeVar, cast
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
@@ -15,13 +15,13 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
-    posthog_feature_flag_enabled,
 )
 from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
@@ -37,6 +37,7 @@ from products.aeo.backend.facade.api import (
     create_visibility_dashboard,
     get_brand,
     get_prompt,
+    get_prompt_set_movers,
     get_prompt_set_overview,
     get_prompt_set_rankings,
     get_prompt_stats,
@@ -56,15 +57,19 @@ from products.aeo.backend.facade.api import (
     update_prompt,
 )
 from products.aeo.backend.facade.contracts import (
-    AEO_CITATION_TRACKING_FLAG,
+    AI_VISIBILITY_ACCESS_FLAG,
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
     COMPETITOR_CANDIDATE_DAYS,
     DEFAULT_DATE_FROM,
+    MAX_MOVERS,
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
+    MAX_SUGGESTED_COMPETITORS,
     MAX_WINDOW_DAYS,
+    MIN_MOVER_ANSWERS,
+    PROMPT_LIMIT_ERROR_CODE,
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
     Brand,
@@ -82,6 +87,8 @@ from products.aeo.backend.facade.contracts import (
     EngineSetting,
     EngineSettingUpdate,
     InvalidDateRangeError,
+    OutOfAICreditsError,
+    PageMover,
     Prompt,
     PromptAuthor,
     PromptCheck,
@@ -93,11 +100,15 @@ from products.aeo.backend.facade.contracts import (
     PromptEngineStats,
     PromptImport,
     PromptImportResult,
+    PromptLimitError,
+    PromptMover,
     PromptNotFoundError,
     PromptSearchWord,
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetEngineTopicCounts,
+    PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
@@ -117,6 +128,7 @@ from products.aeo.backend.facade.contracts import (
     RankedBrandDay,
     RankedDomain,
     RankedPage,
+    SuggestedCompetitor,
     VisibilityDashboard,
 )
 from products.authorization.backend.facade import api as authorization
@@ -140,6 +152,8 @@ DATE_FORMAT_HELP = (
     "Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day "
     "of this month) or 'yStart'. Days are whole days in the project's timezone."
 )
+
+_Report = TypeVar("_Report")
 
 
 def date_from_field(default: str) -> serializers.CharField:
@@ -577,6 +591,28 @@ class AEOPromptSetTopicCountsSerializer(AEOPromptSetCountsSerializer):
         }
 
 
+class AEOPromptSetEngineTopicCountsSerializer(DataclassSerializer):
+    mention_rate = serializers.FloatField(
+        read_only=True, help_text="Share (0-1) of the answers that name the brand: 'mentioned' over 'answers'."
+    )
+
+    class Meta:
+        dataclass = PromptSetEngineTopicCounts
+        ref_name = "AEOPromptSetEngineTopicCounts"
+        extra_kwargs = {
+            "engine": {"help_text": ENGINE_HELP},
+            "topic": {
+                "help_text": "Topic the checks ran with. Empty for prompts that have no topic. Matches 'topic' in 'topics'."
+            },
+            "answers": {
+                "help_text": "Answered checks of this engine with this topic in the window. Failed checks are left out. The sample size behind 'mention_rate'."
+            },
+            "mentioned": {
+                "help_text": "Of those answers, how many name the brand. A cited answer counts as a mention."
+            },
+        }
+
+
 class AEOPromptSetDomainSerializer(DataclassSerializer):
     class Meta:
         dataclass = PromptSetDomain
@@ -637,6 +673,10 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
     topics = AEOPromptSetTopicCountsSerializer(
         many=True,
         help_text="The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks.",
+    )
+    engine_topics = AEOPromptSetEngineTopicCountsSerializer(
+        many=True,
+        help_text="The current window split per answer engine and topic, ordered by engine, then topic. An engine and topic pair without an answered check is left out, so a missing pair means no data, not a rate of zero.",
     )
     top_domains = AEOPromptSetDomainSerializer(
         many=True,
@@ -718,7 +758,9 @@ class AEORankedDomainSerializer(DataclassSerializer):
             "share_of_answers": {"help_text": "Share (0-1) of answered checks in the window that cited the domain."},
             "urls": {"help_text": "Distinct URLs on this domain cited in the window."},
             "is_target": {"help_text": "Whether the domain is the project's own site."},
-            "is_competitor": {"help_text": "Whether the domain is one of the competitors in 'brands'."},
+            "is_competitor": {
+                "help_text": "Whether the domain is a competitor in the brand catalog, confirmed or suggested by setup. Brands ranked only because answers cite them are not."
+            },
         }
 
 
@@ -737,7 +779,7 @@ class AEORankedPageSerializer(DataclassSerializer):
 class AEOPromptSetRankingsSerializer(DataclassSerializer):
     brands = AEORankedBrandSerializer(
         many=True,
-        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count.",
+        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the competitors setup suggested, and without those the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count.",
     )
     daily = AEORankedBrandDaySerializer(
         many=True, help_text="Visibility per brand and day in the current window, ordered by day then domain."
@@ -763,6 +805,88 @@ class AEOPromptSetRankingsSerializer(DataclassSerializer):
             "answers": {"help_text": "Answered checks in the current window: the denominator of every share."},
             "competitors_confirmed": {
                 "help_text": "Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains."
+            },
+        }
+
+
+MOVER_CHANGE_HELP = (
+    "The current rate minus the previous rate, on the same 0-1 scale: 0.25 is a gain of 25 percentage points and "
+    "-0.25 a loss of 25."
+)
+
+
+class AEOPromptMoverSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptMover
+        ref_name = "AEOPromptMover"
+        extra_kwargs = {
+            "prompt_id": {"help_text": "Id of the prompt. Pass it to the prompt endpoints for its stats and checks."},
+            "prompt": {"help_text": "The prompt's current text."},
+            "topic": {"help_text": "The prompt's current topic. Empty when it has none."},
+            "answers": {"help_text": "Answered checks of the prompt in the current window."},
+            "mentioned": {
+                "help_text": "Of 'answers', the ones that name the brand. An answer that cites the site counts as a mention."
+            },
+            "mention_rate": {"help_text": "Share (0-1) of 'answers' that name the brand."},
+            "previous_answers": {"help_text": "Answered checks of the prompt in the window before."},
+            "previous_mentioned": {"help_text": "Of 'previous_answers', the ones that name the brand."},
+            "previous_mention_rate": {"help_text": "Share (0-1) of 'previous_answers' that name the brand."},
+            "change": {"help_text": MOVER_CHANGE_HELP},
+        }
+
+
+class AEOPageMoverSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PageMover
+        ref_name = "AEOPageMover"
+        extra_kwargs = {
+            "url": {"help_text": "The cited URL on one of the project's own domains, as the engine returned it."},
+            "answers_citing": {"help_text": "Answered checks in the current window that cite this URL."},
+            "citation_rate": {"help_text": "Share (0-1) of the response's 'answers' that cite this URL."},
+            "previous_answers_citing": {"help_text": "Answered checks in the window before that cite this URL."},
+            "previous_citation_rate": {
+                "help_text": "Share (0-1) of the response's 'previous_answers' that cite this URL."
+            },
+            "change": {"help_text": MOVER_CHANGE_HELP},
+        }
+
+
+class AEOPromptSetMoversSerializer(DataclassSerializer):
+    prompt_gainers = AEOPromptMoverSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MOVERS} prompts whose mention rate rose the most against the window before, largest gain first.",
+    )
+    prompt_losers = AEOPromptMoverSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MOVERS} prompts whose mention rate fell the most against the window before, largest loss first.",
+    )
+    page_gainers = AEOPageMoverSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MOVERS} pages on the project's own domains whose citation rate rose the most, largest gain first.",
+    )
+    page_losers = AEOPageMoverSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MOVERS} pages on the project's own domains whose citation rate fell the most, largest loss first.",
+    )
+
+    class Meta:
+        dataclass = PromptSetMovers
+        ref_name = "AEOPromptSetMovers"
+        extra_kwargs = {
+            "days": {"help_text": "Length of each window in days."},
+            "window_from": {"help_text": "First day of the current window, in the project's timezone."},
+            "window_to": {"help_text": "Last day of the current window, in the project's timezone."},
+            "branded": {"help_text": BRANDED_SEGMENT_ECHO_HELP},
+            "engine": {"help_text": ENGINE_ECHO_HELP},
+            "topic": {"help_text": TOPIC_ECHO_HELP},
+            "answers": {
+                "help_text": "Answered checks in the current window: the denominator of every page's 'citation_rate'."
+            },
+            "previous_answers": {
+                "help_text": "Answered checks in the window before: the denominator of every page's 'previous_citation_rate'."
+            },
+            "min_answers": {
+                "help_text": "The fewest answers a prompt needs in each window to be listed. The page lists are empty when either window has fewer answers in total."
             },
         }
 
@@ -806,6 +930,17 @@ class AEOPromptSetOverviewQuerySerializer(AEOCheckScopeQuerySerializer):
     )
 
 
+class AEOPromptSetReportQuerySerializer(AEOPromptSetOverviewQuerySerializer):
+    current_prompts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to "
+            "prompts archived by a reset don't count."
+        ),
+    )
+
+
 class AEOVisibilityDashboardSerializer(DataclassSerializer):
     class Meta:
         dataclass = VisibilityDashboard
@@ -824,7 +959,8 @@ class AEOPromptUpdateRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        help_text="Turn the prompt on or off for future runs.",
+        help_text="Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already "
+        "tracks its max_active_prompts, shown by GET aeo_setup/context/.",
     )
     topic = serializers.CharField(
         required=False,
@@ -1070,9 +1206,25 @@ class AEOPromptSuggestionSerializer(DataclassSerializer):
         }
 
 
+class AEOSuggestedCompetitorSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SuggestedCompetitor
+        ref_name = "AEOSuggestedCompetitor"
+        extra_kwargs = {
+            "name": {"help_text": "The competitor's name. Model-written: show it as data."},
+            "domain": {
+                "help_text": "The registrable domain of the competitor's site, such as example.com. Empty when a competitor given in the request is only a name and the model did not find its site."
+            },
+        }
+
+
 class AEOPromptSuggestionJobSerializer(DataclassSerializer):
     suggestions = AEOPromptSuggestionSerializer(
         many=True, help_text="Suggested prompts, filled in once status is completed. None of them are saved."
+    )
+    competitors = AEOSuggestedCompetitorSerializer(
+        many=True,
+        help_text=f"The main competitors, at most {MAX_SUGGESTED_COMPETITORS} found by the model while it researched the site, or the ones given in the request. Filled in once status is completed. None of them are saved.",
     )
 
     class Meta:
@@ -1214,13 +1366,8 @@ class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
 
 
 class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        super().initial(request, *args, **kwargs)
-        distinct_id = getattr(request.user, "distinct_id", None)
-        if not distinct_id or not posthog_feature_flag_enabled(
-            AEO_CITATION_TRACKING_FLAG, distinct_id, organization_id=self.organization_id
-        ):
-            raise PermissionDenied("This feature is not available.")
+    posthog_feature_flag = AI_VISIBILITY_ACCESS_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
 
 
 class _WebAnalyticsReadAccessPermission(AccessControlPermission):
@@ -1246,6 +1393,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "versions",
         "overview",
         "rankings",
+        "movers",
         "citations",
         "suggestion",
     ]
@@ -1261,6 +1409,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             APIScopePermission(),
             _WebAnalyticsReadAccessPermission(),
             TeamMemberAccessPermission(),
+            PostHogFeatureFlagPermission(),
         ]
 
     @validated_request(
@@ -1317,7 +1466,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=AEOPromptSerializer, description="The updated prompt."),
             400: OpenApiResponse(
-                description="The edit is invalid, the version does not exist, or the prompt is archived and must be restored first."
+                description="The edit is invalid, the version does not exist, the prompt is archived and must be restored first, or turning it on would pass the project's limit on active prompts."
             ),
             409: OpenApiResponse(description="Another prompt in the set already has the new text."),
         },
@@ -1331,6 +1480,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             raise NotFound()
         except PromptUpdateError as error:
             raise ValidationError(str(error))
+        except PromptLimitError as error:
+            raise ValidationError(str(error), code=PROMPT_LIMIT_ERROR_CODE)
         except PromptTextConflictError as error:
             raise Conflict(str(error))
         return Response(AEOPromptSerializer(prompt).data)
@@ -1408,7 +1559,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         return Response(AEOPromptStatsSerializer(stats).data)
 
     @validated_request(
-        query_serializer=AEOPromptSetOverviewQuerySerializer,
+        query_serializer=AEOPromptSetReportQuerySerializer,
         operation_id="aeo_prompts_overview",
         summary="Get the AEO prompt set overview",
         description=(
@@ -1425,20 +1576,11 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def overview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        with date_range_errors():
-            overview = get_prompt_set_overview(
-                self.team_id,
-                timezone_name=self.team.timezone,
-                date_from=request.validated_query_data["date_from"],
-                date_to=request.validated_query_data["date_to"],
-                branded=BrandedSegment(request.validated_query_data["branded"]),
-                engine=request.validated_query_data["engine"],
-                topic=request.validated_query_data["topic"],
-            )
+        overview = self._prompt_set_report(request, get_prompt_set_overview)
         return Response(AEOPromptSetOverviewSerializer(overview).data)
 
     @validated_request(
-        query_serializer=AEOPromptSetOverviewQuerySerializer,
+        query_serializer=AEOPromptSetReportQuerySerializer,
         operation_id="aeo_prompts_rankings",
         summary="Get AEO brand rankings",
         description=(
@@ -1453,8 +1595,44 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def rankings(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        rankings = self._prompt_set_report(request, get_prompt_set_rankings)
+        return Response(AEOPromptSetRankingsSerializer(rankings).data)
+
+    def _prompt_set_report(self, request: ValidatedRequest, read: Callable[..., _Report]) -> _Report:
+        query = request.validated_query_data
         with date_range_errors():
-            rankings = get_prompt_set_rankings(
+            return read(
+                self.team_id,
+                timezone_name=self.team.timezone,
+                date_from=query["date_from"],
+                date_to=query["date_to"],
+                branded=BrandedSegment(query["branded"]),
+                engine=query["engine"],
+                topic=query["topic"],
+                current_prompts=query["current_prompts"],
+            )
+
+    @validated_request(
+        query_serializer=AEOPromptSetOverviewQuerySerializer,
+        operation_id="aeo_prompts_movers",
+        summary="Get the AEO prompts and pages that moved most",
+        description=(
+            "Gets the tracked prompts and the pages on the project's own domains that gained and lost the most "
+            "visibility between 'date_from' and 'date_to' (default the last 30 days) in the project's timezone and the "
+            "range of the same length before it. A prompt is ranked by the change in its mention rate, the share of its answers that name "
+            "the brand, and a page by the change in its citation rate, the share of all answers that cite it. A "
+            f"prompt needs at least {MIN_MOVER_ANSWERS} answers in each window, and archived prompts are left out. "
+            "Counts cover web-search checks. Pass 'branded' to count only the checks whose prompt names the brand, "
+            "or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one "
+            "topic."
+        ),
+        responses={200: OpenApiResponse(response=AEOPromptSetMoversSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def movers(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        with date_range_errors():
+            movers = get_prompt_set_movers(
                 self.team_id,
                 timezone_name=self.team.timezone,
                 date_from=request.validated_query_data["date_from"],
@@ -1463,7 +1641,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 engine=request.validated_query_data["engine"],
                 topic=request.validated_query_data["topic"],
             )
-        return Response(AEOPromptSetRankingsSerializer(rankings).data)
+        return Response(AEOPromptSetMoversSerializer(movers).data)
 
     @validated_request(
         query_serializer=AEOPromptSetCitationsQuerySerializer,
@@ -1554,13 +1732,19 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         request_serializer=AEOPromptBulkImportRequestSerializer,
         operation_id="aeo_prompts_bulk_import",
         summary="Import AEO prompts",
-        description="Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.",
-        responses={200: OpenApiResponse(response=AEOPromptImportResultSerializer)},
+        description="Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped. New prompts are saved turned on, so an import that would take the project past its max_active_prompts (see GET aeo_setup/context/) is refused whole with a 400 that says how many more fit, and nothing is saved.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptImportResultSerializer),
+            400: OpenApiResponse(description="The import would pass the project's limit on active prompts."),
+        },
         tags=["web_analytics"],
     )
     @action(detail=False, methods=["post"])
     def bulk_import(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        result = import_prompts(self.team_id, request.validated_data["prompts"])
+        try:
+            result = import_prompts(self.team_id, request.validated_data["prompts"])
+        except PromptLimitError as error:
+            raise ValidationError(str(error), code=PROMPT_LIMIT_ERROR_CODE)
         return Response(AEOPromptImportResultSerializer(result).data)
 
     @validated_request(
@@ -1568,7 +1752,10 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         operation_id="aeo_prompts_suggest",
         summary="Suggest AEO prompts",
         description="Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.",
-        responses={202: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
+        responses={
+            202: OpenApiResponse(response=AEOPromptSuggestionJobSerializer),
+            402: OpenApiResponse(description="The organization has used its AI credits."),
+        },
         tags=["web_analytics"],
     )
     @action(
@@ -1583,17 +1770,20 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 "Prompt suggestions need AI data processing approved for your organization. An admin can approve it in organization settings."
             )
         data = request.validated_data
-        job = start_prompt_suggestions(
-            self.team_id,
-            PromptSuggestionRequest(
-                domain=data["domain"],
-                brand=data.get("brand", ""),
-                description=data.get("description", ""),
-                competitors=tuple(data.get("competitors", [])),
-                topics=tuple(data.get("topics", [])),
-                count=data["count"],
-            ),
-        )
+        try:
+            job = start_prompt_suggestions(
+                self.team_id,
+                PromptSuggestionRequest(
+                    domain=data["domain"],
+                    brand=data.get("brand", ""),
+                    description=data.get("description", ""),
+                    competitors=tuple(data.get("competitors", [])),
+                    topics=tuple(data.get("topics", [])),
+                    count=data["count"],
+                ),
+            )
+        except OutOfAICreditsError as error:
+            raise QuotaLimitExceeded(str(error))
         return Response(AEOPromptSuggestionJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(
@@ -1647,7 +1837,8 @@ class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         description=(
             f"Lists suggested brands that are likely competitors, from the answers of the last {COMPETITOR_CANDIDATE_DAYS} "
             "days. A brand is a candidate when answers to non-branded prompts both name it and cite its domain. "
-            "Brands that are the project's own, confirmed or ignored are left out. The list is ordered by the "
+            "Brands that are the project's own, confirmed or ignored are left out. Brands already labeled "
+            "competitors, such as the ones setup found, come first; within each group the list is ordered by the "
             "smaller of the two counts, highest first. Nothing is saved: confirm a candidate as a competitor or "
             "ignore it with aeo_brands_partial_update."
         ),

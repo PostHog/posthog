@@ -112,6 +112,8 @@ oauth_config:
       - reactions:write
       - users:read
       - users:read.email
+      - usergroups:read
+      - emoji:read
     user:
       - openid
       - email

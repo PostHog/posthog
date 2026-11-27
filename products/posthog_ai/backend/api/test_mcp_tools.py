@@ -41,6 +41,7 @@ from posthog.exceptions_capture import ambient_exception_properties, capture_exc
 from posthog.models import Organization, Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.business_knowledge.backend.facade.contracts import DocsPage
 
 from ee.hogai.mcp_tool import MCPToolResult
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -669,3 +670,28 @@ class TestDocsSearchAction(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("internal error", response.json()["content"].lower())
+
+    @parameterized.expand(
+        [
+            ("library_has_pages", [DocsPage(title="Feature flags", url="https://posthog.com/docs/flags", text="X")]),
+            ("library_has_nothing", []),
+        ]
+    )
+    @patch("products.posthog_ai.backend.api.mcp_tools._run_inkeep_docs_search", new_callable=AsyncMock)
+    @patch("ee.hogai.tools.search.search_docs_library", new_callable=AsyncMock)
+    def test_docs_search_uses_inkeep_only_when_the_docs_library_has_no_pages(
+        self, _name: str, library_pages: list[DocsPage], mock_library: AsyncMock, mock_inkeep: AsyncMock
+    ) -> None:
+        from django.test import override_settings
+
+        mock_library.return_value = library_pages
+        mock_inkeep.return_value = "Found 1 relevant documentation page(s):\n\n# From Inkeep\nURL: …\n\nDocs."
+
+        with override_settings(INKEEP_API_KEY="test-key"):
+            response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected_title = "# Feature flags" if library_pages else "# From Inkeep"
+        self.assertIn(expected_title, response.json()["content"])
+        self.assertNotIn("<system_reminder>", response.json()["content"])
+        self.assertEqual(mock_inkeep.await_count, 0 if library_pages else 1)

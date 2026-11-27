@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.knock.knock import (
     NO_AUDIENCE_KEYS_ERROR,
     NO_FEED_CHANNEL_IDS_ERROR,
     NO_OBJECT_COLLECTIONS_ERROR,
+    NO_SERVICE_TOKEN_ERROR,
     KnockResumeConfig,
     get_resource,
     validate_credentials,
@@ -26,7 +27,7 @@ def _page(endpoint: str, rows: list[dict[str, Any]], after: str | None) -> Scrip
 class TestGetResource:
     @parameterized.expand(
         [
-            ("messages", "inserted_at[gte]"),
+            ("messages", "inserted_at.gte"),
             ("workflow_recipient_runs", "starting_at"),
         ]
     )
@@ -51,6 +52,8 @@ class TestKnockSourceTransport:
         object_collections: str | None = None,
         audience_keys: str | None = None,
         in_app_feed_channel_ids: str | None = None,
+        service_token: str | None = "knock_st_test",
+        management_environment: str | None = None,
     ) -> SourceDriver:
         return SourceDriver(
             KnockSource(),
@@ -59,6 +62,8 @@ class TestKnockSourceTransport:
                 object_collections=object_collections,
                 audience_keys=audience_keys,
                 in_app_feed_channel_ids=in_app_feed_channel_ids,
+                service_token=service_token,
+                management_environment=management_environment,
             ),
         )
 
@@ -112,7 +117,42 @@ class TestKnockSourceTransport:
         )
 
         assert result.raised is None
-        assert result.requests[0].param("inserted_at[gte]") == "2026-05-01T12:30:00"
+        assert result.requests[0].param("inserted_at.gte") == "2026-05-01T12:30:00"
+
+    @parameterized.expand(
+        [
+            ("messages", "inserted_at", ["/v1/messages"]),
+            (
+                "message_events",
+                "message_inserted_at",
+                ["/v1/messages", "/v1/messages/m2/events", "/v1/messages/m1/events"],
+            ),
+        ]
+    )
+    def test_incremental_walk_stops_at_first_page_below_watermark(
+        self, endpoint: str, incremental_field: str, expected_paths: list[str]
+    ) -> None:
+        child_page = ScriptedResponse(json={"items": [], "page_info": {}})
+        result = self._driver().run(
+            endpoint,
+            [
+                _page(
+                    "messages",
+                    [
+                        {"id": "m2", "inserted_at": "2026-05-02T00:00:00Z"},
+                        {"id": "m1", "inserted_at": "2026-04-30T00:00:00.123456Z"},
+                    ],
+                    after="cursor-1",
+                ),
+                *([child_page, child_page] if endpoint != "messages" else []),
+                _page("messages", [{"id": "m0", "inserted_at": "2026-04-29T00:00:00Z"}], after=None),
+            ],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=datetime(2026, 5, 1, 12, 30),
+        )
+
+        assert result.raised is None
+        assert result.paths == expected_paths
 
     @parameterized.expand(
         [
@@ -124,6 +164,11 @@ class TestKnockSourceTransport:
             ("message_events", ["inserted_at"], ["message_id", "id"]),
             ("message_delivery_logs", ["inserted_at"], ["message_id", "id"]),
             ("objects", None, ["collection", "id"]),
+            ("audit_logs", ["inserted_at"], ["id"]),
+            ("channels", None, ["id"]),
+            # Workflow and audience keys repeat across environments.
+            ("workflows", None, ["environment", "key"]),
+            ("audiences", None, ["environment", "key"]),
         ]
     )
     def test_source_response_partitioning_and_sort_mode(
@@ -174,9 +219,9 @@ class TestKnockSourceTransport:
             f"/v1/messages/m2/{child_path}",
         ]
         # The child endpoints take no timestamp filter, so the watermark bounds the parent walk.
-        assert result.requests[0].param("inserted_at[gte]") == "2026-05-01T12:30:00"
+        assert result.requests[0].param("inserted_at.gte") == "2026-05-01T12:30:00"
         assert result.requests[2].param("after") == "cursor-1"
-        assert all(request.param("inserted_at[gte]") is None for request in result.requests[1::2])
+        assert all(request.param("inserted_at.gte") is None for request in result.requests[1::2])
         assert [(r["message_id"], r["id"], r["message_inserted_at"]) for r in result.rows] == [
             ("m1", "e1", "2026-06-01T00:00:00Z"),
             ("m2", "e1", "2026-06-02T00:00:00Z"),
@@ -391,6 +436,71 @@ class TestKnockSourceTransport:
         assert result.raised is not None
         assert result.rows == []
 
+    @parameterized.expand(
+        [
+            # The configured environment only applies to the environment-scoped tables.
+            ("workflows", "production", {"limit", "after", "environment", "hide_uncommitted_changes"}),
+            ("audiences", " production ", {"limit", "after", "environment", "hide_uncommitted_changes"}),
+            ("workflows", None, {"limit", "after", "hide_uncommitted_changes"}),
+            ("workflows", "  ", {"limit", "after", "hide_uncommitted_changes"}),
+            ("channels", "production", {"limit", "after"}),
+            ("audit_logs", "production", {"limit", "after"}),
+        ]
+    )
+    def test_management_tables_page_the_management_api_with_the_service_token(
+        self, endpoint: str, environment: str | None, expected_params: set[str]
+    ) -> None:
+        result = self._driver(management_environment=environment).run(
+            endpoint,
+            [
+                _page(endpoint, [{"id": "a", "key": "a"}], after="cursor-1"),
+                _page(endpoint, [{"id": "b", "key": "b"}], after=None),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a", "b"]
+        assert all(request.origin == "https://control.knock.app" for request in result.requests)
+        assert all(request.headers["authorization"] == "Bearer knock_st_test" for request in result.requests)
+        assert result.paths == [f"/v1/{endpoint}"] * 2
+        assert set(result.requests[1].query) == expected_params
+        assert result.params("limit") == ["100", "100"]
+        assert result.params("after") == [None, "cursor-1"]
+        if "environment" in expected_params:
+            assert result.params("environment") == ["production", "production"]
+        if "hide_uncommitted_changes" in expected_params:
+            assert result.params("hide_uncommitted_changes") == ["true", "true"]
+        assert result.saved_states == [KnockResumeConfig(after="cursor-1")]
+
+    @parameterized.expand(
+        [
+            ("incremental", "inserted_at", datetime(2026, 5, 1, 12, 30), "2026-05-01T12:30:00"),
+            ("full_refresh", None, None, None),
+        ]
+    )
+    def test_audit_logs_send_watermark_as_since(
+        self, _name: str, incremental_field: str | None, last_value: datetime | None, expected_since: str | None
+    ) -> None:
+        result = self._driver().run(
+            "audit_logs",
+            [_page("audit_logs", [{"id": "a1", "inserted_at": "2026-06-01T00:00:00Z"}], after=None)],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("since") == expected_since
+
+    @parameterized.expand([("none", None), ("empty", "")])
+    def test_management_table_without_service_token_fails_with_actionable_error(
+        self, _name: str, service_token: str | None
+    ) -> None:
+        result = self._driver(service_token=service_token).run("workflows", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == NO_SERVICE_TOKEN_ERROR
+        assert result.requests == []
+
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -405,3 +515,28 @@ class TestValidateCredentials:
             assert validate_credentials("sk_test") == expected
         assert network.requests_log[0].path == "/v1/users"
         assert network.requests_log[0].param("page_size") == "1"
+
+    @parameterized.expand(
+        [
+            ("token_valid", 200, {}, (True, None)),
+            ("token_invalid", 401, {"message": "Invalid service token"}, (False, "Invalid service token")),
+            ("token_forbidden_no_body", 403, {}, (False, "Invalid Knock service token")),
+            ("server_error", 404, {}, (False, "Knock Management API returned an unexpected response (HTTP 404)")),
+        ]
+    )
+    def test_service_token_probed_after_api_key(
+        self, _name: str, status_code: int, body: dict[str, Any], expected: tuple[bool, str | None]
+    ) -> None:
+        responses = [ScriptedResponse(json={"entries": []}), ScriptedResponse(status=status_code, json=body)]
+        with scripted_network(responses) as network:
+            assert validate_credentials("sk_test", "knock_st_test") == expected
+        assert [(request.origin, request.path) for request in network.requests_log] == [
+            ("https://api.knock.app", "/v1/users"),
+            ("https://control.knock.app", "/v1/whoami"),
+        ]
+        assert network.requests_log[1].headers["authorization"] == "Bearer knock_st_test"
+
+    def test_invalid_api_key_skips_service_token_probe(self) -> None:
+        with scripted_network([ScriptedResponse(status=401, json={"message": "Invalid API key"})]) as network:
+            assert validate_credentials("sk_bad", "knock_st_test") == (False, "Invalid API key")
+        assert len(network.requests_log) == 1

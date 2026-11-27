@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import close_old_connections, connection, transaction
@@ -25,6 +25,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.mcp_store.backend.facade.run_scope_hooks import get_run_installation_allowlist_resolvers
 from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
@@ -43,6 +44,7 @@ from products.tasks.backend.facade.profiles import (
     get_task_profile,
 )
 from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
+from products.tasks.backend.mcp_store_hooks import mcp_installation_allowlist_for_token
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -330,6 +332,61 @@ class TestFacadeReadsAndMappers(TestCase):
         }
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
+
+    @parameterized.expand([("delivered", None, True), ("not_delivered", RuntimeError("temporal is down"), False)])
+    def test_client_activity_counts_as_life_only_when_its_signal_lands(
+        self, _name: str, signal_error: Exception | None, heartbeat_stored: bool
+    ) -> None:
+        run = TaskRun.objects.create(task=self._make_task(), team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        with patch("posthog.temporal.common.client.sync_connect") as connect:
+            connect.return_value.get_workflow_handle.return_value.signal = AsyncMock(side_effect=signal_error)
+            facade.signal_task_run_client_activity(run.id, run.task_id, self.team.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.last_heartbeat_at is not None, heartbeat_stored)
+
+    def test_origin_run_ids_since_finds_every_run_of_the_origin_in_the_window(self) -> None:
+        since = django_timezone.now() - timedelta(days=1)
+        origin = Task.OriginProduct.AUTORESEARCH
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        counted = TaskRun.objects.create(task=self._make_task(origin_product=origin), team=self.team)
+        on_deleted_task = TaskRun.objects.create(
+            task=self._make_task(origin_product=origin, deleted=True), team=self.team
+        )
+        before_window = TaskRun.objects.create(task=self._make_task(origin_product=origin), team=self.team)
+        TaskRun.objects.filter(id=before_window.id).update(created_at=since - timedelta(minutes=1))
+        TaskRun.objects.create(task=self._make_task(), team=self.team)
+        TaskRun.objects.create(task=self._make_task(team=other_team, origin_product=origin), team=other_team)
+
+        run_ids = facade.origin_run_ids_since(team_id=self.team.id, origin_product=origin, since=since)
+
+        self.assertCountEqual(run_ids, [counted.id, on_deleted_task.id])
+
+    def test_heartbeat_does_not_reach_a_run_of_another_task(self) -> None:
+        other_run = TaskRun.objects.create(
+            task=self._make_task(), team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
+
+        outcome = facade.record_local_task_run_heartbeat(other_run.id, self._make_task().id, self.team.id)
+
+        self.assertEqual(outcome, "not_found")
+        other_run.refresh_from_db()
+        self.assertIsNone(other_run.last_heartbeat_at)
+
+    @parameterized.expand([("completed", TaskRun.Status.COMPLETED), ("queued", TaskRun.Status.QUEUED)])
+    def test_heartbeat_does_not_reach_a_run_from_before_a_handoff(self, _name: str, run_status: str) -> None:
+        task = self._make_task(state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"})
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=run_status, environment=TaskRun.Environment.LOCAL, state={}
+        )
+
+        outcome = facade.record_local_task_run_heartbeat(run.id, task.id, self.team.id)
+
+        self.assertEqual(outcome, "not_found")
+        run.refresh_from_db()
+        self.assertEqual(run.status, run_status)
+        self.assertIsNone(run.last_heartbeat_at)
 
     @parameterized.expand(
         [
@@ -2427,6 +2484,33 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("runtime_adapter"), "claude")
         self.assertEqual(run.state.get("model"), "claude-sonnet-5")
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
+
+    @parameterized.expand(
+        [
+            # Each run keeps its own selection, so another run's selection never widens it.
+            (
+                "own_run_selection",
+                [("tok", {"mcp_installation_ids": ["a"]}), ("other", {"mcp_installation_ids": ["b"]})],
+                ["a"],
+            ),
+            ("own_run_without_selection", [("tok", None), ("other", {"mcp_installation_ids": ["b"]})], None),
+            # A selection that is present but broken allows nothing.
+            ("malformed_selection", [("tok", "not-an-object")], []),
+            ("unbound_token_on_a_selecting_task", [("other", {"mcp_installation_ids": ["b"]})], []),
+            ("unbound_token_on_a_plain_task", [("other", None)], None),
+        ]
+    )
+    def test_mcp_installation_allowlist_for_token(self, _name: str, runs: list, expected) -> None:
+        task = self._make_task()
+        for token_id, snapshot in runs:
+            state: dict = {"sandbox_oauth_token_ids": [token_id]}
+            if snapshot is not None:
+                state["config_snapshot"] = {"connectors": snapshot} if isinstance(snapshot, dict) else snapshot
+            TaskRun.objects.create(task=task, team=self.team, state=state)
+
+        assert mcp_installation_allowlist_for_token(task.id, "tok") == expected
+        # Without the registration the MCP Store would never narrow a run token.
+        assert mcp_installation_allowlist_for_token in get_run_installation_allowlist_resolvers()
 
 
 def _tool_update(tool_response: object) -> dict:

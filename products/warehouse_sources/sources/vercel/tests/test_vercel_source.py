@@ -96,7 +96,7 @@ class TestVercelSource:
         assert any(key in observed_error for key in retryable_errors)
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        config = VercelSourceConfig(access_token="token", team_id="team_42")
+        config = VercelSourceConfig(access_token=" token\n", team_id="team_42")
         captured: dict[str, Any] = {}
 
         def fake_vercel_source(**kwargs: Any):

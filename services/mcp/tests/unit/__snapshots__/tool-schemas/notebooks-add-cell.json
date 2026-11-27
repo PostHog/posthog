@@ -59,6 +59,7 @@
             "description": "SQL cells only: show the result as a chart instead of the table, like the Visualization tab in the editor. The chart draws from the rows the run returns, so aggregate in SQL to the points you want plotted.",
             "properties": {
                 "chartSettings": {
+                    "additionalProperties": {},
                     "description": "Axes and chart options. Omit an axis to let the chart pick it: the first date column for X, and every numeric column for Y. Every column named here must be a column the query returns, and a Y column must be numeric.",
                     "properties": {
                         "seriesBreakdownColumn": {
@@ -82,6 +83,7 @@
                             "type": "boolean"
                         },
                         "xAxis": {
+                            "additionalProperties": {},
                             "description": "Column used as the X axis, usually a time bucket or category.",
                             "properties": {
                                 "column": {
@@ -89,8 +91,10 @@
                                     "type": "string"
                                 },
                                 "settings": {
+                                    "additionalProperties": {},
                                     "properties": {
                                         "display": {
+                                            "additionalProperties": {},
                                             "properties": {
                                                 "displayType": {
                                                     "enum": ["auto", "line", "bar", "area"],
@@ -107,6 +111,7 @@
                                             "type": "object"
                                         },
                                         "formatting": {
+                                            "additionalProperties": {},
                                             "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
                                             "properties": {
                                                 "decimalPlaces": {
@@ -135,14 +140,17 @@
                         "yAxis": {
                             "description": "Numeric columns plotted as Y series. Include only final metrics the user cares about, not helper columns such as numerators or denominators.",
                             "items": {
+                                "additionalProperties": {},
                                 "properties": {
                                     "column": {
                                         "description": "Name of a column returned by the SQL query.",
                                         "type": "string"
                                     },
                                     "settings": {
+                                        "additionalProperties": {},
                                         "properties": {
                                             "display": {
+                                                "additionalProperties": {},
                                                 "properties": {
                                                     "displayType": {
                                                         "enum": ["auto", "line", "bar", "area"],
@@ -159,6 +167,7 @@
                                                 "type": "object"
                                             },
                                             "formatting": {
+                                                "additionalProperties": {},
                                                 "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
                                                 "properties": {
                                                     "decimalPlaces": {
@@ -204,18 +213,22 @@
                     "type": "string"
                 },
                 "tableSettings": {
+                    "additionalProperties": {},
                     "properties": {
                         "columns": {
                             "description": "Columns to display and their order.",
                             "items": {
+                                "additionalProperties": {},
                                 "properties": {
                                     "column": {
                                         "description": "Name of a column returned by the SQL query.",
                                         "type": "string"
                                     },
                                     "settings": {
+                                        "additionalProperties": {},
                                         "properties": {
                                             "display": {
+                                                "additionalProperties": {},
                                                 "properties": {
                                                     "displayType": {
                                                         "enum": ["auto", "line", "bar", "area"],
@@ -232,6 +245,7 @@
                                                 "type": "object"
                                             },
                                             "formatting": {
+                                                "additionalProperties": {},
                                                 "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
                                                 "properties": {
                                                     "decimalPlaces": {

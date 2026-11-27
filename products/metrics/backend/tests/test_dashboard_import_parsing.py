@@ -6,7 +6,7 @@ import pytest
 from products.metrics.backend.dashboard_import.display import MappedUnit, map_color, map_thresholds, map_unit
 from products.metrics.backend.dashboard_import.grafana import GrafanaDashboardParser, GrafanaImportError, relative_date
 from products.metrics.backend.dashboard_import.grafana_variables import TemplateVariables
-from products.metrics.backend.dashboard_import.layout import RequestedBox, place_screenshot_boxes
+from products.metrics.backend.dashboard_import.layout import RequestedBox, close_dropped_gaps, place_screenshot_boxes
 from products.metrics.backend.dashboard_import.promql_text import (
     combine_targets,
     drop_match_all_matchers,
@@ -159,6 +159,25 @@ def test_parses_panels_into_queries_displays_and_a_grid_without_overlaps() -> No
     assert panels["p6"].layout.y > panels["p5"].layout.y
     layouts = [panel.layout for panel in spec.panels]
     assert not any(_overlaps(a, b) for index, a in enumerate(layouts) for b in layouts[index + 1 :])
+
+
+def test_panels_with_odd_grafana_widths_stay_side_by_side() -> None:
+    dashboard = {
+        "title": "Odd widths",
+        "panels": [
+            {
+                "id": index,
+                "type": "text",
+                "title": f"Panel {index}",
+                "gridPos": {"x": 5 * index, "y": 0, "w": 5, "h": 8},
+            }
+            for index in range(3)
+        ],
+    }
+
+    layouts = [panel.layout for panel in GrafanaDashboardParser(dashboard).parse().panels]
+
+    assert [(layout.x, layout.y, layout.w) for layout in layouts] == [(0, 0, 3), (3, 0, 2), (5, 0, 3)]
 
 
 def test_legacy_rows_place_spans_side_by_side_under_a_title() -> None:
@@ -795,3 +814,49 @@ def test_screenshot_boxes_never_overlap(boxes: list[RequestedBox], expected: dic
     assert placed == expected
     layouts = list(placed.values())
     assert not any(_overlaps(first, second) for i, first in enumerate(layouts) for second in layouts[i + 1 :])
+
+
+@pytest.mark.parametrize(
+    "kept, dropped, expected",
+    [
+        pytest.param(
+            [_box("a", 0, 0, 3, 3), _box("b", 6, 0, 3, 3)],
+            [GridLayout(x=3, y=0, w=3, h=3), GridLayout(x=9, y=0, w=3, h=3)],
+            {"a": GridLayout(x=0, y=0, w=6, h=3), "b": GridLayout(x=6, y=0, w=6, h=3)},
+            id="a_band_that_lost_panels_shares_the_grid",
+        ),
+        pytest.param(
+            [_box("a", 0, 0, 4, 3), _box("b", 8, 0, 4, 3)],
+            [GridLayout(x=0, y=3, w=12, h=3)],
+            {"a": GridLayout(x=0, y=0, w=4, h=3), "b": GridLayout(x=8, y=0, w=4, h=3)},
+            id="a_band_that_lost_no_panel_keeps_its_gap",
+        ),
+        pytest.param(
+            [_box("tall", 0, 0, 6, 6), _box("below", 6, 3, 6, 3)],
+            [GridLayout(x=6, y=0, w=6, h=3)],
+            {"tall": GridLayout(x=0, y=0, w=6, h=6), "below": GridLayout(x=6, y=3, w=6, h=3)},
+            id="a_tile_from_another_band_keeps_both_bands",
+        ),
+        pytest.param(
+            [_box("a", 0, 0, 4, 3), _box("b", 6, 0, 4, 3), _box("tall", 10, 0, 2, 6), _box("c", 0, 3, 4, 3)],
+            [GridLayout(x=4, y=0, w=2, h=3), GridLayout(x=4, y=3, w=6, h=3)],
+            {
+                "a": GridLayout(x=0, y=0, w=6, h=3),
+                "b": GridLayout(x=6, y=0, w=4, h=3),
+                "tall": GridLayout(x=10, y=0, w=2, h=6),
+                "c": GridLayout(x=0, y=3, w=10, h=3),
+            },
+            id="tiles_beside_a_taller_tile_still_fill_the_gaps",
+        ),
+        pytest.param(
+            [_box("a", 4, 0, 4, 3)],
+            [GridLayout(x=0, y=0, w=4, h=3)],
+            {"a": GridLayout(x=0, y=0, w=8, h=3)},
+            id="a_tile_widens_left_into_a_gap",
+        ),
+    ],
+)
+def test_dropped_panels_leave_no_gap(
+    kept: list[RequestedBox], dropped: list[GridLayout], expected: dict[str, GridLayout]
+) -> None:
+    assert close_dropped_gaps(kept, dropped) == expected

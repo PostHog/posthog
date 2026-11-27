@@ -22,7 +22,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
-from django.db import connection, models, transaction
+from django.db import DatabaseError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -97,6 +97,22 @@ SCOUT_TRIAL_ORIGIN_KEY_PREFIX = "scout-trial:"
 SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX = "scout-trial-judge:"
 
 
+def team_task_logs_s3_prefix(team_id: int) -> str:
+    return f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/logs/team_{int(team_id)}/"
+
+
+def team_task_artifacts_s3_prefix(team_id: int) -> str:
+    return f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{int(team_id)}/"
+
+
+def organization_task_sessions_s3_prefix(organization_id: uuid.UUID | str) -> str:
+    return f"task-sessions/{uuid.UUID(str(organization_id))}/"
+
+
+def task_sessions_s3_prefix(organization_id: uuid.UUID | str, task_id: uuid.UUID | str) -> str:
+    return f"{organization_task_sessions_s3_prefix(organization_id)}{uuid.UUID(str(task_id))}/"
+
+
 def execute_after_commit(callback: Callable[[], object]) -> None:
     """Run commit side effects immediately in tests, where TestCase never commits its wrapper transaction."""
     if settings.TEST:
@@ -148,6 +164,7 @@ TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
 TASK_RUN_TAGS_STATE_KEY = "task_tags"
 TASK_RUN_FINISH_REPORT_STATE_KEY = "finish_report_saved"
+ENDED_BY_STALE_SWEEP_STATE_KEY = "ended_by_stale_sweep"
 PRIOR_RUN_TAGS_STATE_KEY = "prior_run_tags"
 
 # Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
@@ -835,6 +852,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     def github_access_limit(self) -> GithubAccess | None:
         value = (self.options or {}).get("github_access")
         return GithubAccess(value) if value else None
+
+    @staticmethod
+    def is_user_origin(origin_product: str | None) -> bool:
+        return not origin_product or origin_product in (
+            Task.OriginProduct.USER_CREATED.value,
+            Task.OriginProduct.IMAGE_BUILDER.value,
+            Task.OriginProduct.SPACE_SETUP.value,
+        )
 
     @property
     def stored_profile(self) -> TaskProfile | None:
@@ -2761,6 +2786,11 @@ class TaskRun(models.Model):
         LOCAL = "local", "Local"
         CLOUD = "cloud", "Cloud"
 
+    class AgentStatus(models.TextChoices):
+        STARTING = "starting", "Starting"
+        READY = "ready", "Ready"
+        BUSY = "busy", "Busy"
+
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
@@ -2854,6 +2884,8 @@ class TaskRun(models.Model):
     # The requested start time for a deferred run. It remains populated after dispatch so the
     # actual queue/start timestamps can be compared with the requested time.
     scheduled_at = models.DateTimeField(null=True, blank=True)
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    agent_status = models.CharField(max_length=20, choices=AgentStatus, null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task_run"
@@ -3003,6 +3035,7 @@ class TaskRun(models.Model):
         "sandbox_connect_token",
         "sandbox_backend",
         "failure_error_type",
+        ENDED_BY_STALE_SWEEP_STATE_KEY,
         "cancel_requested_at",
         # A resumed run's turns must be able to replace the previous execution's finish report.
         TASK_RUN_FINISH_REPORT_STATE_KEY,
@@ -3041,6 +3074,7 @@ class TaskRun(models.Model):
                 revoked_at=django_timezone.now(),
                 revoked_by="tasks-worker",
                 revocation_reason=reason,
+                git_read_grant=None,
             )
 
     def prepare_for_cloud_resume(self) -> None:
@@ -3201,6 +3235,47 @@ class TaskRun(models.Model):
             return persisted
         return self.get_workflow_id(self.task_id, self.id)
 
+    @staticmethod
+    def write_liveness(
+        run_id: uuid.UUID | str,
+        team_id: int,
+        *,
+        heartbeat_at: datetime | None = None,
+        agent_status: "TaskRun.AgentStatus | None" = None,
+    ) -> bool:
+        updates: dict[str, Any] = {}
+        if heartbeat_at is not None:
+            updates["last_heartbeat_at"] = heartbeat_at
+        if agent_status is not None:
+            updates["agent_status"] = agent_status
+        try:
+            written = (
+                TaskRun.objects.filter(id=run_id, team_id=team_id)
+                .exclude(status__in=(TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+                .update(**updates)
+            )
+        except DatabaseError:
+            logger.warning("task_run.liveness_write_failed", task_run_id=str(run_id), exc_info=True)
+            return False
+        return bool(written)
+
+    def set_agent_status(self, agent_status: "TaskRun.AgentStatus") -> None:
+        if TaskRun.write_liveness(self.pk, self.team_id, agent_status=agent_status):
+            self.agent_status = agent_status
+
+    def record_heartbeat(self) -> None:
+        heartbeat_at = django_timezone.now()
+        if TaskRun.write_liveness(
+            self.pk, self.team_id, heartbeat_at=heartbeat_at, agent_status=TaskRun.AgentStatus.BUSY
+        ):
+            self.last_heartbeat_at = heartbeat_at
+            self.agent_status = TaskRun.AgentStatus.BUSY
+
+    def record_client_heartbeat(self) -> None:
+        heartbeat_at = django_timezone.now()
+        TaskRun.objects.filter(pk=self.pk, team_id=self.team_id).update(last_heartbeat_at=heartbeat_at)
+        self.last_heartbeat_at = heartbeat_at
+
     def heartbeat_workflow(self, agent_active: bool = False, *, force: bool = False) -> None:
         if not agent_active:
             return
@@ -3224,6 +3299,8 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+        self.record_heartbeat()
+
     def signal_agent_turn_completed(self, *, succeeded: bool = False) -> None:
         import asyncio
 
@@ -3243,12 +3320,16 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.turn_completed_signal_failed", task_run_id=str(self.id), error=str(e))
 
+        self.set_agent_status(TaskRun.AgentStatus.READY)
+
     def signal_agent_boot_milestone(
         self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
     ) -> bool:
         import asyncio
 
         from posthog.temporal.common.client import sync_connect
+
+        self.set_agent_status(TaskRun.AgentStatus.BUSY)
 
         try:
             client = sync_connect()
@@ -3283,6 +3364,8 @@ class TaskRun(models.Model):
             asyncio.run(handle.signal(ProcessTaskWorkflow.client_activity))
         except Exception as e:
             logger.warning("task_run.client_activity_signal_failed", task_run_id=str(self.id), error=str(e))
+            return
+        self.record_client_heartbeat()
 
     @property
     def log_url(self) -> str:
@@ -3295,13 +3378,11 @@ class TaskRun(models.Model):
 
     def get_task_s3_prefix(self) -> str:
         """Base prefix for task-scoped objects in S3."""
-        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
-        return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}"
+        return f"{team_task_logs_s3_prefix(self.team_id)}task_{self.task_id}"
 
     def get_artifact_s3_prefix(self) -> str:
         """Base prefix for storing artifacts in S3."""
-        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
-        return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
+        return f"{team_task_artifacts_s3_prefix(self.team_id)}task_{self.task_id}/run_{self.id}"
 
     def get_resume_chain(self, max_depth: int = 10) -> list["TaskRun"]:
         """Walk `state.resume_from_run_id` from this run upward.
@@ -3405,6 +3486,9 @@ class TaskRun(models.Model):
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
+            return
+        if not TaskRun.objects.filter(pk=self.pk).exists():
+            logger.info("task_run.append_log_skipped_run_deleted", task_run_id=str(self.pk), team_id=self.team_id)
             return
 
         append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
@@ -4074,6 +4158,8 @@ class AgentEgressRegistration(models.Model):
     revoked_at = models.DateTimeField(null=True)
     revoked_by = models.CharField(max_length=64, null=True)
     revocation_reason = models.CharField(max_length=64, null=True)
+    git_read_grant = EncryptedJSONStringField(null=True)
+    git_read_grant_version = models.UUIDField(null=True, editable=False)
 
     objects = EnvironmentScopedManager()
 

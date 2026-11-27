@@ -1,3 +1,4 @@
+import { firstLookupGoesWhereNothingListens, lookupAnswers, stopAnsweringLookups } from '~/tests/helpers/mocks/dns.mock'
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -12,10 +13,11 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
     BucketProxy,
     DeliveredEmail,
+    ENDPOINT_THAT_REFUSES_CONNECTIONS,
     StoredFile,
     attachmentFile,
     deliveredTo,
-    sesClientFor,
+    sesTransportFor,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
 import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
@@ -44,7 +46,7 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from 
 import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { MESSAGE_ASSETS_OUTPUT } from '~/common/outputs'
+import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT, MESSAGE_ASSETS_OUTPUT } from '~/common/outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -63,6 +65,7 @@ import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { MAX_PENDING_EMAIL_REPORTS, WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttachmentStore } from './attachment-store'
@@ -83,7 +86,7 @@ import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
 import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
-import { MESSAGE_MAX_BYTES } from './message-estimate'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
@@ -96,6 +99,19 @@ async function metricValue(name: string, labels: Record<string, string>, metricN
             Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
     )
     return sample?.value ?? 0
+}
+
+async function metricTotal(name: string, labels: Record<string, string>, metricName: string): Promise<number> {
+    const metric = await register.getSingleMetric(name)!.get()
+    const values: { labels: Partial<Record<string, string | number>>; value: number; metricName?: string }[] =
+        metric.values
+    return values
+        .filter(
+            (value) =>
+                value.metricName === metricName &&
+                Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
+        )
+        .reduce((total, value) => total + value.value, 0)
 }
 
 describe('sanitizeEmailSubject', () => {
@@ -210,17 +226,22 @@ const createEmailParams = (
         },
     }
 }
-const oneRetryAfter = (delayMs: number): any => {
-    const token = (retries: number): { getRetryCount: () => number; getRetryDelay: () => number } => ({
-        getRetryCount: () => retries,
-        getRetryDelay: () => delayMs,
-    })
-    return {
-        acquireInitialRetryToken: () => Promise.resolve(token(0)),
-        refreshRetryTokenForRetry: (previous: ReturnType<typeof token>) =>
-            previous.getRetryCount() > 0 ? Promise.reject(new Error('no retries left')) : Promise.resolve(token(1)),
-        recordSuccess: () => {},
-    }
+const emailSeriesCounts = async (): Promise<Record<string, number>> =>
+    Object.fromEntries(
+        ((await register.getSingleMetric('cdp_hog_function_metric')?.get())?.values ?? [])
+            .filter(({ labels }) => labels.metric_kind === 'email')
+            .map(({ labels, value }) => [String(labels.metric_name), value])
+    )
+const emailSeriesCountedFor = async (result: CyclotronJobInvocationResult): Promise<Record<string, number>> => {
+    const before = await emailSeriesCounts()
+    new HogFunctionMonitoringService(
+        createRecordingIngestionOutputs([APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT]).outputs
+    ).queueInvocationResults([result])
+    return Object.fromEntries(
+        Object.entries(await emailSeriesCounts())
+            .map(([name, value]): [string, number] => [name, value - (before[name] ?? 0)])
+            .filter(([, delta]) => delta !== 0)
+    )
 }
 
 describe('EmailService', () => {
@@ -376,8 +397,6 @@ describe('EmailService', () => {
                 null,
                 workflowsActivationReporter
             )
-            expect(serviceWithoutSES.sesV2Client).toBeNull()
-
             await insertIntegration(hub.postgres, team.id, {
                 id: getIntegrationId(1),
                 kind: 'email',
@@ -444,15 +463,26 @@ describe('EmailService', () => {
                     config: {},
                 })
             })
-            it('should validate if the integration is not found', async () => {
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 100 },
-                })
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(
-                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
-                )
-            })
+            it.each([
+                ['the integration is not found', false, 100],
+                ['the integration belongs to another team', true, 1],
+            ])(
+                'should fail when %s and label it for Prometheus as an unverified sender',
+                async (_name, fromOtherTeam, integrationId) => {
+                    if (fromOtherTeam) {
+                        invocation.teamId = 100
+                    }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId },
+                    })
+                    const result = await service.executeSendEmail(invocation)
+                    expect(result.error).toMatchInlineSnapshot(
+                        `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                    )
+                    expect(result.metrics.map(({ metric_name }) => metric_name)).toEqual(['email_failed'])
+                    expect(await emailSeriesCountedFor(result)).toEqual({ email_sender_unverified: 1 })
+                }
+            )
             it.each([
                 ['slack', 3],
                 ['email_sandbox', 5],
@@ -463,16 +493,6 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(
                     `"The integration configured for this step is not an email channel — select an email sender in the workflow's email step."`
-                )
-            })
-            it('should validate if the integration is not the correct team', async () => {
-                invocation.teamId = 100
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1 },
-                })
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(
-                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
                 )
             })
             it.each([
@@ -492,6 +512,8 @@ describe('EmailService', () => {
                     expect(result.error).toMatchInlineSnapshot(
                         `"The selected email integration domain is not verified"`
                     )
+                    expect(result.metrics.map(({ metric_name }) => metric_name)).toEqual(isTest ? [] : ['email_failed'])
+                    expect(await emailSeriesCountedFor(result)).toEqual(isTest ? {} : { email_sender_unverified: 1 })
                     expect(await settledActivationEvents()).toEqual(
                         Array(reports).fill({
                             team: team.uuid,
@@ -783,50 +805,115 @@ describe('EmailService', () => {
                 expect(result.invocation.queuePriority).toBe(1)
             })
 
-            it('hard-fails (not retry) when SES returns SendingPausedException', async () => {
-                // Reputation/account-state pause won't recover in 500ms; retrying
-                // just burns reschedules. Hard-fail so the failure surfaces via
-                // email_failed and an operator can investigate.
-                ses.failWith({ status: 400, type: 'SendingPausedException', message: 'Sending paused' })
+            type SesAnswer = { status: number; type: string; message: string } | 'drop-connection'
+            it.each<[string, SesAnswer, string]>([
+                ['MessageRejected', { status: 400, type: 'MessageRejected', message: 'Rejected' }, 'MessageRejected'],
+                ...[
+                    'MailFromDomainNotVerifiedException',
+                    'AccountSuspendedException',
+                    'SendingPausedException',
+                    'LimitExceededException',
+                    'BadRequestException',
+                ].map((name): [string, SesAnswer, string] => [
+                    name,
+                    { status: 400, type: name, message: `${name} answer` },
+                    name,
+                ]),
+                [
+                    'NotFoundException',
+                    { status: 404, type: 'NotFoundException', message: 'No such set' },
+                    'NotFoundException',
+                ],
+                [
+                    'an error name SES does not document',
+                    { status: 500, type: 'InternalFailure', message: 'Internal failure' },
+                    'other',
+                ],
+                ['a dropped connection', 'drop-connection', 'other'],
+            ])('fails the job without a resend when SES answers %s, and counts it', async (_name, fault, counted) => {
+                const before = await metricValue('cdp_ses_send_results_total', { result: counted })
+                ses.failWith(fault)
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(result.finished).toBe(true)
-                expect(result.error).toMatch(/Failed to send email via SES: Sending paused/)
-                expect(result.metrics).toEqual(
-                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
-                )
+                expect({
+                    finished: result.finished,
+                    rescheduledAt: result.invocation.queueScheduledAt,
+                    error: result.error,
+                    failed: result.metrics.map((metric) => metric.metric_name),
+                    counted: (await metricValue('cdp_ses_send_results_total', { result: counted })) - before,
+                }).toEqual({
+                    finished: true,
+                    rescheduledAt: invocation.queueScheduledAt,
+                    error: expect.stringMatching(
+                        typeof fault === 'string'
+                            ? /^Failed to send email via SES: /
+                            : `Failed to send email via SES: ${fault.message}`
+                    ),
+                    failed: ['email_failed'],
+                    counted: 1,
+                })
             })
 
-            it.each<[string, string, FakeSesFault]>([
-                ...throttleCases.map(([name, fault]): [string, string, FakeSesFault] => [name, 'throttled', fault]),
+            it('fails the job when SES records the email and answers 500, after the SDK sent it on each of its attempts', async () => {
+                ses.failWith({ acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' } })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect({ finished: result.finished, error: result.error, sent: ses.sent.length }).toEqual({
+                    finished: true,
+                    error: 'Failed to send email via SES: Internal failure',
+                    sent: 3,
+                })
+            })
+
+            it.each<[string, FakeSesFault]>([
+                ['drops the answer', 'accept-then-drop-connection'],
                 [
-                    'SendingPausedException',
-                    'SendingPausedException',
-                    { status: 400, type: 'SendingPausedException', message: 'Sending paused' },
+                    'answers 500',
+                    { acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' } },
                 ],
-                ['a dropped connection', 'other', 'drop-connection'],
-            ])('counts an SES send that fails with %s as %s', async (_name, expectedResult, fault) => {
-                const labels = { result: expectedResult }
+            ])(
+                'fails the job without a resend when SES records the email, %s, then throttles the retry',
+                async (_name, firstAnswer) => {
+                    ses.failInTurn(firstAnswer, tooManyRequests)
+                    service.sesTransport = sesTransportFor(ses, { maxAttempts: 2 })
+                    const before = await metricValue('cdp_ses_send_results_total', { result: 'may_have_sent' })
+                    const throttledBefore = await metricValue('cdp_ses_send_results_total', { result: 'throttled' })
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect({
+                        finished: result.finished,
+                        rescheduledAt: result.invocation.queueScheduledAt,
+                        error: result.error,
+                        failed: result.metrics.map((metric) => metric.metric_name),
+                        counted:
+                            (await metricValue('cdp_ses_send_results_total', { result: 'may_have_sent' })) - before,
+                        countedThrottled:
+                            (await metricValue('cdp_ses_send_results_total', { result: 'throttled' })) -
+                            throttledBefore,
+                        sent: ses.sent.length,
+                    }).toEqual({
+                        finished: true,
+                        rescheduledAt: invocation.queueScheduledAt,
+                        error: 'Failed to send email via SES: SES throttled a retry after an earlier attempt that may have sent the email, so it is not sent again.',
+                        failed: ['email_failed'],
+                        counted: 1,
+                        countedThrottled: 0,
+                        sent: 1,
+                    })
+                }
+            )
+
+            it.each(throttleCases)('counts an SES send that fails with %s as throttled', async (_name, fault) => {
+                const labels = { result: 'throttled' }
                 const before = await metricValue('cdp_ses_send_results_total', labels)
                 ses.failWith(fault)
 
                 await service.executeSendEmail(invocation)
 
                 expect(await metricValue('cdp_ses_send_results_total', labels)).toBe(before + 1)
-            })
-
-            it('still fails the job for non-throttle SES errors', async () => {
-                ses.failWith({ status: 400, type: 'MessageRejected', message: 'something else broke' })
-
-                const result = await service.executeSendEmail(invocation)
-
-                expect(result.finished).toBe(true)
-                expect(result.error).toMatch(/Failed to send email via SES: something else broke/)
-                // Business metric should record the failure.
-                expect(result.metrics).toEqual(
-                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
-                )
             })
         })
 
@@ -887,7 +974,12 @@ describe('EmailService', () => {
                     invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
                     invocation.queueScheduledAt = undefined
                     const name = 'cdp_email_queue_to_send_ms'
-                    const labels = { source, priority_class: priorityClass, team_capped: teamCapped }
+                    const labels = {
+                        source,
+                        priority_class: priorityClass,
+                        team_capped: teamCapped,
+                        with_files: 'false',
+                    }
                     const countBefore = await metricValue(name, labels, `${name}_count`)
                     const sumBefore = await metricValue(name, labels, `${name}_sum`)
 
@@ -1627,6 +1719,14 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
             await mailDevAPI.clearEmails()
         })
+        it('should send html-only content with a text part made from the html', async () => {
+            invocation.queueParameters = createEmailParams({ html: '<p>Your code is <b>482913</b></p>', text: '' })
+            const result = await createService({ textPartTeams: String(team.id) }).executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const [email] = await mailDevAPI.getEmails()
+            expect(email.text).toBe('Your code is 482913')
+        })
         it.each([
             ['a plain recipient name', 'Test User'],
             ['a non-ASCII recipient name', 'Café "Müller"'],
@@ -1666,7 +1766,7 @@ describe('EmailService', () => {
                 case: 'keeps the defaults',
                 sensitive: true,
                 tracking: { captureEngagement: true },
-                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                links: ['https://example.com/a', 'https://example.com/b'],
                 pixel: true,
             },
             {
@@ -1807,7 +1907,7 @@ describe('EmailService', () => {
         it.each<{
             case: string
             sensitive: boolean
-            step?: { template_uuid?: string; template_key?: string }
+            step?: { template_uuid?: string; template_key?: string; click_tracking_enabled?: boolean }
             send: { sensitive?: boolean; tracking?: { opens?: false; clicks?: boolean } } | undefined
             links: string[]
             opens: boolean
@@ -1841,7 +1941,7 @@ describe('EmailService', () => {
                 case: 'a sensitive code send that keeps the defaults',
                 sensitive: true,
                 send: {},
-                links: clicksTracked,
+                links: untracked,
                 opens: true,
                 subject: false,
             },
@@ -1867,7 +1967,7 @@ describe('EmailService', () => {
                 sensitive: true,
                 step: { template_uuid: 'template-1' },
                 send: { sensitive: false },
-                links: clicksTracked,
+                links: untracked,
                 opens: true,
                 subject: false,
             },
@@ -1875,7 +1975,16 @@ describe('EmailService', () => {
                 case: "a code send marked sensitive on a template's workflow that isn't sensitive",
                 sensitive: false,
                 send: { sensitive: true },
-                links: clicksTracked,
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send marked sensitive on a non-sensitive template with clicks enabled',
+                sensitive: false,
+                step: { template_uuid: 'template-1', click_tracking_enabled: true },
+                send: { sensitive: true },
+                links: untracked,
                 opens: true,
                 subject: false,
             },
@@ -1912,10 +2021,55 @@ describe('EmailService', () => {
                 subject: true,
             },
             {
+                case: 'a non-sensitive template send that turns clicks off',
+                sensitive: false,
+                step: { template_uuid: 'template-1', click_tracking_enabled: false },
+                send: undefined,
+                links: untracked,
+                opens: true,
+                subject: true,
+            },
+            {
                 case: 'a sensitive template send',
                 sensitive: true,
                 send: undefined,
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a sensitive template send that turns clicks on',
+                sensitive: true,
+                step: { template_uuid: 'template-1', click_tracking_enabled: true },
+                send: undefined,
                 links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a sensitive template send that explicitly turns clicks off',
+                sensitive: true,
+                step: { template_uuid: 'template-1', click_tracking_enabled: false },
+                send: undefined,
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send on a sensitive template with clicks enabled that keeps defaults',
+                sensitive: true,
+                step: { template_uuid: 'template-1', click_tracking_enabled: true },
+                send: {},
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send on a sensitive template with clicks enabled that turns clicks off',
+                sensitive: true,
+                step: { template_uuid: 'template-1', click_tracking_enabled: true },
+                send: { tracking: { clicks: false } },
+                links: untracked,
                 opens: true,
                 subject: false,
             },
@@ -1965,7 +2119,6 @@ describe('EmailService', () => {
                     await supertest(sesEndpoint).get(new URL(src).pathname)
                 }
                 expect(delivered).toEqual(links)
-                expect(images).toEqual(opens ? [`${sesEndpoint}/I0/open.gif`] : [])
                 expect(fakeSes.opened).toBe(opens ? 1 : 0)
                 expect(
                     result.capturedPostHogEvents
@@ -1988,6 +2141,25 @@ describe('EmailService', () => {
                 )
             }
         )
+
+        it('keeps the trailing slash on an unquoted href when a sensitive send opts links out of click tracking', async () => {
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                sensitive: true,
+                template_uuid: 'template-1',
+            }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                html: '<body><a ses:tags="campaign:reset" href=https://example.com/reset/token/>Reset</a></body>',
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(fakeSes.deliveries).toHaveLength(1)
+            expect(fakeSes.deliveries[0].html).toContain('href=https://example.com/reset/token/')
+            expect(fakeSes.deliveries[0].html).not.toContain(`${sesEndpoint}/L0/`)
+        })
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -2029,17 +2201,45 @@ describe('EmailService', () => {
             })
         })
 
-        it('should error if not verified', async () => {
-            ses.failWith({
-                status: 400,
-                type: 'MessageRejected',
-                message: 'Email address not verified "Test User" <test@posthog-test.com>',
-            })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toEqual(
-                'Failed to send email via SES: Email address not verified "Test User" <test@posthog-test.com>'
-            )
-        })
+        it.each([
+            [
+                'the sender',
+                {},
+                'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: Test@Posthog-Test.com',
+                'email_sender_unverified',
+            ],
+            [
+                'the sender in the older format',
+                {},
+                'Email address not verified "Test User" <test@posthog-test.com>',
+                'email_sender_unverified',
+            ],
+            [
+                'only the recipient',
+                {},
+                'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: test@example.com',
+                'email_failed',
+            ],
+            [
+                'only recipients whose addresses contain the sender',
+                { to: { email: 'test@posthog-test.com.au', name: 'Test User' }, cc: 'xtest@posthog-test.com' },
+                'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: test@posthog-test.com.au, xtest@posthog-test.com',
+                'email_failed',
+            ],
+            ['no identity', {}, 'Illegal address', 'email_failed'],
+        ])(
+            'fails a send SES rejects for %s and counts it as an unverified sender only when the sender is unverified',
+            async (_name, recipients, sesMessage, countedSeries) => {
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, ...recipients })
+                ses.failWith({ status: 400, type: 'MessageRejected', message: sesMessage })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toEqual(`Failed to send email via SES: ${sesMessage}`)
+                expect(result.metrics.map(({ metric_name }) => metric_name)).toEqual(['email_failed'])
+                expect(await emailSeriesCountedFor(result)).toEqual({ [countedSeries]: 1 })
+            }
+        )
 
         it.each([
             ['an ordinary template', {}, '$pageview', { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
@@ -2195,7 +2395,7 @@ describe('EmailService', () => {
             sesRejects()
             invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
         }
-        const codeSendTracked = (): void => {
+        const codeSendClicksOff = (): void => {
             sesAcceptsTracked()
             invocation.state.send = { tracking: { captureEngagement: true, clicks: false } }
         }
@@ -2220,24 +2420,48 @@ describe('EmailService', () => {
                     attachments: files.map((file) => file.metadata),
                 })
             }
+            const inOneAdmission = async <T>(files: StoredFile['metadata'][], sends: () => Promise<T>): Promise<T> => {
+                const registry = new InFlightRegistry({
+                    budgetBytes: Number.MAX_SAFE_INTEGER,
+                    heapLimitBytes: Number.MAX_SAFE_INTEGER,
+                    maxInFlight: 1,
+                })
+                const admission = registry.tryStart(files, sends)
+                return await (admission as Extract<typeof admission, { started: unknown }>).started
+            }
+            const admittingEachSendWithFiles = (emailService: EmailService): EmailService => {
+                const executeSendEmail = emailService.executeSendEmail.bind(emailService)
+                emailService.executeSendEmail = (sent, isTest = false) => {
+                    const files = sent.queueParameters?.type === 'email' ? (sent.queueParameters.attachments ?? []) : []
+                    return files.length && !isTest
+                        ? inOneAdmission(files, () => executeSendEmail(sent, isTest))
+                        : executeSendEmail(sent, isTest)
+                }
+                return emailService
+            }
             const sender = ({
                 teamDailyCap,
                 teamConfigDb,
                 attachmentSendDeadlineMs,
                 ownershipCheckTimeoutMs,
+                textPartTeams,
+                admits = 'each send with files',
             }: {
                 teamDailyCap?: number
                 teamConfigDb?: PostgresRouter
                 attachmentSendDeadlineMs?: number
                 ownershipCheckTimeoutMs?: number
-            } = {}): EmailService =>
-                createService(
+                textPartTeams?: string
+                admits?: 'each send with files' | 'nothing'
+            } = {}): EmailService => {
+                const emailService = createService(
                     {
                         ...(teamDailyCap
                             ? { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [teamDailyCap] }
                             : {}),
                         attachmentSendDeadlineMs,
                         ownershipCheckTimeoutMs,
+                        textPartTeams,
                     },
                     {
                         workflowEmailRateLimiter: createRateLimiter('workflow-email-test'),
@@ -2245,6 +2469,8 @@ describe('EmailService', () => {
                     },
                     { attachmentStore: bucket.store(), teamConfigDb, emailStatusService: emailStatus }
                 )
+                return admits === 'nothing' ? emailService : admittingEachSendWithFiles(emailService)
+            }
             const sesThrottles: FakeSesFault = {
                 status: 429,
                 type: 'TooManyRequestsException',
@@ -2361,9 +2587,6 @@ describe('EmailService', () => {
                         }))
                 )
             }
-            const untilDue = async (due: DateTime): Promise<void> => {
-                await new Promise((resolve) => setTimeout(resolve, Math.max(0, due.toMillis() - Date.now() + 50)))
-            }
 
             beforeAll(async () => {
                 await ensureKafkaTopics([KAFKA_EMAIL_STATUS])
@@ -2408,6 +2631,7 @@ describe('EmailService', () => {
                 send([pdf, logo])
             })
             afterEach(async () => {
+                stopAnsweringLookups()
                 await bucket.close()
                 await statusProducer.disconnect()
                 await new Promise((resolve, reject) =>
@@ -2436,11 +2660,14 @@ describe('EmailService', () => {
                     send([pdf, logo], 2)
                 }
                 const emailService = sender()
-                ses.failWith(firstTryFault === 'sesThrottles' ? sesThrottles : null)
+                if (firstTryFault === 'sesThrottles') {
+                    ses.failOnce(sesThrottles)
+                }
                 bucket.answer = firstTryFault === 'bucketRefuses' ? 'refuse' : 'pass'
 
                 let result = await emailService.executeSendEmail(invocation)
                 if (firstTryFault) {
+                    expect(ses.sent).toEqual([])
                     expect(result.finished).toBe(false)
                     expect(result.error).toBeUndefined()
                     expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
@@ -2470,6 +2697,98 @@ describe('EmailService', () => {
                     },
                 ])
             })
+
+            it.each([
+                [
+                    'a transactional email with click tracking off',
+                    { click_tracking_enabled: false },
+                    undefined,
+                    'clicks_untracked',
+                ],
+                ['a sensitive transactional email', { sensitive: true }, undefined, 'clicks_untracked'],
+                [
+                    'a sensitive transactional email that turns click tracking back on',
+                    { sensitive: true, click_tracking_enabled: true },
+                    undefined,
+                    '',
+                ],
+                [
+                    'a code send with opens on and clicks off',
+                    {},
+                    { tracking: { captureEngagement: true, clicks: false } },
+                    'clicks_untracked',
+                ],
+            ])(
+                'publishes the click tracking reason on the sent row of %s',
+                async (_case, metadata, sendState, reason) => {
+                    send([])
+                    sendAsTransactionalEmail()
+                    invocation.hogFunction.metadata = { message_category_type: 'transactional', ...metadata }
+                    if (sendState) {
+                        invocation.state.send = sendState
+                    }
+
+                    const result = await sender().executeSendEmail(invocation)
+
+                    expect(result.error).toBeUndefined()
+                    expect(await recordedEmailStatuses()).toEqual([
+                        expect.objectContaining({
+                            team_id: team.id,
+                            message_id: invocation.id,
+                            status: 'sent',
+                            reason,
+                        }),
+                    ])
+                }
+            )
+
+            it.each([
+                ['with files that SES accepts', (): StoredFile[] => [pdf], sesAccepts, 'success', 'true', 'false'],
+                ['without files that SES accepts', (): StoredFile[] => [], sesAccepts, 'success', 'false', 'true'],
+                ['with files that SES rejects', (): StoredFile[] => [pdf], sesRejects, 'error', 'true', 'false'],
+                ['without files that SES rejects', (): StoredFile[] => [], sesRejects, 'error', 'false', 'true'],
+            ])(
+                'times a send %s apart from the other kind',
+                async (_case, files, sesAnswer, sesResult, counted, untouched) => {
+                    invocation.queue = 'email'
+                    invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
+                    send(files())
+                    sesAnswer()
+                    const latencyCounts = async (withFiles: string): Promise<number[]> => [
+                        await metricTotal(
+                            'cdp_ses_send_duration_ms',
+                            { result: sesResult, with_files: withFiles },
+                            'cdp_ses_send_duration_ms_count'
+                        ),
+                        await metricTotal(
+                            'cdp_ses_send_duration_ms',
+                            { with_files: withFiles },
+                            'cdp_ses_send_duration_ms_count'
+                        ),
+                        await metricTotal(
+                            'cdp_email_queue_to_send_ms',
+                            { with_files: withFiles },
+                            'cdp_email_queue_to_send_ms_count'
+                        ),
+                    ]
+                    const allSeries = async (): Promise<number[]> => [
+                        await metricTotal('cdp_ses_send_duration_ms', {}, 'cdp_ses_send_duration_ms_count'),
+                        await metricTotal('cdp_email_queue_to_send_ms', {}, 'cdp_email_queue_to_send_ms_count'),
+                    ]
+                    const countedBefore = await latencyCounts(counted)
+                    const untouchedBefore = await latencyCounts(untouched)
+                    const allSeriesBefore = await allSeries()
+
+                    const result = await sender().executeSendEmail(invocation)
+
+                    expect(result.error).toEqual(
+                        sesResult === 'error' ? expect.stringContaining('SES error') : undefined
+                    )
+                    expect(await latencyCounts(counted)).toEqual(countedBefore.map((count) => count + 1))
+                    expect(await latencyCounts(untouched)).toEqual(untouchedBefore)
+                    expect(await allSeries()).toEqual(allSeriesBefore.map((count) => count + 1))
+                }
+            )
 
             describe('team budget across load retries', () => {
                 it.each([
@@ -2574,26 +2893,146 @@ describe('EmailService', () => {
                     expect(deliveredTo(ses, recipient)).toHaveLength(1)
                 })
 
-                it('keeps a retry that pacing denies queued with its budget paid, and sends it once pacing lets it', async () => {
-                    const emailService = sender({ teamDailyCap: 2 })
-                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 30, period: 'minute' } }
+                type FailTheTry = (emailService: EmailService) => void
+                const aDequeueAfterTheDueTimeMs = 250
+                const untilDue = (retry: CyclotronJobInvocationHogFunction): number => {
+                    const msToDue = Math.max(0, (retry.queueScheduledAt?.toMillis() ?? 0) - Date.now())
+                    jest.setSystemTime(Date.now() + msToDue + aDequeueAfterTheDueTimeMs)
+                    return msToDue
+                }
+                const onTheTestClock = async (run: () => Promise<void>): Promise<void> => {
+                    jest.useFakeTimers({
+                        now: Date.now(),
+                        doNotFake: [
+                            'nextTick',
+                            'queueMicrotask',
+                            'setImmediate',
+                            'clearImmediate',
+                            'setTimeout',
+                            'clearTimeout',
+                            'setInterval',
+                            'clearInterval',
+                            'hrtime',
+                            'performance',
+                        ],
+                    })
+                    try {
+                        await run()
+                    } finally {
+                        jest.useRealTimers()
+                    }
+                }
+                const downloadFails: FailTheTry = () => {
                     bucket.answer = 'refuse'
+                }
+                const sesRefusesItsFirstConnection: FailTheTry = (emailService) =>
+                    sesRefusesTheFirstConnection(emailService)
+                const sesThrottlesOnce: FailTheTry = () => ses.failOnce(sesThrottles)
+                const ownershipCheckFails: FailTheTry = (emailService) =>
+                    emailService.checkJobOwnershipBeforeSend(() =>
+                        Promise.reject(new Error('Connection terminated unexpectedly'))
+                    )
 
-                    const retried = await emailService.executeSendEmail(invocation)
-                    bucket.answer = 'pass'
-                    const paced = await emailService.executeSendEmail(retried.invocation)
-                    expect(paced.finished).toBe(false)
-                    expect(paced.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
-                    await untilDue(paced.invocation.queueScheduledAt!)
-                    const result = await emailService.executeSendEmail(paced.invocation)
+                const sendAfterFailedTries = async (
+                    emailService: EmailService,
+                    failedTries: FailTheTry[]
+                ): Promise<Awaited<ReturnType<EmailService['executeSendEmail']>>> => {
+                    let next = invocation
+                    for (const failTheTry of failedTries) {
+                        failTheTry(emailService)
+                        const tried = await emailService.executeSendEmail(next)
+                        expect(tried.finished).toBe(false)
+                        bucket.answer = 'pass'
+                        emailService.checkJobOwnershipBeforeSend(() => Promise.resolve(true))
+                        next = tried.invocation
+                        untilDue(next)
+                    }
+                    return emailService.executeSendEmail(next)
+                }
 
-                    expect(deliveredTo(ses, recipient)).toEqual([
-                        { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
-                    ])
-                    expect(result.error).toBeUndefined()
-                    expect(result.finished).toBe(true)
-                    expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
-                })
+                it.each<[string, number, FailTheTry[]]>([
+                    ['a download that fails', 1, [downloadFails]],
+                    ['SES refusing the first connection', 0, [sesRefusesItsFirstConnection]],
+                    ['SES throttling the first request', 0, [sesThrottlesOnce]],
+                    [
+                        'a failed ownership check and then a refused connection',
+                        0,
+                        [ownershipCheckFails, sesRefusesItsFirstConnection],
+                    ],
+                ])(
+                    'claims the workflow limit again for the retry after %s, so the retry parks for the next slot and sends once in it, with %s sends left in a team budget of two',
+                    async (_cause, sendsLeftInTheBudget, failedTries) => {
+                        const emailService = sender({ teamDailyCap: 2 })
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 10, period: 'minute' } }
+                        let parked!: Awaited<ReturnType<EmailService['executeSendEmail']>>
+                        let sentBeforeTheNextSlot = 0
+                        let msToTheNextSlot = 0
+                        let retried!: Awaited<ReturnType<EmailService['executeSendEmail']>>
+                        let sendsLeft = 0
+
+                        await onTheTestClock(async () => {
+                            parked = await sendAfterFailedTries(emailService, failedTries)
+                            sentBeforeTheNextSlot = deliveredTo(ses, recipient).length
+                            msToTheNextSlot = untilDue(parked.invocation)
+                            retried = await emailService.executeSendEmail(parked.invocation)
+                            sendsLeft = await sendsLeftInTheTeamBudget(emailService)
+                        })
+
+                        expect({
+                            parked: parked.finished,
+                            sentBeforeTheNextSlot,
+                            nextSlotWithinSeconds: msToTheNextSlot < 10_000,
+                            retried: retried.finished,
+                            delivered: deliveredTo(ses, recipient),
+                            sendsLeftInTheBudget: sendsLeft,
+                        }).toEqual({
+                            parked: false,
+                            sentBeforeTheNextSlot: 0,
+                            nextSlotWithinSeconds: true,
+                            retried: true,
+                            delivered: [
+                                {
+                                    to: [expect.stringContaining(recipient)],
+                                    attachments: deliveredFiles.map((file) => file()),
+                                },
+                            ],
+                            sendsLeftInTheBudget,
+                        })
+                    }
+                )
+
+                it.each<[string, number, FailTheTry[]]>([
+                    ['a download that fails', 1, [downloadFails]],
+                    ['SES refusing the first connection', 0, [sesRefusesItsFirstConnection]],
+                    ['SES throttling the first request', 0, [sesThrottlesOnce]],
+                    [
+                        'a failed download and then a refused connection',
+                        0,
+                        [downloadFails, sesRefusesItsFirstConnection],
+                    ],
+                ])(
+                    'sends the retry after %s once, with %s sends left in a team budget of two',
+                    async (_cause, sendsLeftInTheBudget, failedTries) => {
+                        const emailService = sender({ teamDailyCap: 2 })
+                        let result!: Awaited<ReturnType<EmailService['executeSendEmail']>>
+                        let sendsLeft = 0
+
+                        await onTheTestClock(async () => {
+                            result = await sendAfterFailedTries(emailService, failedTries)
+                            sendsLeft = await sendsLeftInTheTeamBudget(emailService)
+                        })
+
+                        expect(deliveredTo(ses, recipient)).toEqual([
+                            {
+                                to: [expect.stringContaining(recipient)],
+                                attachments: deliveredFiles.map((file) => file()),
+                            },
+                        ])
+                        expect(result.error).toBeUndefined()
+                        expect(result.finished).toBe(true)
+                        expect(sendsLeft).toBe(sendsLeftInTheBudget)
+                    }
+                )
             })
 
             it.each(['preheader', 'subject'])(
@@ -2613,6 +3052,41 @@ describe('EmailService', () => {
                     expect(ses.sent).toEqual([])
                 }
             )
+
+            const longHtml = `<p>${'x'.repeat(200_000)}</p>`
+            // Leaves room for the html and half of its text part, so the message fits only without the text part.
+            const fileBytesThatLeaveNoRoomForText = Math.floor(
+                (((MESSAGE_MAX_BYTES - estimateMessageBytes([], [longHtml, 'x'.repeat(100_000)])) * 76) / 78) * 0.75
+            )
+
+            it.each([
+                ['with a text part when it fits beside them', 0, '<p>Hello</p>', 'Hello'],
+                [
+                    'without a text part when one would carry it past the size limit',
+                    fileBytesThatLeaveNoRoomForText,
+                    longHtml,
+                    undefined,
+                ],
+            ])('sends html-only content with files %s', async (_name, fileBytes, html, expectedText) => {
+                const file = fileBytes
+                    ? await uploadAttachment(team.id, { filename: 'large.pdf' }, Buffer.alloc(fileBytes, 1))
+                    : pdf
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: recipient, name: 'Test User' },
+                    attachments: [file.metadata],
+                    html,
+                    text: '',
+                })
+
+                const result = await sender({ textPartTeams: String(team.id) }).executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                // A projection, so a failure does not print the file bytes.
+                expect(
+                    ses.sent.map(({ text, attachments }) => ({ text, files: attachments.map((a) => a.filename) }))
+                ).toEqual([{ text: expectedText, files: [file.metadata.filename] }])
+            })
 
             it.each([
                 ['was never uploaded', () => Promise.resolve(attachmentFile())],
@@ -2636,15 +3110,6 @@ describe('EmailService', () => {
                 }
             )
 
-            const inOneAdmission = async <T>(sends: () => Promise<T>): Promise<T> => {
-                const registry = new InFlightRegistry({
-                    budgetBytes: Number.MAX_SAFE_INTEGER,
-                    heapLimitBytes: Number.MAX_SAFE_INTEGER,
-                    maxInFlight: 1,
-                })
-                const admission = registry.tryStart(pdf.bytes.length, sends)
-                return await (admission as Extract<typeof admission, { started: unknown }>).started
-            }
             const outcomeOf = (result: Awaited<ReturnType<EmailService['executeSendEmail']>>) => ({
                 finished: result.finished,
                 error: result.error,
@@ -2707,15 +3172,17 @@ describe('EmailService', () => {
                 }
             )
 
-            it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
-                const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
+            it('after an email abandoned a download mid-body, the next email in the same admission loads its files and sends', async () => {
+                const emailService = sender({ attachmentSendDeadlineMs: 2_000, admits: 'nothing' })
+                const logoRef = { filename: 'logo.png', contentType: 'image/png', contentId: 'logo' }
+                logo = attachmentFile(logoRef)
+                send([pdf, logo])
                 bucket.answer = 'stallFileBodies'
 
-                const { first, second } = await inOneAdmission(async () => {
-                    send([pdf, attachmentFile()])
+                const { first, second } = await inOneAdmission([pdf.metadata, logo.metadata], async () => {
                     const first = await emailService.executeSendEmail(invocation)
+                    await uploadAttachment(team.id, logoRef, logo.bytes)
                     bucket.answer = 'pass'
-                    send([pdf, logo])
                     return { first, second: await emailService.executeSendEmail(invocation) }
                 })
 
@@ -2741,15 +3208,15 @@ describe('EmailService', () => {
             ])(
                 'when a flow sends its next email inline while the SES call of the email before still waits for its credentials, it %s',
                 async (_name, credentialsArrive, attachmentSendDeadlineMs, expected, inbox) => {
-                    const emailService = sender({ attachmentSendDeadlineMs })
+                    const emailService = sender({ attachmentSendDeadlineMs, admits: 'nothing' })
                     let giveCredentials!: () => void
                     const credentials = new Promise<{ accessKeyId: string; secretAccessKey: string }>((resolve) => {
                         giveCredentials = () =>
                             resolve({ accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' })
                     })
-                    emailService.sesV2Client = sesClientFor(ses, { credentials: () => credentials })
+                    emailService.sesTransport = sesTransportFor(ses, { credentials: () => credentials })
 
-                    const { first, second } = await inOneAdmission(async () => {
+                    const { first, second } = await inOneAdmission([pdf.metadata, logo.metadata], async () => {
                         const first = await emailService.executeSendEmail(invocation)
                         bucket.answer = 'refuse'
                         if (credentialsArrive) {
@@ -2769,31 +3236,30 @@ describe('EmailService', () => {
 
             it.each([
                 [
-                    'the bucket does not answer',
+                    'the bucket does not answer past the deadline',
                     () => {
                         bucket.answer = 'hold'
                     },
                 ],
                 [
-                    'the SES client never gets its credentials',
+                    'the SES client never gets its credentials past the deadline',
                     (emailService: EmailService) => {
-                        emailService.sesV2Client = sesClientFor(ses, {
+                        emailService.sesTransport = sesTransportFor(ses, {
                             credentials: () => new Promise<never>(() => {}),
                         })
                     },
                 ],
                 [
-                    'SES refuses with a throttle and the SDK is still backing off',
+                    'SES refuses the connection',
                     (emailService: EmailService) => {
-                        ses.failWith(sesThrottles)
-                        emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
+                        emailService.sesTransport = sesTransportFor({ endpoint: ENDPOINT_THAT_REFUSES_CONNECTIONS })
                     },
                 ],
             ])(
-                'when %s past the deadline, retries the send later and delivers it with its files once',
-                async (_name, fault) => {
+                'when %s, retries the send later and delivers it with its files once',
+                async (_name, fault: (emailService: EmailService) => void) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
-                    const ownClient = emailService.sesV2Client
+                    const ownTransport = emailService.sesTransport
                     fault(emailService)
 
                     const retry = await emailService.executeSendEmail(invocation)
@@ -2806,7 +3272,7 @@ describe('EmailService', () => {
 
                     bucket.answer = 'pass'
                     ses.failWith(null)
-                    emailService.sesV2Client = ownClient
+                    emailService.sesTransport = ownTransport
                     const result = await emailService.executeSendEmail(retry.invocation)
 
                     expect(result.error).toBeUndefined()
@@ -2817,31 +3283,30 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each([
+            it.each<[string, FakeSesFault, number, number]>([
+                ['SES receives the request and does not answer past the deadline', 'no-answer', 0, 1],
+                ['SES answers 200 and its body stalls past the deadline', 'stalled-body', 0, 1],
+                ['the connection drops after the request went out', 'drop-connection', 0, 0],
                 [
-                    'SES receives the request and does not answer',
-                    () => {
-                        ses.failWith('no-answer')
-                    },
+                    'SES records the email and answers 500',
+                    { acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' } },
+                    1,
+                    0,
                 ],
+                ['SES records the email and drops the connection', 'accept-then-drop-connection', 1, 0],
                 [
-                    'SES answers 200 and its body stalls',
-                    () => {
-                        ses.failWith('stalled-body')
-                    },
-                ],
-                [
-                    'the connection drops after the request went out and the SDK is still backing off',
-                    (emailService: EmailService) => {
-                        ses.failWith('drop-connection')
-                        emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
-                    },
+                    'SES answers 500 without recording the email',
+                    { status: 500, type: 'InternalFailure', message: 'Internal failure' },
+                    0,
+                    0,
                 ],
             ])(
-                'when %s past the deadline, fails the send without a retry, because SES may have sent it',
-                async (_name, fault) => {
+                'when %s once, fails the send without a retry, because SES may have sent it',
+                async (_name, fault, timesSesRecordedIt, countedAsMayHaveSent) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
-                    fault(emailService)
+                    ses.failOnce(fault)
+                    const labels = { result: 'may_have_sent' }
+                    const before = await metricValue('cdp_ses_send_results_total', labels)
 
                     const result = await emailService.executeSendEmail(invocation)
 
@@ -2849,22 +3314,39 @@ describe('EmailService', () => {
                         finished: result.finished,
                         error: result.error,
                         failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
-                        delivered: deliveredTo(ses, recipient),
+                        timesSesRecordedIt: deliveredTo(ses, recipient).length,
+                        countedAsMayHaveSent: (await metricValue('cdp_ses_send_results_total', labels)) - before,
                     }).toEqual({
                         finished: true,
                         error: expect.stringMatching(/^Failed to send email via SES: /),
                         failed: true,
-                        delivered: [],
+                        timesSesRecordedIt,
+                        countedAsMayHaveSent,
                     })
                 }
             )
 
+            const bucketRefuses = (): void => {
+                bucket.answer = 'refuse'
+            }
+            const sesRefusesTheConnection = (emailService: EmailService): void => {
+                emailService.sesTransport = sesTransportFor({ endpoint: ENDPOINT_THAT_REFUSES_CONNECTIONS })
+            }
+            const sesRefusesTheFirstConnection = (emailService: EmailService): void => {
+                const endpoint = new URL(ses.endpoint)
+                endpoint.hostname = 'ses-refuses-once.example.test'
+                lookupAnswers(endpoint.hostname, firstLookupGoesWhereNothingListens())
+                emailService.sesTransport = sesTransportFor({ endpoint: endpoint.origin })
+            }
+
             it.each([
-                [9, false, 'retries once more', false, undefined, null],
+                [9, false, 'the bucket does not answer', 'retries once more', bucketRefuses, false, undefined, null],
                 [
                     10,
                     false,
+                    'the bucket does not answer',
                     'fails as attachment_unavailable',
+                    bucketRefuses,
                     true,
                     expect.stringMatching(/^attachment_unavailable: /),
                     'attachment_unavailable',
@@ -2872,19 +3354,42 @@ describe('EmailService', () => {
                 [
                     0,
                     true,
+                    'the bucket does not answer',
                     'fails a test send at once as attachment_unavailable',
+                    bucketRefuses,
                     true,
-                    expect.stringMatching(/^attachment_unavailable: .* in 1 try,/),
+                    expect.stringMatching(/^attachment_unavailable: .* after 1 try\./),
                     null,
                 ],
+                [
+                    10,
+                    false,
+                    'SES refuses the connection',
+                    'fails as provider_error',
+                    sesRefusesTheConnection,
+                    true,
+                    expect.stringMatching(/^SES could not be reached /),
+                    'provider_error',
+                ],
+                [
+                    10,
+                    false,
+                    'SES refuses the first connection and accepts the next',
+                    'fails as provider_error',
+                    sesRefusesTheFirstConnection,
+                    true,
+                    expect.stringMatching(/^SES could not be reached /),
+                    'provider_error',
+                ],
             ])(
-                'after %s load retries (test send: %s), %s when the bucket still does not answer',
-                async (retriesSoFar, isTest, _outcome, finished, error, failedStatusReason) => {
+                'after %s retries (test send: %s), when %s, %s',
+                async (retriesSoFar, isTest, _fault, _outcome, fault, finished, error, failedStatusReason) => {
                     sendAsTransactionalEmail()
                     invocation.queueMetadata = { attachmentLoadRetries: retriesSoFar }
-                    bucket.answer = 'refuse'
+                    const emailService = sender()
+                    fault(emailService)
 
-                    const result = await sender().executeSendEmail(invocation, isTest)
+                    const result = await emailService.executeSendEmail(invocation, isTest)
 
                     expect(result.finished).toBe(finished)
                     expect(result.error).toEqual(error)
@@ -2895,24 +3400,90 @@ describe('EmailService', () => {
                 }
             )
 
-            it('counts the load retries across reschedules and fails the send on the 11th try', async () => {
-                const emailService = sender()
-                bucket.answer = 'refuse'
+            it.each([
+                {
+                    send: 'a send',
+                    retriesSoFar: 0,
+                    isTest: false,
+                    outcome: { finished: false, error: undefined, retries: 1 },
+                },
+                {
+                    send: 'a send at its retry cap',
+                    retriesSoFar: 10,
+                    isTest: false,
+                    outcome: {
+                        finished: true,
+                        error: expect.stringMatching(/^attachment_unavailable: .* after 11 tries\./),
+                        retries: undefined,
+                    },
+                },
+                {
+                    send: 'a test send',
+                    retriesSoFar: 0,
+                    isTest: true,
+                    outcome: {
+                        finished: true,
+                        error: expect.stringMatching(/^attachment_unavailable: .* after 1 try\./),
+                        retries: undefined,
+                    },
+                },
+            ])(
+                '$send with files outside any admission downloads nothing, sends nothing and counts the refusal',
+                async ({ retriesSoFar, isTest, outcome }) => {
+                    sendAsTransactionalEmail()
+                    invocation.queueMetadata = { attachmentLoadRetries: retriesSoFar }
+                    const refusals = (): Promise<number> =>
+                        metricValue('cdp_email_attachments_unadmitted_loads_total', {
+                            reason: 'outside_any_admission',
+                        })
+                    const refusalsBefore = await refusals()
 
-                let result = await emailService.executeSendEmail(invocation)
-                let tries = 1
-                while (!result.finished && tries < 20) {
-                    result = await emailService.executeSendEmail(result.invocation)
-                    tries++
+                    const result = await sender({ admits: 'nothing' }).executeSendEmail(invocation, isTest)
+
+                    expect({
+                        finished: result.finished,
+                        error: result.error,
+                        retries: result.invocation.queueMetadata?.attachmentLoadRetries,
+                    }).toEqual(outcome)
+                    expect({ downloads: bucket.downloads, sent: ses.sent }).toEqual({ downloads: 0, sent: [] })
+                    expect(await refusals()).toBe(refusalsBefore + 1)
                 }
+            )
 
-                expect({ tries, finished: result.finished, error: result.error }).toEqual({
-                    tries: 11,
-                    finished: true,
-                    error: expect.stringMatching(/^attachment_unavailable: .* in 11 tries,/),
-                })
-                expect(ses.sent).toEqual([])
-            })
+            it.each([
+                ['the bucket does not answer on every try', ['bucket']],
+                ['the bucket and the SES connection take turns failing', ['bucket', 'ses']],
+            ] as const)(
+                'counts the retries across reschedules when %s, and fails the send on the 11th try',
+                async (_faults, faults) => {
+                    const emailService = sender()
+                    const reachableSes = emailService.sesTransport
+                    const failTry = (tries: number): void => {
+                        const fault = faults[tries % faults.length]
+                        bucket.answer = fault === 'bucket' ? 'refuse' : 'pass'
+                        emailService.sesTransport =
+                            fault === 'ses'
+                                ? sesTransportFor({ endpoint: ENDPOINT_THAT_REFUSES_CONNECTIONS })
+                                : reachableSes
+                    }
+
+                    failTry(0)
+                    let result = await emailService.executeSendEmail(invocation)
+                    let tries = 1
+                    while (!result.finished && tries < 20) {
+                        failTry(tries)
+                        result = await emailService.executeSendEmail(result.invocation)
+                        tries++
+                    }
+
+                    expect({ tries, finished: result.finished, error: result.error }).toEqual({
+                        tries: 11,
+                        finished: true,
+                        error: expect.stringMatching(/^attachment_unavailable: .* after 11 tries\./),
+                    })
+                    expect(ses.sent).toEqual([])
+                }
+            )
 
             it.each([
                 ['$workflows_email_sent', null],
@@ -2976,9 +3547,9 @@ describe('EmailService', () => {
                 'a code send that SES accepts with opens on and clicks off',
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
-                codeSendTracked,
+                codeSendClicksOff,
                 'sent',
-                '',
+                'clicks_untracked',
             ],
             [
                 'a code send that SES accepts with opens off',
@@ -3753,30 +4324,64 @@ describe('EmailService', () => {
             [
                 'text only',
                 { html: '', text: 'Hello, this is a plain text email.' },
-                { text: 'Hello, this is a plain text email.', html: undefined },
+                'another team',
+                { text: 'Hello, this is a plain text email.', html: undefined, charsets: { text: 'UTF-8' } },
             ],
             [
                 'html only, no text',
                 { html: '<p>Hello</p>', text: undefined },
-                { text: undefined, html: expect.any(String) },
+                'this team',
+                { text: 'Hello', html: expect.any(String), charsets: { text: 'UTF-8' } },
             ],
             [
                 'html only, empty text',
-                { html: '<p>Hello</p>', text: '' },
-                { text: undefined, html: expect.any(String) },
+                { html: '<p>Your code is <b>482913</b></p><a href="https://example.com/help">Help</a>', text: '' },
+                'this team',
+                {
+                    text: 'Your code is 482913\n\nHelp (https://example.com/help)',
+                    html: expect.any(String),
+                    charsets: { text: 'UTF-8' },
+                },
             ],
-        ])('sends only the parts that have content: %s', async (_name, content, expectedParts) => {
+            [
+                'html and text, from a team on the text part list',
+                { html: '<p>Hello</p>', text: 'Your own text' },
+                'this team',
+                { text: 'Your own text', html: expect.any(String), charsets: { text: 'UTF-8' } },
+            ],
+            [
+                'html only, from a team not on the text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'another team',
+                { text: undefined, html: expect.any(String), charsets: { text: undefined } },
+            ],
+            [
+                'html only, with every team on the text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'every team',
+                { text: 'Hello', html: expect.any(String), charsets: { text: 'UTF-8' } },
+            ],
+            [
+                'html only, with the default text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'default',
+                { text: undefined, html: expect.any(String), charsets: { text: undefined } },
+            ],
+        ])('sends a part for each kind of content: %s', async (_name, content, listed, expectedParts) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
                 createEmailParams({ from: { integrationId: 1 }, ...content })
             )
-            const result = await service.executeSendEmail(invocation)
+            const textPartTeams = {
+                'this team': String(team.id),
+                'another team': String(team.id + 1),
+                'every team': '*',
+                default: hub.CDP_EMAIL_TEXT_PART_TEAMS,
+            }[listed]
+            const result = await createService({ textPartTeams }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const [sent] = ses.sent
             expect(sent).toMatchObject(expectedParts)
-            if (content.text) {
-                expect(sent.charsets.text).toEqual('UTF-8')
-            }
         })
 
         it('should not include preheader span if not in params', async () => {
@@ -3926,6 +4531,44 @@ describe('EmailService', () => {
                 expect(sent.headers['Auto-Submitted']).toEqual('auto-generated')
             }
         )
+
+        it('threads a reply under a long thread, keeping its root and newest IDs within the SES header limit', async () => {
+            const ids = Array.from({ length: 30 }, (_, i) => `<message-${String(i).padStart(2, '0')}@mail.example.com>`)
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                thread: { inReplyTo: ids[29], references: ids },
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const [sent] = ses.sent
+            expect(sent.headers['In-Reply-To']).toEqual(ids[29])
+            const references = sent.headers['References'].split(' ')
+            expect(sent.headers['References'].length).toBeLessThanOrEqual(870)
+            expect(references[0]).toEqual(ids[0])
+            expect(references.slice(1)).toEqual(ids.slice(30 - references.length + 1))
+            expect(references.length).toBeLessThan(ids.length)
+        })
+
+        it.each([
+            [[], '<parent@mail.example.com>'],
+            [['<root@mail.example.com>'], '<root@mail.example.com> <parent@mail.example.com>'],
+            [
+                ['<root@mail.example.com>', '<parent@mail.example.com>', '<other@mail.example.com>'],
+                '<root@mail.example.com> <other@mail.example.com> <parent@mail.example.com>',
+            ],
+        ])('ends References %j with the parent a reply answers', async (references, expected) => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                thread: { inReplyTo: '<parent@mail.example.com>', references },
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].headers['References']).toEqual(expected)
+        })
 
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
@@ -4112,8 +4755,10 @@ describe('EmailService', () => {
                 allowlisted: boolean
                 isTest: boolean
                 sensitive: boolean
-                send?: { sensitive: boolean }
+                clickTrackingEnabled?: boolean
+                send?: { sensitive?: boolean; tracking?: { clicks: boolean } }
                 teamOptedOut?: boolean
+                storedRunLinkTag?: unknown
                 href: string
             }>([
                 {
@@ -4142,6 +4787,24 @@ describe('EmailService', () => {
                     href: STRIPPED_HREF,
                 },
                 {
+                    case: 'drops the run ids of earlier sends from the links of an email that turned link tagging off',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    storedRunLinkTag: false,
+                    href: STRIPPED_HREF,
+                },
+                ...['false', 0, null].map((storedRunLinkTag) => ({
+                    case: `treats a saved ${JSON.stringify(storedRunLinkTag)} as turning link tagging off`,
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    storedRunLinkTag,
+                    href: STRIPPED_HREF,
+                })),
+                {
                     case: 'leaves the links of an untracked send',
                     trackingEnabled: false,
                     allowlisted: true,
@@ -4166,6 +4829,24 @@ describe('EmailService', () => {
                     href: STALE_HREF,
                 },
                 {
+                    case: 'leaves the links of a sensitive email that opts in to click tracking',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    clickTrackingEnabled: true,
+                    href: STALE_HREF,
+                },
+                {
+                    case: 'leaves the links of a template that turns click tracking off',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    clickTrackingEnabled: false,
+                    href: STALE_HREF,
+                },
+                {
                     case: "leaves the links of a code send marked sensitive on a workflow that isn't sensitive",
                     trackingEnabled: true,
                     allowlisted: true,
@@ -4183,9 +4864,28 @@ describe('EmailService', () => {
                     send: { sensitive: false },
                     href: TAGGED_HREF,
                 },
+                {
+                    case: 'leaves the links of a code send that opts out of click tracking but keeps opens',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    send: { tracking: { clicks: false } },
+                    href: STALE_HREF,
+                },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, href }) => {
+                async ({
+                    trackingEnabled,
+                    allowlisted,
+                    isTest,
+                    sensitive,
+                    clickTrackingEnabled,
+                    send,
+                    teamOptedOut,
+                    storedRunLinkTag,
+                    href,
+                }) => {
                     if (teamOptedOut) {
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
@@ -4200,8 +4900,18 @@ describe('EmailService', () => {
                     const taggingService = createService({
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })
-                    invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
-                    invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
+                    invocation.hogFunction.metadata = {
+                        tracking_enabled: trackingEnabled,
+                        sensitive,
+                        ...(clickTrackingEnabled !== undefined ? { click_tracking_enabled: clickTrackingEnabled } : {}),
+                        ...(storedRunLinkTag !== undefined
+                            ? { run_link_tag_enabled: storedRunLinkTag as boolean }
+                            : {}),
+                    }
+                    invocation.state.send = send && {
+                        ...send,
+                        tracking: { captureEngagement: true, ...send.tracking },
+                    }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
                         html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a><a href="https://example.com/">c</a>`,
@@ -4420,8 +5130,7 @@ describe('EmailService', () => {
         })
 
         it('should report a missing message id', async () => {
-            // SES always answers a send with a message id, so only a stub can produce this fault.
-            jest.spyOn(service.sesV2Client!, 'send').mockResolvedValue({} as never)
+            ses.failWith('answer-without-message-id')
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
             expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })

@@ -1,5 +1,7 @@
 import '../../../tests/helpers/mocks/consumer.mock'
 
+import { register } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { KAFKA_CDP_INTERNAL_EVENTS, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { createKafkaConsumer } from '~/common/kafka/consumer'
@@ -130,6 +132,19 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public watcherRows: MockRow[] = []
     // null = every requested row is claimed; an array narrows it to those ids.
     public claimedWatcherIds: string[] | null = null
+    // workflows_hogflowconversiongoal rows, as the main database returns them.
+    public goalRows: {
+        id: string
+        team_id: number
+        hog_flow_id: string
+        goal: any
+        event_names: string[] | null
+        last_live_at: Date
+    }[] = []
+    public goalsReadGate: Promise<void> | null = null
+    public goalsReadQueued = false
+    public watcherScanGate: Promise<void> | null = null
+    public failGoalsRead = false
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
     public resumeRows: { id: string; status: string; state?: Buffer | null }[] = []
@@ -144,11 +159,33 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             {
                 CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
                 CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: 'on',
+                CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'off',
                 ...config,
             } as any,
             {
                 pubSub: {
                     on: (channel: string, handler: (message: any) => void) => (pubSubHandlers[channel] = handler),
+                },
+                postgres: {
+                    query: jest.fn(
+                        async (_target: unknown, config: { text: string; query_timeout?: number }, params: any[]) => {
+                            this.calls.push({ sql: config.text, params })
+                            // As pg does: a query past its timeout rejects, and one queued for a connection has no timeout yet.
+                            await Promise.race([
+                                this.goalsReadGate,
+                                new Promise((_, reject) => {
+                                    if (this.goalsReadGate && config.query_timeout && !this.goalsReadQueued) {
+                                        setTimeout(() => reject(new Error('Query read timeout')), config.query_timeout)
+                                    }
+                                }),
+                            ])
+                            if (this.failGoalsRead) {
+                                throw new Error('goals read failed')
+                            }
+                            const rows = this.goalRows.filter((r) => r.last_live_at > params[0])
+                            return { rows, rowCount: rows.length }
+                        }
+                    ),
                 },
             } as any
         )
@@ -170,6 +207,16 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 return Promise.resolve({ rows: claimed, rowCount: claimed.length })
             }
             // Checked before the parked-job lookup: both select `id, team_id, function_id`.
+            if (sql.includes('MIN(created_at)') && this.watcherScanGate) {
+                return this.watcherScanGate.then(() => ({ rows: [], rowCount: 0 }))
+            }
+            if (sql.includes("'watcher' AS source")) {
+                const rows = [
+                    ...this.watcherRows.map((r) => ({ source: 'watcher', expires_at: farFuture, ...r })),
+                    ...this.findRows.map((r) => ({ source: 'parked', scheduled: farFuture, ...r })),
+                ]
+                return Promise.resolve({ rows, rowCount: rows.length })
+            }
             if (sql.includes('FROM conversion_watchers')) {
                 const rows = this.watcherRows.map((r) => ({ expires_at: farFuture, ...r }))
                 return Promise.resolve({ rows, rowCount: rows.length })
@@ -193,7 +240,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             return Promise.resolve({ rows: [], rowCount: 0 })
         }
         ;(this as any).cyclotronPool = {
-            query: jest.fn((sql: string, params: any[]) => dispatch(sql, params)),
+            query: jest.fn((sql: string | { text: string; values: any[] }, params?: any[]) =>
+                typeof sql === 'string' ? dispatch(sql, params ?? []) : dispatch(sql.text, sql.values)
+            ),
             connect: jest.fn(() =>
                 Promise.resolve({
                     query: jest.fn((sql: string, params: any[]) => dispatch(sql, params)),
@@ -249,7 +298,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
 
     public async runWake(invocationGlobals: HogFunctionInvocationGlobals[], source?: string): Promise<void> {
         const now = new Date()
-        await (this as any).wakeMatchingWorkflows(invocationGlobals, source ?? 'events', () => now)
+        await (this as any).wakeMatchingWorkflows(invocationGlobals, source ?? 'events', () => now, 1)
     }
 
     // start() arms the watcher sweep and team-refresh intervals, and only stop() clears them. This
@@ -372,6 +421,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 {
                     CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
                     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: 'off',
+                    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'off',
                     CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: 'cyclotron:9092',
                 } as any,
                 { pubSub: { on: jest.fn() } } as any
@@ -389,8 +439,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 const pool = (matcher as any).cyclotronPool
                 const query = pool.query
                 let refreshFails = true
-                pool.query = jest.fn((sql: string, params: any[]) =>
-                    refreshFails && sql.includes('MIN(created_at)')
+                pool.query = jest.fn((sql: any, params?: any[]) =>
+                    refreshFails && typeof sql === 'string' && sql.includes('MIN(created_at)')
                         ? Promise.reject(new Error('db down'))
                         : query(sql, params)
                 )
@@ -427,6 +477,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     {
                         CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
                         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: 'off',
+                        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'off',
                         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: topic,
                     } as any,
                     { pubSub: { on: jest.fn() } } as any
@@ -847,50 +898,83 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(update!.params[0]).toEqual(['job-batch'])
         })
 
-        it('sets conversionMatched and wakes the job when an exit_on_conversion goal fires', async () => {
-            const flow = makeHogFlow({
-                id: 'flow-1',
-                exit_condition: 'exit_on_conversion',
-                conversion: {
-                    events: [
-                        {
-                            filters: {
-                                bytecode: eventBytecode('wuc_cancelled'),
-                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+        it.each([
+            [true, 1],
+            [false, 2],
+        ])(
+            'sets conversionMatched and wakes the job when an exit_on_conversion goal fires (combined lookup %s)',
+            async (combined, lookupCount) => {
+                matcher = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_COMBINED_LOOKUP: combined })
+                const flow = makeHogFlow({
+                    id: 'flow-1',
+                    exit_condition: 'exit_on_conversion',
+                    conversion: {
+                        events: [
+                            {
+                                filters: {
+                                    bytecode: eventBytecode('wuc_cancelled'),
+                                    events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+                                },
                             },
-                        },
-                    ],
-                } as any,
-            } as any)
-            matcher.findRows = [
-                {
-                    id: 'job-c',
-                    team_id: 1,
-                    function_id: 'flow-1',
-                    action_id: 'wait_node',
-                    distinct_id: 'user-1',
-                    person_id: null,
-                },
-            ]
-            matcher.wakeRows = [
-                {
-                    ...matcher.findRows[0],
-                    state: stateBuffer({ currentAction: { id: 'wait_node' }, flowVersion: 1 }),
-                },
-            ]
-            matcher.updateRowCount = 1
-            matcher.setHogFlows({ 'flow-1': flow })
+                        ],
+                    } as any,
+                } as any)
+                matcher.findRows = [
+                    {
+                        id: 'job-c',
+                        team_id: 1,
+                        function_id: 'flow-1',
+                        action_id: 'wait_node',
+                        distinct_id: 'user-1',
+                        person_id: null,
+                    },
+                ]
+                matcher.wakeRows = [
+                    {
+                        ...matcher.findRows[0],
+                        state: stateBuffer({ currentAction: { id: 'wait_node' }, flowVersion: 1 }),
+                    },
+                ]
+                matcher.updateRowCount = 1
+                matcher.watcherRows = [
+                    {
+                        id: 'watcher-c',
+                        team_id: 1,
+                        function_id: 'flow-1',
+                        run_id: 'run-c',
+                        parent_run_id: null,
+                        distinct_id: 'user-1',
+                        person_id: null,
+                        flow_version: 1,
+                        goal: { events: [eventBytecode('wuc_cancelled')] },
+                        created_at: new Date('2026-11-01T09:15:00Z'),
+                    } as any,
+                ]
+                matcher.setHogFlows({ 'flow-1': flow })
 
-            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
+                await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
 
-            // exit_on_conversion wakes the job: a `SET scheduled = NOW()` UPDATE is issued.
-            const wake = matcher.calls.find(
-                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
-            )
-            expect(wake).not.toBeUndefined()
-            const newState = parseJSON(wake!.params[1][0].toString('utf-8')) as any
-            expect(newState.state.conversionMatched).toBe(true)
-        })
+                // exit_on_conversion wakes the job: a `SET scheduled = NOW()` UPDATE is issued.
+                const wake = matcher.calls.find(
+                    (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
+                )
+                expect(wake).not.toBeUndefined()
+                const newState = parseJSON(wake!.params[1][0].toString('utf-8')) as any
+                expect(newState.state.conversionMatched).toBe(true)
+                // The same event also counts the run's conversion through its watcher, from one lookup when combined.
+                expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                    expect.objectContaining({ metric_name: 'conversion', app_source_id: 'flow-1' }),
+                    'hog_flow'
+                )
+                const lookups = matcher.calls.filter(
+                    (c) =>
+                        c.sql.startsWith('SELECT') &&
+                        (c.sql.includes('FROM conversion_watchers') ||
+                            c.sql.includes("status = 'available' AND scheduled >"))
+                )
+                expect(lookups).toHaveLength(lookupCount)
+            }
+        )
 
         it('does not wake on a conversion match when the workflow does not exit on conversion', async () => {
             // A conversion goal on an `exit_only_at_end` workflow is measurement-only: the conversion
@@ -2111,6 +2195,235 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 (c) => c.sql.includes('FROM conversion_watchers') && !c.sql.startsWith('DELETE')
             )
             expect(lookup?.params.slice(0, 4) ?? null).toEqual(expectedPairs)
+        })
+
+        describe('with the goal lookups gated on every goal a flow has had', () => {
+            const minutes = (n: number): number => n * 60 * 1000
+            let nextGoalId = 0
+            const pinnedGoal = (
+                functionId: string,
+                eventName: string,
+                liveMinutesAgo = 30,
+                eventNames: string[] | null = [eventName]
+            ): any => ({
+                id: `goal-${nextGoalId++}`,
+                team_id: 1,
+                hog_flow_id: functionId,
+                goal: { events: [eventBytecode(eventName)] },
+                event_names: eventNames,
+                last_live_at: new Date(Date.now() - minutes(liveMinutesAgo)),
+            })
+            const eventNamed = (event: string): HogFunctionInvocationGlobals =>
+                makeGlobals({ event: { ...makeGlobals({}).event, event } })
+            const watcherLookup = (m: MatcherUnderTest): QueryCall | undefined =>
+                m.calls.find((c) => c.sql.includes('FROM conversion_watchers') && !c.sql.startsWith('DELETE'))
+            const lookedUpPairs = [[1], ['user-1'], [1], ['person-uuid-1']]
+            const gatedMatcher = async (goals: any[], flows: HogFlow[]): Promise<MatcherUnderTest> => {
+                const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' })
+                gated.goalRows = goals
+                // The full scan would find a watcher of a flow the cache does not hold, so falling back to it shows.
+                gated.watcherRows = [
+                    watcher({ function_id: 'paused-flow', oldest_created_at: new Date(flowEditedAt).toISOString() }),
+                ]
+                gated.setHogFlows(Object.fromEntries(flows.map((flow) => [flow.id, flow])))
+                await (gated as any).refreshWatcherState()
+                return gated
+            }
+            const wake = async (gated: MatcherUnderTest, eventName: string): Promise<unknown> => {
+                gated.calls = []
+                await gated.runWake([eventNamed(eventName)])
+                return watcherLookup(gated)?.params.slice(0, 4) ?? null
+            }
+
+            it.each([
+                {
+                    // The flow now converts on wuc_cancelled; a run enrolled before the edit still waits for wuc_upgraded.
+                    name: 'an event that meets a goal only an earlier version of the flow had',
+                    goals: [pinnedGoal('goal-flow-1', 'wuc_upgraded')],
+                    flows: [goalFlow(1)],
+                    eventName: 'wuc_upgraded',
+                    lookedUp: true,
+                },
+                {
+                    name: "an event that meets the flow's current goal before the goals have it",
+                    goals: [],
+                    flows: [goalFlow(1)],
+                    eventName: 'wuc_cancelled',
+                    lookedUp: true,
+                },
+                {
+                    name: 'the goal of a paused flow the cache does not hold',
+                    goals: [pinnedGoal('paused-flow', 'wuc_upgraded')],
+                    flows: [],
+                    eventName: 'wuc_upgraded',
+                    lookedUp: true,
+                },
+                {
+                    name: 'nothing for a goal whose event names leave the event out, without running it',
+                    goals: [pinnedGoal('paused-flow', 'wuc_other', 30, ['wuc_upgraded'])],
+                    flows: [],
+                    eventName: 'wuc_other',
+                    lookedUp: false,
+                },
+                {
+                    name: 'a goal with no event names, which can match any event',
+                    goals: [pinnedGoal('paused-flow', 'wuc_other', 30, null)],
+                    flows: [],
+                    eventName: 'wuc_other',
+                    lookedUp: true,
+                },
+                {
+                    name: 'nothing for a goal last live before the longest conversion window',
+                    goals: [pinnedGoal('paused-flow', 'wuc_upgraded', 366 * 24 * 60)],
+                    flows: [goalFlow(1)],
+                    eventName: 'wuc_upgraded',
+                    lookedUp: false,
+                },
+                {
+                    name: 'nothing for an event no goal meets',
+                    goals: [pinnedGoal('goal-flow-1', 'wuc_upgraded'), pinnedGoal('paused-flow', 'wuc_paid')],
+                    flows: [goalFlow(1)],
+                    eventName: 'wuc_other',
+                    lookedUp: false,
+                },
+            ])('looks up watchers for $name', async ({ goals, flows, eventName, lookedUp }) => {
+                const gated = await gatedMatcher(goals, flows)
+
+                expect(await wake(gated, eventName)).toEqual(lookedUp ? lookedUpPairs : null)
+            })
+
+            it.each([
+                { name: 'still within 2 minutes', at: 1, lookedUp: true },
+                { name: 'past 2 minutes', at: 3, lookedUp: false },
+            ])(
+                'after a flow change, looks up every event of the team on reads that start $name of it',
+                async ({ at, lookedUp }) => {
+                    const gated = await gatedMatcher([pinnedGoal('goal-flow-1', 'wuc_upgraded')], [goalFlow(1)])
+
+                    gated.pubSubHandlers['reload-hog-flows']({ teamId: 1 })
+                    await (gated as any).refreshWatcherState()
+                    expect(await wake(gated, 'wuc_other')).toEqual(lookedUpPairs)
+
+                    const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + minutes(at))
+                    try {
+                        await (gated as any).refreshWatcherState()
+                        expect(await wake(gated, 'wuc_other')).toEqual(lookedUp ? lookedUpPairs : null)
+                    } finally {
+                        clock.mockRestore()
+                    }
+                }
+            )
+
+            it('picks up new goals and drops a deleted flow on the next read', async () => {
+                const kept = pinnedGoal('goal-flow-1', 'wuc_upgraded', 120)
+                const gated = await gatedMatcher([kept, pinnedGoal('deleted-flow', 'wuc_paid', 120)], [goalFlow(1)])
+
+                gated.goalRows = [kept, pinnedGoal('goal-flow-1', 'wuc_trial', 0)]
+                await (gated as any).refreshWatcherState()
+
+                expect(await wake(gated, 'wuc_trial')).toEqual(lookedUpPairs)
+                expect(await wake(gated, 'wuc_paid')).toBeNull()
+            })
+
+            it.each([
+                { name: 'never succeeded', firstReadFails: true, ageMinutes: 0, lookedUp: true },
+                { name: 'failed for a few minutes', firstReadFails: false, ageMinutes: 3, lookedUp: false },
+                { name: 'failed for longer than 5 minutes', firstReadFails: false, ageMinutes: 6, lookedUp: true },
+            ])('when reading the goals $name', async ({ firstReadFails, ageMinutes, lookedUp }) => {
+                const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' })
+                gated.goalRows = [pinnedGoal('goal-flow-1', 'wuc_upgraded')]
+                gated.watcherRows = [
+                    watcher({ function_id: 'paused-flow', oldest_created_at: new Date(flowEditedAt).toISOString() }),
+                ]
+                gated.setHogFlows({ 'goal-flow-1': goalFlow(1) })
+                gated.failGoalsRead = firstReadFails
+                await (gated as any).refreshWatcherState()
+                gated.failGoalsRead = true
+
+                const now = Date.now()
+                const clock = jest.spyOn(Date, 'now').mockReturnValue(now + minutes(ageMinutes))
+                try {
+                    await (gated as any).refreshWatcherState()
+                    expect(await wake(gated, 'wuc_other')).toEqual(lookedUp ? lookedUpPairs : null)
+                } finally {
+                    clock.mockRestore()
+                }
+            })
+
+            it('looks up every event of a team with more goals than the cap', async () => {
+                const goals = Array.from({ length: 501 }, (_, i) => pinnedGoal('goal-flow-1', `wuc_goal_${i}`))
+                const gated = await gatedMatcher(goals, [goalFlow(1)])
+
+                expect(await wake(gated, 'wuc_other')).toEqual(lookedUpPairs)
+                // Its goals are not held in memory.
+                expect((gated as any).pinnedGoalsByTeam.size).toBe(0)
+            })
+
+            it.each([
+                { name: 'that times out', queued: false, readsAfter: 2 },
+                { name: 'still waiting for a connection', queued: true, readsAfter: 1 },
+            ])(
+                'lets the tick finish on a goals read $name, with at most one read open',
+                async ({ queued, readsAfter }) => {
+                    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
+                    try {
+                        const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'shadow' })
+                        gated.goalsReadGate = new Promise(() => {})
+                        gated.goalsReadQueued = queued
+                        const tick = (gated as any).refreshWatcherState()
+                        const overlappingTick = (gated as any).refreshWatcherState()
+                        const reads = (): number =>
+                            gated.calls.filter((c) => c.sql.includes('workflows_hogflowconversiongoal')).length
+                        expect(reads()).toBe(1)
+
+                        await jest.advanceTimersByTimeAsync(20_000)
+                        await Promise.all([tick, overlappingTick])
+                        expect(gated.calls.some((c) => c.sql.includes('MIN(created_at)'))).toBe(true)
+
+                        const nextTick = (gated as any).refreshWatcherState()
+                        await jest.advanceTimersByTimeAsync(20_000)
+                        await nextTick
+                        expect(reads()).toBe(readsAfter)
+                    } finally {
+                        jest.useRealTimers()
+                    }
+                }
+            )
+
+            it('starts no second watcher scan while one is still running', async () => {
+                const matcher = new MatcherUnderTest()
+                let finishScan = (): void => {}
+                matcher.watcherScanGate = new Promise((resolve) => (finishScan = resolve))
+                const scans = (): number => matcher.calls.filter((c) => c.sql.includes('MIN(created_at)')).length
+
+                const ticks = [(matcher as any).refreshWatcherState(), (matcher as any).refreshWatcherState()]
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(scans()).toBe(1)
+
+                finishScan()
+                await Promise.all(ticks)
+                expect(scans()).toBe(1)
+            })
+
+            it('counts a conversion and a would-be miss in shadow mode when the goals lack it', async () => {
+                const missed = async (): Promise<number> =>
+                    (await register.getSingleMetric('cdp_hogflow_matcher_filter_first_missed')!.get()).values.find(
+                        (v) => v.labels.lookup === 'watcher_goals'
+                    )?.value ?? 0
+                const shadow = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'shadow' })
+                shadow.goalRows = []
+                shadow.watcherRows = [watcher({ oldest_created_at: new Date(flowEditedAt).toISOString() })]
+                await (shadow as any).refreshWatcherState()
+                const missedBefore = await missed()
+
+                await shadow.runWake([cancelledEvent()])
+
+                expect(shadow.queueAppMetricMock).toHaveBeenCalledWith(
+                    expect.objectContaining({ metric_name: 'conversion', instance_id: 'flow-1' }),
+                    'hog_flow'
+                )
+                expect((await missed()) - missedBefore).toBe(1)
+            })
         })
 
         it.each([

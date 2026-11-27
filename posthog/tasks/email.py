@@ -593,7 +593,8 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
         },
     )
     message.add_user_recipient(user, email_override=target_email)
-    message.send(send_async=False)
+    if message.send(send_async=False):
+        raise EmailRecipientUndeliverableError("the verification code email was refused as undeliverable")
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=str(user.distinct_id),
@@ -891,12 +892,18 @@ def send_workflow_email_sending_paused(
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
 def send_workflow_email_sending_warning(
-    team_id: int, hog_flow_id: str, hog_flow_name: str, reason: str, pause_rate: str, warned_at: str
+    team_id: int,
+    hog_flow_id: str,
+    hog_flow_name: str,
+    reason: str,
+    pause_rate: str,
+    warned_at: str,
+    transactional: bool = False,
 ) -> None:
     """
     Warn a project's admins that one workflow's spam complaint or hard bounce rate is approaching
     the pause threshold, while there is still time to act. Not gated by notification settings:
-    ignoring it leads to the pause email above.
+    ignoring it leads to the pause email above, unless the workflow sends only transactional email.
     """
     if not is_email_available(with_absolute_urls=True):
         return
@@ -915,6 +922,7 @@ def send_workflow_email_sending_warning(
             "hog_flow_name": workflow_label,
             "reason": reason,
             "pause_rate": pause_rate,
+            "transactional": transactional,
             "workflow_path": f"/project/{team.id}/workflows/{hog_flow_id}/workflow",
         },
     )

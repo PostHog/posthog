@@ -16,15 +16,17 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { VariableSpecificFields } from '~/queries/nodes/DataVisualization/Components/Variables/VariableForm'
-import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
+import { VariableType } from '~/queries/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_OPTIONS, formatVariableReference, getCodeName } from './constants'
 import { VARIABLE_INSIGHT_COLUMNS } from './insightColumns'
+import { QuillSqlVariableEditForm } from './QuillSqlVariableEditForm'
 import {
     SqlVariableEditSceneLogicProps,
     sqlVariableEditSceneLogic,
     variableToFormValues,
 } from './sqlVariableEditSceneLogic'
+import { toFormVariable } from './toFormVariable'
 
 export const scene: SceneExport<SqlVariableEditSceneLogicProps> = {
     component: SqlVariableEditScene,
@@ -35,19 +37,10 @@ export const scene: SceneExport<SqlVariableEditSceneLogicProps> = {
 function VariableTypeFields(): JSX.Element {
     const { variableType, variableForm } = useValues(sqlVariableEditSceneLogic)
     const { setVariableFormValues } = useActions(sqlVariableEditSceneLogic)
-    const variable = {
-        id: '',
-        name: '',
-        code_name: '',
-        default_value: '',
-        ...variableForm,
-        type: variableType,
-        ...(variableType === 'List' && { values: 'values' in variableForm ? (variableForm.values ?? []) : [] }),
-    } as Variable
 
     return (
         <VariableSpecificFields
-            variable={variable}
+            variable={toFormVariable(variableForm, variableType)}
             updateVariable={(updatedVariable) => setVariableFormValues(updatedVariable)}
             onSave={() => {}}
         />
@@ -76,6 +69,24 @@ export function SqlVariableEditScene(): JSX.Element {
             setVariableType(variable.type)
         }
     }
+
+    const changeName = (newValue: string): void => {
+        const filteredValue = newValue.replace(/[^a-zA-Z0-9\s_]/g, '')
+        if (isNew) {
+            const shouldUpdateCodeName =
+                !variableForm.code_name || variableForm.code_name === getCodeName(variableForm.name ?? '')
+            setVariableFormValues({
+                name: filteredValue,
+                code_name: shouldUpdateCodeName ? getCodeName(filteredValue) : variableForm.code_name,
+            })
+        } else {
+            setVariableFormValues({ name: filteredValue })
+        }
+    }
+
+    const unchanged = !isNew && !hasChanges
+    const discardDisabledReason = unchanged ? 'No changes to discard' : undefined
+    const saveDisabledReason = unchanged ? 'No changes to save' : undefined
 
     const title = isNew ? 'New variable' : variableForm.name || 'Edit variable'
     const codeNameFallback = getCodeName(variableForm.name ?? '')
@@ -106,7 +117,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                 <Button
                                     data-attr="discard-variable-changes"
                                     variant="outline"
-                                    disabledReason={!isNew && !hasChanges ? 'No changes to discard' : undefined}
+                                    disabledReason={discardDisabledReason}
                                     onClick={discardChanges}
                                 >
                                     Discard changes
@@ -116,7 +127,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                     variant="primary"
                                     onClick={submitVariableForm}
                                     loading={isVariableFormSubmitting}
-                                    disabledReason={!isNew && !hasChanges ? 'No changes to save' : undefined}
+                                    disabledReason={saveDisabledReason}
                                 >
                                     Save
                                 </Button>
@@ -127,7 +138,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                     data-attr="discard-variable-changes"
                                     type="secondary"
                                     size="small"
-                                    disabledReason={!isNew && !hasChanges ? 'No changes to discard' : undefined}
+                                    disabledReason={discardDisabledReason}
                                     onClick={discardChanges}
                                 >
                                     Discard changes
@@ -138,7 +149,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                     size="small"
                                     onClick={submitVariableForm}
                                     loading={isVariableFormSubmitting}
-                                    disabledReason={!isNew && !hasChanges ? 'No changes to save' : undefined}
+                                    disabledReason={saveDisabledReason}
                                 >
                                     Save
                                 </LemonButton>
@@ -147,7 +158,9 @@ export function SqlVariableEditScene(): JSX.Element {
                     }
                 />
 
-                {variableLoading ? (
+                {todayRailNav ? (
+                    <QuillSqlVariableEditForm referenceCodeName={referenceCodeName} onNameChange={changeName} />
+                ) : variableLoading ? (
                     <div className="space-y-4">
                         <LemonSkeleton className="h-10 w-1/3" />
                         <LemonSkeleton className="h-6 w-1/2" />
@@ -158,26 +171,7 @@ export function SqlVariableEditScene(): JSX.Element {
                         <div className="space-y-4 max-w-xl">
                             <LemonField name="name" label={nameLabel}>
                                 {({ value }) => (
-                                    <LemonInput
-                                        placeholder="e.g., Start Date"
-                                        value={value}
-                                        onChange={(newValue) => {
-                                            const filteredValue = newValue.replace(/[^a-zA-Z0-9\s_]/g, '')
-                                            if (isNew) {
-                                                const shouldUpdateCodeName =
-                                                    !variableForm.code_name ||
-                                                    variableForm.code_name === getCodeName(variableForm.name ?? '')
-                                                setVariableFormValues({
-                                                    name: filteredValue,
-                                                    code_name: shouldUpdateCodeName
-                                                        ? getCodeName(filteredValue)
-                                                        : variableForm.code_name,
-                                                })
-                                            } else {
-                                                setVariableFormValues({ name: filteredValue })
-                                            }
-                                        }}
-                                    />
+                                    <LemonInput placeholder="e.g., Start Date" value={value} onChange={changeName} />
                                 )}
                             </LemonField>
 

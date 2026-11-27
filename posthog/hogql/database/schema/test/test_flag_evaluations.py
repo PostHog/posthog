@@ -59,6 +59,7 @@ from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.property_groups import PropertyGroupDefinition
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.models import Team
@@ -408,7 +409,20 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 (
                     str(row_uuid),
                     "$feature_flag_called",
-                    json.dumps({"quote": 'a"b', "nulled": None, "$lib": "web", "token": "t", "keep": "yes"}),
+                    json.dumps(
+                        {
+                            "quote": 'a"b',
+                            "nulled": None,
+                            "$lib": "web",
+                            "token": "t",
+                            "keep": "yes",
+                            "$feature_flag": "beta",
+                            "$feature_flag_response": "true",
+                            "$feature/beta": True,
+                            "$feature/variant": 'a"b',
+                            "$feature/nulled": None,
+                        }
+                    ),
                     json.dumps({"email": "a@example.com", "$creator_event_uuid": "x"}),
                     self.occurred_at,
                     self.team.pk,
@@ -418,11 +432,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         )
 
         rows = sync_execute(
-            "SELECT properties_group_custom, person_properties_map_custom FROM flag_evaluations WHERE uuid = %(uuid)s",
+            "SELECT properties_group_custom, properties_group_feature_flags, person_properties_map_custom "
+            "FROM flag_evaluations WHERE uuid = %(uuid)s",
             {"uuid": str(row_uuid)},
         )
 
-        assert rows == [({"quote": 'a"b', "keep": "yes"}, {"email": "a@example.com"})]
+        assert rows == [
+            (
+                {"quote": 'a"b', "keep": "yes"},
+                {"$feature/beta": "true", "$feature/variant": 'a"b'},
+                {"email": "a@example.com"},
+            )
+        ]
 
     def test_custom_property_filter_reads_the_property_group_map_for_an_ordinary_value(self):
         where = f" AND properties.probe = '{EVENT_PROBE}'"
@@ -438,6 +459,58 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert "equals(flag_evaluations.properties_group_custom[" in (map_read.clickhouse or "")
         assert "properties_group_custom" not in (json_read.clickhouse or "")
         assert map_read.results == json_read.results == [(EVENT_PROBE,)]
+
+    def test_feature_flag_property_filter_reads_the_json_while_the_group_is_hidden(self):
+        read = self._execute(
+            "properties.`$feature/beta`",
+            " AND properties.`$feature/beta` = 'true'",
+            modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+        )
+
+        assert "properties_group_feature_flags" not in (read.clickhouse or "")
+
+    @parameterized.expand(
+        [
+            ("equals", "properties.`$feature/beta` = 'true'", 1),
+            ("not_equals", "properties.`$feature/beta` != 'true'", 2),
+            ("in", "properties.`$feature/variant` IN ('control', 'test')", 2),
+            ("like", "properties.`$feature/variant` LIKE 'cont%'", 1),
+            ("missing_key", "properties.`$feature/absent` = 'true'", 0),
+            ("is_null", "properties.`$feature/beta` IS NULL", 1),
+            ("is_not_null", "properties.`$feature/beta` IS NOT NULL", 2),
+        ]
+    )
+    def test_feature_flag_property_filter_returns_the_same_rows_from_the_map_as_from_the_json(
+        self, _name: str, predicate: str, matches: int
+    ):
+        rows: dict[uuid.UUID, dict[str, str | int | None]] = {
+            uuid.uuid4(): {"$feature/beta": True, "$feature/variant": "control"},
+            uuid.uuid4(): {"$feature/beta": False, "$feature/variant": "test"},
+            uuid.uuid4(): {"$feature/beta": None, "$feature/variant": "other"},
+        }
+        for row_uuid, properties in rows.items():
+            self._insert_row(row_uuid, properties)
+        columns = "uuid, properties.`$feature/beta`, properties.`$feature/variant`"
+        where = f" AND {predicate} ORDER BY uuid"
+
+        json_read = self._execute(
+            columns,
+            where,
+            modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED),
+            row_uuids=tuple(rows),
+        )
+        # The query reads only flag_evaluations, where feature_flags is the one hidden group.
+        with patch.object(PropertyGroupDefinition, "contains", lambda group, key: group.key_filter_function(key)):
+            map_read = self._execute(
+                columns,
+                where,
+                modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+                row_uuids=tuple(rows),
+            )
+
+        assert "properties_group_feature_flags" in (map_read.clickhouse or "")
+        assert len(json_read.results) == matches
+        assert map_read.results == json_read.results
 
     @parameterized.expand(
         [
@@ -1392,6 +1465,16 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [],
             ),
             (
+                "mode_2_flag_calls_and_other_events_under_an_enclosing_cte_named_posthog_events",
+                {
+                    "calls": "SELECT distinct_id FROM events WHERE event IN ('$feature_flag_called', '$pageview') "
+                    "AND timestamp >= now() - INTERVAL 7 DAY"
+                },
+                "WITH `posthog.events` AS (SELECT 1 AS x) SELECT distinct_id FROM calls",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                ["probe-distinct-id"],
+            ),
+            (
                 "mode_2_under_an_enclosing_cte_named_events",
                 {"calls": "SELECT distinct_id FROM events WHERE event = '$feature_flag_called'"},
                 "WITH events AS (SELECT distinct_id, event FROM posthog.flag_evaluations) SELECT distinct_id FROM calls",
@@ -1452,6 +1535,36 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         with self.assertRaisesRegex(QueryError, "it reads the saved view calls, which reads them from events"):
             self._query_events("SELECT distinct_id FROM calls")
+
+    def test_view_under_an_enclosing_cte_named_posthog_events_matches_its_action_on_the_events_table(self):
+        for distinct_id, url in (
+            ("shadow-distinct-id", "https://other.example.com"),
+            ("probe-distinct-id", "https://example.com"),
+        ):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=self.occurred_at,
+                properties={"$current_url": url},
+            )
+        flush_persons_and_events()
+        action = create_action(
+            team=self.team, steps_json=[{"event": "$pageview", "url": "https://example.com", "url_matching": "exact"}]
+        )
+        self._create_view(
+            "pageviews",
+            "SELECT e.distinct_id FROM posthog.events AS shadow CROSS JOIN events AS e "
+            f"WHERE matchesAction({action.id}) AND e.event != '$feature_flag_called'",
+        )
+        query = (
+            "WITH `posthog.events` AS (SELECT properties FROM events WHERE distinct_id = 'shadow-distinct-id') "
+            "SELECT distinct_id FROM pageviews"
+        )
+
+        results = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS).results
+
+        assert [row[0] for row in results] == ["probe-distinct-id"]
 
     def test_view_read_under_a_cte_with_the_same_name_and_another_body_decides_its_swap_again(self):
         self._create_view(
@@ -1790,7 +1903,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert ("FROM flag_evaluations" in rewritten.clickhouse) is swaps
 
     def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
-        self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)
+        # The printed coverage floor is a date, so the snapshot needs a fixed clock.
+        with time_machine.travel(datetime(2026, 11, 24, 12, tzinfo=UTC), tick=False):
+            printed = self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse
+        self.assertQueryMatchesSnapshot(printed)
 
     def _create_lazy_join_sources(self) -> None:
         # Each join can reach both calls. Only the events-only call is in events, and only the setUp row is in

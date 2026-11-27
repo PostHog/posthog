@@ -19,8 +19,10 @@ from products.experiments.backend.health.context import HealthContext, PrimaryMe
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
     NEEDS_PRIMARY_METRIC,
+    NEEDS_PRIMARY_METRIC_RESULTS,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    PRIMARY_METRIC_UNREADABLE,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
     CheckRows,
@@ -39,6 +41,7 @@ BELOW_DETECTABLE_EFFECT = "below_detectable_effect"
 # The results page shows results from 50 exposures (`EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS` in
 # products/experiments/frontend/constants.ts). Keep the two in step, so that the note never names a result the page hides.
 MIN_SAMPLES_FOR_RESULTS = 50
+FUNNEL_ONLY = "Runs on funnel primary metrics only"
 
 
 @frozen
@@ -59,8 +62,8 @@ class _Readout:
 
 
 def early_significance_values(ctx: HealthContext) -> CheckValues:
-    readout = _significant_readout(ctx)
-    if readout is None:
+    readout = _readout(ctx)
+    if isinstance(readout, CheckSkip):
         return {}
     return {
         ExperimentHealthValueKey.METRIC_NAME: readout.metric.name,
@@ -70,8 +73,8 @@ def early_significance_values(ctx: HealthContext) -> CheckValues:
 
 
 def early_significance_rows(ctx: HealthContext) -> CheckRows:
-    readout = _significant_readout(ctx)
-    if readout is None:
+    readout = _readout(ctx)
+    if isinstance(readout, CheckSkip):
         return ()
     return tuple(
         {
@@ -82,15 +85,6 @@ def early_significance_rows(ctx: HealthContext) -> CheckRows:
         }
         for comparison in readout.comparisons
     )
-
-
-def _significant_readout(ctx: HealthContext) -> _Readout | None:
-    """The comparisons that the check reads, when a variant is significant. Without a significant variant the running
-    time estimate already shows the progress, so the check shows nothing."""
-    readout = _readout(ctx)
-    if isinstance(readout, CheckSkip) or not any(comparison.significant for comparison in readout.comparisons):
-        return None
-    return readout
 
 
 def _readout(ctx: HealthContext) -> _Readout | CheckSkip:
@@ -104,23 +98,22 @@ def _readout(ctx: HealthContext) -> _Readout | CheckSkip:
         return not_applicable(NOT_AFTER_END)
     if ctx.primary_metric_count == 0:
         return not_applicable(NEEDS_PRIMARY_METRIC)
+    # The schema allows a warehouse-native source on a mean or a ratio metric only.
+    if ctx.warehouse_native_exposures:
+        return not_applicable(FUNNEL_ONLY)
     metric = ctx.primary_metric
     if metric is None:
-        return not_checked("Couldn't read the results of the primary metric")
+        return not_checked(PRIMARY_METRIC_UNREADABLE)
     if not metric.is_funnel:
-        return not_applicable("Runs on funnel primary metrics only")
-    result = metric.result
-    if result is None:
-        return not_applicable("Runs once the primary metric has results")
-    samples = _total_samples(result)
-    if samples < MIN_SAMPLES_FOR_RESULTS:
+        return not_applicable(FUNNEL_ONLY)
+    result, samples = metric.result, metric.samples
+    if result is None or samples is None:
+        return not_applicable(NEEDS_PRIMARY_METRIC_RESULTS)
+    if result.number_of_samples < MIN_SAMPLES_FOR_RESULTS:
         return not_applicable(NEEDS_EXPOSURES)
     control_rate = result.baseline.mean or 0
     if not 0 < control_rate < 1:
         return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")
-    # The running time estimate's "Target reached" compares the same total, so the note and the estimate agree.
-    if metric.target.current_sample_size is not None:
-        samples = metric.target.current_sample_size
     return _Readout(
         metric=metric,
         samples=samples,
@@ -204,7 +197,3 @@ def _comparisons(result: MetricResultStats, control_rate: float, target: Running
                 )
             )
     return comparisons
-
-
-def _total_samples(result: MetricResultStats) -> int:
-    return result.baseline.number_of_samples + sum(variant.number_of_samples for variant in result.variants)

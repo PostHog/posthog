@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import type { MouseEvent } from 'react'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -30,6 +31,7 @@ const persistedRule: ErrorTrackingTagRule = {
     key: 'rule_0123',
     label: 'Firefox',
     description: 'Errors from Firefox.',
+    color: 'teal',
     filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
     order_key: 0,
     disabled_data: { message: 'The rule failed.' },
@@ -53,7 +55,7 @@ describe('tagRuleModalLogic', () => {
                 '/api/projects/:team_id/error_tracking/issues/tag_definitions/': () => ({
                     results: rules
                         .filter((rule) => !rule.disabled_data)
-                        .map(({ key, label, description }) => ({ key, label, description })),
+                        .map(({ key, label, description, color }) => ({ key, label, description, color })),
                 }),
             },
             post: {
@@ -89,18 +91,27 @@ describe('tagRuleModalLogic', () => {
             {
                 label: 'Firefox users',
                 description: '',
+                color: 'orange',
                 filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
                 order_key: persistedRule.order_key + 1,
             },
+            'create',
         ],
         [
             'saves an edit with its filters',
             persistedRule,
             'PUT',
             `${TAG_RULES_PATH}${persistedRule.id}/`,
-            { label: 'Firefox users', description: persistedRule.description, filters: persistedRule.filters },
+            {
+                label: 'Firefox users',
+                description: persistedRule.description,
+                color: persistedRule.color,
+                filters: persistedRule.filters,
+            },
+            'edit',
         ],
-    ])('%s and reloads the list', async (_, rule, method, path, body) => {
+    ])('%s and reloads the list', async (_, rule, method, path, body, mode) => {
+        const capture = jest.spyOn(posthog, 'capture')
         const logic = tagRuleModalLogic()
         logic.mount()
         const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
@@ -114,6 +125,7 @@ describe('tagRuleModalLogic', () => {
                 ...logic.values.rule,
                 filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
             })
+            logic.actions.updateColor('orange')
         }
         logic.actions.updateLabel('Firefox users')
         await expectLogic(logic, () => logic.actions.saveRule()).toFinishAllListeners()
@@ -121,6 +133,8 @@ describe('tagRuleModalLogic', () => {
         expect(requests).toEqual([{ method, path, body }])
         expect(logic.values.isOpen).toBe(false)
         expect(list.values.rules).toEqual([persistedRule])
+        expect(capture).toHaveBeenCalledWith('error_tracking_tag_rule_modal_opened', { mode })
+        capture.mockRestore()
     })
 
     // An edit that changes which properties the filters read makes the backend delete every tag the rule applied.
@@ -147,7 +161,12 @@ describe('tagRuleModalLogic', () => {
             {
                 method: 'PUT',
                 path: `${TAG_RULES_PATH}${persistedRule.id}/`,
-                body: { label: persistedRule.label, description: persistedRule.description, filters },
+                body: {
+                    label: persistedRule.label,
+                    description: persistedRule.description,
+                    color: persistedRule.color,
+                    filters,
+                },
             },
         ])
         dialog.mockRestore()

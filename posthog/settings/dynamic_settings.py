@@ -14,16 +14,15 @@ CONSTANCE_CONFIG = {
         "Copy static cohort members that reached ClickHouse but not Postgres, a few cohorts every 30 minutes.",
         bool,
     ),
-    "CIMD_PROVISIONING_REQUIRES_ORGANIZATION": (
-        False,
-        "Require every provisioning partner that registered itself from a client ID metadata document (CIMD) to be "
-        "linked to a PostHog organization with a CIMD verification token. A partner without that link cannot provision "
-        "while this is on, including a partner that was already accepted.",
-        bool,
-    ),
     "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
         True,
         "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
+        bool,
+    ),
+    "EXPERIMENTS_RECALCULATION_ENABLED": (
+        True,
+        "Run experiment metric recalculations, including the hourly scheduled ones. Set to False to stop new and "
+        "pending runs. Runs already in progress finish. A change takes effect within about a minute.",
         bool,
     ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
@@ -373,11 +372,11 @@ CONSTANCE_CONFIG = {
     ),
     "FLAG_EVALUATIONS_READS_FORCE_EVENTS": (
         get_from_env("FLAG_EVALUATIONS_READS_FORCE_EVENTS", False, type_cast=str_to_bool),
-        "When on, every organization on flag_evaluations mode 1 reads its flag calls from the events table: the "
+        "When on, every organization on flag_evaluations mode 1, or on mode 2 with its events writes kept, reads its flag calls from the events table: the "
         "feature flag Usage tab, the per-project counts on a flag's Projects tab, event lists filtered to only "
         "$feature_flag_called, the home page flag call and enrollment counts, and HogQL queries. Event pickers and "
         "the actions and cohorts APIs also accept $feature_flag_called again. Use it when the flag_evaluations table "
-        "stops receiving rows. Organizations on mode 2 keep reading flag_evaluations, because ingestion writes no new "
+        "stops receiving rows. Organizations on mode 2 without kept events writes keep reading flag_evaluations, because ingestion writes no new "
         "flag calls to events for their teams. A project that reads the native JSON events table keeps reading flag_evaluations "
         "whatever the mode, because that table holds no flag calls. "
         "Stored modes and the flag_evaluations SQL table stay as they are, so turning it off restores every "
@@ -493,11 +492,18 @@ CONSTANCE_CONFIG = {
         "address is always in or always out of the sample, so Radar gets every login of a sampled account.",
         int,
     ),
+    "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES": (
+        get_from_env("TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES", 2, type_cast=int),
+        "Persons batches that project and organization deletions run at once across every worker in the region. "
+        "Each batch adds storage read load on the persons writer, which slows down ingestion. "
+        "0 pauses the persons phase of every deletion. A change takes effect within a minute.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "STATIC_COHORT_RECONCILIATION_ENABLED",
-    "CIMD_PROVISIONING_REQUIRES_ORGANIZATION",
+    "EXPERIMENTS_RECALCULATION_ENABLED",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",
@@ -571,6 +577,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "REALTIME_COHORT_JOIN_OPEN",
     "WORKOS_RADAR_LOGIN_MODE",
     "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
+    "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

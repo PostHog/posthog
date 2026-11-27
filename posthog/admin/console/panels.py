@@ -40,6 +40,10 @@ class Owner:
 
 # A card with more facts than this is a report. Put the detail in a tool and link to it.
 MAX_FACTS_PER_PANEL = 8
+# A plain fact value longer than this, or on more lines, shows its start and opens to the full value, so one long
+# value such as a query does not push the rest of the page down.
+COLLAPSE_FACT_CHARS = 160
+COLLAPSE_FACT_LINES = 3
 
 
 @frozen
@@ -58,6 +62,17 @@ class Fact:
         # Facts link within PostHog only, so a value that came from customer data cannot become an outside link.
         if self.href is not None and not is_internal_path(self.href):
             raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
+
+    @property
+    def collapsed(self) -> bool:
+        if self.href is not None or self.tone is not None:
+            return False
+        return len(self.value) > COLLAPSE_FACT_CHARS or self.value.count("\n") >= COLLAPSE_FACT_LINES
+
+    @property
+    def summary(self) -> str:
+        first_line = self.value.split("\n", 1)[0]
+        return f"{first_line[:COLLAPSE_FACT_CHARS].rstrip()}…"
 
 
 def _unresolved_owner_gate(request: "HttpRequest") -> bool:
@@ -161,11 +176,16 @@ class Operation:
     preview: RecordPreviewHandler | None = None
     # The run button shows this until the next page loads, for an operation that takes a while.
     pending_label: str = ""
+    # Opened from a support ticket link (`?ticket=<url>`), the reason starts as "For ticket <url>". Staff still read
+    # and submit it, so only an operation whose reason names the ticket anyway opts in.
+    reason_from_ticket: bool = False
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
         if self.preview is not None and self.form_class is None:
             raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
+        if self.reason_from_ticket and (self.form_class is None or "reason" not in self.form_class.base_fields):
+            raise ValueError(f"Operation {self.key!r} fills its reason from the ticket, so it needs a reason field")
 
 
 class ReasonForm(forms.Form):

@@ -18,7 +18,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
 from products.signals.backend.first_report_completion import first_report_completion_notifications_enabled
 from products.signals.backend.first_report_experiment import (
-    FIRST_REPORT_SCOUT_VARIANTS,
+    onboarding_runs_first_report,
     resolve_first_report_experiment,
 )
 from products.signals.backend.first_report_notification import register_first_report_notification
@@ -86,7 +86,7 @@ class InboxOnboarding:
         self.user = user
         self.authorize_scouts = authorize_scouts
 
-    def _state(self, config: SignalTeamConfig) -> dict[str, Any]:
+    def _state(self, config: SignalTeamConfig, *, pilot_enabled: bool = False) -> dict[str, Any]:
         state = config.onboarding or {}
         if (
             self.team.parent_team_id
@@ -108,7 +108,7 @@ class InboxOnboarding:
         ):
             jobs["recommendations"] = "failed"
         return {
-            "github_optional_available": ResearchAccessPolicy.enabled(self.team_id),
+            "github_optional_available": pilot_enabled or ResearchAccessPolicy.enabled(self.team_id),
             "setup_default_skills": setup_default_skills_for_team(self.team.parent_team_id or self.team_id),
             "draft": state.get("draft"),
             "completed_at": state.get("completed_at"),
@@ -116,11 +116,11 @@ class InboxOnboarding:
             "first_report": first_report_state(self.team.parent_team_id or self.team_id)
             or (
                 {"status": "pending"}
-                if state.get("first_report_variant") in FIRST_REPORT_SCOUT_VARIANTS and jobs.get("scout") == "pending"
+                if onboarding_runs_first_report(state) and jobs.get("scout") == "pending"
                 else None
             ),
             "first_report_completion_notification": bool(
-                state.get("first_report_variant") in FIRST_REPORT_SCOUT_VARIANTS
+                onboarding_runs_first_report(state)
                 and state.get("activated_by") == self.user.pk
                 and first_report_completion_notifications_enabled(self.team.parent_team or self.team, self.user)
             ),
@@ -167,7 +167,7 @@ class InboxOnboarding:
         return True
 
     def save_draft(self, draft: dict[str, Any]) -> dict[str, Any]:
-        self._validate_pilot(draft)
+        pilot = self._validate_pilot(draft)
         config = get_or_create_team_extension(self.team, SignalTeamConfig)
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(team_id=self.team_id, pk=config.pk)
@@ -179,7 +179,7 @@ class InboxOnboarding:
             if not state.get("completed_at"):
                 config.onboarding = {**state, "draft": draft}
                 config.save(update_fields=["onboarding", "updated_at"])
-        return self._state(config)
+        return self._state(config, pilot_enabled=pilot)
 
     def complete(self, draft: dict[str, Any]) -> dict[str, Any]:
         # Activation enqueues scout jobs after commit, so the scout write check has to pass before anything is saved.
@@ -197,7 +197,8 @@ class InboxOnboarding:
                 raise InboxOnboardingPermissionError(
                     "Activating this pilot requires task editor access on the parent project."
                 )
-        if pilot:
+        quick = is_quick_setup({"draft": draft})
+        if pilot and quick:
             if not any(
                 item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
                 for item in draft["suggestions"]
@@ -271,12 +272,12 @@ class InboxOnboarding:
                     "completed_at": timezone.now().isoformat(),
                     "activated_by": user.pk,
                 }
-                quick = pilot or is_quick_setup(config.onboarding)
+                config.onboarding["first_report_scout"] = True
                 config.onboarding["jobs"] = {
-                    "scout": "pending" if experiment or quick else "skipped",
+                    "scout": "pending",
                     "recommendations": "pending" if quick else "skipped",
                 }
-                if experiment:
+                if experiment.variant is not None:
                     config.onboarding["first_report_variant"] = experiment.variant
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
@@ -286,7 +287,7 @@ class InboxOnboarding:
                     InboxOnboardingScouts.resume(scout_team_id, withheld, lambda: self.authorize_scouts(True))
                 transaction.on_commit(lambda: self._report_completion(user, config), robust=True)
                 transaction.on_commit(lambda: self._enqueue_activation_jobs(config))
-        return self._state(config)
+        return self._state(config, pilot_enabled=pilot)
 
     def _enqueue_activation_jobs(self, config: SignalTeamConfig) -> None:
         state = config.onboarding or {}

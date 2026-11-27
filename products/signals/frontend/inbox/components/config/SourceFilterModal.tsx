@@ -9,10 +9,12 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { SourceFilterCatalogApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SourceFilterModalLogicProps, sourceFilterModalLogic } from '../../logics/sourceFilterModalLogic'
+import { sourceFilterPreviewLogic } from '../../logics/sourceFilterPreviewLogic'
 import { SignalSourceConfig } from '../../types'
 import { SourceFilterFieldList } from './SourceFilterFieldList'
 import { SourceFilterFieldSnippets } from './SourceFilterFieldSnippets'
 import { SourceFilterLinearTeams } from './SourceFilterLinearTeams'
+import { SourceFilterPreviewPanel } from './SourceFilterPreviewPanel'
 import { SourceFilterSnippet, appendSnippet } from './sourceFilterSnippets'
 
 export interface SourceFilterModalProps {
@@ -39,6 +41,7 @@ export function SourceFilterModal({
         isRemovingFilter,
         savedFilter,
         savedOnOlderCatalog,
+        previewWaitsForEdit,
         selectedField,
         selectedFieldName,
         teamsEditable,
@@ -47,6 +50,9 @@ export function SourceFilterModal({
         integrationsLoadFailed,
     } = useValues(logic)
     const { setSourceFilterValue, selectField, removeFilter, loadIntegrations } = useActions(logic)
+    const previewLogic = sourceFilterPreviewLogic({ sourceConfig, catalog })
+    const { previewResult, previewLoading, previewRequestError } = useValues(previewLogic)
+    const { retryPreview } = useActions(previewLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const pendingCursor = useRef<number | null>(null)
@@ -83,7 +89,7 @@ export function SourceFilterModal({
             onClose={handleClose}
             title={`Filter ${sourceLabel} ${noun}s`}
             description={`Set a rule each ${sourceLabel} ${noun} must pass before the agent reads it. ${noun.charAt(0).toUpperCase()}${noun.slice(1)}s that don't pass are skipped before any AI work starts. Leave it empty to let every ${noun} through.`}
-            width={760}
+            width={catalog.preview_supported ? 1040 : 760}
             hasUnsavedInput={sourceFilterChanged}
             footer={
                 <div className="flex w-full flex-wrap items-center justify-between gap-2">
@@ -137,32 +143,34 @@ export function SourceFilterModal({
                             saved. Editing it checks it against the current fields.
                         </LemonBanner>
                     )}
-                    {teamsEditable && (
-                        <SourceFilterLinearTeams
-                            scope={sourceFilter.teamScope}
-                            linearIntegration={linearIntegration}
-                            integrationsUnknown={integrationsUnknown}
-                            integrationsLoadFailed={integrationsLoadFailed}
-                            onRetryIntegrations={() => loadIntegrations()}
-                            disabledReason={busy ? 'Saving' : undefined}
-                        />
-                    )}
-                    <div className="flex flex-col gap-3 @min-[36rem]:flex-row">
-                        <div className="@min-[36rem]:w-52 @min-[36rem]:shrink-0">
-                            <SourceFilterFieldList
-                                fields={catalog.filter_fields}
-                                selectedFieldName={selectedFieldName}
-                                onSelect={selectField}
-                            />
-                        </div>
-                        <div className="flex min-w-0 flex-1 flex-col gap-2">
-                            {selectedField && (
-                                <SourceFilterFieldSnippets
-                                    field={selectedField}
-                                    onInsert={handleInsert}
+                    <div className="flex flex-col gap-4 @3xl:flex-row">
+                        <div className="flex min-w-0 flex-1 flex-col gap-3 @container">
+                            {teamsEditable && (
+                                <SourceFilterLinearTeams
+                                    scope={sourceFilter.teamScope}
+                                    linearIntegration={linearIntegration}
+                                    integrationsUnknown={integrationsUnknown}
+                                    integrationsLoadFailed={integrationsLoadFailed}
+                                    onRetryIntegrations={() => loadIntegrations()}
                                     disabledReason={busy ? 'Saving' : undefined}
                                 />
                             )}
+                            <div className="grid grid-cols-1 gap-3 @md:grid-cols-[13rem_minmax(0,1fr)]">
+                                <SourceFilterFieldList
+                                    fields={catalog.filter_fields}
+                                    selectedFieldName={selectedFieldName}
+                                    onSelect={selectField}
+                                />
+                                {selectedField && (
+                                    <div className="min-w-0">
+                                        <SourceFilterFieldSnippets
+                                            field={selectedField}
+                                            onInsert={handleInsert}
+                                            disabledReason={busy ? 'Saving' : undefined}
+                                        />
+                                    </div>
+                                )}
+                            </div>
                             <LemonField
                                 name="expression"
                                 label="Filter"
@@ -183,6 +191,24 @@ export function SourceFilterModal({
                                 )}
                             </LemonField>
                         </div>
+                        {catalog.preview_supported && (
+                            <div className="min-w-0 flex-1 @3xl:border-l @3xl:pl-4">
+                                {previewWaitsForEdit ? (
+                                    <LemonBanner type="info">
+                                        {`The preview checks the current ${sourceLabel} fields, but this filter was saved on older ones. Edit the filter to preview it.`}
+                                    </LemonBanner>
+                                ) : (
+                                    <SourceFilterPreviewPanel
+                                        result={previewResult}
+                                        loading={previewLoading}
+                                        requestError={previewRequestError}
+                                        onRetry={retryPreview}
+                                        sourceLabel={sourceLabel}
+                                        noun={noun}
+                                    />
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </Form>

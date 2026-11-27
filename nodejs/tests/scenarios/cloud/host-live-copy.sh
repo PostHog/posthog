@@ -58,7 +58,7 @@ copy() {
 }
 
 finish() {
-    trap '' TERM
+    trap '' TERM URG
     for child in $(jobs -p); do
         kill -TERM "$child" 2>/dev/null
     done
@@ -77,7 +77,7 @@ if [ -z "${SCENARIO_EVIDENCE_BUCKET:-}" ] || [ "${SCENARIO_LIVE_COPY:-on}" = off
     exit 0
 fi
 snapshot=$(mktemp) || exit 0
-trap finish TERM
+trap finish TERM URG
 while kill -0 "$wrapper" 2>/dev/null; do
     kill -0 "$runner" 2>/dev/null || finish
     copy

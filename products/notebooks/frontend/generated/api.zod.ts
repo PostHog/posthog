@@ -106,6 +106,9 @@ export const notebooksCreateBodyAppDraftOneBlocksItemTitleMax = 256
 export const notebooksCreateBodyAppDraftOneBlocksItemWidthDefault = 12
 export const notebooksCreateBodyAppDraftOneBlocksItemWidthMax = 12
 
+export const notebooksCreateBodyAppDraftOneBlocksItemHeightMin = 120
+export const notebooksCreateBodyAppDraftOneBlocksItemHeightMax = 1600
+
 export const notebooksCreateBodyAppDraftOneBlocksItemNodeIdDefault = ``
 export const notebooksCreateBodyAppDraftOneBlocksItemNodeIdMax = 160
 
@@ -146,6 +149,9 @@ export const notebooksCreateBodyAppPublishedOneBlocksItemTitleMax = 256
 
 export const notebooksCreateBodyAppPublishedOneBlocksItemWidthDefault = 12
 export const notebooksCreateBodyAppPublishedOneBlocksItemWidthMax = 12
+
+export const notebooksCreateBodyAppPublishedOneBlocksItemHeightMin = 120
+export const notebooksCreateBodyAppPublishedOneBlocksItemHeightMax = 1600
 
 export const notebooksCreateBodyAppPublishedOneBlocksItemNodeIdDefault = ``
 export const notebooksCreateBodyAppPublishedOneBlocksItemNodeIdMax = 160
@@ -200,7 +206,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -215,6 +221,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -276,6 +283,12 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksCreateBodyAppDraftOneBlocksItemWidthMax)
                                 .default(notebooksCreateBodyAppDraftOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksCreateBodyAppDraftOneBlocksItemHeightMin)
+                                .max(notebooksCreateBodyAppDraftOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksCreateBodyAppDraftOneBlocksItemNodeIdMax)
@@ -392,6 +405,12 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksCreateBodyAppPublishedOneBlocksItemWidthMax)
                                 .default(notebooksCreateBodyAppPublishedOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksCreateBodyAppPublishedOneBlocksItemHeightMin)
+                                .max(notebooksCreateBodyAppPublishedOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksCreateBodyAppPublishedOneBlocksItemNodeIdMax)
@@ -446,9 +465,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksCreateBodyAppRevisionMin)
@@ -487,6 +504,9 @@ export const notebooksUpdateBodyAppDraftOneBlocksItemTitleMax = 256
 
 export const notebooksUpdateBodyAppDraftOneBlocksItemWidthDefault = 12
 export const notebooksUpdateBodyAppDraftOneBlocksItemWidthMax = 12
+
+export const notebooksUpdateBodyAppDraftOneBlocksItemHeightMin = 120
+export const notebooksUpdateBodyAppDraftOneBlocksItemHeightMax = 1600
 
 export const notebooksUpdateBodyAppDraftOneBlocksItemNodeIdDefault = ``
 export const notebooksUpdateBodyAppDraftOneBlocksItemNodeIdMax = 160
@@ -528,6 +548,9 @@ export const notebooksUpdateBodyAppPublishedOneBlocksItemTitleMax = 256
 
 export const notebooksUpdateBodyAppPublishedOneBlocksItemWidthDefault = 12
 export const notebooksUpdateBodyAppPublishedOneBlocksItemWidthMax = 12
+
+export const notebooksUpdateBodyAppPublishedOneBlocksItemHeightMin = 120
+export const notebooksUpdateBodyAppPublishedOneBlocksItemHeightMax = 1600
 
 export const notebooksUpdateBodyAppPublishedOneBlocksItemNodeIdDefault = ``
 export const notebooksUpdateBodyAppPublishedOneBlocksItemNodeIdMax = 160
@@ -582,7 +605,7 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -597,6 +620,7 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -658,6 +682,12 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksUpdateBodyAppDraftOneBlocksItemWidthMax)
                                 .default(notebooksUpdateBodyAppDraftOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksUpdateBodyAppDraftOneBlocksItemHeightMin)
+                                .max(notebooksUpdateBodyAppDraftOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksUpdateBodyAppDraftOneBlocksItemNodeIdMax)
@@ -774,6 +804,12 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksUpdateBodyAppPublishedOneBlocksItemWidthMax)
                                 .default(notebooksUpdateBodyAppPublishedOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksUpdateBodyAppPublishedOneBlocksItemHeightMin)
+                                .max(notebooksUpdateBodyAppPublishedOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksUpdateBodyAppPublishedOneBlocksItemNodeIdMax)
@@ -828,9 +864,7 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksUpdateBodyAppRevisionMin)
@@ -869,6 +903,9 @@ export const notebooksPartialUpdateBodyAppDraftOneBlocksItemTitleMax = 256
 
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthDefault = 12
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthMax = 12
+
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMin = 120
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMax = 1600
 
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemNodeIdDefault = ``
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemNodeIdMax = 160
@@ -910,6 +947,9 @@ export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemTitleMax = 256
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthDefault = 12
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthMax = 12
+
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMin = 120
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMax = 1600
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemNodeIdDefault = ``
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemNodeIdMax = 160
@@ -964,7 +1004,7 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -979,6 +1019,7 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -1040,6 +1081,12 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthMax)
                                 .default(notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMin)
+                                .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemNodeIdMax)
@@ -1156,6 +1203,12 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthMax)
                                 .default(notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMin)
+                                .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemNodeIdMax)
@@ -1212,15 +1265,202 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksPartialUpdateBodyAppRevisionMin)
         .optional()
         .describe('Current app revision. Required when saving or publishing a layout; stale revisions return 409.'),
     _create_in_folder: zod.string().optional(),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppPreviewCreateBodyTitleDefault = ``
+export const notebooksAppPreviewCreateBodyTitleMax = 256
+
+export const notebooksAppPreviewCreateBodyDescriptionDefault = ``
+export const notebooksAppPreviewCreateBodyDescriptionMax = 2000
+
+export const notebooksAppPreviewCreateBodyFullWidthDefault = false
+export const notebooksAppPreviewCreateBodyTabsItemIdMax = 80
+
+export const notebooksAppPreviewCreateBodyTabsItemTitleMax = 80
+
+export const notebooksAppPreviewCreateBodyBlocksItemIdMax = 80
+
+export const notebooksAppPreviewCreateBodyBlocksItemTabIdMax = 80
+
+export const notebooksAppPreviewCreateBodyBlocksItemTitleDefault = ``
+export const notebooksAppPreviewCreateBodyBlocksItemTitleMax = 256
+
+export const notebooksAppPreviewCreateBodyBlocksItemWidthDefault = 12
+export const notebooksAppPreviewCreateBodyBlocksItemWidthMax = 12
+
+export const notebooksAppPreviewCreateBodyBlocksItemHeightMin = 120
+export const notebooksAppPreviewCreateBodyBlocksItemHeightMax = 1600
+
+export const notebooksAppPreviewCreateBodyBlocksItemNodeIdDefault = ``
+export const notebooksAppPreviewCreateBodyBlocksItemNodeIdMax = 160
+
+export const notebooksAppPreviewCreateBodyBlocksItemTextDefault = ``
+export const notebooksAppPreviewCreateBodyBlocksItemTextMax = 20000
+
+export const notebooksAppPreviewCreateBodyBlocksItemVariableDefault = ``
+export const notebooksAppPreviewCreateBodyBlocksItemVariableMax = 80
+
+export const notebooksAppPreviewCreateBodyBlocksItemInputKindDefault = `auto`
+export const notebooksAppPreviewCreateBodyBlocksItemOptionsItemMax = 1000
+
+export const notebooksAppPreviewCreateBodyBlocksItemOptionsMax = 100
+
+export const notebooksAppPreviewCreateBodyBlocksItemMinDefault = 0
+export const notebooksAppPreviewCreateBodyBlocksItemMaxDefault = 100
+export const notebooksAppPreviewCreateBodyBlocksItemStepDefault = 1
+export const notebooksAppPreviewCreateBodyBlocksItemStepMin = 0.000001
+
+export const notebooksAppPreviewCreateBodyBlocksItemDisplayDefault = `output`
+
+export const NotebooksAppPreviewCreateBody = /* @__PURE__ */ zod.object({
+    title: zod
+        .string()
+        .max(notebooksAppPreviewCreateBodyTitleMax)
+        .default(notebooksAppPreviewCreateBodyTitleDefault)
+        .describe('App title, falling back to the notebook title.'),
+    description: zod
+        .string()
+        .max(notebooksAppPreviewCreateBodyDescriptionMax)
+        .default(notebooksAppPreviewCreateBodyDescriptionDefault)
+        .describe('Description displayed below the app title.'),
+    full_width: zod
+        .boolean()
+        .default(notebooksAppPreviewCreateBodyFullWidthDefault)
+        .describe('Use all available width instead of a centered page.'),
+    tabs: zod
+        .array(
+            zod.object({
+                id: zod.string().max(notebooksAppPreviewCreateBodyTabsItemIdMax).describe('Stable tab identifier.'),
+                title: zod.string().max(notebooksAppPreviewCreateBodyTabsItemTitleMax).describe('Tab label.'),
+            })
+        )
+        .describe('Ordered app tabs.'),
+    blocks: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(notebooksAppPreviewCreateBodyBlocksItemIdMax)
+                    .describe('Stable component identifier within the app.'),
+                kind: zod
+                    .enum(['cell', 'text', 'input', 'divider'])
+                    .describe('\* `cell` - Notebook cell\n\* `text` - Text\n\* `input` - Input\n\* `divider` - Divider')
+                    .describe(
+                        'Type of app component.\n\n\* `cell` - Notebook cell\n\* `text` - Text\n\* `input` - Input\n\* `divider` - Divider'
+                    ),
+                tab_id: zod
+                    .string()
+                    .max(notebooksAppPreviewCreateBodyBlocksItemTabIdMax)
+                    .describe('Tab containing this component.'),
+                title: zod
+                    .string()
+                    .max(notebooksAppPreviewCreateBodyBlocksItemTitleMax)
+                    .default(notebooksAppPreviewCreateBodyBlocksItemTitleDefault)
+                    .describe('Optional component title.'),
+                width: zod
+                    .number()
+                    .min(1)
+                    .max(notebooksAppPreviewCreateBodyBlocksItemWidthMax)
+                    .default(notebooksAppPreviewCreateBodyBlocksItemWidthDefault)
+                    .describe('Width in a twelve-column grid.'),
+                height: zod
+                    .number()
+                    .min(notebooksAppPreviewCreateBodyBlocksItemHeightMin)
+                    .max(notebooksAppPreviewCreateBodyBlocksItemHeightMax)
+                    .optional()
+                    .describe('Card height in pixels. Omit for automatic height.'),
+                node_id: zod
+                    .string()
+                    .max(notebooksAppPreviewCreateBodyBlocksItemNodeIdMax)
+                    .default(notebooksAppPreviewCreateBodyBlocksItemNodeIdDefault)
+                    .describe('Source notebook cell ID.'),
+                text: zod
+                    .string()
+                    .max(notebooksAppPreviewCreateBodyBlocksItemTextMax)
+                    .default(notebooksAppPreviewCreateBodyBlocksItemTextDefault)
+                    .describe('Markdown for a text component.'),
+                variable: zod
+                    .string()
+                    .max(notebooksAppPreviewCreateBodyBlocksItemVariableMax)
+                    .default(notebooksAppPreviewCreateBodyBlocksItemVariableDefault)
+                    .describe('Notebook variable controlled by an input.'),
+                input_kind: zod
+                    .enum(['auto', 'select', 'slider'])
+                    .describe('\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider')
+                    .default(notebooksAppPreviewCreateBodyBlocksItemInputKindDefault)
+                    .describe(
+                        'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider'
+                    ),
+                options: zod
+                    .array(zod.string().max(notebooksAppPreviewCreateBodyBlocksItemOptionsItemMax))
+                    .max(notebooksAppPreviewCreateBodyBlocksItemOptionsMax)
+                    .optional()
+                    .describe('Allowed values for a dropdown.'),
+                min: zod
+                    .number()
+                    .default(notebooksAppPreviewCreateBodyBlocksItemMinDefault)
+                    .describe('Slider minimum.'),
+                max: zod
+                    .number()
+                    .default(notebooksAppPreviewCreateBodyBlocksItemMaxDefault)
+                    .describe('Slider maximum.'),
+                step: zod
+                    .number()
+                    .min(notebooksAppPreviewCreateBodyBlocksItemStepMin)
+                    .default(notebooksAppPreviewCreateBodyBlocksItemStepDefault)
+                    .describe('Slider increment.'),
+                display: zod
+                    .enum(['output', 'source', 'both'])
+                    .describe('\* `output` - Output\n\* `source` - Source\n\* `both` - Source and output')
+                    .default(notebooksAppPreviewCreateBodyBlocksItemDisplayDefault)
+                    .describe(
+                        'Whether to display cell source, output, or both.\n\n\* `output` - Output\n\* `source` - Source\n\* `both` - Source and output'
+                    ),
+            })
+        )
+        .describe('Ordered components, arranged in rows within each tab.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppQueriesCreateBodyRevisionMin = 0
+
+export const notebooksAppQueriesCreateBodyVariablesItemNameMax = 200
+
+export const NotebooksAppQueriesCreateBody = /* @__PURE__ */ zod.object({
+    revision: zod.number().min(notebooksAppQueriesCreateBodyRevisionMin),
+    variables: zod.array(
+        zod
+            .object({
+                name: zod
+                    .string()
+                    .max(notebooksAppQueriesCreateBodyVariablesItemNameMax)
+                    .describe('Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'),
+                type: zod
+                    .string()
+                    .describe(
+                        "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
+                    ),
+                value: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
+                    ),
+            })
+            .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+    ),
 })
 
 /**
@@ -1416,6 +1656,9 @@ export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemTitleMax = 256
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemWidthDefault = 12
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemWidthMax = 12
 
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemHeightMin = 120
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemHeightMax = 1600
+
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemNodeIdDefault = ``
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemNodeIdMax = 160
 
@@ -1456,6 +1699,9 @@ export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemTitleMax =
 
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemWidthDefault = 12
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemWidthMax = 12
+
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemHeightMin = 120
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemHeightMax = 1600
 
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemNodeIdDefault = ``
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemNodeIdMax = 160
@@ -1510,7 +1756,7 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -1525,6 +1771,7 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -1586,6 +1833,12 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemWidthMax)
                                 .default(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemHeightMin)
+                                .max(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemNodeIdMax)
@@ -1706,6 +1959,12 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemWidthMax)
                                 .default(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemHeightMin)
+                                .max(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemNodeIdMax)
@@ -1764,9 +2023,7 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksKernelExecuteCreateBodyAppRevisionMin)
@@ -1834,6 +2091,9 @@ export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemTitleMax = 256
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemWidthDefault = 12
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemWidthMax = 12
 
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemHeightMin = 120
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemHeightMax = 1600
+
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemNodeIdDefault = ``
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemNodeIdMax = 160
 
@@ -1874,6 +2134,9 @@ export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemTitleMax =
 
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemWidthDefault = 12
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemWidthMax = 12
+
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemHeightMin = 120
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemHeightMax = 1600
 
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemNodeIdDefault = ``
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemNodeIdMax = 160
@@ -1928,7 +2191,7 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -1943,6 +2206,7 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -2004,6 +2268,12 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemWidthMax)
                                 .default(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemHeightMin)
+                                .max(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemNodeIdMax)
@@ -2124,6 +2394,12 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemWidthMax)
                                 .default(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemHeightMin)
+                                .max(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemNodeIdMax)
@@ -2182,9 +2458,7 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksKernelRestartCreateBodyAppRevisionMin)
@@ -2223,6 +2497,9 @@ export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemTitleMax = 256
 
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemWidthDefault = 12
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemWidthMax = 12
+
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemHeightMin = 120
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemHeightMax = 1600
 
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemNodeIdDefault = ``
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemNodeIdMax = 160
@@ -2264,6 +2541,9 @@ export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemTitleMax = 2
 
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemWidthDefault = 12
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemWidthMax = 12
+
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemHeightMin = 120
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemHeightMax = 1600
 
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemNodeIdDefault = ``
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemNodeIdMax = 160
@@ -2318,7 +2598,7 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -2333,6 +2613,7 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -2394,6 +2675,12 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStartCreateBodyAppDraftOneBlocksItemWidthMax)
                                 .default(notebooksKernelStartCreateBodyAppDraftOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksKernelStartCreateBodyAppDraftOneBlocksItemHeightMin)
+                                .max(notebooksKernelStartCreateBodyAppDraftOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksKernelStartCreateBodyAppDraftOneBlocksItemNodeIdMax)
@@ -2512,6 +2799,12 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemWidthMax)
                                 .default(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemHeightMin)
+                                .max(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemNodeIdMax)
@@ -2570,9 +2863,7 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksKernelStartCreateBodyAppRevisionMin)
@@ -2611,6 +2902,9 @@ export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemTitleMax = 256
 
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemWidthDefault = 12
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemWidthMax = 12
+
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemHeightMin = 120
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemHeightMax = 1600
 
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemNodeIdDefault = ``
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemNodeIdMax = 160
@@ -2652,6 +2946,9 @@ export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemTitleMax = 25
 
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemWidthDefault = 12
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemWidthMax = 12
+
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemHeightMin = 120
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemHeightMax = 1600
 
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemNodeIdDefault = ``
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemNodeIdMax = 160
@@ -2706,7 +3003,7 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -2721,6 +3018,7 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -2782,6 +3080,12 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStopCreateBodyAppDraftOneBlocksItemWidthMax)
                                 .default(notebooksKernelStopCreateBodyAppDraftOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksKernelStopCreateBodyAppDraftOneBlocksItemHeightMin)
+                                .max(notebooksKernelStopCreateBodyAppDraftOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksKernelStopCreateBodyAppDraftOneBlocksItemNodeIdMax)
@@ -2900,6 +3204,12 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemWidthMax)
                                 .default(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemHeightMin)
+                                .max(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemNodeIdMax)
@@ -2958,9 +3268,7 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksKernelStopCreateBodyAppRevisionMin)
@@ -2993,7 +3301,7 @@ export const NotebooksRunsCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -3076,7 +3384,7 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()

@@ -382,6 +382,103 @@ def test_child_tables_send_the_parent_identity_and_keep_parent_columns(
 
 
 @pytest.mark.parametrize(
+    ("schema", "response", "expected_operation", "expected_row"),
+    [
+        (
+            "registration_attachments",
+            {
+                "RegistrationAttachments": [
+                    {
+                        "RegistrationAttachmentArn": f"{REGISTRATION}-attachment",
+                        "RegistrationAttachmentId": "attachment-1",
+                        "AttachmentStatus": "UPLOAD_FAILED",
+                        "AttachmentUploadErrorReason": "INTERNAL_ERROR",
+                        "CreatedTimestamp": 1700000000,
+                    }
+                ]
+            },
+            "DescribeRegistrationAttachments",
+            {
+                "registration_attachment_arn": f"{REGISTRATION}-attachment",
+                "registration_attachment_id": "attachment-1",
+                "attachment_status": "UPLOAD_FAILED",
+                "attachment_upload_error_reason": "INTERNAL_ERROR",
+                "created_timestamp": datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC),
+            },
+        ),
+        (
+            "registration_type_definitions",
+            {
+                "RegistrationTypeDefinitions": [
+                    {
+                        "RegistrationType": "US_TEN_DLC_BRAND_REGISTRATION",
+                        "SupportedAssociations": [
+                            {"ResourceType": "PHONE_NUMBER", "AssociationBehavior": "ASSOCIATE_AFTER_COMPLETE"}
+                        ],
+                        "DisplayHints": {"Title": "Example brand registration"},
+                    }
+                ]
+            },
+            "DescribeRegistrationTypeDefinitions",
+            {
+                "registration_type": "US_TEN_DLC_BRAND_REGISTRATION",
+                "supported_associations": [
+                    {"ResourceType": "PHONE_NUMBER", "AssociationBehavior": "ASSOCIATE_AFTER_COMPLETE"}
+                ],
+                "display_hints": {"Title": "Example brand registration"},
+            },
+        ),
+        (
+            "rcs_agents",
+            {
+                "RcsAgents": [
+                    {
+                        "RcsAgentArn": "arn:aws:sms-voice:us-east-1:123456789012:rcs-agent/agent-1",
+                        "Status": "TESTING",
+                        "TwoWayMediaS3BucketName": "example-bucket",
+                        "MessagingLimits": {"RateLimits": {"RCS": 10}},
+                    }
+                ]
+            },
+            "DescribeRcsAgents",
+            {
+                "rcs_agent_arn": "arn:aws:sms-voice:us-east-1:123456789012:rcs-agent/agent-1",
+                "status": "TESTING",
+                "two_way_media_s3_bucket_name": "example-bucket",
+                "messaging_limits": {"RateLimits": {"RCS": 10}},
+            },
+        ),
+        (
+            "notify_configurations",
+            {
+                "NotifyConfigurations": [
+                    {
+                        "NotifyConfigurationArn": "arn:aws:sms-voice:us-east-1:123456789012:notify-configuration/nc-1",
+                        "EnabledChannels": ["SMS", "VOICE"],
+                        "Tier": "BASIC",
+                    }
+                ]
+            },
+            "DescribeNotifyConfigurations",
+            {
+                "notify_configuration_arn": "arn:aws:sms-voice:us-east-1:123456789012:notify-configuration/nc-1",
+                "enabled_channels": ["SMS", "VOICE"],
+                "tier": "BASIC",
+            },
+        ),
+    ],
+)
+def test_account_tables_call_their_operation_and_read_their_result_key(
+    schema: str, response: dict[str, Any], expected_operation: str, expected_row: dict[str, Any]
+) -> None:
+    result = _driver().run(schema, [ScriptedResponse(json=response)])
+
+    assert result.raised is None
+    assert _calls(result.requests) == [(expected_operation, {"MaxResults": 100})]
+    assert result.rows == [expected_row]
+
+
+@pytest.mark.parametrize(
     ("schema", "state", "script", "expected_calls"),
     [
         (

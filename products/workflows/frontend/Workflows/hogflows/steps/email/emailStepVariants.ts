@@ -12,7 +12,15 @@ export type OwnEmailAction = Extract<HogFlowAction, { type: 'function_email' }>
 export type SandboxEmailAction = Extract<HogFlowAction, { type: 'email_sandbox' }>
 export type EmailStepAction = OwnEmailAction | SandboxEmailAction
 
-export type OwnOnlySetting = 'sender_override' | 'several_senders' | 'reply_to' | 'cc_bcc' | 'tracking_off' | 'utm_tags'
+export type OwnOnlySetting =
+    | 'sender_override'
+    | 'several_senders'
+    | 'reply_to'
+    | 'cc_bcc'
+    | 'tracking_off'
+    | 'click_tracking_off'
+    | 'utm_tags'
+    | 'run_link_tag_off'
 
 type EmailValue = Record<string, any>
 type Templating = 'hog' | 'liquid'
@@ -32,7 +40,7 @@ export function needsSandboxSender(
     return (
         canAdoptSandbox &&
         action.type === 'function_email' &&
-        sandboxTakesStepId(action) &&
+        sandboxCanTake(action) &&
         !action.config.inputs?.email?.value?.from?.integrationId &&
         ownOnlySettings(action).every(
             (setting) =>
@@ -43,8 +51,9 @@ export function needsSandboxSender(
     )
 }
 
-export function sandboxTakesStepId(action: Pick<HogFlowAction, 'id'>): boolean {
-    return SANDBOX_STEP_ID.test(action.id)
+/** A sensitive step stays on an own sender: the sandbox step has no `sensitive` setting, so its email would be stored. */
+export function sandboxCanTake(action: HogFlowAction): boolean {
+    return SANDBOX_STEP_ID.test(action.id) && !(action.type === 'function_email' && action.config.sensitive)
 }
 
 export function sandboxSenderAllowed(workflow: Pick<HogFlow, 'origin_product'>, editingTemplate: boolean): boolean {
@@ -119,26 +128,17 @@ export function withSandboxEmail(action: SandboxEmailAction, edit: EmailValue): 
 export function ownOnlySettings(action: OwnEmailAction): OwnOnlySetting[] {
     const value: EmailValue = action.config.inputs?.email?.value ?? {}
     const from: EmailValue = value.from ?? {}
-    const settings: OwnOnlySetting[] = []
-    if (from.email || from.name) {
-        settings.push('sender_override')
-    }
-    if ((from.integrationIds?.length ?? 0) > 1) {
-        settings.push('several_senders')
-    }
-    if (value.replyTo) {
-        settings.push('reply_to')
-    }
-    if (value.cc || value.bcc) {
-        settings.push('cc_bcc')
-    }
-    if (action.config.tracking_enabled === false) {
-        settings.push('tracking_off')
-    }
-    if (action.config.utm_tags_enabled) {
-        settings.push('utm_tags')
-    }
-    return settings
+    const held: [OwnOnlySetting, boolean][] = [
+        ['sender_override', !!(from.email || from.name)],
+        ['several_senders', (from.integrationIds?.length ?? 0) > 1],
+        ['reply_to', !!value.replyTo],
+        ['cc_bcc', !!(value.cc || value.bcc)],
+        ['tracking_off', action.config.tracking_enabled === false],
+        ['click_tracking_off', action.config.click_tracking_enabled === false],
+        ['utm_tags', !!action.config.utm_tags_enabled],
+        ['run_link_tag_off', action.config.run_link_tag_enabled === false],
+    ]
+    return held.filter(([, isHeld]) => isHeld).map(([setting]) => setting)
 }
 
 function categoryOf(config: EmailValue): EmailValue {

@@ -1,4 +1,5 @@
 import re
+import sys
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Optional
@@ -22,6 +23,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+    ClickHouseUDFTimeOut,
 )
 
 
@@ -82,8 +84,39 @@ class ErrorCodeMeta:
         return self.name.replace("_", " ").title().replace(" ", "")
 
 
+_HTTP_CLIENT_ERROR_CODE = re.compile(r"\b[Cc]ode: ([0-9]{1,6})\b")
+_HTTP_CLIENT_RESPONSE_PREFIX = "server response: "
+_HTTP_CLIENT_URL_SUFFIX = re.compile(r"\s*\(for url [^)]*\)\s*$")
+_SERVER_CODE_PREFIX = re.compile(r"^Code: [0-9]{1,6}\.\s*")
+
+
+def _server_exception_from_http_client_error(err: Exception) -> ServerException | None:
+    """Rebuild a clickhouse_connect error as the native driver's ServerException.
+
+    The HTTP client (ProxyClient) raises clickhouse_connect errors that carry the ClickHouse code only
+    in the message text, for example "Received ClickHouse exception, code: 394, server response: Code:
+    394. DB::Exception: ...". Rebuilding them lets both clients share one code mapping.
+    """
+    # Importing clickhouse_connect loads pandas, so do not import it here. If the module is not
+    # loaded, no HTTP client ran and the error cannot come from it.
+    exceptions = sys.modules.get("clickhouse_connect.driver.exceptions")
+    if exceptions is None or not isinstance(err, (exceptions.DatabaseError, exceptions.StreamFailureError)):
+        return None
+    text = str(err)
+    code_match = _HTTP_CLIENT_ERROR_CODE.search(text)
+    if code_match is None:
+        return None
+    _, has_prefix, response = text.partition(_HTTP_CLIENT_RESPONSE_PREFIX)
+    if not has_prefix:
+        response = text
+    # The URL holds the cluster host, so it stays out of the message.
+    message = _SERVER_CODE_PREFIX.sub("", _HTTP_CLIENT_URL_SUFFIX.sub("", response).strip())
+    return ServerException(message, int(code_match.group(1)))
+
+
 def clickhouse_error_type(e: Exception) -> str:
     "Provide a ClickHouse error type for observability"
+    e = _server_exception_from_http_client_error(e) or e
     if not isinstance(e, ServerException):
         return type(e).__name__
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
@@ -93,8 +126,10 @@ CSV_ROW_NUMBER_PATTERN = re.compile(r"\(at row ([0-9]{1,19})\)")
 _ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
 _WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 _SIMPLE_CLICKHOUSE_TYPE = re.compile(
-    r"U?Int(?:8|16|32|64|128|256)|Float(?:32|64)|String|Bool|Date(?:32|Time64|Time)?|UUID|Array|Tuple|Map|Nothing|IPv[46]"
+    r"U?Int(?:8|16|32|64|128|256)|Float(?:32|64)|(?:Fixed)?String|Bool|Date(?:32|Time64|Time)?|UUID|Array|Tuple|Map|Nothing|IPv[46]"
 )
+# ClickHouse rewrites HogQL's `trim(x)` to `trimBoth(x)`, a name HogQL doesn't expose.
+_HOGQL_NAMES_OF_CLICKHOUSE_FUNCTIONS = {"trimBoth": "trim"}
 BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"\bBad get: has (?P<actual>[A-Za-z][A-Za-z0-9_]{0,63}), "
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
@@ -109,6 +144,14 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "yourself). Contact support if that doesn't fix it."
 )
 
+S3_ACCESS_DENIED_MESSAGE = (
+    "Access was denied when reading a file from the bucket. "
+    "Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again."
+)
+# A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
+# A bare "Access Denied" would also match a denied bucket listing, which needs s3:ListBucket instead.
+_S3_ACCESS_DENIED_NEEDLES = ("Access Denied: while reading key:", "HTTP response code: 403")
+
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     return CHQueryErrorS3FileChangedDuringRead(
@@ -116,6 +159,16 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
         code=err.code,
         code_name=CHQueryErrorS3FileChangedDuringRead.public_code,
     )
+
+
+def _wrap_s3_access_denied_error(err: ServerException) -> "CHQueryErrorS3AccessDenied":
+    wrapped = CHQueryErrorS3AccessDenied(
+        CHQueryErrorS3AccessDenied.public_message,
+        code=err.code,
+        code_name=CHQueryErrorS3AccessDenied.public_code,
+    )
+    wrapped.raw_message = err.message
+    return wrapped
 
 
 def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalformedCsvRow":
@@ -151,13 +204,57 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
     return CHQueryErrorBadGet(message, code=err.code, code_name="bad_get")
 
 
+def _public_operand_type(raw_type: str) -> str | None:
+    type_name = raw_type.strip("`")
+    wrapper = re.fullmatch(r"(?:Array|Nullable|LowCardinality)\(([A-Za-z0-9]+)\)", type_name)
+    if wrapper and _SIMPLE_CLICKHOUSE_TYPE.fullmatch(wrapper[1]):
+        return type_name
+    family = type_name.partition("(")[0]
+    return family if _SIMPLE_CLICKHOUSE_TYPE.fullmatch(family) else None
+
+
+def _comparison_type_message(message: str) -> str | None:
+    operand = r"(`[^`\n]{1,256}`|[A-Za-z0-9]+)"
+    pair = re.search(rf"\bIllegal types of arguments \({operand}, {operand}\) of function `?([A-Za-z]+)\b", message)
+    if not pair:
+        return None
+    from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
+
+    operator = HOGQL_COMPARISON_MAPPING.get(pair[3])
+    left, right = _public_operand_type(pair[1]), _public_operand_type(pair[2])
+    if operator and left and right:
+        return f"The {operator} operator cannot compare {left} and {right}. Use compatible types on both sides of the comparison."
+    return None
+
+
 def _argument_type_message(message: str, fallback: str) -> str:
+    message = re.split(
+        r": In scope\b|[.:] While (?:processing|executing)\b|Stack trace:", message, maxsplit=1, flags=re.I
+    )[0]
+    if comparison := _comparison_type_message(message):
+        return comparison
     subject = "The function"
-    if match := re.search(r"\bof (?:aggregate )?function ([A-Za-z][A-Za-z0-9_]{0,63})\b", message):
+    if match := re.search(r"\b(?:of|for|to) (?:aggregate )?function [`']?([A-Za-z][A-Za-z0-9_]{0,63})\b", message):
         from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function
 
-        if find_hogql_function(match[1]) or find_hogql_aggregation(match[1]):
-            subject = f"`{match[1]}`"
+        name = _HOGQL_NAMES_OF_CLICKHOUSE_FUNCTIONS.get(match[1], match[1])
+        if find_hogql_function(name) or find_hogql_aggregation(name):
+            subject = f"`{name}`"
+    argument = re.search(
+        r"as ([1-9][0-9]?(?:st|nd|rd|th)) argument '[^'\n]{1,64}' to function '[A-Za-z0-9_]+'\. "
+        r"Expected: ([^\n]{1,128}?), got: ([A-Za-z0-9_]+\(?)",  # a kept "(" hides Array(String) outside the date case
+        message,
+    )
+    if argument and subject != "The function":
+        position, expected, actual = argument.groups()
+        if expected == "Date[32] or DateTime[64]":
+            actual, advice = actual.removesuffix("("), "Use a date or date-time value."
+        elif all(_SIMPLE_CLICKHOUSE_TYPE.fullmatch(t) for t in expected.split(" or ")):
+            advice = f"Convert it to {expected}."
+        else:
+            advice = "Convert it to a type the function accepts."
+        if _SIMPLE_CLICKHOUSE_TYPE.fullmatch(actual):
+            return f"The {position} argument to {subject} has type {actual}. {advice}"
     pair = re.search(r"\bIllegal types ([A-Za-z0-9]+)(?:\([^()\n]{0,128}\))? and ([A-Za-z0-9]+)\b", message)
     if pair and all(_SIMPLE_CLICKHOUSE_TYPE.fullmatch(t) for t in pair.groups()):
         return (
@@ -249,10 +346,25 @@ def _user_caused_not_implemented_message(raw_message: str) -> str | None:
     return None
 
 
+_FUNNEL_UDF_FAILED = re.compile(r"User defined function '?aggregate_funnel\w*'? failed")
+_INNER_TIMEOUT = re.compile(r"\bCode: 159\b|\(TIMEOUT_EXCEEDED\)")
+
+
+def _is_udf_timeout(name: str, raw_message: str) -> bool:
+    # A funnel UDF (aggregate_funnel_*) that times out raises UDF_EXECUTION_FAILED with the inner
+    # TIMEOUT_EXCEEDED error in the message. Other executable UDFs, such as JSONDropKeysPool, stay internal.
+    return (
+        name == "UDF_EXECUTION_FAILED"
+        and _FUNNEL_UDF_FAILED.search(raw_message) is not None
+        and _INNER_TIMEOUT.search(raw_message) is not None
+    )
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if isinstance(err, UnknownTypeError):
         return _wrap_unknown_type_error(err)
+    err = _server_exception_from_http_client_error(err) or err
     if not isinstance(err, ServerException):
         return err
 
@@ -270,6 +382,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return ClickHouseAtCapacity()
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
+    elif _is_udf_timeout(name, raw_message):
+        return ClickHouseUDFTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
         # Match the known per-query phrasings ("Memory limit (for query) exceeded" before
         # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
@@ -297,6 +411,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "S3_ERROR":
         if "The requested range is not satisfiable" in raw_message:
             return _wrap_storage_file_changed_error(err)
+        if any(needle in raw_message for needle in _S3_ACCESS_DENIED_NEEDLES):
+            return _wrap_s3_access_denied_error(err)
         return CHQueryErrorS3Error(f"S3 error occurred. ({raw_message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in raw_message and "(in file/uri" in raw_message:
         return _wrap_storage_file_changed_error(err)
@@ -355,6 +471,7 @@ def look_up_clickhouse_error_code_meta(error: ClickHouseDriverError) -> ErrorCod
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    e = _server_exception_from_http_client_error(e) or e
     if isinstance(e, ServerException):
         meta = look_up_clickhouse_error_code_meta(e)
         # NOT_IMPLEMENTED is a user error only for the allowlisted message shapes. A wrapped error has
@@ -364,6 +481,8 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
             isinstance(e, CHQueryErrorNotImplemented) or _user_caused_not_implemented_message(e.message or "")
         ):
             return QueryErrorCategory.USER_ERROR
+        if _is_udf_timeout(meta.name, e.message or ""):
+            return QueryErrorCategory.QUERY_PERFORMANCE_ERROR
         return meta.get_category()
 
     # Cluster-wide / per-user memory pressure is transient capacity, not a problem with this query,
@@ -403,6 +522,18 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
         "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
         "upload new files and delete old ones instead."
     )
+
+
+class CHQueryErrorS3AccessDenied(ExposedCHQueryError):
+    """The bucket behind a warehouse table refused to let ClickHouse read a file."""
+
+    public_code = "s3_access_denied"
+    public_message = S3_ACCESS_DENIED_MESSAGE
+    # The message is replaced with fixed copy, so warehouse table checks match on this instead.
+    raw_message: str | None = None
+
+
+_EXPOSED_S3_ERRORS = (CHQueryErrorS3FileChangedDuringRead, CHQueryErrorS3AccessDenied)
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
@@ -624,7 +755,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     ),
     43: ErrorCodeMeta(
         "ILLEGAL_TYPE_OF_ARGUMENT",
-        user_safe="A function cannot use an argument of this type. Check the function signature and cast the argument to the expected type.",
+        user_safe="A function or operator received an incompatible type. Run each expression separately and use "
+        "toTypeName(expression) to check the type of each input.",
     ),
     44: ErrorCodeMeta(
         "ILLEGAL_COLUMN",
@@ -1515,8 +1647,9 @@ def internal_ch_error_user_message(code_name: str | None) -> str | None:
     """Translate a stored status code. Statuses from other query engines share this field."""
     if not code_name:
         return None
-    if code_name.lower() == CHQueryErrorS3FileChangedDuringRead.public_code:
-        return CHQueryErrorS3FileChangedDuringRead.public_message
+    for exposed_s3_error in _EXPOSED_S3_ERRORS:
+        if code_name.lower() == exposed_s3_error.public_code:
+            return exposed_s3_error.public_message
     meta = _CH_ERRORS_BY_NAME.get(code_name.upper())
     if meta is None:
         if not re.fullmatch(r"clickhouse_[0-9]{1,10}", code_name):
@@ -1549,7 +1682,7 @@ def error_code_from_type(error: BaseException) -> str:
 
     A ClickHouse error gets its error name. Any other error gets `unhandled_<exception class>`.
     """
-    if isinstance(error, CHQueryErrorS3FileChangedDuringRead):
+    if isinstance(error, _EXPOSED_S3_ERRORS):
         return error.public_code
     if isinstance(error, ClickHouseDriverError):
         meta = look_up_clickhouse_error_code_meta(error)

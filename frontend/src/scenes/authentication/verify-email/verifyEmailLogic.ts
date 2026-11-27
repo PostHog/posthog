@@ -71,11 +71,11 @@ export interface VerificationResultType {
     uuid?: string
 }
 
-// Pinned: the deep-link login views send these exact values as the `reason` search param
-// (ee/partners/stripe/api/provisioning/constants.py, ee/api/agentic_provisioning/constants.py).
-export type VerifyEmailReason = 'stripe_deep_link' | 'partner_deep_link'
+// Pinned: the deep-link and Vercel SSO login views send these exact values as the `reason` search param
+// (ee/partners/stripe/api/provisioning/constants.py, ee/api/agentic_provisioning/constants.py, ee/vercel/integration.py).
+export type VerifyEmailReason = 'stripe_deep_link' | 'partner_deep_link' | 'vercel_sso'
 
-const VERIFY_EMAIL_REASONS: VerifyEmailReason[] = ['stripe_deep_link', 'partner_deep_link']
+const VERIFY_EMAIL_REASONS: VerifyEmailReason[] = ['stripe_deep_link', 'partner_deep_link', 'vercel_sso']
 
 const parseVerifyEmailReason = (value: unknown): VerifyEmailReason | null =>
     VERIFY_EMAIL_REASONS.find((reason) => reason === value) ?? null
@@ -232,6 +232,10 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         }
                         if (e.code === 'throttled') {
                             lemonToast.error('You have requested a new code too many times. Please try again later.')
+                            return false
+                        }
+                        if (e.code === 'email_verification_code_undeliverable') {
+                            lemonToast.error(e.detail)
                             return false
                         }
                         lemonToast.error('Requesting a new code failed. Please try again later or contact support.')

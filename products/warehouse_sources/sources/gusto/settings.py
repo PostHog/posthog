@@ -23,6 +23,11 @@ class GustoEndpointConfig:
     extra_params: dict[str, str] | None = None
     # Rows nested under this key in the response body (None = the body is the array itself).
     data_key: str | None = None
+    # Each parent is requested once per entry, with the entry as query parameters. Rows that lack a
+    # parameter get it from the entry.
+    query_variants: tuple[dict[str, str], ...] | None = None
+    # Partner-level endpoints authenticate with a system access token instead of the company token.
+    system_access: bool = False
 
 
 # Fan-out parent endpoint -> the path placeholder its uuid fills. The child rows carry the parent
@@ -164,6 +169,25 @@ GUSTO_ENDPOINTS: dict[str, GustoEndpointConfig] = {
         # The default is newest start date first; ascending puts new (mostly future) requests on
         # the last page instead of shifting every page mid-walk.
         extra_params={"sort_order": "asc"},
+    ),
+    "time_off_activities": GustoEndpointConfig(
+        name="time_off_activities",
+        path="/v1/employees/{employee_uuid}/time_off_activities",
+        # Activities carry no identifier. The running balance after each activity separates two
+        # activities of the same kind at the same time.
+        primary_keys=["_employee_uuid", "time_off_type", "policy_uuid", "event_type", "effective_time", "balance"],
+        paginated=False,
+        fan_out_parent="employees",
+        # `time_off_type` is required, and Gusto accepts only these two values.
+        query_variants=({"time_off_type": "vacation"}, {"time_off_type": "sick"}),
+    ),
+    # Gusto keeps events for 30 days and offers no time filter, only a `starting_after_uuid` cursor,
+    # so the table is full refresh and holds the events Gusto still retains.
+    "events": GustoEndpointConfig(
+        name="events",
+        path="/v1/events",
+        primary_keys=["uuid"],
+        system_access=True,
     ),
 }
 

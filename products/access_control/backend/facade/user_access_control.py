@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Callable, Collection, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
@@ -81,7 +81,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "insight",
     "llm_analytics",
     "evaluation",
-    "tagger",
     "llm_skill",
     "ai_observability_clusters",
     "notebook",
@@ -1275,9 +1274,9 @@ class UserAccessControl:
         """The lowest level the stored rules on ``resources`` can give this user in this team.
 
         For a caller that copies access to a place that cannot follow PostHog's resolution, such as
-        a grant over a whole warehouse namespace. The floor holds under either resolution mode and
-        whether or not the organization is entitled to access control or roles. So a later change
-        to either can only raise what PostHog enforces above it, never drop it below.
+        a grant over a whole warehouse namespace. The floor holds whether or not the
+        organization is entitled to access control or roles. So a later change to either can only
+        raise what PostHog enforces above it, never drop it below.
 
         Each scope (the resource, or one object) contributes its lowest candidate row. The
         candidates are the user's member rows, if the scope has any. Otherwise they are the rows of
@@ -1575,10 +1574,7 @@ class UserAccessControl:
         return self.object_ids_matching(resources, lambda ac: ac.access_level == NO_ACCESS_LEVEL)
 
     def filter_and_annotate_file_system_queryset(
-        self,
-        queryset: QuerySet["FileSystem"],
-        extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None,
-        resolved_types: Collection[str] = (),
+        self, queryset: QuerySet["FileSystem"], extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None
     ) -> QuerySet["FileSystem"]:
         """
         Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
@@ -1660,8 +1656,6 @@ class UserAccessControl:
             if refs:
                 denied |= Q(team_id=team_id, type=entry_type, ref__in=refs)
 
-        if resolved_types:
-            denied &= ~Q(type__in=resolved_types)
         queryset = queryset.exclude(denied & Q(is_project_admin=False) & ~Q(created_by=user))
 
         return queryset

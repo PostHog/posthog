@@ -350,13 +350,13 @@ describe('llmSkillLogic', () => {
             )
         })
 
-        it('caps a folder drop at 200 files and says so instead of silently failing on publish', async () => {
-            await upload(Array.from({ length: 205 }, (_, i) => asUpload(`content ${i}`, `references/file-${i}.txt`)))
+        it('caps a folder drop at 500 files and says so instead of silently failing on publish', async () => {
+            await upload(Array.from({ length: 505 }, (_, i) => asUpload(`content ${i}`, `references/file-${i}.txt`)))
 
-            expect(logic.values.skillForm.files).toHaveLength(200)
-            expect(logic.values.skillForm.files[199].path).toBe('references/file-199.txt')
+            expect(logic.values.skillForm.files).toHaveLength(500)
+            expect(logic.values.skillForm.files[499].path).toBe('references/file-499.txt')
             expect(jest.mocked(lemonToast.error)).toHaveBeenCalledWith(
-                "Some files weren't added: a skill can have at most 200 bundled files"
+                "Some files weren't added: a skill can have at most 500 bundled files"
             )
         })
     })

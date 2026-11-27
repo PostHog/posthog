@@ -776,6 +776,16 @@ CREATE TABLE posthog.sharded_platform_alert_events (
   source_kind LowCardinality(String),
   expires_at Date DEFAULT today() + toIntervalDay(90)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.platform_alert_events', '{replica}-{shard}') PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at) ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key) PARTITION BY toYYYYMM(occurred_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_series_values_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  time_window_end DateTime64(6, 'UTC'),
+  series_key String,
+  value Float64,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.series_values_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, series_key, time_window_start) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_usage_report_events_preagg (
   date Date,
   team_id Int64,
@@ -868,15 +878,17 @@ CREATE TABLE posthog.sharded_web_bounces_dimensional_preaggregated (
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
   channel_type LowCardinality(String),
+  session_hosts Array(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
   bounces_count_state AggregateFunction(sum, Int64),
   total_session_duration_state AggregateFunction(sum, Int64),
   total_session_count_state AggregateFunction(sum, Int64),
+  bounce_eligible_sessions_state AggregateFunction(sum, Int64),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_bounces_dimensional_preaggregated', '{replica}', computed_at) PRIMARY KEY (team_id, job_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn) ORDER BY (team_id, job_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn, channel_type) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS allow_nullable_key = 1, index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_bounces_dimensional_preaggregated', '{replica}', computed_at) PRIMARY KEY (team_id, job_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn) ORDER BY (team_id, job_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn, channel_type, session_hosts) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS allow_nullable_key = 1, index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_web_goals_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -1070,12 +1082,14 @@ CREATE TABLE posthog.web_bounces_dimensional_preaggregated (
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
   channel_type LowCardinality(String),
+  session_hosts Array(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
   bounces_count_state AggregateFunction(sum, Int64),
   total_session_duration_state AggregateFunction(sum, Int64),
   total_session_count_state AggregateFunction(sum, Int64),
+  bounce_eligible_sessions_state AggregateFunction(sum, Int64),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_bounces_dimensional_preaggregated', sipHash64(job_id));
@@ -1895,6 +1909,16 @@ CREATE TABLE posthog.platform_alert_events (
   source_kind LowCardinality(String),
   expires_at Date DEFAULT today() + toIntervalDay(90)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
+CREATE TABLE posthog.series_values_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  time_window_end DateTime64(6, 'UTC'),
+  series_key String,
+  value Float64,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_series_values_preaggregated', sipHash64(job_id));
 CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
 FROM posthog.custom_metrics_test
 UNION ALL

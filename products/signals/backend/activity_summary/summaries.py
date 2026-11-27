@@ -1,7 +1,6 @@
 """The LLM step of an activity summary update: one call, its tokens and its cost.
 
-The call goes through `build_openai_client`, so the deployment picks the gateway: the Go AI gateway
-when its settings are set, else the Python gateway on the `signals` route.
+The call goes through `build_openai_client`, which routes it to the Go AI gateway.
 """
 
 import time
@@ -126,7 +125,6 @@ def gateway_client(team_id: int, user_id: int, as_of: datetime.date, *, variant:
     """`variant` keeps the trace of another build of the same pair and day, such as a backfill, apart."""
     seed = f"{AI_PRODUCT}:{team_id}:{user_id}:{as_of.isoformat()}"
     return build_openai_client(
-        "signals",
         ai_product=AI_PRODUCT,
         trace_id=trace_id_from_seed(f"{seed}:{variant}" if variant else seed),
         properties={"team_id": str(team_id)},

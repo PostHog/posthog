@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
+    error_message_matches,
     scripted_network,
     source_inputs,
 )
@@ -174,6 +175,25 @@ class TestZohoCRMClient:
             with pytest.raises(RESTClientNonRetryableError):
                 client.mint_access_token()
 
+    @pytest.mark.parametrize("status", [500, 502, 503, 504])
+    def test_token_exchange_retries_a_transient_5xx(self, status: int) -> None:
+        with scripted_network(_script([], tokens=[_response(status), _token_response()])) as network:
+            token = _client().mint_access_token()
+
+        assert token == "access-token"
+        assert [request.path for request in network.requests_log].count(_TOKEN_PATH) == 2
+
+    @pytest.mark.parametrize("status", [500, 502, 503, 504])
+    def test_token_exchange_5xx_after_retries_is_retryable_not_non_retryable(self, status: int) -> None:
+        source = ZohoCRMSource()
+        with scripted_network(_script([], tokens=[_response(status)] * 4)):
+            with pytest.raises(HTTPError) as exc_info:
+                _client().mint_access_token()
+
+        message = str(exc_info.value)
+        assert error_message_matches(message, source.get_retryable_errors())
+        assert not error_message_matches(message, source.get_non_retryable_errors())
+
     def test_remints_once_on_401_and_replays_the_request(self) -> None:
         with scripted_network(
             _script([_response(401), _response(200, {"data": []})], tokens=[_token_response(), _token_response()])
@@ -189,7 +209,10 @@ class TestZohoCRMClient:
         with scripted_network(_script([])) as network:
             ZohoCRMClient("us", "cid", "secret-value", "refresh-value")
 
-        assert network.session_options == [{"redact_values": ("secret-value", "refresh-value"), "capture": False}]
+        assert [
+            {"redact_values": options["redact_values"], "capture": options["capture"]}
+            for options in network.session_options
+        ] == [{"redact_values": ("secret-value", "refresh-value"), "capture": False}]
 
 
 class TestReadableFieldNames:

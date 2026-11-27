@@ -7,7 +7,7 @@ import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
 import { PublishSettlement } from '../../intake/intake-producer'
-import { Claim, Committed, Produced, Recalled, Run, RunIntake, keyedRunId } from '../../intake/run-intake'
+import { Claim, Produced, Run, RunIntake, keyedRunId } from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import {
     CyclotronJobInvocation,
@@ -20,11 +20,10 @@ import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filte
 import { createCanceledInvocationResult } from '../../utils/invocation-utils'
 import type { CyclotronV2JobProducer } from '../cyclotron-v2'
 import { StateOpener, v2JobToInvocation } from '../cyclotron-v2/job-codec'
-import { isLockTimeout } from '../cyclotron-v2/manager'
 import type { InvocationResultsService } from '../invocation-results.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
-import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
+import { EMAIL_QUEUE_PRIORITY } from '../messaging/email-priority'
 import {
     EmailSkipReason,
     EmailStatusService,
@@ -37,7 +36,6 @@ import {
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { CodeSendSender, SandboxCodeSendRefusal, senderOfCodeSend } from '../messaging/sandbox/sandbox-code-send'
-import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { EmailStep, FilesWorkflowShape } from './files-workflow-shape'
 import { createHogFlowInvocation } from './hogflow-executor.service'
 import type { HogFlowManagerService } from './hogflow-manager.service'
@@ -56,7 +54,6 @@ const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
-const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 const RUN_SCOPE = 'transactional-email'
 export const FINGERPRINT_PURPOSE = 'transactional_email_idempotency_fingerprint'
 const ASYNC_REFUSAL_BUDGET_MS = 1_000
@@ -109,7 +106,7 @@ const transactionalEmailFingerprint = (
         ? [
               ...request,
               ACCEPTED_SEND_FINGERPRINT_MARKER,
-              { ...send, from: senderTheCallerChose(send.from) },
+              { ...send, from: senderTheCallerChose(send.from), category: send.category?.id },
               ...schedule,
           ]
         : [...request, ...schedule]
@@ -187,7 +184,6 @@ export type TransactionalSendsDeps = {
     siteUrl: string
     encryptedFields: EncryptedFields
     runIntake: RunIntake
-    invocationResultsRows: HogInvocationResultsService
     emailStatus: EmailStatusService
     teamWorkflowsConfig: TeamWorkflowsConfigService
     emailSuppression: EmailSuppressionService
@@ -288,18 +284,7 @@ export class TransactionalSends {
             return null
         }
         stages.start('idempotency')
-        const isAsync = this.deps.runIntake.modeOf(teamId) === 'async'
-        let recalled: Recalled
-        try {
-            recalled = isAsync
-                ? await this.deps.runIntake.recallWithin(claim, 'transactional-email')
-                : await this.deps.runIntake.recall(claim)
-        } catch (error) {
-            logger.error('🔑', 'Transactional email claim lookup failed', {
-                error: error instanceof Error ? error.message : String(error),
-            })
-            return { outcome: 'idempotency_unavailable' }
-        }
+        const recalled = await this.deps.runIntake.recallWithin(claim, 'transactional-email')
         if (recalled.status === 'absent') {
             return null
         }
@@ -351,8 +336,6 @@ export class TransactionalSends {
         const run: Run = claim
             ? { kind: 'transactional-email', invocation, claim: { fingerprint: claim.fingerprint } }
             : { kind: 'transactional-email', invocation }
-        // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer.
-        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async'
         if (sender.kind === 'refused') {
             return { outcome: sender.refusal }
         }
@@ -369,108 +352,60 @@ export class TransactionalSends {
             return { refused: { status: 400, body: shape.refused } }
         }
         let attachmentTotals = NO_ATTACHMENTS
-        let committed: Committed
-        try {
-            stages.start('checks')
-            const recipients = transactionalEmailRecipients(request)
-            const refusal = tooFarAhead
-                ? 'invalid_scheduled_at'
-                : isAsync
-                  ? await this.refusalWithinBudget(team.id, hogFlow, recipients, senderKind)
-                  : await this.refusal(team.id, hogFlow, recipients, senderKind)
-            if (refusal) {
-                if (isSkippedSendRefusal(refusal)) {
-                    this.deps.emailStatus.queueRefusedSend({
-                        teamId: team.id,
-                        messageId: invocation.id,
-                        recipient: to,
-                        functionId: hogFlow.id,
-                        reason: refusal,
-                        messageCreatedAt: messageCreatedAtOf(invocation.state.event),
-                    })
-                    void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, invocation.id))
-                }
-                return { outcome: refusal }
+        stages.start('checks')
+        const recipients = transactionalEmailRecipients(request)
+        const refusal = tooFarAhead
+            ? 'invalid_scheduled_at'
+            : await this.refusalWithinBudget(team.id, hogFlow, recipients, senderKind)
+        if (refusal) {
+            if (isSkippedSendRefusal(refusal)) {
+                this.deps.emailStatus.queueRefusedSend({
+                    teamId: team.id,
+                    messageId: invocation.id,
+                    recipient: to,
+                    functionId: hogFlow.id,
+                    reason: refusal,
+                    messageCreatedAt: messageCreatedAtOf(invocation.state.event),
+                })
+                void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, invocation.id))
             }
-            if (send?.attachments?.length && shape) {
-                stages.start('attachments')
-                const accepted = await this.deps.attachmentUploads.acceptSend(
-                    team.id,
-                    send.attachments.map((ref) => ({
-                        sha256: ref.sha256,
-                        filename: ref.filename,
-                        contentType: ref.content_type,
-                        contentId: ref.content_id,
-                    })),
-                    (deadline) => files.sizeMessageBodies(invocation, shape.emailStep, deadline),
-                    files.deadline,
-                    latestDueAt
-                )
-                if ('refused' in accepted) {
-                    return { refused: accepted.refused }
-                }
-                invocation.state.send = { ...invocation.state.send!, attachments: accepted.accepted.files }
-                attachmentTotals = {
-                    attachment_count: accepted.accepted.files.length,
-                    attachment_bytes: accepted.accepted.attachmentBytes,
-                }
-            }
-            invocation.state.statusAt = statusAt.toISOString()
-            if (run.claim) {
-                run.claim.reply = {
-                    replayFields: attachmentTotals,
-                    scheduledAt: scheduledAt?.toISOString(),
-                    senderKind,
-                } satisfies QueuedReply
-            }
-            if (isAsync) {
-                stages.start('intake_produce')
-                const produced = await this.deps.runIntake.produce(run, settlement)
-                return producedResult(produced, invocation.id, scheduledAt, attachmentTotals, senderKind)
-            }
-            stages.start('queue_insert')
-            committed = (await this.deps.runIntake.launch([run], { wait: 'committed', settlement }))[0]
-        } catch (error) {
-            if (isLockTimeout(error)) {
-                return { outcome: 'idempotency_unavailable' }
-            }
-            throw error
+            return { outcome: refusal }
         }
-        if (committed.outcome === 'mismatch' && !claimedBySameRequest(fingerprint, committed.claimedFingerprint)) {
-            return { outcome: 'idempotency_key_reused' }
+        if (send?.attachments?.length && shape) {
+            stages.start('attachments')
+            const accepted = await this.deps.attachmentUploads.acceptSend(
+                team.id,
+                send.attachments.map((ref) => ({
+                    sha256: ref.sha256,
+                    filename: ref.filename,
+                    contentType: ref.content_type,
+                    contentId: ref.content_id,
+                })),
+                (deadline) => files.sizeMessageBodies(invocation, shape.emailStep, deadline),
+                files.deadline,
+                latestDueAt
+            )
+            if ('refused' in accepted) {
+                return { refused: accepted.refused }
+            }
+            invocation.state.send = { ...invocation.state.send!, attachments: accepted.accepted.files }
+            attachmentTotals = {
+                attachment_count: accepted.accepted.files.length,
+                attachment_bytes: accepted.accepted.attachmentBytes,
+            }
         }
-        if (committed.outcome !== 'created') {
-            return {
-                outcome: 'replayed',
-                invocationId: committed.runId,
-                scheduledAt: scheduledAt?.toISOString() ?? null,
-                replyFields: attachmentTotals,
+        invocation.state.statusAt = statusAt.toISOString()
+        if (run.claim) {
+            run.claim.reply = {
+                replayFields: attachmentTotals,
+                scheduledAt: scheduledAt?.toISOString(),
                 senderKind,
-            }
+            } satisfies QueuedReply
         }
-        cdpEmailQueuedTotal.labels(PRIORITY_CLASS).inc()
-        stages.start('metrics_flush')
-        writeStatus(this.deps.emailStatus, {
-            teamId: team.id,
-            messageId: invocation.id,
-            status: scheduledAt ? 'scheduled' : 'queued',
-            recipient: to,
-            functionId: hogFlow.id,
-            scheduledAt: scheduledAt ?? undefined,
-            statusAt,
-            messageCreatedAt: messageCreatedAtOf(invocation.state.event),
-        })
-        // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
-        const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
-        void produced.catch((error) => warnTelemetryFlushFailed(error, invocation.id))
-
-        return {
-            outcome: 'queued',
-            invocationId: invocation.id,
-            scheduledAt: scheduledAt?.toISOString() ?? null,
-            replyFields: attachmentTotals,
-            senderKind,
-        }
+        // The route answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer.
+        stages.start('intake_produce')
+        const produced = await this.deps.runIntake.produce(run, settlement)
+        return producedResult(produced, invocation.id, scheduledAt, attachmentTotals, senderKind)
     }
 
     async acceptBatch(
@@ -698,7 +633,7 @@ export class TransactionalSends {
         // Straight to the email queue: the flow's only step is the email, so a hop through the
         // workflow queue would only add latency to a password reset or a verification code.
         invocation.queue = 'email'
-        invocation.queuePriority = EMAIL_QUEUE_PRIORITY[PRIORITY_CLASS]
+        invocation.queuePriority = EMAIL_QUEUE_PRIORITY[send?.category?.type === 'marketing' ? 'bulk' : 'fast']
         return invocation
     }
 

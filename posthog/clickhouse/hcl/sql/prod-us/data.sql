@@ -456,7 +456,8 @@ CREATE TABLE posthog.flag_evaluations (
   _offset UInt64,
   _partition UInt64,
   properties_group_custom Map(String, String),
-  person_properties_map_custom Map(String, String)
+  person_properties_map_custom Map(String, String),
+  properties_group_feature_flags Map(LowCardinality(String), LowCardinality(String))
 ) ENGINE = Distributed('flags', 'posthog', 'sharded_flag_evaluations', sipHash64(distinct_id));
 CREATE TABLE posthog.groups (
   group_type_index UInt8,
@@ -1116,6 +1117,16 @@ CREATE TABLE posthog.raw_sessions_v3 (
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool)
 ) ENGINE = Distributed('sessions', 'posthog', 'raw_sessions_v3', cityHash64(session_id_v7));
+CREATE TABLE posthog.series_values_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  time_window_end DateTime64(6, 'UTC'),
+  series_key String,
+  value Float64,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_series_values_preaggregated', sipHash64(job_id));
 CREATE TABLE posthog.session_recording_events (
   uuid UUID,
   timestamp DateTime64(6, 'UTC'),
@@ -1671,12 +1682,14 @@ CREATE TABLE posthog.web_bounces_dimensional_preaggregated (
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
   channel_type LowCardinality(String),
+  session_hosts Array(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
   bounces_count_state AggregateFunction(sum, Int64),
   total_session_duration_state AggregateFunction(sum, Int64),
   total_session_count_state AggregateFunction(sum, Int64),
+  bounce_eligible_sessions_state AggregateFunction(sum, Int64),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_bounces_dimensional_preaggregated', sipHash64(job_id));

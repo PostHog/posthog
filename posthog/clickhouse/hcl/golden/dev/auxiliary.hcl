@@ -2729,6 +2729,41 @@ database "posthog" {
     }
   }
 
+  table "series_values_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "time_window_end" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "series_key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_series_values_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
   table "session_replay_events" {
     column "session_id" {
       type = "String"
@@ -3375,6 +3410,47 @@ database "posthog" {
     }
   }
 
+  table "sharded_series_values_preaggregated" {
+    order_by     = ["team_id", "job_id", "series_key", "time_window_start"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "time_window_end" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "series_key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.series_values_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
+
   table "sharded_usage_report_events_preagg" {
     order_by     = ["date", "team_id", "person_mode", "lib", "event"]
     partition_by = "date"
@@ -3598,7 +3674,7 @@ database "posthog" {
 
   table "sharded_web_bounces_dimensional_preaggregated" {
     primary_key  = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
-    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
+    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type", "session_hosts"]
     partition_by = "toYYYYMMDD(expires_at)"
     ttl          = "toDateTime(expires_at)"
     settings = {
@@ -3687,6 +3763,9 @@ database "posthog" {
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -3703,6 +3782,9 @@ database "posthog" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "computed_at" {
@@ -4403,6 +4485,9 @@ database "posthog" {
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -4419,6 +4504,9 @@ database "posthog" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "computed_at" {
@@ -6319,10 +6407,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

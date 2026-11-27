@@ -1370,7 +1370,7 @@ def snowflake_default_fields() -> list[BatchExportField]:
     batch_export_fields = default_fields()
     batch_export_fields.append(
         {
-            "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+            "expression": "ip",
             "alias": "ip",
         }
     )
@@ -1712,6 +1712,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
+            use_new_events_schema=inputs.use_new_events_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=snowflake_default_fields(),
         )
