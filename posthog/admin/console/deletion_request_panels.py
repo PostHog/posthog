@@ -299,7 +299,14 @@ def submit(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
     return None
 
 
-class ApproveForm(ReasonForm):
+class ApprovalReasonForm(ReasonForm):
+    # The request's notes already say why the data goes, so an approval does not need a reason of its own.
+    reason = forms.CharField(
+        required=False, widget=forms.Textarea(attrs={"rows": 3}), help_text="Optional. Goes into the audit log."
+    )
+
+
+class ApproveForm(ApprovalReasonForm):
     execution_mode = forms.ChoiceField(label="Execution mode", choices=ExecutionMode.choices)
     # Which edit of the criteria staff reviewed. The approval only lands on that edit.
     criteria_revision = forms.CharField(required=False, widget=forms.HiddenInput)

@@ -84,6 +84,7 @@ from posthog.admin.console.tools import (
     Stat,
     Stats,
     Table,
+    TableSelect,
     ToolOperation,
 )
 from posthog.admin.console.urls import moved_url_patterns
@@ -1085,6 +1086,20 @@ class TestAdminConsoleViews(BaseTest):
         with patch.object(console, "get_tool", return_value=_DecidingTool()):
             with self.assertRaisesRegex(ValueError, "must offer with a form"):
                 self.client.get("/admin/console/tools/deciding-tool/?runs=missing")
+
+    def test_a_table_that_selects_for_an_operation_without_a_multiple_choice_field_fails_the_page(self) -> None:
+        tool = _DecidingTool()
+        table = Table(
+            columns=("Item",),
+            rows=(Row(cells=(Cell(text="Item 3"),), select_value="3"),),
+            select=TableSelect(operation_key="judge", field="verdict", label="Judge selected"),
+        )
+        with (
+            patch.object(console, "get_tool", return_value=tool),
+            patch.object(tool, "page", return_value=Page(blocks=(table,))),
+        ):
+            with self.assertRaisesRegex(ValueError, "multiple choice field 'verdict'"):
+                self.client.get("/admin/console/tools/deciding-tool/")
 
     def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)

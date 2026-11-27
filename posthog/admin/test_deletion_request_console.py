@@ -76,7 +76,7 @@ class TestDeletionRequestConsole(BaseTest):
         ):
             return self.client.post(
                 self._url(obj, "workflow", "approve"),
-                {"execution_mode": mode.value, "criteria_revision": revision, "reason": "Ticket 123"},
+                {"execution_mode": mode.value, "criteria_revision": revision},
             )
 
     def test_record_page_shows_the_request_and_django_admin_links_to_it(self) -> None:
@@ -337,22 +337,27 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.status == status
 
-    def _bulk_approve(self, picked: list[DataDeletionRequest], mode: ExecutionMode, revisions: dict[str, str]):
+    def _bulk_approve(self, picked: list[DataDeletionRequest], mode: ExecutionMode, revisions: str):
         return self.client.post(
             BULK_APPROVE_URL,
             {
                 "requests": [str(obj.pk) for obj in picked],
                 "execution_mode": mode.value,
-                "criteria_revisions": json.dumps(revisions),
-                "reason": "Ticket 123",
+                "criteria_revisions": revisions,
             },
         )
 
-    def test_bulk_approve_approves_the_picked_requests_whose_criteria_did_not_change(self) -> None:
+    def test_bulk_approve_approves_the_ticked_requests_whose_criteria_did_not_change(self) -> None:
         kept, edited, not_picked = (self._request(status=RequestStatus.PENDING) for _ in range(3))
-        revisions = {str(obj.pk): "" for obj in (kept, edited, not_picked)}
+        self._request(status=RequestStatus.DRAFT)
 
-        preview = self._bulk_approve([kept, edited], ExecutionMode.DEFERRED, revisions)
+        listing = BeautifulSoup(self.client.get("/admin/console/tools/deletion-requests/").content, "html.parser")
+        boxes = {box["value"] for box in listing.select('form[data-console-select] input[name="requests"]')}
+        opened = self.client.get(BULK_APPROVE_URL, {"requests": [str(kept.pk), str(edited.pk)]})
+        form = opened.context["form"]
+        preview = self._bulk_approve([kept, edited], ExecutionMode.DEFERRED, form.initial["criteria_revisions"])
+        assert boxes == {str(obj.pk) for obj in (kept, edited, not_picked)}
+        assert set(form.initial["requests"]) == {str(kept.pk), str(edited.pk)}
         assert preview.status_code == 200
         DataDeletionRequest.objects.filter(pk=edited.pk).update(criteria_updated_at=timezone.now())
         confirmed = self.client.post(BULK_APPROVE_URL, {"confirm_token": preview.context["confirm_token"]}, follow=True)
@@ -368,14 +373,14 @@ class TestDeletionRequestConsole(BaseTest):
     def test_bulk_approve_refuses_an_execution_mode_a_picked_request_cannot_run(self) -> None:
         obj = self._request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"], status=RequestStatus.PENDING)
 
-        response = self._bulk_approve([obj], ExecutionMode.DEFERRED, {str(obj.pk): ""})
+        response = self._bulk_approve([obj], ExecutionMode.DEFERRED, json.dumps({str(obj.pk): ""}))
 
         assert response.status_code == 400
         obj.refresh_from_db()
         assert obj.status == RequestStatus.PENDING
 
     @parameterized.expand([("clickhouse_team", True), ("other_staff", False)])
-    def test_requests_list_links_pending_requests_to_approval_for_the_clickhouse_team(
+    def test_requests_list_offers_pending_requests_for_approval_to_the_clickhouse_team(
         self, _name: str, member: bool
     ) -> None:
         pending = self._request(status=RequestStatus.PENDING)
@@ -396,6 +401,8 @@ class TestDeletionRequestConsole(BaseTest):
         approve_url = f"{self._url(pending)}workflow/approve/"
         expected = {self._url(pending), approve_url} if member else {self._url(pending)}
         assert request_links == expected
+        boxes = {box["value"] for box in soup.select('input[name="requests"]')}
+        assert boxes == ({str(pending.pk)} if member else set())
 
     @parameterized.expand([("staff", {True}), ("not-staff", {False, None})])
     def test_requests_list_filters_by_whether_staff_created_the_request(

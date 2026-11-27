@@ -530,17 +530,22 @@ def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
     return _no_store(response)
 
 
-def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
-    # A link preselects a choice, so an old URL that names one of several documents opens the form on it.
+def _preselected_choices(request: HttpRequest, form_class: type[forms.Form]) -> dict[str, object]:
+    # A link preselects choices, so an old URL that names one of several documents opens the form on it, and the
+    # rows staff tick in a table open the form with those rows ticked.
     # Text fields stay empty: a reason taken from a URL would reach the audit log without staff writing it.
-    # The one exception is an operation that opts in to a reason naming the support ticket it was opened from.
-    if operation.form_class is None:
-        return None
-    preselected: dict[str, object] = {
-        name: request.GET[name]
-        for name, field in operation.form_class.base_fields.items()
+    return {
+        name: request.GET.getlist(name) if isinstance(field, forms.MultipleChoiceField) else request.GET[name]
+        for name, field in form_class.base_fields.items()
         if isinstance(field, forms.ChoiceField) and name in request.GET
     }
+
+
+def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
+    # The one exception to empty text fields is an operation that opts in to a reason naming its support ticket.
+    if operation.form_class is None:
+        return None
+    preselected = _preselected_choices(request, operation.form_class)
     ticket = request.GET.get(SUPPORT_TICKET_PARAM, "").strip()
     if operation.reason_from_ticket and ticket:
         preselected["reason"] = f"For ticket {ticket}"
@@ -671,7 +676,7 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         {
             **ConsoleEnvironment.context(),
             "tool": tool,
-            "page": tool.page(request).refuse_secrets("tool page").check_decisions(offered),
+            "page": tool.page(request).refuse_secrets("tool page").check_operations(offered),
             "operations": operations,
             "query_suffix": _query_suffix(request),
         },
@@ -739,7 +744,8 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if step.expired:
         return step.render_expired(request)
 
-    form = step.bind(operation)
+    preselected = _preselected_choices(request, operation.form_class) if operation.form_class else {}
+    form = step.bind(operation, initial={**(operation.form_initial or {}), **preselected})
     context = _operation_context(target, operation, form, request)
     if request.method == "GET":
         return render(request, "admin_console/operation.html", context)
