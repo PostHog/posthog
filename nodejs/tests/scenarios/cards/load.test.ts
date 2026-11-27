@@ -339,6 +339,12 @@ describe('load', () => {
             'valves.0.dose.grace: at most 2147473647ms',
         ],
         [
+            'a profile whose termination grace is longer than a timer can wait',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate' }] },
+            { ...profile, terminationGrace: '2147483648ms' },
+            'terminationGrace: at most 2147473647ms',
+        ],
+        [
             'a kill aimed at something that is not a role',
             { ...card, valves: [{ ...emailWorkerKill, target: 'postgres' }] },
             undefined,
