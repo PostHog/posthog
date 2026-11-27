@@ -602,23 +602,36 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("edit", "patch", "", {"name": "Renamed"}),
-            ("delete", "delete", "", None),
-            ("snooze", "post", "snooze/", {"snooze_until": None}),
-            ("group_snooze", "post", "snooze_group/", {"grouping_key": "checkout", "snooze_until": None}),
-            ("reset", "post", "reset/", None),
-            ("add_destination", "post", "destinations/", {"type": "webhook", "webhook_url": "https://example.com/a"}),
-            ("delete_destination", "post", "destinations/delete/", {"destination_ids": []}),
+            (f"{write}_{alert}", method, path, body, has_source_row)
+            for write, method, path, body in [
+                ("edit", "patch", "", {"name": "Renamed"}),
+                ("delete", "delete", "", None),
+                ("snooze", "post", "snooze/", {"snooze_until": None}),
+                ("group_snooze", "post", "snooze_group/", {"grouping_key": "checkout", "snooze_until": None}),
+                ("reset", "post", "reset/", None),
+                (
+                    "add_destination",
+                    "post",
+                    "destinations/",
+                    {"type": "webhook", "webhook_url": "https://example.com/a"},
+                ),
+                ("delete_destination", "post", "destinations/delete/", {"destination_ids": []}),
+            ]
+            for alert, has_source_row in [("copy", True), ("native_alert", False)]
         ]
     )
     def test_the_platform_api_does_not_write_an_insight_alert(
-        self, _name: str, method: str, path: str, body: dict[str, Any] | None
+        self, _name: str, method: str, path: str, body: dict[str, Any] | None, has_source_row: bool
     ) -> None:
         url = f"{self._platform_alerts_url()}{self.copy_id}/{path}"
+        if not has_source_row:
+            with team_scope(self.team.id):
+                platform_testing.forget_source_row(self.copy_id)
 
         response = getattr(self.client, method)(url, body, format="json")
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.json()["detail"] == "This alert is managed by the insight product. Change it there."
         copy = get_configuration(team_id=self.team.id, source_kinds=["insight"], configuration_id=self.copy_id)
         assert copy is not None and copy.name == self.alert.name
 
