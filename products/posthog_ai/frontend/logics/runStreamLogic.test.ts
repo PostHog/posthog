@@ -1637,6 +1637,36 @@ describe('runStreamLogic', () => {
             expect(logic.values.billedComputeCostUsd).toBe(0.3)
         })
 
+        it('loads the compute of the run that openSseForRun opened, then of its successor', async () => {
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockImplementation(async (_project, _task, runId) =>
+                runComputeUsage(runId === 'run-2' ? 0.7 : 0.2)
+            )
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
+            }).toFinishAllListeners()
+            expect(logic.values.billedComputeCostUsd).toBe(0.2)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2' })
+            await flushPromises()
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
+            }).toFinishAllListeners()
+            expect(logic.values.billedComputeCostUsd).toBe(0.7)
+        })
+
+        it('keeps the run cost unknown until the run reports a model cost', async () => {
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockResolvedValue(runComputeUsage(0.1))
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            expect(logic.values.runCostUsd).toBeNull()
+
+            logic.actions.setContextUsage({ used: 10, size: 100, cost: 0.5 })
+            expect(logic.values.runCostUsd).toBeCloseTo(0.6)
+        })
+
         it('drops a compute response that arrives after a reset', async () => {
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })

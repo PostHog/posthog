@@ -2681,6 +2681,7 @@ export interface runStreamLogicValues {
     respondingToPermission: boolean
     runArtifacts: RunArtifacts
     runConnectionState: RunConnectionState | null
+    runCostUsd: number | null
     runOpening: boolean
     runStarted: boolean
     sdkSession: SdkSession | null
@@ -3033,6 +3034,7 @@ export interface runStreamLogicActions {
 export interface runStreamLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        runCostUsd: (contextUsage: ContextUsage | null, billedComputeCostUsd: number) => number | null
         respondingToPermission: (
             permissionResponseRequestIds: Set<string>,
             pendingPermissionRequest: PermissionRequestRecord | null
@@ -3841,6 +3843,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     }),
     selectors(({ cache }) => ({
+        /**
+         * The run cost the footer shows: the model spend the run reports plus the run's billed sandbox
+         * compute. `null` until the run reports a model cost, so compute alone never reads as the run cost.
+         */
+        runCostUsd: [
+            (s) => [s.contextUsage, s.billedComputeCostUsd],
+            (contextUsage: ContextUsage | null, billedComputeCostUsd: number): number | null =>
+                typeof contextUsage?.cost === 'number' ? contextUsage.cost + billedComputeCostUsd : null,
+        ],
         respondingToPermission: [
             (s) => [s.permissionResponseRequestIds, s.pendingPermissionRequest],
             (ids: Set<string>, record: PermissionRequestRecord | null): boolean =>
@@ -5859,24 +5870,28 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             },
             loadBilledComputeCost: async (_, breakpoint) => {
-                const taskId = values.bootstrappedTaskId
-                const runId = values.bootstrappedRunId
-                const projectId = values.currentProjectId
-                if (!taskId || !runId || projectId === null) {
+                // The recovery session names the run that streams now. `bootstrappedRunId` does not follow a
+                // run that `openSseForRun` opened, which is how Max starts and continues a conversation.
+                const session = sessionNow()
+                if (!session?.owns()) {
                     return
                 }
                 await breakpoint(100)
                 let usage: TaskRunComputeUsageResponseApi
                 try {
-                    usage = await tasksRunsComputeUsageRetrieve(String(projectId), taskId, runId)
+                    // The session cancels the request when a reset or a successor run replaces it.
+                    usage = await session.request(STREAM_REQUEST_TIMEOUT_MS, (signal) =>
+                        tasksRunsComputeUsageRetrieve(String(session.projectId), session.taskId, session.runId, {
+                            signal,
+                        })
+                    )
                 } catch {
                     // The compute only adds to the model cost that the run reports, so a failed read keeps the last value.
                     return
                 }
                 breakpoint()
                 const costUsd: unknown = usage?.compute_cost_usd
-                // A reset or a successor run while the request was in flight makes this response stale.
-                if (values.bootstrappedRunId === runId && typeof costUsd === 'number') {
+                if (session.owns() && typeof costUsd === 'number') {
                     actions.setBilledComputeCostUsd(costUsd)
                 }
             },
