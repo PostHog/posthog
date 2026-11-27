@@ -238,6 +238,7 @@ echo '{"phase":"control"}' >"$XDG_CACHE_HOME/posthog-scenarios/${RUNNER_RUN_ID}/
         ],
         ['the host started no pooler', {}, { card: 'cyclotron-scale' }, null, WRITER_URL],
         ['the host recorded no writer to probe', {}, { card: 'cyclotron-scale' }, POOLER_URLS, null],
+        ['the host recorded an empty writer', {}, { card: 'cyclotron-scale' }, POOLER_URLS, ''],
     ])('never starts the card when %s', async (_story, env, manifest, poolerUrls, writerUrl) => {
         await exited(start(env, manifest, FAKE_RUNNER, poolerUrls, writerUrl))
 

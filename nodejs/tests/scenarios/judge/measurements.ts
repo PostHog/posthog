@@ -531,8 +531,14 @@ function stepLagOf(ofRole: readonly MetricSample[], missed: readonly MissedScrap
     if (serving.length === 0) {
         return []
     }
+    const sinceOf = (ofReplica: readonly MetricSample[], i: number): number => {
+        const previous = ofReplica[i - 1]
+        return previous === undefined || previous.startedAt !== ofReplica[i].startedAt
+            ? ofReplica[i].startedAt * 1000
+            : previous.at
+    }
     const covering = serving.map((ofReplica) =>
-        ofReplica.filter((sample, i) => within(step, i === 0 ? sample.startedAt * 1000 : ofReplica[i - 1].at))
+        ofReplica.filter((sample, i) => sinceOf(ofReplica, i) < step.to && sample.at > step.from)
     )
     const lags = covering.flat().flatMap(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds ?? [])
     if (lags.length === 0) {

@@ -908,7 +908,7 @@ describe('measurements', () => {
         ])
     })
 
-    it("calls a step's writer backends unmeasured when no read landed in it or every read failed, marks one whose reads failed in part, and calls a role's lag unmeasured when no reading covers the step, or incomplete when a serving replica missed a scrape", () => {
+    it("calls a step's writer backends unmeasured when no read landed in it or every read failed, marks one whose reads failed in part, and counts a lag reading for each step its interval reaches, unmeasured when no reading covers the step, or incomplete when a serving replica missed a scrape", () => {
         const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
         const every5s = Array.from({ length: 24 }, (_, i) => i * 5)
         const lagging = (replica: number, lag: number): MetricSample[] =>
@@ -921,6 +921,11 @@ describe('measurements', () => {
             samples: [
                 ...lagging(0, 0.0625).filter(({ at }) => at !== atS(30)),
                 ...lagging(1, 0.125).filter(({ at }) => at < atS(70) || at > atS(100)),
+                ...every5s.map((second) => ({
+                    ...sample(second + 2, -60, second, 100, 2),
+                    role: HOGFLOW,
+                    eventLoopLagP99Seconds: second + 2 === 62 ? 0.5 : 0.03125,
+                })),
                 ...every5s.map((second) => ({ ...sample(second, -60, second, 100), role: ROLE })),
             ],
             missed: [{ role: HOGFLOW, replica: 0, at: atS(30) }],
@@ -967,8 +972,8 @@ describe('measurements', () => {
             { name: 'step_writer_active_waits', key: '1x', unit: 'backends', value: 0, incomplete: true },
             { name: 'step_writer_active_waits', ...unread },
             { name: 'step_writer_active_waits', ...unlanded },
-            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_1x`, unit: 'ms', value: 125, incomplete: true },
-            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_10x`, unit: 'ms', value: 125, incomplete: true },
+            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_1x`, unit: 'ms', value: 500, incomplete: true },
+            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_10x`, unit: 'ms', value: 500, incomplete: true },
             {
                 name: 'step_eventloop_lag_p99_ms',
                 key: `${HOGFLOW}_100x`,

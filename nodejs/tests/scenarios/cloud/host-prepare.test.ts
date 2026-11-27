@@ -1,6 +1,6 @@
 import { spawnSync } from 'child_process'
 import { createHash } from 'crypto'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { Client } from 'pg'
@@ -170,9 +170,20 @@ describe('host-prepare.sh', () => {
         expect(prepareHost({})).toBe(0)
 
         const writer = path.join(dir, 'host', 'writer', 'url')
-        expect(readFileSync(writer, 'utf8')).toBe(
-            `postgres://scn%20admin:p%40ss%2Fw%3Ard%25${CLUSTER_DATABASE}?uselibpqcompat=true&sslmode=verify-full&sslrootcert=${path.join(dir, 'host', 'rds-ca.pem')}\n`
-        )
+        const url = new URL(readFileSync(writer, 'utf8').trim())
+        expect({
+            user: decodeURIComponent(url.username),
+            password: decodeURIComponent(url.password),
+            at: `@${url.host}${url.pathname}`,
+            sslmode: url.searchParams.get('sslmode'),
+            sslrootcert: url.searchParams.get('sslrootcert'),
+        }).toEqual({
+            user: CLUSTER_USER,
+            password: CLUSTER_PASSWORD,
+            at: CLUSTER_DATABASE,
+            sslmode: 'verify-full',
+            sslrootcert: path.join(dir, 'host', 'rds-ca.pem'),
+        })
         expect([statSync(writer).mode & 0o777, statSync(path.dirname(writer)).mode & 0o777]).toEqual([0o600, 0o700])
 
         const cardStateDir = defaultStateDir({ XDG_CACHE_HOME: path.join(dir, 'host', 'cache') })
@@ -225,13 +236,20 @@ describe('host-prepare.sh', () => {
         ],
         ['the seed fails', {}, null, 'has no backlog to seed'],
     ])(
-        'fails and uploads its log when %s',
+        'fails, uploads its log and leaves the card no writer when %s',
         (_, env, backlog, output) => {
+            mkdirSync(path.join(dir, 'host', 'writer'), { recursive: true })
+            writeFileSync(
+                path.join(dir, 'host', 'writer', 'url'),
+                'postgres://a@earlier.example.com:5432/cyclotron_node\n'
+            )
+
             expect(prepareHost(env, backlog)).not.toBe(0)
 
             expect(readFileSync(path.join(dir, 's3', BUCKET, 'runs', RUN_ID, 'host', 'prepare.log'), 'utf8')).toContain(
                 output
             )
+            expect(existsSync(path.join(dir, 'host', 'writer', 'url'))).toBe(false)
         },
         120_000
     )
