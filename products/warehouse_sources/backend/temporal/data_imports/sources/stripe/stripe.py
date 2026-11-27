@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
     COUPON_RESOURCE_NAME,
+    CREDIT_NOTE_LINE_ITEM_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_HAS_PAYMENT_METHOD_FIELD,
@@ -77,6 +78,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
     HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_LINE_ITEM_RESOURCE_NAME,
     INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
@@ -497,6 +499,31 @@ class StripeNestedResource:
     # secret scrubbing). The history table uses it to stamp its observation-metadata columns onto
     # the seed sweep's rows.
     row_transform: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
+    # Optional reader for nested rows the parent listing already carries. When set, the sweep takes
+    # the rows from each parent object and sends no per-parent request to `method`.
+    nested_from_parent: Optional[Callable[[dict[str, Any]], Iterable[Any]]] = None
+
+
+def _embedded_lines(parent: dict[str, Any]) -> list[Any]:
+    """The `lines` list of an invoice or credit note. The listings that feed the line item tables
+    fetch every line of an object above the 10 that Stripe embeds, so this is the complete list."""
+    lines = parent.get("lines")
+    return list(lines.get("data") or []) if lines else []
+
+
+def _objects_after(objects: Iterable[Any], starting_after: Optional[str]) -> Iterator[Any]:
+    """`objects` after the one with id `starting_after`, as a `starting_after` cursor pages a list.
+
+    When the cursor object is gone, every object is kept: reading a row twice is safer than dropping
+    the rows that followed it.
+    """
+    if starting_after is None:
+        yield from objects
+        return
+    objects = list(objects)
+    ids = [obj.get("id") for obj in objects]
+    start = ids.index(starting_after) + 1 if starting_after in ids else 0
+    yield from objects[start:]
 
 
 class _SingleObjectList:
@@ -912,6 +939,20 @@ def _build_resources(
     pass None when the caller doesn't need it (e.g. validation, which just probes the list
     endpoint). The factory gives each of its worker threads a client of its own.
     """
+    invoices = StripeResource(
+        method=(
+            (lambda params: InvoiceListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
+            if logger is not None and client_factory is not None
+            else client.invoices.list
+        )
+    )
+    credit_notes = StripeResource(
+        method=(
+            (lambda params: CreditNoteListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
+            if logger is not None and client_factory is not None
+            else client.credit_notes.list
+        )
+    )
     return {
         ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
         BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
@@ -919,13 +960,7 @@ def _build_resources(
         CUSTOMER_RESOURCE_NAME: StripeResource(method=client.customers.list),
         DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
         INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
-        INVOICE_RESOURCE_NAME: StripeResource(
-            method=(
-                (lambda params: InvoiceListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
-                if logger is not None and client_factory is not None
-                else client.invoices.list
-            )
-        ),
+        INVOICE_RESOURCE_NAME: invoices,
         PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
         PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
         PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
@@ -945,13 +980,7 @@ def _build_resources(
                 "expand": ["data.discounts", "data.items.data.discounts"],
             },
         ),
-        CREDIT_NOTE_RESOURCE_NAME: StripeResource(
-            method=(
-                (lambda params: CreditNoteListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
-                if logger is not None and client_factory is not None
-                else client.credit_notes.list
-            )
-        ),
+        CREDIT_NOTE_RESOURCE_NAME: credit_notes,
         COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
         # The one nested resource that reads its parent from the warehouse. Its skip predicate
         # answers from the parent row itself, so a run is dominated by paging the customer
@@ -1064,6 +1093,24 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.setup_intents.list),
             parent_name=SETUP_INTENT_RESOURCE_NAME,
+        ),
+        # The invoice and credit note listings already fetch every line, so the line item tables read
+        # the lines off each parent and spend no request per parent. A parent without lines costs nothing.
+        INVOICE_LINE_ITEM_RESOURCE_NAME: StripeNestedResource(
+            method=client.invoices.line_items.list,
+            nested_parent_param="invoice",
+            parent_id="id",
+            parent=invoices,
+            parent_name=INVOICE_RESOURCE_NAME,
+            nested_from_parent=_embedded_lines,
+        ),
+        CREDIT_NOTE_LINE_ITEM_RESOURCE_NAME: StripeNestedResource(
+            method=client.credit_notes.line_items.list,
+            nested_parent_param="credit_note",
+            parent_id="id",
+            parent=credit_notes,
+            parent_name=CREDIT_NOTE_RESOURCE_NAME,
+            nested_from_parent=_embedded_lines,
         ),
         **{name: StripeResource(method=_v2_lister(client, path)) for name, path in V2_LIST_PATHS.items()},
     }
@@ -1330,12 +1377,18 @@ def get_rows(
                 else:
                     nested_params[resource.nested_parent_param] = parent_obj_id
                 try:
-                    stripe_nested_objects = _call_stripe(
-                        resource.method,
-                        params=nested_params,
-                        **nested_kwargs,
-                    )
-                    for nested_obj in stripe_nested_objects.auto_paging_iter():
+                    nested_objects: Iterable[Any]
+                    if resource.nested_from_parent is not None:
+                        nested_objects = _objects_after(
+                            resource.nested_from_parent(obj), nested_params.get("starting_after")
+                        )
+                    else:
+                        nested_objects = _call_stripe(
+                            resource.method,
+                            params=nested_params,
+                            **nested_kwargs,
+                        ).auto_paging_iter()
+                    for nested_obj in nested_objects:
                         row = {
                             **nested_obj,
                             **{resource.nested_parent_param: parent_obj_id},
