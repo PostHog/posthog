@@ -9,27 +9,18 @@ from django.http import HttpRequest, HttpResponse
 
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.models.organization import Organization
 from posthog.utils import pluralize
 
 
-class BulkDeactivateOrganizationsForm(forms.Form):
+class DeactivationReasonForm(forms.Form):
     CUSTOM_REASON = "__custom__"
-    MAX_ORGANIZATIONS = 100
 
-    organization_ids = forms.CharField(
-        label="Organization IDs",
-        widget=forms.Textarea(
-            attrs={"rows": 10, "placeholder": "Paste one organization ID per line, or separate IDs with commas."}
-        ),
-        help_text=f"Up to {MAX_ORGANIZATIONS} organization IDs, separated by new lines, commas or spaces.",
-    )
     reason = forms.ChoiceField(
         label="Reason",
         choices=[*Organization.DeactivationReason.choices, (CUSTOM_REASON, "Custom reason")],
-        initial=Organization.DeactivationReason.DESKTOP_ABUSE,
+        initial=Organization.DeactivationReason.TERMS_OF_SERVICE_VIOLATION_SECURITY,
         help_text="Members of the organization see this reason.",
     )
     custom_reason = forms.CharField(
@@ -39,6 +30,36 @@ class BulkDeactivateOrganizationsForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 3}),
         help_text="Used only when the reason is Custom reason.",
     )
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean() or {}
+        reason = cleaned_data.get("reason")
+        custom_reason = (cleaned_data.get("custom_reason") or "").strip()
+        if reason == self.CUSTOM_REASON:
+            if not custom_reason:
+                self.add_error("custom_reason", "Enter a custom reason.")
+                return cleaned_data
+            cleaned_data["resolved_reason"] = custom_reason
+        elif reason:
+            cleaned_data["resolved_reason"] = reason
+        return cleaned_data
+
+
+class BulkDeactivateOrganizationsForm(DeactivationReasonForm):
+    MAX_ORGANIZATIONS = 100
+
+    organization_ids = forms.CharField(
+        label="Organization IDs",
+        widget=forms.Textarea(
+            attrs={"rows": 10, "placeholder": "Paste one organization ID per line, or separate IDs with commas."}
+        ),
+        help_text=f"Up to {MAX_ORGANIZATIONS} organization IDs, separated by new lines, commas or spaces.",
+    )
+    field_order = ["organization_ids", "reason", "custom_reason"]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["reason"].initial = Organization.DeactivationReason.DESKTOP_ABUSE
 
     def clean_organization_ids(self) -> list[UUID]:
         raw_value = self.cleaned_data["organization_ids"]
@@ -69,19 +90,6 @@ class BulkDeactivateOrganizationsForm(forms.Form):
                 params={"ids": ", ".join(invalid_tokens[:10])},
             )
         return organization_ids
-
-    def clean(self) -> dict[str, Any]:
-        cleaned_data = super().clean() or {}
-        reason = cleaned_data.get("reason")
-        custom_reason = (cleaned_data.get("custom_reason") or "").strip()
-        if reason == self.CUSTOM_REASON:
-            if not custom_reason:
-                self.add_error("custom_reason", "Enter a custom reason.")
-                return cleaned_data
-            cleaned_data["resolved_reason"] = custom_reason
-        elif reason:
-            cleaned_data["resolved_reason"] = reason
-        return cleaned_data
 
 
 class BulkDeactivation:
@@ -137,31 +145,38 @@ def preview_bulk_deactivation(request: HttpRequest, form: forms.Form) -> Page:
     return Page(blocks=tuple(blocks))
 
 
-def bulk_deactivate(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
-    assert form is not None
-    deactivation = BulkDeactivation(form.cleaned_data["organization_ids"])
-    reason = form.cleaned_data["resolved_reason"]
+def deactivate_organizations(organization_ids: list[UUID], reason: str) -> int:
+    """Deactivates each organization that is still active, and returns how many it deactivated."""
     with transaction.atomic():
         # Read the active state again under a lock, so an organization deactivated since the preview keeps
         # its existing reason. No-key, because only plain columns change and child rows may keep inserting.
         locked = list(
             Organization.objects.select_for_update(no_key=True)
             .only("id", "is_active", "is_not_active_reason")
-            .filter(id__in=[organization.id for organization in deactivation.to_deactivate])
+            .filter(id__in=organization_ids)
             .exclude(is_active=False)
         )
         for organization in locked:
             organization.is_active = False
             organization.is_not_active_reason = reason
             organization.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
+    return len(locked)
 
-    if locked:
-        messages.success(request, f"Deactivated {pluralize(len(locked), 'organization')}.")
+
+def bulk_deactivate(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
+    assert form is not None
+    deactivation = BulkDeactivation(form.cleaned_data["organization_ids"])
+    deactivated = deactivate_organizations(
+        [organization.id for organization in deactivation.to_deactivate], form.cleaned_data["resolved_reason"]
+    )
+
+    if deactivated:
+        messages.success(request, f"Deactivated {pluralize(deactivated, 'organization')}.")
     if deactivation.missing_ids:
         messages.warning(
             request, f"Skipped {pluralize(len(deactivation.missing_ids), 'organization ID')} that were not found."
         )
-    skipped = len(deactivation.already_inactive) + len(deactivation.to_deactivate) - len(locked)
+    skipped = len(deactivation.already_inactive) + len(deactivation.to_deactivate) - deactivated
     if skipped:
         messages.warning(request, f"Skipped {pluralize(skipped, 'already inactive organization')}, reason unchanged.")
     return None
@@ -171,7 +186,7 @@ def bulk_deactivate(request: HttpRequest, form: forms.Form | None) -> HttpRespon
 class OrganizationBulkDeactivationTool(ConsoleTool):
     key = "bulk-deactivate-organizations"
     title = "Bulk deactivate organizations"
-    owner = DEV_EXPERIENCE
+    owner = None
     group = "Organizations"
     description = "Deactivates organizations from a list of pasted IDs, after a preview."
 

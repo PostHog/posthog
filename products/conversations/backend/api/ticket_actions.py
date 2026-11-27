@@ -1,11 +1,10 @@
 """Shared implementation of the ticket API called by CDP workflow actions.
 
-Two routes wrap the get and patch handlers with different authentication: the public
-external route (legacy Team.secret_api_token bearer, api/external.py) and the internal
-service route (scoped service JWT, api/internal.py). The worker calls only the internal
-route, and #82564 tracks retiring the external one. Until then the two behave identically,
-except that only the internal route offers the longer first-message excerpt.
-Sending a message is JWT-only. The legacy route does not expose it.
+Two routes wrap the handlers with different authentication: the public external route
+(project secret API key bearer, api/external.py, read-only) and the internal service
+route (scoped service JWT, api/internal.py). The worker calls only the internal route,
+and #82564 tracks retiring the external one. Only the internal route exposes updates,
+message sending, and the longer first-message excerpt.
 """
 
 import re
@@ -29,7 +28,8 @@ from posthog.models import Tag, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.comment import Comment
-from posthog.models.tag import tagify
+from posthog.models.tag import tag_assignment_transaction, tagify
+from posthog.tag_management import delete_unused_tags
 
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
@@ -405,7 +405,7 @@ def handle_ticket_get(
 
     # Hand-built payload, deliberately: neither wrapping route is in the OpenAPI spec (plain
     # APIViews without scope_object), so the schema-drift risk behind the rule cannot occur,
-    # and the wire shape must stay identical to the legacy external route while the worker
+    # and the wire shape must stay identical across the two routes while the worker
     # migrates between them (a serializer would re-format datetimes).
     payload = {
         "id": str(ticket.id),
@@ -637,7 +637,7 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
             # to the workflow that made the change.
             # Only a removed TaggedItem can orphan a tag, so the cleanup checks just those tags.
             removed_tag_ids: set[uuid.UUID] = set()
-            with ActivityTriggerContext(workflow_trigger):
+            with tag_assignment_transaction([team.id]), ActivityTriggerContext(workflow_trigger):
                 if tags_mode == "remove":
                     for tagged_item in (
                         ticket.tagged_items.filter(tag__name__in=normalized_tags)
@@ -647,7 +647,7 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         removed_tag_ids.add(tagged_item.tag_id)
                         tagged_item.delete()
                     if removed_tag_ids:
-                        Tag.objects.filter(team_id=team.id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
+                        delete_unused_tags(team.id, removed_tag_ids)
                 elif tags_mode == "set":
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
@@ -660,7 +660,7 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         removed_tag_ids.add(tagged_item.tag_id)
                         tagged_item.delete()
                     if removed_tag_ids:
-                        Tag.objects.filter(team_id=team.id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
+                        delete_unused_tags(team.id, removed_tag_ids)
                 else:
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)

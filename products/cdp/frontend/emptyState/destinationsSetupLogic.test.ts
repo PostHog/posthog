@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -50,6 +51,21 @@ describe('destinationsSetupLogic', () => {
             )
         }
     )
+
+    it('does not query batch exports on an instance that runs none', async () => {
+        initKeaTests()
+        preflightLogic.mount()
+        preflightLogic.actions.loadPreflightSuccess({ batch_exports_enabled: false } as any)
+        hogFunctionsSpy.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        pluginsSpy.mockResolvedValue({ count: 0, results: [] })
+        batchExportsSpy.mockRejectedValue(new Error('404'))
+        const logic = destinationsSetupLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.PIPELINE_DESTINATIONS }).values.status).toBe(
+            'needs-setup'
+        )
+    })
 
     it('fails open to unknown when a count query fails before any answer', async () => {
         hogFunctionsSpy.mockRejectedValue(new Error('network down'))

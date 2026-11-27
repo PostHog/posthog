@@ -25,6 +25,7 @@ import {
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import type { DataNode, RefreshType } from '~/queries/schema/schema-general'
 import { DateRange, WebStatsTableQueryResponse } from '~/queries/schema/schema-general'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
@@ -116,18 +117,18 @@ export interface marketingAnalyticsCrossSellLogicActions {
             | null,
         payload?:
             | {
-                  overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+                  overrideQuery: DataNode<Record<string, any>> | undefined
                   pollOnly: boolean
                   queryId: string
-                  refresh: import('~/queries/schema').RefreshType | undefined
+                  refresh: RefreshType | undefined
               }
             | undefined
     ) => {
         payload?: {
-            overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+            overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
             queryId: string
-            refresh: import('~/queries/schema').RefreshType | undefined
+            refresh: RefreshType | undefined
         }
         response:
             | ErrorTrackingQueryResponse
@@ -200,7 +201,7 @@ export interface marketingAnalyticsCrossSellLogicMeta {
             marketingCrossSellDismissed: boolean,
             isSnoozed: boolean
         ) => MarketingCrossSellVariant | null
-        dateRange: (arg: import('~/queries/schema').DataNode<Record<string, any>>) => DateRange | null
+        dateRange: (arg: DataNode<Record<string, any>>) => DateRange | null
         destination: (
             hasConnectedSources: boolean | null,
             featureFlags: FeatureFlagsSet,

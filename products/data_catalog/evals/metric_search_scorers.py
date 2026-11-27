@@ -5,7 +5,13 @@ from typing import Any
 from products.data_catalog.evals.metric_search_cases import CaseType
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
-_SCORE_KEYS = ("recall", "correct_no_match", "sibling_ranked_above", "confident_when_present")
+_SCORE_KEYS = (
+    "recall",
+    "correct_no_match",
+    "sibling_ranked_above",
+    "meaning_above_shared_word",
+    "confident_when_present",
+)
 
 
 class MetricSearchScore(Scorer):

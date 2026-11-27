@@ -217,6 +217,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
             "Access revoked due to terms of service violation.",
             "Terms of service violation",
         )
+        TERMS_OF_SERVICE_VIOLATION_SECURITY = (
+            "Account deactivated due to activity violating our Terms of Service. If you believe this is in error, "
+            "contact security-reports@posthog.com",
+            "Terms of service violation (security)",
+        )
         DESKTOP_ABUSE = (
             "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
             "Desktop abuse",
@@ -271,6 +276,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also checked by agents before they query production data, see
     # .agents/skills/querying-production-databases/SKILL.md. Update the skill when this field changes.
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
+    is_ai_data_processing_locked = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.",
+    )
     is_ai_training_opted_in = models.BooleanField(
         default=True,
         null=True,
@@ -737,7 +748,7 @@ def remember_organization_field_changes(sender, instance: Organization, **kwargs
 
 
 @receiver(post_save, sender=Organization)
-def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
+def sync_quota_limits_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
     if created or not instance._is_active_changed:
         return
 
@@ -760,6 +771,13 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
             # The reconcile re-derives a deactivated org's blobs; never fail the org save.
             logger.warning("llm_gateway_quota_projection_enqueue_failed", organization_id=str(organization_id))
 
+    def _sync_flags_limit():
+        from ee.billing.quota_limiting import sync_deactivated_org_flags_limit
+
+        sync_deactivated_org_flags_limit(Organization.objects.get(pk=organization_id))
+
+    # First and robust: a failure in another callback cannot skip it, and its own failure skips none.
+    transaction.on_commit(_sync_flags_limit, robust=True)
     transaction.on_commit(_invalidate_cache)
     if settings.AI_GATEWAY_REDIS_URL:
         transaction.on_commit(_project_gateway_quota)

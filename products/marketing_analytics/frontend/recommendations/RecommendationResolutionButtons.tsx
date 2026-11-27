@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
+import { DETECTED_CHANGE_DESCRIPTIONS } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 
 export function RecommendationResolutionButtons({
@@ -24,7 +25,7 @@ export function RecommendationResolutionButtons({
                 </LemonTag>
                 <LemonButton
                     size="xsmall"
-                    type="tertiary"
+                    type="secondary"
                     loading={loading}
                     tooltip="Show this recommendation again for everyone in this project"
                     onClick={() => restoreRecommendation(recommendation)}
@@ -37,12 +38,22 @@ export function RecommendationResolutionButtons({
         )
     }
 
+    if (recommendation.detectedChange) {
+        return (
+            <div className="flex items-center justify-end whitespace-nowrap">
+                <Tooltip title={DETECTED_CHANGE_DESCRIPTIONS[recommendation.detectedChange]}>
+                    <LemonTag type="success">Applied</LemonTag>
+                </Tooltip>
+            </div>
+        )
+    }
+
     return (
-        <div className="flex flex-col items-end gap-0.5 whitespace-nowrap">
+        <div className="flex flex-col items-end gap-3 py-2 whitespace-nowrap">
             {recommendation.impactDirection !== 'keep' && (
                 <LemonButton
                     size="xsmall"
-                    type="tertiary"
+                    type="secondary"
                     loading={loading}
                     tooltip="Mark that you made this change. It stays hidden for everyone in this project until someone restores it."
                     onClick={() => resolveRecommendation(recommendation, 'applied')}
@@ -54,7 +65,7 @@ export function RecommendationResolutionButtons({
             )}
             <LemonButton
                 size="xsmall"
-                type="tertiary"
+                type="secondary"
                 loading={loading}
                 tooltip="Hide this recommendation for everyone in this project, for any date range, until someone restores it."
                 onClick={() => resolveRecommendation(recommendation, 'dismissed')}

@@ -302,6 +302,10 @@ Reach for ClickHouse, the Node serial lane, or a browser only when the regressio
   Use a fake that answers with the service's real response shape and refuses what the real service refuses.
   When the test needs one specific answer at a true boundary, such as a canned success, a timeout, a 500, or a dropped connection, a stub may return it.
   Either way, assert the outcome (the response, the stored row, the retry), not that the stub was called.
+  A DNS lookup counts as network.
+  A fixture hostname such as `capture.example.com` or `partner.com` resolves for real when code under test validates or fetches it, so fake the resolver too, for example with `mock_anti_ssrf_dns_lookup()` from `posthog/test/anti_ssrf.py`.
+  Depot runners only reach hosts on the egress allow list, so a test that leaks a real request times out or fails there.
+  When CI genuinely needs a new host, follow [the egress allow list reference](../authoring-ci-workflows/references/egress-allow-list.md).
 - **Tests pass in any order and in isolation.**
   A test sets up the state it reads instead of relying on what a previous test left behind.
 - **A test must not inherit the CI matrix mode.**
@@ -309,7 +313,7 @@ Reach for ClickHouse, the Node serial lane, or a browser only when the regressio
   When the code under test branches on a mode, set the mode in the test, with one `@parameterized` case for each mode that matters.
 - **A test you added that fails in CI blocks the merge, even when the job is green.**
   Trunk can quarantine a repeated failure, and a quarantined failure does not fail the job.
-  The E2E Playwright job is the exception: it reruns each quarantined failure with two retries and reds the job when the test still fails, so only a flake that passes on rerun stays green.
+  The E2E Playwright job and the backend Core, Temporal, and product test jobs are the exception: they rerun each quarantined failure with two retries and red the job when the test still fails, so only a flake that passes on rerun stays green.
 - **Every `@skip`, `xfail`, or `.skip` carries a one-line reason and a linked issue.**
   A permanently skipped test is dead weight: delete it or fix it.
 - **Never commit `.only`** (`it.only`, `describe.only`).

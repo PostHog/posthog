@@ -96,6 +96,10 @@ export const AiObservabilityOfflineExperimentsCreateBody = /* @__PURE__ */ zod.o
         .max(aiObservabilityOfflineExperimentsCreateBodySuiteKeyMax)
         .nullish()
         .describe('Stable identifier for comparing executions of the same evaluation suite.'),
+    experiment_scorer_version_id: zod
+        .uuid()
+        .nullish()
+        .describe('Exact experiment scorer version. Omit to use the suite default.'),
     dataset_source: zod
         .string()
         .max(aiObservabilityOfflineExperimentsCreateBodyDatasetSourceMax)
@@ -139,6 +143,324 @@ export const AiObservabilityOfflineExperimentsPartialUpdateBody = /* @__PURE__ *
         .max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax)
         .optional()
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+})
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyRevisionMin = 0
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyCaseKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyTrialMax = 255
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyApplicationTraceIdMax = 255
+
+export const AiObservabilityOfflineExperimentsItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyRevisionMin)
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    case_key: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyCaseKeyMax)
+        .nullish()
+        .describe('Case identifier.'),
+    trial: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyTrialMax)
+        .nullish()
+        .describe('Trial identifier.'),
+    model_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyModelVersionMax)
+        .nullish()
+        .describe('Model used for this item.'),
+    application_trace_id: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyApplicationTraceIdMax)
+        .nullish()
+        .describe("Trace for this item's application execution."),
+})
+
+export const aiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBodyRevisionMin = 0
+
+export const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBodyRevisionMin)
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    payload: zod
+        .object({
+            input: zod
+                .union([
+                    zod.record(zod.string(), zod.unknown()),
+                    zod.array(zod.unknown()),
+                    zod.string(),
+                    zod.number(),
+                    zod.boolean(),
+                    zod.null(),
+                ])
+                .optional(),
+            output: zod
+                .union([
+                    zod.record(zod.string(), zod.unknown()),
+                    zod.array(zod.unknown()),
+                    zod.string(),
+                    zod.number(),
+                    zod.boolean(),
+                    zod.null(),
+                ])
+                .optional(),
+            expected_output: zod
+                .union([
+                    zod.record(zod.string(), zod.unknown()),
+                    zod.array(zod.unknown()),
+                    zod.string(),
+                    zod.number(),
+                    zod.boolean(),
+                    zod.null(),
+                ])
+                .optional(),
+            metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+        })
+        .describe('Top-level fields to update. Omitted fields keep their current values.'),
+})
+
+export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyRevisionMin = 0
+
+export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyValueThreeItemMax = 128
+
+export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyErrorCodeMax = 128
+
+export const AiObservabilityOfflineExperimentsResultsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyRevisionMin)
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    status: zod
+        .enum(['ok', 'error', 'skipped', 'not_applicable'])
+        .describe('\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable')
+        .optional()
+        .describe(
+            'Execution status for this reported result.\n\n\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
+        ),
+    value: zod
+        .union([
+            zod.number(),
+            zod.boolean(),
+            zod
+                .array(zod.string().max(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyValueThreeItemMax))
+                .min(1),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Score for a successful result, validated against the pinned version.'),
+    error_code: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyErrorCodeMax)
+        .nullish()
+        .describe('Error code for a failed execution.'),
+})
+
+export const aiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBodyRevisionMin = 0
+
+export const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBodyRevisionMin)
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    payload: zod
+        .object({
+            reasoning: zod.string().nullish(),
+            error_message: zod.string().nullish(),
+            metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+        })
+        .describe('Top-level fields to update. Omitted fields keep their current values.'),
+})
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyScopeDefault = `item`
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneExpressionMax = 1024
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+    '^[a-z][a-z0-9_]{0,31}$'
+)
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemCategoryMax = 128
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemKeyMax = 128
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemLabelMax = 256
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
+export const AiObservabilityOfflineExperimentsScorePreviewsCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .enum(['item', 'experiment'])
+        .describe('\* `item` - Item\n\* `experiment` - Experiment')
+        .default(aiObservabilityOfflineExperimentsScorePreviewsCreateBodyScopeDefault),
+    kind: zod
+        .enum(['categorical', 'numeric', 'boolean'])
+        .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
+        .describe(
+            'Expected formula output kind.\n\n\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean'
+        ),
+    composition: zod
+        .object({
+            expression: zod
+                .string()
+                .max(aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneExpressionMax)
+                .describe(
+                    'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
+                ),
+            inputs: zod
+                .array(
+                    zod.object({
+                        alias: zod
+                            .string()
+                            .max(
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasMax
+                            )
+                            .regex(
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasRegExp
+                            )
+                            .describe(
+                                'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
+                            ),
+                        scorer_version_id: zod
+                            .uuid()
+                            .describe(
+                                "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
+                            ),
+                        statistic: zod
+                            .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
+                            .optional()
+                            .describe(
+                                '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
+                            ),
+                        version_policy: zod
+                            .enum(['run', 'exact', 'combine'])
+                            .optional()
+                            .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
+                        category: zod
+                            .string()
+                            .max(
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemCategoryMax
+                            )
+                            .optional(),
+                    })
+                )
+                .describe(
+                    'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
+                ),
+        })
+        .describe('Formula and pinned input versions to validate without saving.'),
+    config: zod
+        .union([
+            zod.object({
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(
+                                    aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemKeyMax
+                                )
+                                .describe(
+                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
+                                ),
+                            label: zod
+                                .string()
+                                .max(
+                                    aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemLabelMax
+                                )
+                                .describe('Human-readable option label.'),
+                        })
+                    )
+                    .describe('Ordered categorical options available to the scorer.'),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .describe('\* `single` - single\n\* `multiple` - multiple')
+                    .optional()
+                    .describe(
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
+                    ),
+                min_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                max_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
+                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
+                step: zod
+                    .number()
+                    .nullish()
+                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
+                true_label: zod.string().optional().describe('Optional label for a true value.'),
+                false_label: zod.string().optional().describe('Optional label for a false value.'),
+            }),
+        ])
+        .optional()
+        .describe('Output configuration to check literal categories and composite scoring rules.'),
 })
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemModelVersionMax = 255
@@ -261,7 +583,7 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                     .boolean()
                     .optional()
                     .describe(
-                        "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result."
+                        "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include every pinned input result, or reuse stored inputs with evaluation:read and llm_analytics:read. For reported scorers, omit this flag or set false and supply the result."
                     ),
                 status: zod
                     .enum(['ok', 'error', 'skipped', 'not_applicable'])
@@ -319,6 +641,42 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
 })
 
 /**
+ * The person each session on a page ran for, which is its first trace's person, labeled by the project's
+ * display name properties. A read, sent as a POST because a page of session ids may not fit in a query string.
+ */
+export const aiObservabilitySessionsPeopleCreateBodySessionIdsItemMax = 400
+
+export const aiObservabilitySessionsPeopleCreateBodySessionIdsMax = 100
+
+export const AiObservabilitySessionsPeopleCreateBody = /* @__PURE__ */ zod.object({
+    session_ids: zod
+        .array(zod.string().max(aiObservabilitySessionsPeopleCreateBodySessionIdsItemMax))
+        .min(1)
+        .max(aiObservabilitySessionsPeopleCreateBodySessionIdsMax)
+        .describe(
+            'The IDs of the sessions on a page of the list, from 1 to 100. Items come back in this order, once per ID. A session ID is at most 400 characters, the longest the sessions list hands out.'
+        ),
+})
+
+/**
+ * The titles of a page of sessions: the user's message each session's first trace answered. A read, sent as a
+ * POST because a page of session ids may not fit in a query string.
+ */
+export const aiObservabilitySessionsPreviewsCreateBodySessionIdsItemMax = 400
+
+export const aiObservabilitySessionsPreviewsCreateBodySessionIdsMax = 100
+
+export const AiObservabilitySessionsPreviewsCreateBody = /* @__PURE__ */ zod.object({
+    session_ids: zod
+        .array(zod.string().max(aiObservabilitySessionsPreviewsCreateBodySessionIdsItemMax))
+        .min(1)
+        .max(aiObservabilitySessionsPreviewsCreateBodySessionIdsMax)
+        .describe(
+            'The IDs of the sessions on a page of the list, from 1 to 100. Items come back in this order, once per ID. A session ID is at most 400 characters, the longest the sessions list hands out.'
+        ),
+})
+
+/**
  * Starts writing the trace and every node, inputs and outputs included, to a JSON file. Poll the export until it completes, then download it.
  */
 export const AiObservabilityTracesExportsCreateBody = /* @__PURE__ */ zod.object({
@@ -364,6 +722,92 @@ export const AiObservabilityTracesAvailabilityCreateBody = /* @__PURE__ */ zod.o
         .min(1)
         .max(aiObservabilityTracesAvailabilityCreateBodyTraceIdsMax)
         .describe('Application and evaluator trace IDs to check without loading trace contents.'),
+})
+
+/**
+ * The person each trace on a page ran for, labeled by the project's display name properties.
+ */
+export const aiObservabilityTracesPeopleCreateBodyTraceIdsMax = 100
+
+export const AiObservabilityTracesPeopleCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aiObservabilityTracesPeopleCreateBodyTraceIdsMax)
+        .describe(
+            'The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.'
+        ),
+    earliest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            'The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention.'
+        ),
+    latest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe("The latest createdAt of the rows on the page. It can't be before earliest_created_at."),
+})
+
+/**
+ * The input and output previews of a page of traces: the user's message each trace answered and its answer.
+ */
+export const aiObservabilityTracesPreviewsCreateBodyTraceIdsMax = 100
+
+export const AiObservabilityTracesPreviewsCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aiObservabilityTracesPreviewsCreateBodyTraceIdsMax)
+        .describe(
+            'The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.'
+        ),
+})
+
+/**
+ * The sentiment of each trace on a page, from its sentiment evaluation results.
+ */
+export const aiObservabilityTracesSentimentCreateBodyTraceIdsMax = 100
+
+export const AiObservabilityTracesSentimentCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aiObservabilityTracesSentimentCreateBodyTraceIdsMax)
+        .describe(
+            'The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.'
+        ),
+    earliest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            'The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention.'
+        ),
+    latest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe("The latest createdAt of the rows on the page. It can't be before earliest_created_at."),
+})
+
+/**
+ * The turns of a page of traces: what each trace added to its conversation, with the answer it gave.
+ */
+export const aiObservabilityTracesTurnsCreateBodyTraceIdsMax = 20
+
+export const AiObservabilityTracesTurnsCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aiObservabilityTracesTurnsCreateBodyTraceIdsMax)
+        .describe(
+            'The IDs of the traces to read the turns of, from 1 to 20. Items come back in this order, at most once per ID. A trace with no generation and no trace event is left out.'
+        ),
+    earliest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            'The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention.'
+        ),
+    latest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            "The latest createdAt of the traces. It can't be before earliest_created_at, nor more than 30 days after it."
+        ),
 })
 
 /**
@@ -564,7 +1008,7 @@ export const DatasetsExportsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Refresh retention for a dataset and optionally one revision, with the same access required to read them.
+ * Refresh retention for a dataset and optionally one revision. Project secret API keys require dataset:write. Users need read access to the dataset.
  */
 
 export const DatasetsExtendRetentionCreateBody = /* @__PURE__ */ zod.object({
@@ -631,6 +1075,18 @@ export const EvaluationSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object
         .optional()
         .describe(
             'Optional reason: not_relevant, already_covered, too_noisy, or fixed_cause.\n\n\* `not_relevant` - Not relevant\n\* `already_covered` - Already covered\n\* `too_noisy` - Too noisy\n\* `fixed_cause` - Fixed the cause'
+        ),
+})
+
+/**
+ * Turn suggestions off or back on for the project. A body without `enabled` changes nothing.
+ */
+export const EvaluationSuggestionsSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project.'
         ),
 })
 
@@ -2963,6 +3419,11 @@ export const llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
 
+export const llmAnalyticsScoreDefinitionsCreateBodyApplyToSuiteKeysItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsCreateBodyApplyToSuiteKeysMax = 100
+
+export const llmAnalyticsScoreDefinitionsCreateBodyScopeDefault = `item`
 export const llmAnalyticsScoreDefinitionsCreateBodyCalculationDefault = `reported`
 export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneExpressionMax = 1024
 
@@ -2971,6 +3432,8 @@ export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAlias
 export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
     '^[a-z][a-z0-9_]{0,31}$'
 )
+export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemCategoryMax = 128
+
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyShortNameMax = 40
@@ -2988,6 +3451,15 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
         .max(llmAnalyticsScoreDefinitionsCreateBodyTagsMax)
         .optional()
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+    apply_to_suite_keys: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyApplyToSuiteKeysItemMax))
+        .max(llmAnalyticsScoreDefinitionsCreateBodyApplyToSuiteKeysMax)
+        .optional()
+        .describe('Apply this version to these suites for future runs. Omit to preserve existing assignments.'),
+    scope: zod
+        .enum(['item', 'experiment'])
+        .describe('\* `item` - Item\n\* `experiment` - Experiment')
+        .default(llmAnalyticsScoreDefinitionsCreateBodyScopeDefault),
     calculation: zod
         .enum(['reported', 'composite'])
         .describe('\* `reported` - Reported\n\* `composite` - Composite')
@@ -3016,11 +3488,27 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
                                 ),
                             scorer_version_id: zod
                                 .uuid()
-                                .describe('Exact immutable version of an ordinary input scorer.'),
+                                .describe(
+                                    "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
+                                ),
+                            statistic: zod
+                                .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
+                                .optional()
+                                .describe(
+                                    '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
+                                ),
+                            version_policy: zod
+                                .enum(['run', 'exact', 'combine'])
+                                .optional()
+                                .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
+                            category: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemCategoryMax)
+                                .optional(),
                         })
                     )
                     .describe(
-                        'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                        'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
                     ),
             }),
             zod.null(),
@@ -3151,6 +3639,10 @@ export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax = 255
 
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax = 100
 
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyApplyToSuiteKeysItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyApplyToSuiteKeysMax = 100
+
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyShortNameMax = 40
@@ -3161,6 +3653,15 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax)
         .optional()
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+    apply_to_suite_keys: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsPartialUpdateBodyApplyToSuiteKeysItemMax))
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyApplyToSuiteKeysMax)
+        .optional()
+        .describe('Apply this version to these suites for future runs. Omit to preserve existing assignments.'),
+    suite_version_id: zod
+        .uuid()
+        .optional()
+        .describe('Exact version to assign to the selected suites. Defaults to the current version.'),
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
@@ -3175,6 +3676,10 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
 })
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyApplyToSuiteKeysItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyApplyToSuiteKeysMax = 100
+
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneExpressionMax = 1024
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasMax = 32
@@ -3182,6 +3687,8 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInput
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
     '^[a-z][a-z0-9_]{0,31}$'
 )
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemCategoryMax = 128
+
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyShortNameMax = 40
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax = 255
@@ -3193,6 +3700,11 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptions
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ zod.object({
+    apply_to_suite_keys: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyApplyToSuiteKeysItemMax))
+        .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyApplyToSuiteKeysMax)
+        .optional()
+        .describe('Apply this version to these suites for future runs. Omit to preserve existing assignments.'),
     composition: zod
         .union([
             zod.object({
@@ -3216,11 +3728,29 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
                                 ),
                             scorer_version_id: zod
                                 .uuid()
-                                .describe('Exact immutable version of an ordinary input scorer.'),
+                                .describe(
+                                    "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
+                                ),
+                            statistic: zod
+                                .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
+                                .optional()
+                                .describe(
+                                    '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
+                                ),
+                            version_policy: zod
+                                .enum(['run', 'exact', 'combine'])
+                                .optional()
+                                .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
+                            category: zod
+                                .string()
+                                .max(
+                                    llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemCategoryMax
+                                )
+                                .optional(),
                         })
                     )
                     .describe(
-                        'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                        'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
                     ),
             }),
             zod.null(),
@@ -3348,6 +3878,7 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyScopeDefault = `item`
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneExpressionMax = 1024
 
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasMax = 32
@@ -3355,6 +3886,8 @@ export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositio
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
     '^[a-z][a-z0-9_]{0,31}$'
 )
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemCategoryMax = 128
+
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemKeyMax = 128
 
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemLabelMax = 256
@@ -3362,6 +3895,10 @@ export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneO
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .enum(['item', 'experiment'])
+        .describe('\* `item` - Item\n\* `experiment` - Experiment')
+        .default(llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyScopeDefault),
     kind: zod
         .enum(['categorical', 'numeric', 'boolean'])
         .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
@@ -3390,11 +3927,31 @@ export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody = /* @__P
                             .describe(
                                 'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
                             ),
-                        scorer_version_id: zod.uuid().describe('Exact immutable version of an ordinary input scorer.'),
+                        scorer_version_id: zod
+                            .uuid()
+                            .describe(
+                                "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
+                            ),
+                        statistic: zod
+                            .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
+                            .optional()
+                            .describe(
+                                '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
+                            ),
+                        version_policy: zod
+                            .enum(['run', 'exact', 'combine'])
+                            .optional()
+                            .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
+                        category: zod
+                            .string()
+                            .max(
+                                llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemCategoryMax
+                            )
+                            .optional(),
                     })
                 )
                 .describe(
-                    'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                    'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
                 ),
         })
         .describe('Formula and pinned input versions to validate without saving.'),
@@ -3880,326 +4437,4 @@ export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
         ),
-})
-
-export const taggersUpdateBodyNameMax = 400
-
-export const taggersUpdateBodyTaggerTypeDefault = `llm`
-export const taggersUpdateBodyTaggerConfigOneOneTagsItemNameMax = 100
-
-export const taggersUpdateBodyTaggerConfigOneOneTagsItemDescriptionDefault = ``
-export const taggersUpdateBodyTaggerConfigOneOneTagsItemDescriptionMax = 500
-
-export const taggersUpdateBodyTaggerConfigOneOneMinTagsDefault = 0
-export const taggersUpdateBodyTaggerConfigOneOneMinTagsMin = 0
-
-export const taggersUpdateBodyTaggerConfigOneTwoTagsItemNameMax = 100
-
-export const taggersUpdateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
-export const taggersUpdateBodyTaggerConfigOneTwoTagsItemDescriptionMax = 500
-
-export const taggersUpdateBodyConditionsItemIdMax = 100
-
-export const taggersUpdateBodyConditionsItemRolloutPercentageDefault = 100
-export const taggersUpdateBodyConditionsItemRolloutPercentageMin = 0
-export const taggersUpdateBodyConditionsItemRolloutPercentageMax = 100
-
-export const taggersUpdateBodyModelConfigurationOneModelMax = 100
-
-export const TaggersUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taggersUpdateBodyNameMax),
-    description: zod.string().optional(),
-    enabled: zod.boolean().optional(),
-    tagger_type: zod
-        .enum(['llm', 'hog'])
-        .describe('\* `llm` - LLM\n\* `hog` - Hog')
-        .default(taggersUpdateBodyTaggerTypeDefault),
-    tagger_config: zod
-        .union([
-            zod.object({
-                prompt: zod.string().min(1).describe('Prompt instructing the LLM how to tag generations'),
-                tags: zod
-                    .array(
-                        zod.object({
-                            name: zod
-                                .string()
-                                .max(taggersUpdateBodyTaggerConfigOneOneTagsItemNameMax)
-                                .describe('Tag identifier'),
-                            description: zod
-                                .string()
-                                .max(taggersUpdateBodyTaggerConfigOneOneTagsItemDescriptionMax)
-                                .default(taggersUpdateBodyTaggerConfigOneOneTagsItemDescriptionDefault)
-                                .describe('Description to help the LLM classify'),
-                        })
-                    )
-                    .describe('Available tags the LLM can assign'),
-                min_tags: zod
-                    .number()
-                    .min(taggersUpdateBodyTaggerConfigOneOneMinTagsMin)
-                    .default(taggersUpdateBodyTaggerConfigOneOneMinTagsDefault)
-                    .describe('Minimum number of tags to apply'),
-                max_tags: zod.number().min(1).nullish().describe('Maximum number of tags to apply (null = no limit)'),
-            }),
-            zod.object({
-                source: zod.string().min(1).describe('Hog source code to classify a generation into tags.'),
-                tags: zod
-                    .array(
-                        zod.object({
-                            name: zod
-                                .string()
-                                .max(taggersUpdateBodyTaggerConfigOneTwoTagsItemNameMax)
-                                .describe('Tag identifier'),
-                            description: zod
-                                .string()
-                                .max(taggersUpdateBodyTaggerConfigOneTwoTagsItemDescriptionMax)
-                                .default(taggersUpdateBodyTaggerConfigOneTwoTagsItemDescriptionDefault)
-                                .describe('Description to help the LLM classify'),
-                        })
-                    )
-                    .optional()
-                    .describe('Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.'),
-            }),
-        ])
-        .describe(
-            "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
-        ),
-    conditions: zod
-        .array(
-            zod.object({
-                id: zod
-                    .string()
-                    .max(taggersUpdateBodyConditionsItemIdMax)
-                    .describe('Stable identifier for this condition'),
-                rollout_percentage: zod
-                    .number()
-                    .min(taggersUpdateBodyConditionsItemRolloutPercentageMin)
-                    .max(taggersUpdateBodyConditionsItemRolloutPercentageMax)
-                    .default(taggersUpdateBodyConditionsItemRolloutPercentageDefault)
-                    .describe('Percentage of matching events to apply this condition to'),
-                properties: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Property filters that scope when this condition fires'),
-            })
-        )
-        .optional()
-        .describe('Conditions that scope when the tagger runs'),
-    model_configuration: zod
-        .union([
-            zod.object({
-                provider: zod
-                    .enum([
-                        'openai',
-                        'anthropic',
-                        'gemini',
-                        'openrouter',
-                        'fireworks',
-                        'azure_openai',
-                        'together_ai',
-                        'minimax',
-                        'openai_compatible',
-                    ])
-                    .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
-                    )
-                    .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
-                    ),
-                model: zod
-                    .string()
-                    .max(taggersUpdateBodyModelConfigurationOneModelMax)
-                    .describe('Provider model identifier to use for this tagger.'),
-                provider_key_id: zod
-                    .uuid()
-                    .nullish()
-                    .describe(
-                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit\/null when no provider key should be pinned.'
-                    ),
-            }),
-            zod.null(),
-        ])
-        .optional(),
-    deleted: zod.boolean().optional(),
-})
-
-export const taggersPartialUpdateBodyNameMax = 400
-
-export const taggersPartialUpdateBodyTaggerTypeDefault = `llm`
-export const taggersPartialUpdateBodyTaggerConfigOneOneTagsItemNameMax = 100
-
-export const taggersPartialUpdateBodyTaggerConfigOneOneTagsItemDescriptionDefault = ``
-export const taggersPartialUpdateBodyTaggerConfigOneOneTagsItemDescriptionMax = 500
-
-export const taggersPartialUpdateBodyTaggerConfigOneOneMinTagsDefault = 0
-export const taggersPartialUpdateBodyTaggerConfigOneOneMinTagsMin = 0
-
-export const taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemNameMax = 100
-
-export const taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
-export const taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemDescriptionMax = 500
-
-export const taggersPartialUpdateBodyConditionsItemIdMax = 100
-
-export const taggersPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
-export const taggersPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
-export const taggersPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
-
-export const taggersPartialUpdateBodyModelConfigurationOneModelMax = 100
-
-export const TaggersPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taggersPartialUpdateBodyNameMax).optional(),
-    description: zod.string().optional(),
-    enabled: zod.boolean().optional(),
-    tagger_type: zod
-        .enum(['llm', 'hog'])
-        .describe('\* `llm` - LLM\n\* `hog` - Hog')
-        .default(taggersPartialUpdateBodyTaggerTypeDefault),
-    tagger_config: zod
-        .union([
-            zod.object({
-                prompt: zod.string().min(1).describe('Prompt instructing the LLM how to tag generations'),
-                tags: zod
-                    .array(
-                        zod.object({
-                            name: zod
-                                .string()
-                                .max(taggersPartialUpdateBodyTaggerConfigOneOneTagsItemNameMax)
-                                .describe('Tag identifier'),
-                            description: zod
-                                .string()
-                                .max(taggersPartialUpdateBodyTaggerConfigOneOneTagsItemDescriptionMax)
-                                .default(taggersPartialUpdateBodyTaggerConfigOneOneTagsItemDescriptionDefault)
-                                .describe('Description to help the LLM classify'),
-                        })
-                    )
-                    .describe('Available tags the LLM can assign'),
-                min_tags: zod
-                    .number()
-                    .min(taggersPartialUpdateBodyTaggerConfigOneOneMinTagsMin)
-                    .default(taggersPartialUpdateBodyTaggerConfigOneOneMinTagsDefault)
-                    .describe('Minimum number of tags to apply'),
-                max_tags: zod.number().min(1).nullish().describe('Maximum number of tags to apply (null = no limit)'),
-            }),
-            zod.object({
-                source: zod.string().min(1).describe('Hog source code to classify a generation into tags.'),
-                tags: zod
-                    .array(
-                        zod.object({
-                            name: zod
-                                .string()
-                                .max(taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemNameMax)
-                                .describe('Tag identifier'),
-                            description: zod
-                                .string()
-                                .max(taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemDescriptionMax)
-                                .default(taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemDescriptionDefault)
-                                .describe('Description to help the LLM classify'),
-                        })
-                    )
-                    .optional()
-                    .describe('Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.'),
-            }),
-        ])
-        .optional()
-        .describe(
-            "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
-        ),
-    conditions: zod
-        .array(
-            zod.object({
-                id: zod
-                    .string()
-                    .max(taggersPartialUpdateBodyConditionsItemIdMax)
-                    .describe('Stable identifier for this condition'),
-                rollout_percentage: zod
-                    .number()
-                    .min(taggersPartialUpdateBodyConditionsItemRolloutPercentageMin)
-                    .max(taggersPartialUpdateBodyConditionsItemRolloutPercentageMax)
-                    .default(taggersPartialUpdateBodyConditionsItemRolloutPercentageDefault)
-                    .describe('Percentage of matching events to apply this condition to'),
-                properties: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Property filters that scope when this condition fires'),
-            })
-        )
-        .optional()
-        .describe('Conditions that scope when the tagger runs'),
-    model_configuration: zod
-        .union([
-            zod.object({
-                provider: zod
-                    .enum([
-                        'openai',
-                        'anthropic',
-                        'gemini',
-                        'openrouter',
-                        'fireworks',
-                        'azure_openai',
-                        'together_ai',
-                        'minimax',
-                        'openai_compatible',
-                    ])
-                    .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
-                    )
-                    .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
-                    ),
-                model: zod
-                    .string()
-                    .max(taggersPartialUpdateBodyModelConfigurationOneModelMax)
-                    .describe('Provider model identifier to use for this tagger.'),
-                provider_key_id: zod
-                    .uuid()
-                    .nullish()
-                    .describe(
-                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit\/null when no provider key should be pinned.'
-                    ),
-            }),
-            zod.null(),
-        ])
-        .optional(),
-    deleted: zod.boolean().optional(),
-})
-
-/**
- * Test Hog tagger code against sample events without saving.
- */
-
-export const taggersTestHogCreateBodySampleCountDefault = 5
-export const taggersTestHogCreateBodySampleCountMax = 10
-
-export const taggersTestHogCreateBodyTagsItemNameMax = 100
-
-export const taggersTestHogCreateBodyTagsItemDescriptionDefault = ``
-export const taggersTestHogCreateBodyTagsItemDescriptionMax = 500
-
-export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
-    source: zod
-        .string()
-        .min(1)
-        .describe('Hog source code to test. Return a tag name string, a list of tag name strings, or null.'),
-    sample_count: zod
-        .number()
-        .min(1)
-        .max(taggersTestHogCreateBodySampleCountMax)
-        .default(taggersTestHogCreateBodySampleCountDefault)
-        .describe('Number of recent $ai_generation events to test against (1-10, default 5).'),
-    tags: zod
-        .array(
-            zod.object({
-                name: zod
-                    .string()
-                    .max(taggersTestHogCreateBodyTagsItemNameMax)
-                    .describe('Tag identifier to allow in Hog test results.'),
-                description: zod
-                    .string()
-                    .max(taggersTestHogCreateBodyTagsItemDescriptionMax)
-                    .default(taggersTestHogCreateBodyTagsItemDescriptionDefault)
-                    .describe('Optional description for the tag.'),
-            })
-        )
-        .optional()
-        .describe('Optional tag whitelist. Returned tags outside this list are filtered out.'),
 })

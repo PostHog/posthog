@@ -54,11 +54,13 @@ function beforeDeadline<T, F>(work: Promise<T>, signal: AbortSignal | undefined,
     return Promise.race([work, deadline])
 }
 
+/** `atLaunch` checks a draft as it will be when its launch succeeds, so the checks that run only after launch run too. */
 export async function readConfigHealth(
     context: Context,
     projectId: string,
     experimentId: number,
-    timeoutMs?: number
+    timeoutMs?: number,
+    atLaunch = false
 ): Promise<ConfigHealthRead> {
     const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
     if (!(await beforeDeadline(configHealthEnabled(context), signal, false))) {
@@ -66,7 +68,7 @@ export async function readConfigHealth(
     }
     const read: Promise<Result<Schemas.ExperimentHealth> | null> = context.api
         .experiments({ projectId })
-        .getHealth({ experimentId, signal })
+        .getHealth({ experimentId, atLaunch, signal })
         .catch(() => null)
     const health = await beforeDeadline(read, signal, null)
     if (health?.success) {
@@ -82,6 +84,10 @@ export function exposureHealthOutcome(error: Error | null): ExposureHealthOutcom
     return error instanceof ExperimentNotStartedError ? 'not_started' : 'failed'
 }
 
+export function configHealthNotRun(configOutcome: ConfigHealthOutcome): string[] {
+    return configOutcome === 'failed' || configOutcome === 'timed_out' ? ['The configuration checks did not run.'] : []
+}
+
 /** One sentence per source whose checks did not run, so that the agent does not read a missing check as passed. */
 export function healthNotRun(
     configOutcome: ConfigHealthOutcome,
@@ -89,9 +95,7 @@ export function healthNotRun(
     exposureError: Error | null
 ): string[] {
     return [
-        ...(configOutcome === 'failed' || configOutcome === 'timed_out'
-            ? ['The configuration checks did not run.']
-            : []),
+        ...configHealthNotRun(configOutcome),
         ...(exposureOutcome === 'not_started'
             ? ['The exposure checks did not run: the experiment has not started.']
             : []),
@@ -126,7 +130,7 @@ export function trackHealthReturned(
         configOutcome,
         exposureOutcome,
     }: {
-        toolName: 'experiment-results-get' | 'experiment-health-get'
+        toolName: 'experiment-results-get' | 'experiment-health-get' | 'experiment-launch'
         experimentId: number
         details: ExperimentHealthDetails
         configOutcome: ConfigHealthOutcome

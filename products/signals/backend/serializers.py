@@ -43,6 +43,8 @@ from products.signals.backend.contracts import (
     ISSUE_FILTER_SOURCES,
     ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
+    SCOPE_ID_MAX_LENGTH,
+    SCOPE_IDS_MAX_COUNT,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
     AlertScope,
@@ -51,6 +53,7 @@ from products.signals.backend.contracts import (
 )
 from products.signals.backend.credential_redaction import redact_credentials
 from products.signals.backend.enums import (
+    ReportLinkKind,
     ReportTaskActionKind,
     ReviewerEditAction,
     ReviewerRemovalReason,
@@ -84,6 +87,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_link_summary import LinkStripKind, PlanStepState, ReportLinkSummary
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.report_monitoring_summary import (
     MonitoringCheckState,
@@ -101,6 +105,7 @@ from products.signals.backend.report_search import (
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.source_filter_preview import PREVIEW_MAX_CONDITIONS
 from products.signals.backend.source_filters import (
     SourceFilterPreviewStatus,
     SourceFilterRunState,
@@ -157,6 +162,7 @@ from .models import (
     SignalSourceFilterState,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    effective_autostart_priority,
 )
 from .personal_ranking.list_sort import PersonalListOrder, PersonalRowNote
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
@@ -701,6 +707,12 @@ class SourceFilterCatalogSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Example expressions that are valid for this source.",
     )
+    preview_supported = serializers.BooleanField(
+        help_text=(
+            "True when `inbox-source-filter-preview` can show this source's recent records. When false, a filter can "
+            "still be saved, but the preview returns an error."
+        ),
+    )
 
 
 class SourceFilterCatalogListSerializer(serializers.Serializer):
@@ -712,29 +724,56 @@ class SourceFilterCatalogListSerializer(serializers.Serializer):
     )
 
 
-# Wider than the expression limit, so a long expression reads back as an `invalid_expression` preview, not a 400.
-_SOURCE_FILTER_PREVIEW_MAX_LENGTH = 16384
+# Wider than the expression limit, so a long expression reads back as an `expression_limit` error, not a 400.
+_SOURCE_FILTER_REQUEST_MAX_LENGTH = 16384
 
 
-class SourceFilterPreviewRequestSerializer(serializers.Serializer):
+class SourceFilterExpressionRequestSerializer(serializers.Serializer):
     source_product = serializers.CharField(
         max_length=100,
-        help_text="Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+        help_text="Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.",
     )
     source_type = serializers.CharField(
         max_length=100,
-        help_text="Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+        help_text="Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.",
     )
     expression = serializers.CharField(
         allow_blank=True,
         trim_whitespace=False,
-        max_length=_SOURCE_FILTER_PREVIEW_MAX_LENGTH,
+        max_length=_SOURCE_FILTER_REQUEST_MAX_LENGTH,
         help_text=(
             "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the "
             "fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. "
             "An empty expression lets every record through."
         ),
     )
+    scope_ids = serializers.ListField(
+        # Blank and padded ids pass this field, so `scope_ids_problem` judges them as it judges the saved config key.
+        # The size caps reject oversized input before DRF validates every element.
+        child=serializers.CharField(allow_blank=True, trim_whitespace=False, max_length=SCOPE_ID_MAX_LENGTH),
+        max_length=SCOPE_IDS_MAX_COUNT,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, "
+            "these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved "
+            "allowlist, pass an empty list to read every team, or pass a list of non-empty ids "
+            f"(at most {SCOPE_IDS_MAX_COUNT}) to read only those. Sources without an allowlist ignore it."
+        ),
+    )
+
+    def validate_scope_ids(self, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        problem = scope_ids_problem(value)
+        if problem is not None:
+            raise serializers.ValidationError(problem)
+        # Stripped like the saved key, because the preview query matches ids exactly.
+        return [scope_id.strip() for scope_id in value]
+
+
+class SourceFilterPreviewRequestSerializer(SourceFilterExpressionRequestSerializer):
+    pass
 
 
 @extend_schema_field(
@@ -767,9 +806,45 @@ class SourceFilterPreviewRecordSerializer(serializers.Serializer):
         child=_SourceFilterFieldValueField(),
         help_text="Each catalog field's value for this record. A malformed value reads as null, or an empty array.",
     )
+    failed_conditions = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text=(
+            "For an excluded record, the conditions of the expression that the record does not pass, as written in "
+            "the expression and in expression order. The conditions are the operands of a top-level AND, or the "
+            "whole expression when it is one condition. A condition that reads a malformed value fails. Null for "
+            "records that pass, and for every record when the expression's top level is OR or the expression "
+            f"has more than {PREVIEW_MAX_CONDITIONS} conditions."
+        ),
+    )
 
 
-class SourceFilterPreviewResponseSerializer(serializers.Serializer):
+class FilterExpressionErrorSerializer(serializers.Serializer):
+    error_code = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, "
+            "`boolean_required` or `expression_limit`. Null when the expression is valid."
+        ),
+    )
+    error_start = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "0-based character offset in `expression` where the invalid part starts. Null when the expression is "
+            "valid, or when the error has no position, for example an expression that is too long."
+        ),
+    )
+    error_end = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "0-based character offset in `expression` just after the invalid part, so the part is "
+            "`expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example "
+            "an expression that ends too early. Null when `error_start` is null."
+        ),
+    )
+
+
+class SourceFilterPreviewResponseSerializer(FilterExpressionErrorSerializer):
     status = serializers.ChoiceField(
         choices=SourceFilterPreviewStatus.choices,
         help_text=(
@@ -784,7 +859,10 @@ class SourceFilterPreviewResponseSerializer(serializers.Serializer):
     catalog_version = serializers.IntegerField(help_text="Catalog version the expression was checked against.")
     lookback_days = serializers.IntegerField(help_text="The preview reads records created in this many past days.")
     total_count = serializers.IntegerField(
-        help_text="Records in the window that emission would read before the filter. 0 unless `status` is `ok`."
+        help_text=(
+            "Records in the window that emission would read before the filter. Leaves out records that never become "
+            "signals, such as Linear issues without a description. 0 unless `status` is `ok`."
+        )
     )
     passing_count = serializers.IntegerField(help_text="Records in the window that pass the filter.")
     excluded_count = serializers.IntegerField(help_text="Records in the window that the filter excludes.")
@@ -796,6 +874,14 @@ class SourceFilterPreviewResponseSerializer(serializers.Serializer):
     )
     excluded = SourceFilterPreviewRecordSerializer(
         many=True, help_text="The newest records that the filter excludes, at most 10."
+    )
+
+
+class SourceFilterValidateResponseSerializer(FilterExpressionErrorSerializer):
+    valid = serializers.BooleanField(help_text="True when the expression can be saved as the source's filter.")
+    catalog_version = serializers.IntegerField(help_text="Catalog version the expression was checked against.")
+    error = serializers.CharField(
+        allow_null=True, help_text="Why the expression is invalid, as a message for people. Null when it is valid."
     )
 
 
@@ -1009,7 +1095,23 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         representation = dict(super().to_representation(instance))
         for field in STEERING_FIELDS.values():
             representation[field] = representation[field] or ""
+        representation["default_autostart_priority"] = effective_autostart_priority(instance).value
         return representation
+
+    def update(self, instance: SignalTeamConfig, validated_data: dict[str, Any]) -> SignalTeamConfig:
+        # A project that never set the switch runs on the threshold `effective_autostart_priority`
+        # gives it. Setting the switch also stores that threshold, so that turning PRs off and on
+        # again does not bring back the P4 column default. A stored P4 with a null switch reads as
+        # never chosen, so only a P4 pick also stores the switch. Any other pick leaves the switch
+        # null, because an explicit True waives the per-reviewer opt-in for trial PRs.
+        if instance.autostart_enabled is None:
+            if validated_data.get("autostart_enabled", False) is None:
+                del validated_data["autostart_enabled"]
+            if "autostart_enabled" in validated_data:
+                validated_data.setdefault("default_autostart_priority", effective_autostart_priority(instance))
+            elif validated_data.get("default_autostart_priority") == AutonomyPriority.P4:
+                validated_data["autostart_enabled"] = True
+        return super().update(instance, validated_data)
 
     def validate_implementation_repositories(self, value: list[str]) -> list[str]:
         try:
@@ -1106,6 +1208,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                     "Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set "
                     "false to opt out, so actionable reports still generate and notify but the team "
                     "never auto-starts an implementation task or opens a PR — reviewers open PRs manually."
+                )
+            },
+            "default_autostart_priority": {
+                "help_text": (
+                    "Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). "
+                    "Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. "
+                    "Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true."
                 )
             },
             "default_slack_notification_channel": {
@@ -1963,6 +2072,80 @@ class ReportMonitoringSummarySerializer(serializers.Serializer):
     checks = MonitoringCheckSummarySerializer(
         many=True,
         help_text="Every check this Monitoring period is verified with, oldest first, including cancelled ones.",
+    )
+
+
+class LinkedReportRefSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The linked report's id.")
+    title = serializers.CharField(allow_null=True, help_text="The linked report's title.")
+    status = serializers.ChoiceField(
+        choices=SignalReport.Status.choices,
+        help_text="The linked report's status. Monitoring reads as resolved when its rollout is disabled.",
+    )
+    implementation_pr_url = serializers.CharField(
+        allow_null=True, help_text="The linked report's primary implementation pull request, if one is attached."
+    )
+    implementation_pr_state = serializers.ChoiceField(
+        choices=SignalReportAssignment.PrState.choices,
+        allow_null=True,
+        help_text="Latest known state of that pull request: unknown, draft, open, closed, or merged.",
+    )
+
+
+class LinkPlanStepSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The step's report id.")
+    title = serializers.CharField(allow_null=True, help_text="The step's report title.")
+    state = serializers.ChoiceField(
+        choices=PlanStepState.choices,
+        help_text=(
+            "`merged`: the step's pull request merged or the step resolved. `in_review`: the step has a pull "
+            "request that is not closed. `waiting`: no work is in flight yet. `dismissed`: the step was archived."
+        ),
+    )
+
+
+class LinkPlanSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The plan's report id.")
+    title = serializers.CharField(allow_null=True, help_text="The plan's report title.")
+    steps = LinkPlanStepSerializer(
+        many=True,
+        help_text="The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out.",
+    )
+    lead_step_id = serializers.UUIDField(
+        help_text=(
+            "The step to show for the whole plan: the first step in review, else the first waiting step, else the "
+            "last step."
+        ),
+    )
+
+
+class OtherReportLinkSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=ReportLinkKind.choices, help_text="How this report relates to the other.")
+    report = LinkedReportRefSerializer(help_text="The other report.")
+
+
+class ReportLinkSummarySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=LinkStripKind.choices,
+        help_text=(
+            "The link the inbox row shows. `part_of`: this report is a step of `plan`. `plan`: this report is the "
+            "plan, and `plan` lists its steps. Other values name an outgoing link to `report`. The order of "
+            "preference is plan, `recurrence_of`, `duplicate_of`, `depends_on`, `follow_up_of`."
+        ),
+    )
+    report = LinkedReportRefSerializer(
+        allow_null=True,
+        help_text="The report the link points at. For `part_of` this is the plan. Null when `kind` is `plan`.",
+    )
+    plan = LinkPlanSummarySerializer(
+        allow_null=True, help_text="The plan, when `kind` is `part_of` or `plan`. Null otherwise."
+    )
+    other_links = OtherReportLinkSerializer(
+        many=True,
+        help_text=(
+            "This report's other outgoing links to live reports, oldest first. Links inside the same plan are left "
+            "out, and so is a `follow_up_of` to the report a `recurrence_of` strip names."
+        ),
     )
 
 
@@ -3599,6 +3782,12 @@ class SignalReportListSerializer(SignalReportSerializer):
             "Monitoring is disabled."
         ),
     )
+    link_summary = serializers.SerializerMethodField(
+        help_text=(
+            "The one link the inbox row shows, read for the whole page at once. Null when the report links to no "
+            "live report, is no plan, or the inbox card links rollout is off for the organization."
+        ),
+    )
 
     class Meta(SignalReportSerializer.Meta):
         fields = [
@@ -3608,8 +3797,15 @@ class SignalReportListSerializer(SignalReportSerializer):
             "personal_reason",
             "monitoring_summary",
             "monitoring_outcome",
+            "link_summary",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(ReportLinkSummarySerializer(allow_null=True))
+    def get_link_summary(self, obj: SignalReport) -> dict[str, object] | None:
+        summaries: dict[str, ReportLinkSummary] = self.context.get("link_summaries_map", {})
+        summary = summaries.get(str(obj.id))
+        return dict(ReportLinkSummarySerializer(summary).data) if summary is not None else None
 
     @extend_schema_field(ReportMonitoringSummarySerializer(allow_null=True))
     def get_monitoring_summary(self, obj: SignalReport) -> dict[str, object] | None:
@@ -3709,6 +3905,14 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
 
 
 class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
+    plan = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Keep only the steps of this plan report, in plan order: the same reports, in the same order, as "
+            "`plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other "
+            "filters still apply. A report with no steps returns an empty page."
+        ),
+    )
     ranking_id = serializers.UUIDField(
         required=False,
         help_text=(
@@ -4830,6 +5034,22 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
     )
 
 
+class SignalReportArtefactListQuerySerializer(serializers.Serializer):
+    # Plain CharField: the view checks each value against the types this caller may read, so a hidden type
+    # gets the same 400 as an unknown one.
+    type = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Comma-separated artefact types to return, for example `signal_finding,note`. Omit it to return every "
+            "type. `signal_finding` holds the evidence behind the report, `note` holds free-form notes such as the "
+            "`## Verification plan`, and `task_run` records research and implementation runs. Values match the "
+            "`type` of the returned artefacts. `count` and pagination cover only the matching artefacts. An unknown "
+            "type returns 400 with the accepted values."
+        ),
+    )
+
+
 class CommitDiffResponseSerializer(serializers.Serializer):
     """Response for the `commit` artefact diff endpoint."""
 
@@ -4895,6 +5115,21 @@ class GitHubRepositoryInaccessibleErrorSerializer(serializers.Serializer):
         read_only=True, help_text="Stable code for a repository no GitHub integration can access."
     )
     error = serializers.CharField(read_only=True, help_text="Which repository GitHub can't access, and who can fix it.")
+    remediation_url = serializers.CharField(
+        read_only=True,
+        help_text="Project integrations settings where a project admin can reconnect GitHub.",
+    )
+
+
+class GitHubInstallationUnavailableErrorSerializer(serializers.Serializer):
+    """Response when the team's GitHub App installation is suspended or uninstalled."""
+
+    code = serializers.CharField(
+        read_only=True, help_text="Stable code for a suspended or uninstalled GitHub App installation."
+    )
+    error = serializers.CharField(
+        read_only=True, help_text="What happened to the GitHub connection, and who can fix it."
+    )
     remediation_url = serializers.CharField(
         read_only=True,
         help_text="Project integrations settings where a project admin can reconnect GitHub.",

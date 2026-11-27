@@ -45,13 +45,14 @@ database "posthog" {
   }
   table "sharded_ai_events" {
     extend = "_ai_events_data"
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.ai_events"
-      replica_name = "{replica}"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.ai_events"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
     }
   }
   materialized_view "ai_events_json_mv" {
-    to_table = "posthog.ai_events"
+    to_table = "posthog.sharded_ai_events"
     query    = <<SQL
 SELECT
   uuid,
@@ -122,6 +123,7 @@ SELECT
   nullIf(JSONExtractRaw(src.properties, '$ai_input_state'), '') AS input_state,
   nullIf(JSONExtractRaw(src.properties, '$ai_output_state'), '') AS output_state,
   nullIf(JSONExtractRaw(src.properties, '$ai_tools'), '') AS tools,
+  toInt16(least(greatest(toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)), 30), 365)) AS retention_days,
   _timestamp,
   _offset,
   _partition
@@ -292,6 +294,9 @@ SQL
     }
     column "tools" {
       type = "Nullable(String)"
+    }
+    column "retention_days" {
+      type = "Int16"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"

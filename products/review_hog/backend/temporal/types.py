@@ -22,6 +22,10 @@ TRIGGER_UI = "ui"
 TRIGGER_COMMENT = "comment"
 TRIGGER_REVIEW_REQUEST = "review_request"
 TRIGGER_AUTOMATIC = "automatic"
+# The `trigger_action` of the automatic Deep review that follows a Standard turn with a must-fix finding. It
+# reviews a head that already had its automatic review, so the turn does not skip the head, and the push gate
+# applies only its draft rule.
+DEEP_FOLLOW_UP_ACTION = "deep_follow_up"
 # The triggers that ask for a review and then wait on an answer. A Stamphog handoff counts, because
 # Inbox triage reads the answer. An inbox review comes from the signals agent, so it is not one of them.
 REQUESTED_TRIGGERS = frozenset(
@@ -81,7 +85,7 @@ class ReviewPRWorkflowInputs:
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
     # The GitHub `pull_request` action (`opened`, `ready_for_review`, `synchronize`) that asked for an
-    # automatic review of `requested_head_sha`. None for every other trigger.
+    # automatic review of `requested_head_sha`, or `DEEP_FOLLOW_UP_ACTION`. None for every other trigger.
     trigger_action: str | None = None
     # The event says the PR is ready for review at `requested_head_sha`: it was marked ready, or it
     # opened as a non-draft. A clean Standard turn on that head then starts a silent stamphog review.
@@ -124,6 +128,9 @@ class FinishedStandardAutomaticTurn:
     # The turn's own event marked the PR ready at the head the turn reviewed, and the queue does not answer
     # for the turn: queue the silent review when the turn was clean. The name is the persisted payload's.
     marks_ready: bool
+    # For the Deep follow-up after a must-fix finding. Defaulted so payloads from before the fields start none.
+    draft: bool = False
+    user_id: int | None = None
 
 
 @frozen

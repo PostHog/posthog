@@ -48,6 +48,7 @@ from products.signals.backend.report_metrics import (
     REPORT_METRIC_GOAL_FIELDS,
     ReportMetric,
 )
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPTS, suggested_prompts_guidance
 from products.signals.backend.report_tags import coerce_report_tags
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, ImplementationResearchContext
 from products.signals.backend.task_profiles import RESEARCH, RESEARCH_WITHOUT_REPORT
@@ -247,6 +248,25 @@ Hard rules:
             "priority: other fields carry those."
         ),
     )
+
+    suggested_prompts: list[str] = Field(
+        default_factory=list,
+        description=(
+            f"Up to {MAX_SUGGESTED_PROMPTS} prompts the inbox offers above the report's Ask AI box: follow-up "
+            "questions, or the next-step action the report recommends, each one sentence that stands alone. "
+            "The list replaces the report's current prompts. Leave empty when no prompt is worth an agent run."
+        ),
+    )
+
+    @field_validator("suggested_prompts", mode="before")
+    @classmethod
+    def drop_suggested_prompts_that_are_not_strings(cls, v: object) -> object:
+        # The presentation turn has no retry, so a malformed set costs only the prompts.
+        if not isinstance(v, list):
+            if v is not None:
+                logger.warning("presentation: dropped suggested prompts that are not a list (%s)", type(v).__name__)
+            return []
+        return [entry for entry in v if isinstance(entry, str)]
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -592,6 +612,11 @@ class ReportResearchOutput(BaseModel):
     tags: list[str] | None = Field(
         default=None,
         description="The report's whole tag set, replaced with title and summary. `None` keeps the stored set.",
+    )
+    suggested_prompts: list[str] = Field(
+        default_factory=list,
+        description="Prompts the presentation step suggested, as authored. The caller normalizes and "
+        "safety-judges them before it stores them.",
     )
     charts: list[ReportChart] = Field(
         default_factory=list,
@@ -1467,6 +1492,29 @@ Current tags on this report: {json.dumps(list(current_tags))}
 The team's most-used report tags, most-used first: {json.dumps(list(team_tags))}"""
 
 
+_REPORT_SUGGESTED_PROMPTS_GUIDANCE = suggested_prompts_guidance(
+    heading="##",
+    field_location="in your response",
+    whole_set_rule=(
+        "- **`suggested_prompts` is the report's whole set.** It replaces the prompts the report offered "
+        "before, the way the title and summary do, so a prompt written about an earlier version of the "
+        "report is dropped unless you send it again. A safety review reads the set before it is stored, "
+        "and a set that fails the review is dropped whole."
+    ),
+)
+
+
+def _render_current_suggested_prompts_context(current_prompts: Sequence[str]) -> str:
+    if not current_prompts:
+        return ""
+    return (
+        "## Prompts this report already suggests\n\n"
+        "Send again the ones that still fit the report you are writing, and drop the ones your findings "
+        "make stale. Omitting a prompt removes it.\n\n"
+        f"```json\n{json.dumps(list(current_prompts), indent=2)}\n```"
+    )
+
+
 _ASSIGNEE_EVIDENCE_GUIDANCE = """### Repository assignee evidence
 
 Use the bundled `posthog-assignee-evidence` command as an additional source for code-related reviewer selection.
@@ -1522,6 +1570,7 @@ def build_report_presentation_prompt(
     assignee_evidence_enabled: bool = False,
     current_tags: Sequence[str] = (),
     team_tags: Sequence[str] = (),
+    current_suggested_prompts: Sequence[str] = (),
     code_available: bool = True,
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
@@ -1614,6 +1663,10 @@ Do not edit report reviewers or GitHub assignments through tools. Return your de
     if suggestable_products:
         visual_sections.append(_render_source_suggestion_guidance(suggestable_products))
     visual_sections.append(_render_tags_guidance(current_tags, team_tags))
+    visual_sections.append(_REPORT_SUGGESTED_PROMPTS_GUIDANCE)
+    previous_prompts_context = _render_current_suggested_prompts_context(current_suggested_prompts)
+    if previous_prompts_context:
+        visual_sections.append(previous_prompts_context)
     visual_context = "".join(f"\n\n{section}" for section in visual_sections)
 
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
@@ -1864,6 +1917,7 @@ async def run_multi_turn_research(
     suggestable_products: Sequence[SuggestedSourceProduct] = (),
     current_tags: Sequence[str] = (),
     team_tags: Sequence[str] = (),
+    current_suggested_prompts: Sequence[str] = (),
     source_issues: Sequence[SourceIssue] = (),
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually.
@@ -2062,6 +2116,7 @@ async def run_multi_turn_research(
             assignee_evidence_enabled=assignee_evidence_enabled,
             current_tags=current_tags,
             team_tags=team_tags,
+            current_suggested_prompts=current_suggested_prompts,
             code_available=code_available,
         )
         presentation_result = await session.send_followup(
@@ -2194,6 +2249,7 @@ async def run_multi_turn_research(
         metrics=presentation_result.metrics if metrics_enabled else [],
         layers=presentation_result.layers if code_available else [],
         tags=presentation_result.tags,
+        suggested_prompts=presentation_result.suggested_prompts,
         research_task_id=str(session.task.id),
         verification_note=verification_note,
         checks=checks,

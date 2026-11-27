@@ -1,6 +1,8 @@
+import json
+import hashlib
 import dataclasses
 from collections.abc import Iterable, Iterator
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
@@ -42,7 +44,9 @@ def _client_config(api_key: str, api_version: str) -> ClientConfig:
     }
 
 
-def _source_response(endpoint: str, items: Any, column_hints: Any = None) -> SourceResponse:
+def _source_response(
+    endpoint: str, items: Any, column_hints: Any = None, sort_mode: Literal["asc", "desc"] | None = None
+) -> SourceResponse:
     partition_key = PARTITION_KEYS.get(endpoint)
     return SourceResponse(
         name=endpoint,
@@ -52,7 +56,17 @@ def _source_response(endpoint: str, items: Any, column_hints: Any = None) -> Sou
         partition_format="month" if partition_key else None,
         partition_keys=[partition_key] if partition_key else None,
         column_hints=column_hints,
+        sort_mode=sort_mode,
     )
+
+
+# The actor's name and email are left out: Torii resolves them when it answers, so they can change.
+_AUDIT_ID_FIELDS = ("performedBy", "idTargetOrg", "creationTime", "type", "requestDetails", "properties")
+
+
+def _with_audit_row_id(row: dict[str, Any]) -> dict[str, Any]:
+    key = json.dumps([row.get(name) for name in _AUDIT_ID_FIELDS], sort_keys=True, default=str)
+    return {**row, "id": hashlib.sha256(key.encode()).hexdigest()}
 
 
 def _app_users_source(
@@ -140,15 +154,20 @@ def torii_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ToriiResumeConfig],
     api_version: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     if endpoint == "AppUsers":
         return _app_users_source(api_key, team_id, job_id, resumable_source_manager, api_version)
     if endpoint == "FieldsMetadata":
         return _source_response(endpoint, lambda: _iter_fields_metadata(api_key, api_version, resumable_source_manager))
 
+    resource = get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)
+    if endpoint == "Audit":
+        resource["data_map"] = _with_audit_row_id
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key, api_version),
-        "resources": [get_resource(endpoint)],
+        "resources": [resource],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -173,7 +192,9 @@ def torii_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return _source_response(result.name, lambda: result, result.column_hints)
+    # The audit request sorts ascending on creationTime, the incremental field.
+    sort_mode: Literal["asc"] | None = "asc" if endpoint == "Audit" and should_use_incremental_field else None
+    return _source_response(result.name, lambda: result, result.column_hints, sort_mode)
 
 
 def validate_credentials(api_key: str) -> bool:

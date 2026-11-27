@@ -44,6 +44,7 @@ class AutoMergeReopenedTarget:
     issue_id: str
     issue: LifecycleIssueSnapshot
     assignee: str | None = None
+    previous_status: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

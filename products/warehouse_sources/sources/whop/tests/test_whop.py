@@ -86,9 +86,10 @@ class TestListParams:
         "api_version, filter_param, other_param",
         [(LEGACY, "company_id", "account_id"), (LATEST, "account_id", "company_id")],
     )
-    def test_company_and_page_size_always_sent(self, endpoint, api_version, filter_param, other_param):
+    def test_company_filter_sent_unless_the_list_takes_none(self, endpoint, api_version, filter_param, other_param):
+        # `/transfers` takes no account filter; Whop answers an unknown filter with a 400.
         params = _list_params(endpoint, COMPANY_ID, None, api_version)
-        assert params[filter_param] == COMPANY_ID
+        assert params.get(filter_param) == (COMPANY_ID if WHOP_ENDPOINTS[endpoint].company_filter else None)
         assert other_param not in params
         assert params[WHOP_ENDPOINTS[endpoint].page_size_param] == PAGE_SIZE
 
@@ -124,7 +125,10 @@ class TestApiVersion:
         assert request.path == path
         assert request.param(filter_param) == COMPANY_ID
 
-    @pytest.mark.parametrize("table", ["external_accounts", "variants", "payouts", "financial_activity"])
+    @pytest.mark.parametrize(
+        "table",
+        ["external_accounts", "variants", "payouts", "financial_activity", "transfers", "reviews", "courses"],
+    )
     @pytest.mark.parametrize("pinned, served", [(LEGACY, False), ("v1", False), (PREVIOUS, True), (LATEST, True)])
     def test_discovery_follows_what_each_version_documents(self, table, pinned, served):
         schemas = WhopSource().get_schemas(
@@ -217,6 +221,9 @@ class TestSourceResponseMetadata:
             # Documented newest first, with no sort param to force ascending.
             ("payouts", "created_at", "created_after", {"first", "account_id"}, "desc"),
             ("financial_activity", "posted_at", "posted_after", {"limit", "account_id"}, "desc"),
+            ("reviews", "created_at", "created_after", {"first", "account_id", "order", "direction"}, "asc"),
+            # Bounded by the key's account scope, not by a filter.
+            ("transfers", "created_at", "created_after", {"first", "order", "direction"}, "asc"),
         ],
     )
     def test_incremental_sync_filters_server_side_with_the_endpoint_param(

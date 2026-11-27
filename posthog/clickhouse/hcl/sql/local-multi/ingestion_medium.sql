@@ -1,5 +1,5 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
--- Full CREATE schema for the local-multi/medium node. Apply to a fresh ClickHouse to build it.
+-- Full CREATE schema for the local-multi/ingestion_medium node. Apply to a fresh ClickHouse to build it.
 
 CREATE TABLE posthog.kafka_app_metrics2 (
   team_id Int64,
@@ -210,6 +210,7 @@ CREATE TABLE posthog.query_log_archive (
   lc_plan_fingerprint SimpleAggregateFunction(max, String),
   lc_estimated_rows SimpleAggregateFunction(max, Int64),
   lc_estimated_bytes SimpleAggregateFunction(max, Int64),
+  log_comment SimpleAggregateFunction(max, String),
   query_id String,
   event_time DateTime('UTC'),
   event_date Date,

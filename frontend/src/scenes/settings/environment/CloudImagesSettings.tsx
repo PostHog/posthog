@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Text } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import type { SandboxCustomImageDTOApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -10,14 +13,20 @@ import type { SandboxCustomImageDTOApi } from 'products/tasks/frontend/generated
 import { CloudImageModal } from './CloudImageModal'
 import { cloudImagesLogic } from './cloudImagesLogic'
 import { cloudImageStatus } from './cloudImageStatus'
+import { QuillCloudImagesSettings } from './QuillCloudImagesSettings'
 
 export function CloudImagesSettings(): JSX.Element {
     const { images, imagesLoading, imagesFailed, unavailable, buildingImageIds, buildDisabledReason } =
         useValues(cloudImagesLogic)
     const { loadImages, startNewImage, deleteImage, buildImage } = useActions(cloudImagesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (unavailable) {
-        return (
+        return todayRailNav ? (
+            <Text size="xs" variant="muted" className="max-w-200" render={<p className="m-0" />}>
+                Custom images are not available for this project yet. Cloud runs install what they need on each run.
+            </Text>
+        ) : (
             <p className="text-secondary mb-0 max-w-200">
                 Custom images are not available for this project yet. Cloud runs install what they need on each run.
             </p>
@@ -31,6 +40,15 @@ export function CloudImagesSettings(): JSX.Element {
             primaryButton: { children: 'Delete', status: 'danger', onClick: () => deleteImage(image) },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    const actionItems = (image: SandboxCustomImageDTOApi): LemonMenuItems => [
+        image.builder_task_id ? { label: 'Open builder task', to: urls.taskDetail(image.builder_task_id) } : null,
+        { label: 'Delete', status: 'danger', onClick: () => confirmDelete(image) },
+    ]
+
+    if (todayRailNav) {
+        return <QuillCloudImagesSettings actionItems={actionItems} />
     }
 
     return (
@@ -115,14 +133,7 @@ export function CloudImagesSettings(): JSX.Element {
                             key: 'actions',
                             width: 0,
                             render: (_, image) => (
-                                <LemonMenu
-                                    items={[
-                                        image.builder_task_id
-                                            ? { label: 'Open builder task', to: urls.taskDetail(image.builder_task_id) }
-                                            : null,
-                                        { label: 'Delete', status: 'danger', onClick: () => confirmDelete(image) },
-                                    ]}
-                                >
+                                <LemonMenu items={actionItems(image)}>
                                     <LemonButton
                                         size="small"
                                         icon={<IconEllipsis />}

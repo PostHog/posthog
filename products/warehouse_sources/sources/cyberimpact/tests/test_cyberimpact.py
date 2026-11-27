@@ -158,18 +158,34 @@ def _recipients(emails: list[str], total: int) -> ScriptedResponse:
 
 
 class TestMailingFanOut:
-    def test_opens_fan_out_over_sent_mailings_and_skip_a_deleted_mailing(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "recipient_list"),
+        [
+            ("mailing_opens", "opened"),
+            ("mailing_clicks", "clicked"),
+            ("mailing_deliveries", "delivered"),
+            ("mailing_unsubscribes", "unsubscribed"),
+            ("mailing_hard_bounces", "hard-bounced"),
+            ("mailing_soft_bounces", "soft-bounced"),
+            ("mailing_stopped_recipients", "stopped"),
+        ],
+    )
+    def test_recipient_lists_fan_out_over_sent_mailings_and_skip_a_deleted_mailing(
+        self, endpoint: str, recipient_list: str
+    ) -> None:
         result = _driver().run(
-            "mailing_opens",
+            endpoint,
             route(
                 {
                     "/mailings/sent": [_mailings([10, 11], 3), _mailings([12], 3)],
-                    "/mailings/10/recipients/opened": [
+                    f"/mailings/10/recipients/{recipient_list}": [
                         _recipients(["a@example.com", "b@example.com"], 3),
                         _recipients(["c@example.com"], 3),
                     ],
-                    "/mailings/11/recipients/opened": [ScriptedResponse(status=404, json={"status_code": 404})],
-                    "/mailings/12/recipients/opened": [_recipients(["a@example.com"], 1)],
+                    f"/mailings/11/recipients/{recipient_list}": [
+                        ScriptedResponse(status=404, json={"status_code": 404})
+                    ],
+                    f"/mailings/12/recipients/{recipient_list}": [_recipients(["a@example.com"], 1)],
                 }
             ),
         )
@@ -202,6 +218,46 @@ class TestMailingFanOut:
         detail_requests = [request for request in result.requests if request.path != "/mailings/sent"]
         assert [request.param("limit") for request in detail_requests] == [None, None]
         assert [request.param("page") for request in detail_requests] == [None, None]
+
+
+def _consent(relation_type: str) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "consentType": "implied",
+            "relationType": relation_type,
+            "consentDate": "2025-01-01T00:00:00-05:00",
+            "consentExpiration": None,
+            "consentProof": "Invented proof",
+        }
+    )
+
+
+class TestMemberConsentFanOut:
+    def test_reads_each_member_including_orphans_and_skips_a_deleted_member(self) -> None:
+        result = _driver().run(
+            "member_consents",
+            route(
+                {
+                    "/members": [_members([1, 2], 3), _members([3], 3)],
+                    "/members/1/consent": [_consent("active-clients")],
+                    "/members/2/consent": [ScriptedResponse(status=404, json={"status_code": 404})],
+                    "/members/3/consent": [_consent("express-consent")],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["member_id"], row["relationType"]) for row in result.rows] == [
+            (1, "active-clients"),
+            (3, "express-consent"),
+        ]
+        listing_requests = [request for request in result.requests if request.path == "/members"]
+        assert [request.param("page") for request in listing_requests] == ["1", "2"]
+        # Without status=all the walk leaves out members in no group.
+        assert {request.param("status") for request in listing_requests} == {"all"}
+        consent_requests = [request for request in result.requests if request.path.endswith("/consent")]
+        assert {request.param("dateReturnFormat") for request in consent_requests} == {"ISO8601"}
+        assert [request.param("page") for request in consent_requests] == [None, None, None]
 
 
 class TestValidateCredentials:

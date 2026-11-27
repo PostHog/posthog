@@ -201,7 +201,7 @@ class TestGroupingJudgeProperties(SimpleTestCase):
         rows = text_rows if text_rows is not None else [("fp-new", NEW_TEXT), ("fp-old", NEIGHBOUR_TEXT)]
         with (
             patch(f"{MODULE}.inline.execute_hogql_query", return_value=MagicMock(results=rows)) as hogql,
-            patch(f"{MODULE}.inline.build_ai_gateway_anthropic_client", return_value=client) as build_client,
+            patch(f"{MODULE}.inline.build_anthropic_client", return_value=client) as build_client,
             patch(f"{MODULE}.sampling.REJUDGE_RATE", rejudge_rate),
             patch(f"{MODULE}.inline.current_judge_config", return_value=config),
         ):

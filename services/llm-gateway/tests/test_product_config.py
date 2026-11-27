@@ -5,7 +5,6 @@ from fastapi import HTTPException
 
 from llm_gateway.baseten import BASETEN_MODELS
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
-from llm_gateway.flags import GLM_MODAL_FLAG
 from llm_gateway.inference_routing import is_inference_routed_model
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.products.config import (
@@ -195,6 +194,9 @@ class TestCheckProductAccess:
             ("review_hog", "personal_api_key", None, "claude-opus-5", True, None),
             ("review_hog", "personal_api_key", None, "gpt-5.6-sol", True, None),
             ("review_hog", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
+            # GLM 5.3 on Cloudflare keeps the reservation of its Baseten id
+            ("review_hog", "personal_api_key", None, "@cf/zai-org/glm-5.3", True, None),
+            ("django", "personal_api_key", None, "@cf/zai-org/glm-5.3", False, "not allowed"),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -215,13 +217,18 @@ class TestCheckProductAccess:
             assert expected_error_contains in error
 
     @pytest.mark.parametrize(
-        "model", ["deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"]
+        "model, allowed",
+        [
+            ("deepseek-ai/deepseek-v4-flash-0731", False),
+            ("zai-org/glm-5.3", False),
+            # The Slack app's daily focus agent runs on it.
+            ("zai-org/glm-5.3-flash", True),
+        ],
     )
-    def test_slack_app_rejects_restricted_models_despite_shared_allowlist(self, model: str):
-        allowed, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
-        assert allowed is False
-        assert error is not None
-        assert "not allowed" in error
+    def test_slack_app_admits_only_the_restricted_models_reserved_for_it(self, model: str, allowed: bool):
+        got, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
+        assert got is allowed
+        assert (error is None) is allowed
 
     @pytest.mark.parametrize(
         "model", [" deepseek-ai/deepseek-v4-flash-0731 ", " zai-org/glm-5.3 ", " zai-org/glm-5.3-flash "]
@@ -681,11 +688,9 @@ class TestModelAccessFlag:
         assert get_required_model_flag(model) is None
 
     def test_every_gated_model_has_its_own_flag(self):
-        # An entitlement must not be widened for one model by proxy of another, and the GLM
-        # Baseten routing flag is not an entitlement at all.
+        # An entitlement must not be widened for one model by proxy of another.
         flags = list(MODEL_ACCESS_FLAGS.values())
         assert len(flags) == len(set(flags))
-        assert GLM_MODAL_FLAG not in flags
 
     @pytest.mark.parametrize(
         "model",

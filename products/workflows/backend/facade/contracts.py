@@ -207,7 +207,7 @@ class WorkflowReplayTarget:
     status: str
     # Templates of the workflow's function steps, so template filters can match a workflow.
     template_ids: tuple[str, ...]
-    # The rerun worker skips runs of these workflows, because their message data was not stored.
+    # The rerun worker skips runs of these workflows, because their message data was not stored. Push counts too.
     sends_sensitive_email: bool
 
 
@@ -228,6 +228,16 @@ class AccountAudienceCustomPropertyFilter:
 
 
 AccountAssignmentStatus = Literal["all", "assigned", "unassigned"]
+
+SuggestionsScoutRunReason = Literal[
+    "first_run",
+    "backstop",
+    "opted_in",
+    "published",
+    "suggestion_resolved",
+    "sends_matured",
+    "conversions_settled",
+]
 
 
 @frozen
@@ -287,6 +297,8 @@ class AudienceSize:
     realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
     # Set when a sending rate limit can raise this audience's limit. None when no rate can.
     rate_limited: RateLimitedAudienceAllowance | None = None
+    # Keys of the project's test account filters the audience leaves out because they only apply to events.
+    skipped_test_account_filters: list[str] = field(default_factory=list)
 
 
 @frozen
@@ -334,6 +346,55 @@ class ProviderContactsResult:
     notes: tuple[str, ...] = ()
     # How the people the contacts matched spell their email in PostHog, which can differ from the provider's.
     person_emails: tuple[str, ...] = ()
+    # Where the people wait to be sent, in `chunks` parts, for `import_contact_chunk` and `fill_contacts_cohort`.
+    storage_prefix: str = ""
+    chunks: int = 0
+
+
+class ContactsCaptureFailed(Exception):
+    """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
+
+    def __init__(self, message: str, *, acknowledged: int = 0, new_people: int = 0) -> None:
+        super().__init__(message)
+        # The part's people whose events capture did take, and how many of them are new.
+        self.acknowledged = acknowledged
+        self.new_people = new_people
+
+
+class ContactsImportAccessLost(Exception):
+    """The person who started the import can't edit persons in the project anymore. Another try finds the same."""
+
+
+class ContactsCohortGone(Exception):
+    """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
+
+
+class ContactsPartMissing(Exception):
+    """A stored part of a contact list can't be read, so nothing may treat the list as complete."""
+
+
+class ContactsCleanupFailed(Exception):
+    """Object storage kept some of the parts an import stored."""
+
+
+@frozen
+class ContactChunkOutcome:
+    """What sending one stored part of a provider list did."""
+
+    people: int
+    # Of them, the people PostHog had once ingestion caught up.
+    found: int
+    # Of them, the people PostHog didn't have when the list was stored.
+    new_people: int = 0
+
+
+@frozen
+class ContactsCohortFilled:
+    """How a provider list's cohort changed once every part was in."""
+
+    members: int
+    # Members not on the list anymore, such as contacts who left it or unsubscribed.
+    removed: int
 
 
 @frozen
@@ -385,6 +446,52 @@ class EmailSendingSuspensionChange:
 
 
 @frozen
+class EmailInfrastructureHealth:
+    """How the email every project in this region sends through PostHog fared, rounded for display."""
+
+    emails_sent_at_least: int
+    bounce_rate: float
+    complaint_rate: float
+
+
+@frozen
+class EmailSendingNextTier:
+    """What a project needs to do for the daily check to move it up one tier."""
+
+    emails_per_day: int
+    daily_target: int
+    days_required: int
+    days_reached: int
+    # The tier check does not promote a project before this, however much it sends.
+    not_before: datetime
+
+
+@frozen
+class EmailSendingRecentRates:
+    """The short window the daily check demotes on, next to the limits it holds the rates to."""
+
+    window_days: int
+    emails_sent: int
+    bounce_rate: float
+    complaint_rate: float
+    complaints: int
+    max_bounce_rate: float
+    max_complaint_rate: float
+    # The daily check's verdicts on these numbers, which also apply its minimum-volume rules.
+    bounces_within_limits: bool
+    complaints_within_limits: bool
+
+
+@frozen
+class EmailSendingAllowanceChange:
+    changed_at: datetime
+    previous_emails_per_day: int
+    emails_per_day: int
+    # The tier decision reason the change was logged with, or staff_set for a hand-set tier.
+    reason: str
+
+
+@frozen
 class EmailSendingAllowance:
     """A project's sending tier, what it allows, and how much of that it has used."""
 
@@ -396,6 +503,12 @@ class EmailSendingAllowance:
     enforced: bool
     # The largest batch a slow enough sending rate limit allows. None when no rate raises the cap.
     rate_limited_max_batch_audience: int | None = None
+    # None at the top tier and for a tier staff pinned, which the daily check never moves.
+    next_tier: EmailSendingNextTier | None = None
+    # None for a tier staff pinned, which the daily check never moves.
+    recent_rates: EmailSendingRecentRates | None = None
+    # Newest first.
+    recent_changes: tuple[EmailSendingAllowanceChange, ...] = ()
 
 
 class StaffPausedError(Exception):
@@ -727,6 +840,10 @@ class SuggestionsSample:
     reached: bool
     # Tracked sends (sent minus untracked) from the live version's busiest email step in the window.
     tracked_sends: int
+    # All sends, tracked or not, from the live version's busiest email step in the window.
+    sends: int
+    # A readable conversion goal lets untracked sends count toward the floor.
+    reads_conversion: bool
     required_sends: int
     version_live_since: datetime
 
@@ -772,6 +889,7 @@ class TransactionalEmailContent:
     message_category_id: UUID | None
     # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
     sensitive: bool = False
+    click_tracking_enabled: bool | None = None
     # Empty values use the sender's own address, name and default reply-to.
     from_email: str = ""
     from_name: str = ""
@@ -808,6 +926,35 @@ class TransactionalEmailSenderRequired(Exception):
 
 class TransactionalEmailContentInvalid(Exception):
     """The content has no subject or no body, so the workflow could not send it."""
+
+
+TRANSACTIONAL_PUSH_ACTION_ID: Final[str] = "transactional_push"
+
+
+@frozen
+class TransactionalPushContent:
+    """What a transactional push's workflow sends, taken from the message template it was made from."""
+
+    message_template_id: UUID
+    name: str
+    title: str
+    body: str
+    # The Firebase and APNs integrations the push goes out through.
+    channel_ids: tuple[int, ...]
+    message_category_id: UUID | None
+    image: str = ""
+    link: str = ""
+    data: Mapping[str, str] = field(default_factory=dict)
+    # Sends keep a placeholder instead of the title and body.
+    sensitive: bool = False
+
+
+class TransactionalPushContentInvalid(Exception):
+    """The content has no title or body, or no push channel, so the workflow could not send it."""
+
+
+class TransactionalPushChannelUnavailable(Exception):
+    """A push channel is not a Firebase or APNs integration of this project."""
 
 
 class WorkflowNotFound(Exception):
@@ -1356,3 +1503,10 @@ class SandboxSenderStatus:
     display_name: str
     organization_blocked: bool
     adoption_enabled: bool
+
+
+@frozen
+class ConversionGoalBackfill:
+    workflows_read: int
+    revisions_read: int
+    goals_found: int

@@ -26,13 +26,8 @@ const STATUS_OPTIONS: { value: MetricStatusFilter; label: string }[] = [
 export function CatalogMetricsFilterMenu(): JSX.Element {
     const { filters, ownerFilterOptions, creatorFilterOptions } = useValues(metricsLogic)
     const { setFilters } = useActions(metricsLogic)
-    const { checksFilter } = useValues(catalogMetricsLogic)
+    const { checksFilter, filtersActive } = useValues(catalogMetricsLogic)
     const { setChecksFilter } = useActions(catalogMetricsLogic)
-    const filtersActive =
-        filters.status !== DEFAULT_METRICS_FILTERS.status ||
-        filters.createdBy !== null ||
-        filters.owner !== null ||
-        checksFilter !== DEFAULT_METRIC_CHECKS_FILTER
 
     const creatorOptions = [
         { value: ANY_USER, label: ANY_USER_LABEL },

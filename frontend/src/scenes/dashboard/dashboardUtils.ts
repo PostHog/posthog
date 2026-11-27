@@ -457,7 +457,8 @@ export async function getInsightWithRetry(
     variablesOverride?: Record<string, HogQLVariable>,
     tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
-    initialDelay: number = 1200
+    initialDelay: number = 1200,
+    asyncFallback: boolean = true
 ): Promise<InsightModel | null> {
     // Check if user has access to this insight before making API calls
     const canViewInsight = insight.user_access_level
@@ -509,6 +510,10 @@ export async function getInsightWithRetry(
                 attempt++
                 rateLimitedAttempts++
 
+                if (attempt >= maxAttempts && !asyncFallback) {
+                    // The caller already waited for capacity, so the tile ends with the capacity error.
+                    return result
+                }
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {

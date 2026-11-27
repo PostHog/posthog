@@ -292,11 +292,11 @@ export interface llmSkillsLogicActions {
         }
     ) => {
         options: {
-            author_handle?: string | undefined
-            display_name?: string | undefined
+            author_handle?: string
+            display_name?: string
             expected_skill_id: string
             expected_version: number
-            tags?: string[] | undefined
+            tags?: string[]
         }
         skillName: string
     }

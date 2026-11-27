@@ -25,3 +25,60 @@ describe("GitLab follow-up prompt", () => {
     );
   });
 });
+
+describe("auto-published security fixes", () => {
+  it.each([
+    { gitProvider: "github", repositoryAttached: true, prUrl: null },
+    { gitProvider: "github", repositoryAttached: false, prUrl: null },
+    {
+      gitProvider: "github",
+      repositoryAttached: true,
+      prUrl: "https://github.com/example/repo/pull/1",
+    },
+    { gitProvider: "gitlab", repositoryAttached: true, prUrl: null },
+    {
+      gitProvider: "gitlab",
+      repositoryAttached: true,
+      prUrl: "https://gitlab.com/example/repo/-/merge_requests/1",
+    },
+  ] as const)(
+    "asks before publishing a security fix ($gitProvider, repo attached: $repositoryAttached, existing: $prUrl)",
+    ({ gitProvider, repositoryAttached, prUrl }) => {
+      const prompt = new CloudTaskPrompt({
+        apiUrl: "https://example.com",
+        projectId: 1,
+        taskId: "task",
+        taskRepositories: [],
+        hasGithubToken: true,
+        repositoryAttached,
+        shouldAutoPublish: true,
+        gitProvider,
+        storeSkills: [] as never,
+      }).buildCloudSystemPrompt(prUrl, "footer");
+      expect(prompt).toContain(
+        "Security fixes are the exception to publishing without asking.",
+      );
+    },
+  );
+
+  it.each([
+    ["github", "https://github.com/example/repo/pull/1"],
+    ["gitlab", "https://gitlab.com/example/repo/-/merge_requests/1"],
+  ] as const)(
+    "keeps the rule in the %s follow-up override",
+    (gitProvider, prUrl) => {
+      const context = new CloudTaskPrompt({
+        apiUrl: "https://example.com",
+        projectId: 1,
+        taskId: "task",
+        taskRepositories: [],
+        hasGithubToken: true,
+        repositoryAttached: true,
+        shouldAutoPublish: true,
+        gitProvider,
+        storeSkills: [] as never,
+      }).buildDetectedPrContext(prUrl);
+      expect(context).toContain("Except for a security fix");
+    },
+  );
+});

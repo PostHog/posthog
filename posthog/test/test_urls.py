@@ -23,6 +23,7 @@ from posthog.frontend_views import (
     region_host_from_current_instance,
 )
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.user import User, UserType
 from posthog.temporal.codec_server import decode_payloads
 from posthog.views import handler500, metrics_view
 
@@ -30,6 +31,16 @@ from products.ai_observability.backend.api.personal_spend import PersonalSpendEU
 
 
 class TestUrls(APIBaseTest):
+    @override_settings(AUTO_LOGIN=True)
+    def test_auto_login_skips_service_accounts(self) -> None:
+        self.client.logout()
+        User.objects.all().update(type=UserType.SERVICE_ACCOUNT)
+
+        response = self.client.get("/")
+
+        self.assertRedirects(response, "/login", fetch_redirect_response=False)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
 
@@ -158,12 +169,22 @@ class TestUrls(APIBaseTest):
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://not-permitted.com",
             headers={"referer": "https://not-permitted.com"},
+            follow=True,
         )
+        self.assertEqual(response.redirect_chain, [("/toolbar_oauth/error", 302)])
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        content = response.content.decode()
-        self.assertIn("Domain not authorized", content)
-        self.assertIn("not-permitted.com", content)
-        self.assertIn("/settings/project-toolbar#authorized-urls", content)
+        self.assertEqual(
+            response.context["posthog_app_context"]["toolbar_oauth_error"],
+            {
+                "title": "Domain not authorized",
+                "message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                "detail": (
+                    "The hostname not-permitted.com needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "links_to_authorized_urls": True,
+            },
+        )
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com", headers={"referer": "https://not.com"}

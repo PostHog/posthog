@@ -264,7 +264,7 @@ tools:
             idempotent: false
         title: Propose a table relationship
         description: >
-            Propose a reviewed join between two warehouse tables, with confidence and sampling evidence (match rates,
+            Propose a reviewed join between two warehouse tables, with reasoning and sampling evidence (match rates,
             sample values). Both tables must exist. Proposals are deduped undirected, so do not propose the reverse of
             an existing pair.
     data-catalog-relationship-reject:

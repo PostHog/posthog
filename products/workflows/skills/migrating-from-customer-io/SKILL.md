@@ -13,6 +13,8 @@ You move the data between two MCP servers. Read from Customer.io's MCP (or the `
 
 Pass automations, templates, sender identities and segment names only. Never fetch or pass customer profiles, segment members, deliveries or event data. The people are usually in PostHog already, and copying them is a privacy risk the user did not ask for.
 
+When the user does want their people moved, PostHog reads them from Customer.io itself, and none pass through you. Call `provider-imports-providers` and look for a `contacts` step under `customerio`. It's listed only where it's turned on. Each person counts as one event, so say how many people the workspace has before you start it. Run it with `categories`, `suppressions` and `opt_outs`, which it needs, and add `new_people` only if the user wants a person created for everyone PostHog doesn't have. People match by email, and people without an email are counted and skipped. The import opts out everyone who unsubscribed, turned email off or left a topic, so the CSV isn't needed for them. It doesn't opt people out of a topic they never subscribed to, and it can't read people Customer.io deleted and blocked.
+
 ## Keep message content out of your context
 
 Email templates are large, often tens of kilobytes of HTML each. When the PostHog project stored a Customer.io App API key (teams that ran the opt-out import have one), PostHog reads the message content from Customer.io itself. So pass the automation graph first, and read templates only if PostHog asks for them.

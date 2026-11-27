@@ -35,6 +35,7 @@ export const SECTIONS = [
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
     { id: 'backend-snapshots', title: 'Backend snapshots' },
     { id: 'backend-coverage', title: 'Backend coverage' },
+    { id: 'quarantined-failures', title: 'Quarantined failures' },
     { id: 'mcp-snapshots', title: 'MCP snapshots' },
     { id: 'django-migration-sql', title: 'Django migration SQL' },
     { id: 'django-migration-risk', title: 'Django migration risk' },

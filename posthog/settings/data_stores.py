@@ -309,6 +309,8 @@ CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUS
 # Where queries from projects on the native events table connect. Unset keeps them on the hosts above.
 CLICKHOUSE_EVENTS_ONLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_ONLINE_HOST", None)
 CLICKHOUSE_EVENTS_OFFLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_OFFLINE_HOST", None)
+# Where batch exports that read events_recent or distributed_events_recent connect. Unset keeps them on the hosts above.
+CLICKHOUSE_BATCH_EXPORTS_HOST: str | None = os.getenv("CLICKHOUSE_BATCH_EXPORTS_HOST", None)
 # Workload that Workload.DEFAULT resolves to in this process. Celery tasks switch to OFFLINE per task.
 # Temporal workers and Dagster set OFFLINE so background queries are tagged with where they run.
 CLICKHOUSE_DEFAULT_WORKLOAD: str = os.getenv("CLICKHOUSE_DEFAULT_WORKLOAD", "ONLINE")
@@ -341,6 +343,9 @@ CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "a
 # registry can say where a storage table lives; whether a given deployment can reach it is
 # decided by probing the hosts, not by comparing this against the handle's cluster.
 CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
+# The cluster behind CLICKHOUSE_BATCH_EXPORTS_HOST. A client connected to that host names it in ON CLUSTER and
+# clusterAllReplicas lookups, because the nodes of that cluster do not run queries of the main cluster.
+CLICKHOUSE_BATCH_EXPORTS_CLUSTER: str = os.getenv("CLICKHOUSE_BATCH_EXPORTS_CLUSTER", "batch_exports")
 # The cluster that stores sharded_flag_evaluations. The deletion registry builds a handle for it, like the events
 # cluster above. Probing the hosts decides whether a deployment can reach it.
 CLICKHOUSE_FLAGS_CLUSTER: str = os.getenv("CLICKHOUSE_FLAGS_CLUSTER", "flags")
@@ -443,9 +448,6 @@ CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLE
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION", "warpstream_ingestion"
 )
-CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION: str = os.getenv(
-    "CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION", "warpstream_calculated_events"
-)
 CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION", "warpstream_replay"
 )
@@ -513,6 +515,11 @@ CLICKHOUSE_EVENTS_ONLINE_HTTP_URL: str | None = (
 CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL: str | None = (
     f"{_clickhouse_http_protocol}{CLICKHOUSE_EVENTS_OFFLINE_HOST}:{_clickhouse_http_port}/"
     if CLICKHOUSE_EVENTS_OFFLINE_HOST
+    else None
+)
+CLICKHOUSE_BATCH_EXPORTS_HTTP_URL: str | None = (
+    f"{_clickhouse_http_protocol}{CLICKHOUSE_BATCH_EXPORTS_HOST}:{_clickhouse_http_port}/"
+    if CLICKHOUSE_BATCH_EXPORTS_HOST
     else None
 )
 
@@ -598,7 +605,7 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 
 if not CDP_API_URL:
     CDP_API_URL = (
-        "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
+        "http://localhost:6738" if DEBUG or TEST else "http://ingestion-cdp-api.posthog.svc.cluster.local"
     )  # localhost is correct — plugin server runs on host in dev
 
 # Shared secret for internal API authentication between Django and Node.js services.
@@ -728,6 +735,9 @@ if not EMBEDDING_API_URL:
 # Dedicated Redis for feature flags
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
+
+QUOTA_LIMITING_REDIS_URL = os.getenv("QUOTA_LIMITING_REDIS_URL", None)
+QUOTA_LIMITING_REDIS_CLUSTER_ENABLED = get_from_env("QUOTA_LIMITING_REDIS_CLUSTER_ENABLED", True, type_cast=str_to_bool)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
@@ -897,6 +907,15 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Batch reservations and the transactional email throttles read and write throttle history here. A read from
+# a lagging replica would miss the units that an earlier send charged and let a batch past its limit.
+# Keep default's key prefix and primary: other throttles count single requests through default and must see
+# the units their batches reserved here.
+CACHES["throttle_history"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
 CACHES["current_alias_usage"] = {
     **CACHES["default"],
@@ -909,6 +928,18 @@ CACHES["radar_login_attempt"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
     "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.2, "SOCKET_TIMEOUT": 0.2},
+}
+
+# Vercel installation tokens only save a token request, so a stalled Redis must cost that request, not hold the call.
+# The entry is an encrypted string, so JSON keeps pickle out of the read.
+CACHES["vercel_installation_tokens"] = {
+    **CACHES["default"],
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        "SOCKET_CONNECT_TIMEOUT": 0.2,
+        "SOCKET_TIMEOUT": 0.2,
+    },
 }
 
 # Dedicated cache for the feature flags service (if configured)
@@ -984,10 +1015,12 @@ if TEST:
     CACHES["warehouse_destination_connect"] = CACHES["default"]
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
+    CACHES["throttle_history"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
     CACHES["distinct_id_usage_report"] = CACHES["default"]
     CACHES["data_deletion_stats"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
+    CACHES["vercel_installation_tokens"] = CACHES["default"]
     CACHES["radar_login_attempt"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)

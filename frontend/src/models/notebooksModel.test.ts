@@ -1,9 +1,12 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import * as retryImportUtils from 'lib/utils/retryImport'
 import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
+import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -70,6 +73,21 @@ describe('notebooksModel', () => {
         expect(getMarkdownNotebookMarkdown(content)).toContain('# Activation')
         expect(getMarkdownNotebookMarkdown(content)).toContain('<Query')
         expect(getMarkdownNotebookMarkdown(content)).toContain('"kind":"HogQLQuery"')
+    })
+
+    it.each([
+        { from: urls.notebook('new'), method: 'REPLACE' },
+        { from: urls.notebooks(), method: 'PUSH' },
+    ])('navigates from $from to the created notebook with $method', async ({ from, method }) => {
+        mockCreateNotebook()
+        router.actions.push(from)
+
+        await expectLogic(logic, () => {
+            logic.actions.createNotebook(NotebookTarget.Scene)
+        }).toDispatchActions(['createNotebookSuccess'])
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.notebook('created-notebook'))
+        expect(router.values.lastMethod).toEqual(method)
     })
 
     it('opens the existing notebook when its artifact was already saved', async () => {

@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mapNotificationToLogRecord, OtelRunTelemetry } from "./otel-telemetry";
@@ -110,6 +113,13 @@ describe("OtelRunTelemetry", () => {
           agent_version: "1.0.0",
           session_id: "acp-1",
         },
+      },
+      {
+        name: "session_log_gap",
+        entry: makeEntry("_posthog/session_log_gap", { droppedCount: 2 }),
+        severityText: "WARN",
+        body: "session log gap",
+        attrs: { dropped_count: 2 },
       },
       {
         name: "double-prefixed extension method",
@@ -240,12 +250,14 @@ describe("OtelRunTelemetry", () => {
           kind: "execute",
           status: "pending",
           title: "Run tests",
+          _meta: { claudeCode: { toolName: "Bash" } },
         }),
         body: "tool call started (execute)",
         attrs: {
           session_update_type: "tool_call",
           tool_call_id: "t1",
           tool_kind: "execute",
+          tool_name: "Bash",
           tool_status: "pending",
         },
       },
@@ -299,6 +311,74 @@ describe("OtelRunTelemetry", () => {
       expect(mapped?.body).toBe(body);
       expect(mapped?.attributes).toMatchObject(attrs);
     });
+
+    it.each([
+      {
+        name: "hook-rewritten input",
+        status: "failed",
+        meta: { claudeCode: { toolName: "Agent" } },
+        text: "```\nPreToolUse hook returned updatedInput that failed schema validation: SECRET\n```",
+        expected: {
+          tool_name: "Agent",
+          tool_failure_reason: "hook_rejected_input",
+        },
+      },
+      {
+        name: "permission denial on an MCP tool",
+        status: "failed",
+        meta: {
+          claudeCode: {
+            toolName: "mcp__acme__deploy",
+            failureReason: "permission_denied",
+          },
+        },
+        text: "User refused permission to run tool: SECRET",
+        expected: {
+          tool_name: "mcp",
+          tool_failure_reason: "permission_denied",
+        },
+      },
+      {
+        name: "tool error that reads like a denial",
+        status: "failed",
+        meta: { posthog: { toolName: "Bash" } },
+        text: "Permission denied: SECRET",
+        expected: { tool_name: "Bash", tool_failure_reason: "tool_error" },
+      },
+      {
+        name: "completed MCP tool",
+        status: "completed",
+        meta: {
+          posthog: {
+            toolName: "deploy",
+            mcp: { server: "acme", tool: "deploy" },
+          },
+        },
+        text: "```\nPermission denied: SECRET\n```",
+        expected: { tool_name: "mcp", tool_failure_reason: undefined },
+      },
+    ])(
+      "classifies a $name without exporting its text",
+      ({ status, meta, text, expected }) => {
+        const mapped = mapNotificationToLogRecord(
+          sessionUpdate({
+            sessionUpdate: "tool_call_update",
+            toolCallId: "t1",
+            status,
+            content: [{ type: "content", content: { type: "text", text } }],
+            _meta: meta,
+          }),
+        );
+
+        expect(mapped?.attributes.tool_name).toBe(expected.tool_name);
+        expect(mapped?.attributes.tool_failure_reason).toBe(
+          expected.tool_failure_reason,
+        );
+        expect(
+          JSON.stringify([mapped?.body, mapped?.attributes]),
+        ).not.toContain("SECRET");
+      },
+    );
 
     // Content-bearing notifications must stay in the session log: exporting
     // them would ship customer prompts and repo content to the telemetry
@@ -658,6 +738,83 @@ describe("OtelRunTelemetry", () => {
       expect(surface).not.toContain(".env");
     });
 
+    it("counts completed reads of wiki content pages, and exports no path", async () => {
+      await telemetry.shutdown();
+      mockSpanExport.mockClear();
+      const wiki = mkdtempSync(join(tmpdir(), "context-wiki-"));
+      try {
+        vi.stubEnv("POSTHOG_CONTEXT_LAYER_PATH", `${wiki}/`);
+        telemetry = new OtelRunTelemetry(
+          {
+            url: "https://us.i.posthog.com/i/v1/logs",
+            token: "phc_test_key",
+            tracesUrl: "https://us.i.posthog.com/i/v1/traces",
+            flushIntervalMs: 100,
+          },
+          RESOURCE,
+        );
+        telemetry.append(RUN_ID, makeEntry("session/prompt", { prompt: [] }));
+        const tool = (
+          toolCallId: string,
+          kind: string,
+          status: string,
+          start: string[],
+          update: string[],
+        ): void => {
+          telemetry.append(
+            RUN_ID,
+            sessionUpdate({
+              sessionUpdate: "tool_call",
+              toolCallId,
+              kind,
+              status: "pending",
+              locations: start.map((path) => ({ path })),
+            }),
+          );
+          telemetry.append(
+            RUN_ID,
+            sessionUpdate({
+              sessionUpdate: "tool_call_update",
+              toolCallId,
+              status,
+              locations: update.map((path) => ({ path })),
+            }),
+          );
+        };
+        tool(
+          "read",
+          "read",
+          "completed",
+          [`${wiki}/areas/secret-acquisition.md`, `${wiki}/AGENTS.md`],
+          [
+            `${wiki}/projects/1/spaces/growth.md`,
+            `${wiki}/index.md`,
+            `${wiki}/../repos/app/notes.md`,
+          ],
+        );
+        tool("failed", "read", "failed", [`${wiki}/areas/missing.md`], []);
+        tool("edit", "edit", "completed", [`${wiki}/decisions/d.md`], []);
+        await telemetry.shutdown();
+
+        const byId = (id: string) =>
+          exportedSpans().find((span) => span.attributes.tool_call_id === id)
+            ?.attributes;
+        expect(byId("read")).toMatchObject({
+          context_wiki_page_reads: 2,
+          context_wiki_page_kinds: "areas,spaces",
+        });
+        expect(byId("failed")).not.toHaveProperty("context_wiki_page_reads");
+        expect(byId("edit")).not.toHaveProperty("context_wiki_page_reads");
+        const surface = JSON.stringify(
+          exportedSpans().map((span) => span.attributes),
+        );
+        expect(surface).not.toContain("secret-acquisition");
+        expect(surface).not.toContain("growth");
+      } finally {
+        rmSync(wiki, { recursive: true, force: true });
+      }
+    });
+
     it("keeps correlation context attached to its run during concurrent turns", async () => {
       const otherRunId = "run-other";
       const other = new OtelRunTelemetry(
@@ -759,6 +916,7 @@ describe("OtelRunTelemetry", () => {
           sessionUpdate: "tool_call",
           toolCallId: "t1",
           kind: "execute",
+          _meta: { claudeCode: { toolName: "Agent" } },
         }),
       );
       telemetry.append(
@@ -767,6 +925,16 @@ describe("OtelRunTelemetry", () => {
           sessionUpdate: "tool_call_update",
           toolCallId: "t1",
           status: "failed",
+          content: [
+            {
+              type: "content",
+              content: {
+                type: "text",
+                text: "```\nhook returned updatedInput that failed schema validation: SECRET\n```",
+              },
+            },
+          ],
+          _meta: { claudeCode: { toolName: "Agent" } },
         }),
       );
       // Still open when the run error below lands.
@@ -795,9 +963,12 @@ describe("OtelRunTelemetry", () => {
 
       await telemetry.shutdown();
 
-      expect(spanByName("tool_call:execute").status.code).toBe(
-        SpanStatusCode.ERROR,
-      );
+      const failed = spanByName("tool_call:execute");
+      expect(failed.status.code).toBe(SpanStatusCode.ERROR);
+      expect(failed.attributes).toMatchObject({
+        tool_name: "Agent",
+        tool_failure_reason: "hook_rejected_input",
+      });
       const interrupted = spanByName("tool_call:fetch");
       expect(interrupted.status.code).toBe(SpanStatusCode.ERROR);
       expect(interrupted.attributes).toMatchObject({
@@ -871,28 +1042,58 @@ describe("OtelRunTelemetry", () => {
       });
     });
 
-    it("settles a tool call that arrives already terminal", async () => {
-      telemetry.append(RUN_ID, makeEntry("session/prompt", {}));
-      // A memory recall emits one tool_call and never updates it again.
-      telemetry.append(
-        RUN_ID,
-        sessionUpdate({
-          sessionUpdate: "tool_call",
-          toolCallId: "t1",
-          kind: "read",
-          status: "completed",
-        }),
-      );
-      telemetry.append(
-        RUN_ID,
-        makeEntry("_posthog/turn_complete", { stopReason: "end_turn" }),
-      );
+    it.each([
+      {
+        status: "completed",
+        code: SpanStatusCode.OK,
+        failureReason: undefined,
+        meta: undefined,
+      },
+      {
+        status: "failed",
+        code: SpanStatusCode.ERROR,
+        failureReason: "permission_denied",
+        meta: {
+          claudeCode: { toolName: "Read", failureReason: "permission_denied" },
+        },
+      },
+    ])(
+      "settles a tool call that arrives already $status",
+      async ({ status, code, failureReason, meta }) => {
+        telemetry.append(RUN_ID, makeEntry("session/prompt", {}));
+        // A memory recall emits one tool_call and never updates it again.
+        telemetry.append(
+          RUN_ID,
+          sessionUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: "t1",
+            kind: "read",
+            status,
+            content: [
+              {
+                type: "content",
+                content: {
+                  type: "text",
+                  text: "User refused permission to run tool: SECRET",
+                },
+              },
+            ],
+            _meta: meta,
+          }),
+        );
+        telemetry.append(
+          RUN_ID,
+          makeEntry("_posthog/turn_complete", { stopReason: "end_turn" }),
+        );
 
-      await telemetry.shutdown();
+        await telemetry.shutdown();
 
-      const tool = spanByName("tool_call:read");
-      expect(tool.status.code).toBe(SpanStatusCode.OK);
-      expect(tool.attributes).toMatchObject({ tool_status: "completed" });
-    });
+        const tool = spanByName("tool_call:read");
+        expect(tool.status.code).toBe(code);
+        expect(tool.attributes).toMatchObject({ tool_status: status });
+        expect(tool.attributes.tool_failure_reason).toBe(failureReason);
+        expect(JSON.stringify(tool.attributes)).not.toContain("SECRET");
+      },
+    );
   });
 });

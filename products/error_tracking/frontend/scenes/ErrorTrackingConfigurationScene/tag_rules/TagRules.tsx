@@ -1,7 +1,6 @@
-import { LemonTag } from '@posthog/lemon-ui'
-
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { IssueTag } from '../../../components/IssueTag/IssueTag'
 import { RuleList } from '../rules/RuleList'
 import { ErrorTrackingRuleType, ErrorTrackingTagRule } from '../rules/types'
 import { TagRuleModal } from './TagRuleModal'
@@ -17,17 +16,16 @@ export function TagRules(): JSX.Element {
             pageKeyPrefix="tag-rule"
             description={
                 <p>
-                    Tag new issues based on their exception properties. Each rule adds its tag to every new issue whose
-                    first exception matches its filters, so one issue can get several tags. Rules apply to new issues
-                    only. Deleting a rule removes its tag from every issue.
+                    Tag issues based on their exception properties. Each rule adds its tag to every new issue whose
+                    first exception matches its filters, so one issue can get several tags. Once a day, rules also tag
+                    other issues that had a matching exception in the past day. Filters on the exception list check only
+                    the first exception. Deleting a rule removes its tag from every issue.
                 </p>
             }
             renderCardHeaderExtra={(rule: ErrorTrackingTagRule) => (
                 <>
                     <span className="text-muted">·</span>
-                    <LemonTag className="max-w-40" title={rule.label}>
-                        <span className="truncate">{rule.label}</span>
-                    </LemonTag>
+                    <IssueTag className="max-w-40" title={rule.label} label={rule.label} color={rule.color} />
                 </>
             )}
         />

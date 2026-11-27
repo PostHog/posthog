@@ -212,7 +212,6 @@ def _headline_client(survey: Survey, team: Team, user: User) -> OpenAI:
     if resolve_ai_gateway_config() is None:
         return OpenAI()
     client = build_openai_client(
-        product="django",
         ai_product="surveys",
         distinct_id=user.distinct_id,
         properties={"ai_feature": "survey_headline", "survey_id": str(survey.id), "team_id": str(team.id)},

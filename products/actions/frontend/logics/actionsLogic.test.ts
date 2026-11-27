@@ -55,6 +55,20 @@ describe('actionsLogic', () => {
         expect(parseParams(logic.values.apiParams).get('offset')).toEqual('0')
     })
 
+    it.each([
+        ['steps back a page when the delete emptied it', 1, false, 1],
+        ['stays on the page when other actions remain on it', 2, false, 2],
+        ['stays on the page when the delete is undone', 1, true, 2],
+    ])('after a delete, %s', async (_name, rowsOnPage, undo, expectedPage) => {
+        await expectLogic(logic, () => logic.actions.setPage(2)).toFinishAllListeners()
+        const rows = Array.from({ length: rowsOnPage }, (_, index) => ({ id: index + 1, name: `Action ${index + 1}` }))
+        logic.actions.loadActionsSuccess({ count: 50 + rowsOnPage, results: rows as any })
+
+        logic.actions.reloadAfterDelete(undo)
+
+        expect(logic.values.page).toEqual(expectedPage)
+    })
+
     // Pin only changes pinned_at. Echoing name back re-runs name validation, so an action
     // with a blank name (which the model allows) fails to pin with "This field may not be blank".
     it.each([

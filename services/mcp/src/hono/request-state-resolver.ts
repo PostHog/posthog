@@ -70,6 +70,7 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    splitWrites: boolean
     viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
@@ -87,6 +88,7 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
+    suppliedHandleHadNoSavedSelection?: boolean
     /** The client-carried handle before the SDK can mint one for this call. */
     carriedContextSessionKey?: string | undefined
     isTaskBound?: boolean | undefined
@@ -127,7 +129,22 @@ export interface ResolvedState {
     gatewayToolFilter?: Pick<RequestProperties, 'tools' | 'features' | 'excludeTools'> | undefined
     distinctId: string
     renderUiEnabled: boolean
+    stepSeconds: Partial<Record<ResolveStep, number>>
 }
+
+type ResolveStep =
+    | 'pinned_context'
+    | 'stored_context'
+    | 'default_context'
+    | 'analytics_context'
+    | 'flags'
+    | 'api_key'
+    | 'distinct_id'
+    | 'ai_consent'
+    | 'available_features'
+    | 'tool_filter'
+    | 'business_knowledge'
+    | 'metric_catalog'
 
 // ─── Pure helpers ───
 
@@ -216,22 +233,36 @@ export class RequestStateResolver {
             requestContext.organizationId = undefined
         }
 
+        const stepSeconds: ResolvedState['stepSeconds'] = {}
+        const timed = async <T>(step: ResolveStep, work: () => Promise<T>): Promise<T> => {
+            const startedAt = performance.now()
+            try {
+                return await work()
+            } finally {
+                stepSeconds[step] = (performance.now() - startedAt) / 1000
+            }
+        }
+
         const { features, tools, organizationId, projectId, readOnly } = props
-        const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
+        const pinned = await timed('pinned_context', () =>
+            this.resolvePinnedContext(reqCtx, { organizationId, projectId })
+        )
         reqCtx.setPinnedContext(pinned)
 
         // Start Redis reads only when Promise.all can observe their timeout rejections.
         // A pinned request never writes a default into the token selection that other sessions share.
-        const [context, sessionContext, storedProjectId] = await Promise.all([
-            reqCtx.getContext(),
-            this.resolveSessionContext(requestContext),
-            pinned ? undefined : reqCtx.tokenCache.get('projectId'),
-        ])
+        const [context, sessionContext, storedProjectId] = await timed('stored_context', () =>
+            Promise.all([
+                reqCtx.getContext(),
+                this.resolveSessionContext(requestContext),
+                pinned ? undefined : reqCtx.tokenCache.get('projectId'),
+            ])
+        )
         const needsDefaultContext = pinned
             ? pinned.sessionScoped && !pinned.orgId && !pinned.projectId
             : !storedProjectId
         if (needsDefaultContext) {
-            await context.stateManager.setDefaultOrganizationAndProject()
+            await timed('default_context', () => context.stateManager.setDefaultOrganizationAndProject())
         }
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
@@ -253,20 +284,19 @@ export class RequestStateResolver {
             ]),
         ]
 
-        const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
+        const flagAnalyticsContext = await timed('analytics_context', () => reqCtx.safelyGetAnalyticsContext(context))
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
         const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
-            usesProjectSecretKey
-                ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })
-                : this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
-            context.stateManager.getApiKey(),
-            reqCtx.getDistinctId(),
+            timed('flags', () =>
+                usesProjectSecretKey
+                    ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })
+                    : this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups)
+            ),
+            timed('api_key', () => context.stateManager.getApiKey()),
+            timed('distinct_id', () => reqCtx.getDistinctId()),
         ])
-        const [oauthClientName, oauthClientId] = await Promise.all([
-            reqCtx.tokenCache.get('clientName'),
-            reqCtx.tokenCache.get('oauthClientId'),
-        ])
+        const oauthClientId = await reqCtx.tokenCache.get('oauthClientId')
         props.suppressAnalytics = _apiKey?.suppress_analytics === true
         const liveClient = getEffectiveMCPClientIdentity(requestContext, sessionContext)
         const source = resolveEventSource({
@@ -330,9 +360,7 @@ export class RequestStateResolver {
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
-            clientVersion: clientContext.mcpClientVersion,
             consumer: clientContext.mcpConsumer,
-            oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
             uiSupported: requestContext.mcpUiSupported ?? sessionContext?.mcpUiSupported,
@@ -348,17 +376,22 @@ export class RequestStateResolver {
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
+        // Wrappers gate writes on the `exec` name, so they never get `exec-write`.
+        const splitWrites =
+            useSingleExec && props.splitWrites === true && !readOnly && clientProfile.consumer === undefined
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
-        const aiConsentGiven = await context.stateManager.getAiConsentGiven()
-        const availableFeatures = await context.stateManager.getAvailableFeatures()
+        const aiConsentGiven = await timed('ai_consent', () => context.stateManager.getAiConsentGiven())
+        const availableFeatures = await timed('available_features', () => context.stateManager.getAvailableFeatures())
         const isCloud = isCloudApi()
 
         const excludeTools = [
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            // The API refuses to create an organization for a key scoped to specific organizations.
+            ...(_apiKey?.scoped_organizations?.length ? ['organization-create'] : []),
             ...(props.excludeTools ?? []),
         ]
 
@@ -381,17 +414,21 @@ export class RequestStateResolver {
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
         const allTools = (
-            await filterStaffOnlyTools(
-                this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-                _apiKey ?? { scopes: [] },
-                () => context.stateManager.getUser()
+            await timed('tool_filter', () =>
+                filterStaffOnlyTools(
+                    this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+                    _apiKey ?? { scopes: [] },
+                    () => context.stateManager.getUser()
+                )
             )
         ).filter(isHeld)
         const [businessKnowledgeContent, metricCatalog] = await Promise.all([
             allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
-                ? this.resolveBusinessKnowledgeContent(context)
+                ? timed('business_knowledge', () => this.resolveBusinessKnowledgeContent(context))
                 : undefined,
-            allTools.some(({ name }) => name === METRIC_LIST_TOOL) ? this.resolveMetricCatalog(context) : undefined,
+            allTools.some(({ name }) => name === METRIC_LIST_TOOL)
+                ? timed('metric_catalog', () => this.resolveMetricCatalog(context))
+                : undefined,
         ])
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
@@ -411,6 +448,7 @@ export class RequestStateResolver {
             reqCtx,
             context,
             useSingleExec,
+            splitWrites,
             viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
             interviewRecruitmentConfig,
@@ -426,6 +464,7 @@ export class RequestStateResolver {
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
+            suppliedHandleHadNoSavedSelection: pinned?.hasSavedSelection === false,
             sessionContext,
             allTools,
             scopeGatedTools,
@@ -443,6 +482,7 @@ export class RequestStateResolver {
                 !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
+            stepSeconds,
         }
     }
 
@@ -454,7 +494,7 @@ export class RequestStateResolver {
     private async resolvePinnedContext(
         reqCtx: RequestContext,
         pin: { organizationId?: string | undefined; projectId?: string | undefined }
-    ): Promise<PinnedActiveContext | undefined> {
+    ): Promise<(PinnedActiveContext & { hasSavedSelection?: boolean }) | undefined> {
         const { organizationId, projectId } = pin
         const hasPin = Boolean(organizationId || projectId)
 
@@ -503,6 +543,7 @@ export class RequestStateResolver {
             return {
                 pin: { organizationId: appliedPinOrg, projectId: appliedPinProject },
                 sessionScoped: true,
+                hasSavedSelection: hasSessionState,
                 orgId:
                     activeOrg !== undefined
                         ? (activeOrg ?? undefined)
@@ -536,6 +577,7 @@ export class RequestStateResolver {
         return {
             pin,
             sessionScoped: true,
+            hasSavedSelection: hasSessionState,
             orgId: overrideOrg !== undefined ? (overrideOrg ?? undefined) : organizationId,
             projectId: overrideProject !== undefined ? (overrideProject ?? undefined) : projectId,
         }

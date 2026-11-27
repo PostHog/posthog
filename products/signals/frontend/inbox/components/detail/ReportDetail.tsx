@@ -2,60 +2,60 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
-import {
-    IconArrowLeft,
-    IconEllipsis,
-    IconExternal,
-    IconSearch,
-    IconSidebarClose,
-    IconSidebarOpen,
-    IconTrends,
-} from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { IconSearch, IconTrends } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTabs, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic, peekFeatureFlag, reportFeatureFlagExposure } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { PR_MONITORING_NOTE_MAX_CHARS, pullRequestsLogic } from '../../logics/pullRequestsLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { inboxReportBackLabel } from '../../utils/inboxReportUrls'
 import { canCreateImplementationPr } from '../../utils/reportActions'
-import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
-import { reportPullRequests } from '../../utils/reportPullRequests'
-import { parseReportSummary } from '../../utils/reportSummary'
+import {
+    ReportPullRequestRef,
+    displayConventionalCommitTitle,
+    parsePrUrlParts,
+    prFilesUrl,
+    safeHttpUrl,
+} from '../../utils/reportPresentation'
+import { prMonitoringWindowExpiredReason, reportPullRequests } from '../../utils/reportPullRequests'
 import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ReportSpendSection } from '../spend/ReportSpendSection'
-import { CommitContent } from './artefactTypes'
+import { CommitContent, latestPrMonitoringGuidanceQuestion } from './artefactTypes'
 import { DetailSection } from './DetailSection'
-import { DiscussReportButton } from './DiscussReportButton'
 import { ImplementButton } from './ImplementButton'
+import { OpenPullRequestButton } from './OpenPullRequestButton'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleton } from './PullRequestDiffPanel'
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
+import { QuillReportDetailHeader } from './QuillReportDetailHeader'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
 import { ReportChecksSection } from './ReportChecksSection'
 import { ReportClaimPill } from './ReportClaimPill'
 import { useReportDetailActions } from './ReportDetailActions'
+import { ReportDetailToolbar } from './ReportDetailToolbar'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
@@ -113,6 +113,135 @@ function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
                 </div>
             ))}
         </div>
+    )
+}
+
+const PR_GUIDANCE_COPY = {
+    retry: {
+        placeholder: 'Optional: name the event, property, or action to monitor.',
+        button: 'Retry research',
+    },
+    guidance: {
+        placeholder: 'Example: monitor the checkout_submitted event or failure rate on /api/checkout.',
+        button: 'Run with guidance',
+    },
+} as const
+
+function prGuidancePrompt(isRetry: boolean, guidanceQuestion: string | null): string {
+    if (isRetry) {
+        return 'Monitoring research stopped before saving a check. Retry as-is, or add guidance on what to monitor.'
+    }
+    return guidanceQuestion ?? 'Tell PostHog which event, property, or action to monitor for this pull request.'
+}
+
+function prGuidanceDisabledReason(
+    isRetry: boolean,
+    draftNote: string,
+    expiredReason: string | undefined
+): string | undefined {
+    if (expiredReason) {
+        return expiredReason
+    }
+    return !isRetry && !draftNote.trim() ? 'Add guidance on what PostHog should monitor' : undefined
+}
+
+function isUnmeasuredPrReport(
+    report: SignalReport,
+    prUrl: string,
+    reportChecks: SignalReportCheckApi[] | null,
+    reportChecksError: boolean
+): boolean {
+    if (report.signal_count > 0 || (report.metrics ?? []).length > 0) {
+        return false
+    }
+    if (reportChecks === null || reportChecksError || reportChecks.length > 0) {
+        return false
+    }
+    return (report.pull_requests ?? []).every((pr) => pr.url !== prUrl || pr.state !== 'closed')
+}
+
+function PrMonitoringGuidanceForm({
+    prUrl,
+    isRetry,
+    expiredReason,
+}: {
+    prUrl: string
+    isRetry: boolean
+    expiredReason: string | undefined
+}): JSX.Element {
+    const { reportArtefacts } = useValues(inboxReportDetailLogic)
+    const { draftNotes, monitoringUrls } = useValues(pullRequestsLogic)
+    const { monitorPR, setDraftNote } = useActions(pullRequestsLogic)
+    const draftNote = draftNotes[prUrl] ?? ''
+    const isSubmitting = Boolean(monitoringUrls[prUrl])
+    const disabledReason = prGuidanceDisabledReason(isRetry, draftNote, expiredReason)
+    const promptCopy = prGuidancePrompt(isRetry, latestPrMonitoringGuidanceQuestion(reportArtefacts))
+    const copy = PR_GUIDANCE_COPY[isRetry ? 'retry' : 'guidance']
+
+    return (
+        <div
+            data-attr="inbox-report-pr-guidance"
+            className="flex flex-col gap-2.5 rounded border border-primary bg-surface-secondary p-3.5"
+        >
+            <p className="m-0 whitespace-pre-line text-sm text-secondary">{promptCopy}</p>
+            <LemonTextArea
+                minRows={2}
+                maxRows={5}
+                maxLength={PR_MONITORING_NOTE_MAX_CHARS}
+                value={draftNote}
+                disabled={isSubmitting || Boolean(expiredReason)}
+                aria-label="Monitoring guidance"
+                data-attr="inbox-report-pr-guidance-input"
+                placeholder={copy.placeholder}
+                onChange={(value) => setDraftNote(prUrl, value)}
+                onPressCmdEnter={() => {
+                    if (!isSubmitting && !disabledReason) {
+                        monitorPR(prUrl)
+                    }
+                }}
+            />
+            <div className="flex justify-end">
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    loading={isSubmitting}
+                    disabledReason={disabledReason}
+                    data-attr="inbox-report-pr-guidance-submit"
+                    onClick={() => monitorPR(prUrl)}
+                >
+                    {copy.button}
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+function PrMonitoringGuidance({
+    report,
+    pullRequest,
+    reportChecks,
+    reportChecksError,
+}: {
+    report: SignalReport
+    pullRequest: ReportPullRequestRef | undefined
+    reportChecks: SignalReportCheckApi[] | null
+    reportChecksError: boolean
+}): JSX.Element | null {
+    const enabled = useFeatureFlag('SIGNALS_MONITOR_PR')
+    const isRetry = report.status === SignalReportStatus.FAILED
+    const isGuidance = report.status === SignalReportStatus.PENDING_INPUT
+    if (!enabled || (!isGuidance && !isRetry) || !pullRequest) {
+        return null
+    }
+    if (!isUnmeasuredPrReport(report, pullRequest.prUrl, reportChecks, reportChecksError)) {
+        return null
+    }
+    return (
+        <PrMonitoringGuidanceForm
+            prUrl={pullRequest.prUrl}
+            isRetry={isRetry}
+            expiredReason={prMonitoringWindowExpiredReason(report, pullRequest.prUrl)}
+        />
     )
 }
 
@@ -178,9 +307,9 @@ interface InboxDetailFrameProps {
     report: SignalReport
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
-    /** The pull request's "Open in GitHub" action. When it is set, the frame does not show the implement
-     * action: "View task" adds nothing next to the pull request, and the runs section still links the task. */
-    primaryAction?: ReactNode
+    /** The pull request the header's "Open in GitHub" action opens. When it is set, the frame does not show the
+     * implement action: "View task" adds nothing next to the pull request, and the runs section still links the task. */
+    pullRequest?: ReportPullRequestRef
     /** Whether the report column gets the Summary / Files changed tab bar. Driven by whether the report has
      * a PR (known immediately), not by whether the diff has loaded, so the bar doesn't pop in a beat later
      * and shift the layout. */
@@ -206,7 +335,7 @@ interface InboxDetailFrameProps {
 export function InboxDetailFrame({
     report,
     asideFooter,
-    primaryAction,
+    pullRequest,
     showFilesTab,
     diffSection,
     diffStat,
@@ -233,11 +362,8 @@ export function InboxDetailFrame({
     const rawBack = searchParams.back
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
-    const backLabel = backOverride
-        ? backOverride.startsWith(urls.inboxTriage())
-            ? 'Triage'
-            : 'Back'
-        : 'Self-driving inbox'
+    const back = backOverride ? { name: inboxReportBackLabel(backOverride), path: backOverride } : undefined
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const logicProps = { reportId: report.id, report }
     const {
         reportSignals,
@@ -302,36 +428,16 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const summaryHasSolution = parseReportSummary(report.summary).sections.some(
-        (section) => section.kind === 'solution'
-    )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
-    const hasImplementButton = !primaryAction && (showCreatePr || !!reportTaskToOpen)
-    if (
-        hasImplementButton &&
-        summaryHasSolution &&
-        (implementButtonVariant === 'control' || implementButtonVariant === 'test')
-    ) {
-        reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
-    }
-    const implementButtonInHeader = !summaryHasSolution || implementButtonVariant === 'test'
+    const hasImplementButton = !pullRequest && (showCreatePr || !!reportTaskToOpen)
     const implementButton = hasImplementButton ? (
         <ImplementButton
             report={report}
-            position={implementButtonInHeader ? 'header' : 'body'}
             reportTaskToOpen={reportTaskToOpen}
             implementationDisabledReason={implementationDisabledReason}
             openChoicesFromLink={linkImplementReportId === report.id}
             onChoicesOpenedFromLink={() => setLinkImplementReportId(null)}
         />
     ) : null
-    const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
-        label: action.label,
-        icon: action.icon,
-        disabledReason: action.loading ? 'Working…' : action.disabledReason,
-        onClick: action.onClick,
-    }))
 
     const generatedAt = (
         <span className="flex items-center gap-1 text-xs text-tertiary">
@@ -339,43 +445,21 @@ export function InboxDetailFrame({
         </span>
     )
 
-    // Hiding the rail gives the report column the full width, which is what reading a diff needs.
-    // One toggle sits in the page toolbar and keeps its place in both states, so it never jumps.
     const onToggleRail = (): void => {
         toggleEvidenceRail()
         captureSectionToggle('evidence_rail')(!evidenceRailCollapsed)
     }
-    const railToggleButton = evidenceRailCollapsed ? (
-        <LemonButton
-            size="small"
-            type="tertiary"
-            icon={<IconSidebarOpen />}
-            tooltip="Show evidence"
-            aria-label="Show evidence"
-            onClick={onToggleRail}
-            data-attr="inbox-report-show-evidence-rail"
-        />
-    ) : (
-        <LemonButton
-            size="small"
-            type="tertiary"
-            icon={<IconSidebarClose />}
-            tooltip="Hide evidence to widen the report"
-            aria-label="Hide evidence"
-            onClick={onToggleRail}
-            data-attr="inbox-report-hide-evidence-rail"
-        />
-    )
 
     const titleHeading = (
         <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">{displayTitle}</h1>
     )
 
+    const activeReport = currentReport ?? report
     const claimPill = (
         <ReportClaimPill
             claimant={reportClaimant}
             isClaimedByMe={isClaimedByMe}
-            claimedAt={(currentReport ?? report).assignee?.claimed_at ?? null}
+            claimedAt={activeReport.assignee?.claimed_at ?? null}
         />
     )
 
@@ -412,7 +496,7 @@ export function InboxDetailFrame({
             )}
             <div className="flex flex-col gap-2">
                 {titleHeading}
-                {tagFilterAvailable && <ReportTagChips report={report} surface="detail" />}
+                {tagFilterAvailable && <ReportTagChips report={report} />}
                 {claimPill}
             </div>
 
@@ -422,7 +506,6 @@ export function InboxDetailFrame({
                         <ReportSummaryBody
                             summary={report.summary}
                             chartPlacements={chartPlacements}
-                            implementButton={implementButtonInHeader ? null : implementButton}
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
@@ -448,6 +531,12 @@ export function InboxDetailFrame({
                     )}
                 </div>
             </ReportChartsContext.Provider>
+            <PrMonitoringGuidance
+                report={activeReport}
+                pullRequest={pullRequest}
+                reportChecks={reportChecks}
+                reportChecksError={Boolean(reportChecksError)}
+            />
             {/* The notes and the rating close out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
                 {notesEnabled && <ReportNotesSection report={report} />}
@@ -490,7 +579,7 @@ export function InboxDetailFrame({
         </header>
     )
 
-    const isMonitoring = (currentReport ?? report).status === SignalReportStatus.MONITORING
+    const isMonitoring = activeReport.status === SignalReportStatus.MONITORING
 
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
     // building the logic itself would have to pass `report` back in, and kea treats that as a props
@@ -501,7 +590,7 @@ export function InboxDetailFrame({
                 {!evidenceRailCollapsed && (
                     <aside className={DETAIL_ASIDE_CLASS}>
                         <ReportStatusSection
-                            report={currentReport ?? report}
+                            report={activeReport}
                             onPriorityChange={(priority) => {
                                 captureInboxReportAction({
                                     report,
@@ -523,7 +612,7 @@ export function InboxDetailFrame({
                                     report,
                                     actionType: 'select_pull_request',
                                     surface: 'detail_pane',
-                                    extra: { pull_request_count: reportPullRequests(currentReport ?? report).length },
+                                    extra: { pull_request_count: reportPullRequests(activeReport).length },
                                 })
                                 selectPullRequest(url)
                             }}
@@ -645,92 +734,26 @@ export function InboxDetailFrame({
         </BindLogic>
     )
 
-    return (
+    const toolbar = {
+        report,
+        reportUrl,
+        pullRequest,
+        implementAction: implementButton,
+        reportActions,
+        evidenceRailCollapsed,
+        onToggleEvidenceRail: onToggleRail,
+        backOverride: back,
+    }
+    return todayRailNav ? (
+        <>
+            <QuillReportDetailHeader {...toolbar} name={displayTitle} />
+            <div className={`${DETAIL_PAGE_CLASS} pt-4`}>{overviewBody}</div>
+        </>
+    ) : (
         <div className={DETAIL_PAGE_CLASS}>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <div className="-ml-4 flex items-center gap-1">
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        icon={<IconArrowLeft />}
-                        to={backOverride ?? urls.inbox('reports')}
-                        className="w-fit"
-                        data-attr="inbox-report-back"
-                    >
-                        {backLabel}
-                    </LemonButton>
-                    {railToggleButton}
-                </div>
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                    {primaryAction}
-                    {implementButtonInHeader && implementButton}
-                    {/* Discuss is always available and stays inline as its own dropdown button. */}
-                    <DiscussReportButton report={report} reportUrl={reportUrl} />
-                    {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
-                    <div className="hidden @4xl:flex items-center gap-2">
-                        {reportActions.map((action) => (
-                            <LemonButton
-                                key={action.key}
-                                type={action.primary ? 'primary' : 'secondary'}
-                                size="small"
-                                icon={action.icon}
-                                loading={action.loading}
-                                // A disabled action explains only why it's unavailable — not what it would do.
-                                tooltip={action.disabledReason ? undefined : action.tooltip}
-                                disabledReason={action.disabledReason}
-                                onClick={action.onClick}
-                            >
-                                {action.label}
-                            </LemonButton>
-                        ))}
-                    </div>
-                    {/* A resolved report past its refund window has no secondary actions at all. */}
-                    {overflowMenuItems.length > 0 && (
-                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconEllipsis />}
-                                aria-label="More actions"
-                                className="@4xl:hidden"
-                            />
-                        </LemonMenu>
-                    )}
-                </div>
-            </div>
-
+            <ReportDetailToolbar {...toolbar} />
             {overviewBody}
         </div>
-    )
-}
-
-/** Point a PR URL at its diff/files tab, without double-appending if it's already there. */
-function prFilesUrl(prUrl: string): string {
-    return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
-}
-
-/** The "Open in GitHub" button, shared by the page header and the summary's pull request note. */
-function OpenPullRequestButton({
-    report,
-    prUrl,
-    prRef,
-}: {
-    report: SignalReport
-    prUrl: string
-    prRef: NonNullable<ReturnType<typeof parsePrUrlParts>>
-}): JSX.Element {
-    return (
-        <LemonButton
-            type="primary"
-            size="small"
-            sideIcon={<IconExternal />}
-            to={prFilesUrl(prUrl)}
-            targetBlank
-            tooltip={`${prRef.repoSlug}#${prRef.number}`}
-            onClick={() => captureInboxReportAction({ report, actionType: 'open_pr', surface: 'detail_pane' })}
-        >
-            Open in GitHub
-        </LemonButton>
     )
 }
 
@@ -792,9 +815,7 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                     <PullRequestDiffStatSkeleton />
                 ) : undefined
             }
-            primaryAction={
-                prRef && prUrl ? <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} /> : undefined
-            }
+            pullRequest={prRef && prUrl ? { prUrl, prRef } : undefined}
             pullRequestNote={
                 prRef && prUrl ? (
                     <div className="flex flex-wrap items-center gap-3" data-attr="inbox-report-solution-pr-note">
@@ -804,7 +825,7 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                                 {prRef.repoSlug}#{prRef.number}
                             </span>
                         </span>
-                        <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} />
+                        <OpenPullRequestButton report={report} pullRequest={{ prUrl, prRef }} />
                         <TrackerIssueNote report={report} />
                     </div>
                 ) : hasTrackerNote ? (

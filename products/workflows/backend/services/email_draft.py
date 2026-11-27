@@ -13,7 +13,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -103,7 +103,7 @@ def _draft_email(team: Team, context: EmailDraftContext) -> EmailDraft:
         return _template_draft(context, EmailDraftFallbackReason.RATE_LIMITED)
 
     try:
-        client = build_ai_gateway_anthropic_client(
+        client = build_anthropic_client(
             ai_product="workflows",
             team_id=team.id,
             properties={"source_product": "workflows_email_draft"},

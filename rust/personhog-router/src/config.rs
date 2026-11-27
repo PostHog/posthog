@@ -181,11 +181,12 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub grpc_max_connection_age_secs: u64,
 
-    /// Interval between HTTP/2 keepalive pings sent to the replica backend (0 = disabled)
+    /// Interval between HTTP/2 keepalive pings sent to the replica, identity and leader
+    /// backends (0 = disabled)
     #[envconfig(default = "30")]
     pub backend_keepalive_interval_secs: u64,
 
-    /// Timeout for a keepalive ping ack from the replica backend
+    /// Timeout for a keepalive ping ack from a backend
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
 

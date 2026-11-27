@@ -66,6 +66,31 @@ def _approval_applies(approval: BaselineApproval, ledger_hashes: dict[str, str])
 
 
 @frozen
+class CommitGraph:
+    """The parent links of the commits that a run's tree has beyond its merge-base."""
+
+    parents: dict[str, tuple[str, ...]]
+
+    @classmethod
+    def from_comparison(cls, comparison: github_api.Comparison) -> CommitGraph:
+        return cls(parents={commit.sha: commit.parent_shas for commit in comparison.commits})
+
+    def descends_from(self, sha: str, ancestor_sha: str) -> bool:
+        """Whether `ancestor_sha` is a strict ancestor of `sha`. A commit outside the graph has no known parents."""
+        seen: set[str] = set()
+        pending = list(self.parents.get(sha, ()))
+        while pending:
+            current = pending.pop()
+            if current == ancestor_sha:
+                return True
+            if current in seen:
+                continue
+            seen.add(current)
+            pending.extend(self.parents.get(current, ()))
+        return False
+
+
+@frozen
 class Overlay:
     entries: dict[str, OverlayEntry]
     # Every candidate that applied, also the ones the reduction dropped.
@@ -120,13 +145,74 @@ def _candidates(run: Run, comparison: github_api.Comparison | None, position: in
     return approvals
 
 
-def reduce_overlay(candidates: list[BaselineApproval], ledger_hashes: dict[str, str]) -> Overlay:
+def _approval_commits(approval: BaselineApproval) -> list[str]:
+    return [sha for sha in (approval.commit_sha, approval.carried_commit_sha) if sha]
+
+
+def _approval_descends_from(approval: BaselineApproval, other: BaselineApproval, commit_graph: CommitGraph) -> bool:
+    return any(
+        commit_graph.descends_from(sha, other_sha)
+        for sha in _approval_commits(approval)
+        for other_sha in _approval_commits(other)
+    )
+
+
+def approvals_that_count(approvals: list[BaselineApproval], ledger_hashes: dict[str, str]) -> list[BaselineApproval]:
+    """The approvals whose base the ledger holds, and the stack layers approved over the picture of one of those.
+
+    A layer approved over the open layer below it keeps counting after a lower layer of the stack lands
+    alone, as long as the layer below still counts. The effective base comes from the overlay of the
+    approved run, so a match proves the lower approval was in the upper layer's tree then. The caller
+    passes only approvals in the run's tree, which covers now. Commits are not compared, because a
+    restack leaves the approved commits out of the new tree. The order of `approvals` is kept.
+    """
+    counted_ids = {approval.id for approval in approvals if _approval_applies(approval, ledger_hashes)}
+    # The uncounted approvals by the picture they were approved over, per identifier.
+    over_picture: dict[str, dict[str, list[BaselineApproval]]] = {}
+    for approval in approvals:
+        if approval.id not in counted_ids:
+            by_base = over_picture.setdefault(approval.identifier, {})
+            by_base.setdefault(approval.effective_base_hash, []).append(approval)
+    pending = [approval for approval in approvals if approval.id in counted_ids]
+    while pending:
+        lower = pending.pop()
+        for upper in over_picture.get(lower.identifier, {}).get(lower.content_hash, []):
+            if upper.id in counted_ids or upper.pr_number == lower.pr_number:
+                continue
+            counted_ids.add(upper.id)
+            pending.append(upper)
+    return [approval for approval in approvals if approval.id in counted_ids]
+
+
+def _stack_tip(approvals: list[BaselineApproval], commit_graph: CommitGraph | None) -> BaselineApproval | None:
+    """The one approval whose commit descends from the commits of all the other approvals, if there is one.
+
+    That approval is the top of a stack. Its tree contains the changes of the layers below it, so
+    the run renders its picture.
+    """
+    if commit_graph is None:
+        return None
+    tips = [
+        approval
+        for approval in approvals
+        if all(_approval_descends_from(approval, other, commit_graph) for other in approvals if other.id != approval.id)
+    ]
+    if len(tips) != 1:
+        return None
+    return tips[0]
+
+
+def reduce_overlay(
+    candidates: list[BaselineApproval], ledger_hashes: dict[str, str], commit_graph: CommitGraph | None = None
+) -> Overlay:
     """The overlay entry per identifier from the candidate approvals of a run, and the conflicts.
 
-    A candidate applies only while the ledger holds its base. A stack child wins over its parent,
+    A candidate applies only while the ledger holds its base, or while it chains on a candidate that
+    applies (see `approvals_that_count`). A stack child wins over its parent,
     two pull requests with different hashes conflict, and otherwise the newest approval wins.
+    Without `commit_graph` a stack child wins only when it was approved over its parent's picture.
     """
-    applicable = [approval for approval in candidates if _approval_applies(approval, ledger_hashes)]
+    applicable = approvals_that_count(candidates, ledger_hashes)
 
     by_identifier: dict[str, list[BaselineApproval]] = {}
     for approval in applicable:
@@ -146,8 +232,13 @@ def reduce_overlay(candidates: list[BaselineApproval], ledger_hashes: dict[str, 
         if not remaining:
             continue
         if len({approval.content_hash for approval in remaining}) > 1:
-            conflicts[identifier] = tuple(sorted({approval.pr_number for approval in remaining}))
-            continue
+            # A stack child approved before its parent was approved over the old baseline, so the
+            # rule above cannot see the stack. The commit graph can.
+            tip = _stack_tip(remaining, commit_graph)
+            if tip is None:
+                conflicts[identifier] = tuple(sorted({approval.pr_number for approval in remaining}))
+                continue
+            remaining = [tip]
         chosen = max(remaining, key=lambda approval: (approval.approved_at, approval.id))
         entries[identifier] = OverlayEntry(
             content_hash=chosen.content_hash,
@@ -170,7 +261,8 @@ def overlay_for_run(
 
     `comparison` is None for a run on the default branch, which has no candidates.
     """
-    return reduce_overlay(_candidates(run, comparison, position), ledger_hashes)
+    commit_graph = None if comparison is None else CommitGraph.from_comparison(comparison)
+    return reduce_overlay(_candidates(run, comparison, position), ledger_hashes, commit_graph)
 
 
 def _ledger_base_hashes(
@@ -202,6 +294,12 @@ def _ledger_base_hashes(
         fallback = ledger.hashes_at(run.repo_id, run.run_type, unknown, record.position)
         bases.update({identifier: fallback.get(identifier, "") for identifier in unknown})
     return bases
+
+
+def _republish_after_close(run: Run, closed: list[BaselineApproval]) -> None:
+    from . import commit_status  # noqa: PLC0415 — commit_status imports this module
+
+    commit_status.publish_after_approvals_close(run.repo, closed)
 
 
 def record_approvals(run: Run, user_id: int, *, carried_commit_sha: str = "") -> int:
@@ -259,6 +357,11 @@ def record_approvals(run: Run, user_id: int, *, carried_commit_sha: str = "") ->
     open_approvals = BaselineApproval.objects.using(WRITER_DB).filter(
         repo_id=run.repo_id, run_type=run.run_type, pr_number=run.pr_number, state=BaselineApprovalState.OPEN
     )
+    closed = list(
+        open_approvals.filter(
+            identifier__in=[*back_to_baseline, *(approval.identifier for approval in new_approvals)]
+        ).only("id", "run_type")
+    )
     open_approvals.filter(identifier__in=back_to_baseline).update(
         state=BaselineApprovalState.SUPERSEDED, detail=DETAIL_BACK_TO_BASELINE, resolved_at=now, updated_at=now
     )
@@ -266,6 +369,7 @@ def record_approvals(run: Run, user_id: int, *, carried_commit_sha: str = "") ->
         state=BaselineApprovalState.SUPERSEDED, detail=DETAIL_SUPERSEDED, resolved_at=now, updated_at=now
     )
     BaselineApproval.objects.using(WRITER_DB).bulk_create(new_approvals)
+    _republish_after_close(run, closed)
     return len(new_approvals)
 
 
@@ -365,9 +469,68 @@ def record_carried_commits(run: Run) -> None:
         ).update(
             state=BaselineApprovalState.SUPERSEDED, detail=DETAIL_BACK_TO_BASELINE, resolved_at=now, updated_at=now
         )
+        _republish_after_close(run, [approval for approval in approvals if approval.id in superseded])
         BaselineApproval.objects.using(WRITER_DB).filter(
             team_id=run.team_id, id__in=reproduced, state=BaselineApprovalState.OPEN
         ).update(carried_commit_sha=run.commit_sha, updated_at=now)
+
+
+def is_stale(approval: BaselineApproval, current_hash: str) -> bool:
+    """Whether landing the approval now would make it `conflicted`.
+
+    The approved hash counts as fresh because the ledger already holds that picture.
+    """
+    return current_hash != approval.content_hash and not base_still_holds(approval, current_hash)
+
+
+def stale_approvals(run: Run) -> list[BaselineApproval]:
+    """The open approvals that the run's passing verdict rests on, whose base the ledger no longer holds.
+
+    These are the approvals made on the run and the approvals its frozen record applied as overlay.
+    The ledger is read at the cursor and not at the run's merge-base, because a merge after the run
+    makes the approval conflict when its pull request lands. Nothing is stored, so a revert that
+    moves the ledger back makes the approval fresh again. An approval chained on an open lower stack
+    layer among the record's candidates stays fresh while that layer's approval counts.
+    """
+    record = baseline_record.record_for_run(run)
+    if record is None:
+        return []
+    overlay_approval_ids = {entry.approval_id for entry in record.overlay.values()}
+    # Only finalize writes approvals with this run as their source, and finalize marks the run approved.
+    if not run.approved and not overlay_approval_ids:
+        return []
+    in_tree = list(
+        BaselineApproval.objects.using(WRITER_DB).filter(
+            Q(source_run_id=run.id) | Q(id__in=overlay_approval_ids) | Q(id__in=record.candidate_approval_ids),
+            repo_id=run.repo_id,
+            run_type=run.run_type,
+            state=BaselineApprovalState.OPEN,
+        )
+    )
+    approvals = [
+        approval for approval in in_tree if approval.source_run_id == run.id or approval.id in overlay_approval_ids
+    ]
+    if not approvals:
+        return []
+    head = ledger.cursor(run.repo_id)
+    if head is None:
+        return []
+    current = ledger.hashes_at(run.repo_id, run.run_type, {approval.identifier for approval in in_tree}, head.position)
+    counted = {approval.id for approval in approvals_that_count(in_tree, current)}
+    stale = [
+        approval
+        for approval in approvals
+        if approval.id not in counted and is_stale(approval, current.get(approval.identifier, ""))
+    ]
+    if not stale:
+        return []
+    # A quarantined snapshot does not gate the run, so a stale approval of it must not gate it either.
+    quarantined = set(
+        run.snapshots.using(WRITER_DB)
+        .filter(identifier__in={approval.identifier for approval in stale}, is_quarantined=True)
+        .values_list("identifier", flat=True)
+    )
+    return [approval for approval in stale if approval.identifier not in quarantined]
 
 
 def _is_evidence_candidate(run: Run) -> bool:

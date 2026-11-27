@@ -135,7 +135,7 @@ async def _safety_filter(input: SafetyFilterInput) -> SafetyFilterOutput:
         system=SAFETY_FILTER_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
         **anthropic_output_config(SafetyFilterResult),
-        **tracing_kwargs(input.trace_id, input.ticket_id),
+        **tracing_kwargs(input.trace_id),
     )
     content = anthropic_text(message)
 

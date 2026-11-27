@@ -37,6 +37,7 @@ function email(
         distinct_id: 'user_1',
         action_id: 'action_1',
         sensitive: false,
+        tracking: { opens: true, clicks: true },
     }
 }
 
@@ -58,16 +59,15 @@ OpenedAndClicked.args = {
     ]),
 }
 
-export const SensitiveClicksNotTracked = Template.bind({})
-SensitiveClicksNotTracked.args = {
+export const TrackingOff = Template.bind({})
+TrackingOff.args = {
     email: {
         ...email('delivered', [
             { kind: 'queued', at: '2026-06-15T09:00:00Z', reason: null },
             { kind: 'sent', at: '2026-06-15T09:00:01Z', reason: null },
             { kind: 'delivered', at: '2026-06-15T09:00:03Z', reason: null },
-            { kind: 'opened', at: '2026-06-15T09:12:40Z', reason: null },
         ]),
-        sensitive: true,
+        tracking: { opens: false, clicks: false },
     },
 }
 

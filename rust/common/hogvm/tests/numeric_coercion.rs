@@ -9,6 +9,9 @@ use serde_json::{json, Value};
 
 // Opcode numeric values (mirror common/hogvm/python/operation.py).
 const OP_CALL_GLOBAL: i64 = 2;
+const OP_PLUS: i64 = 6;
+const OP_MINUS: i64 = 7;
+const OP_MULTIPLY: i64 = 8;
 const OP_EQ: i64 = 11;
 const OP_NOT_EQ: i64 = 12;
 const OP_GT: i64 = 13;
@@ -220,6 +223,55 @@ fn strict_equality_functions_unify_numeric_variants() {
 }
 
 #[test]
+fn ordering_functions_order_numeric_arrays() {
+    assert_both_paths(
+        call(
+            "greater",
+            &[array(&[int(1), int(10)]), array(&[int(1), int(9)])],
+        ),
+        json!(true),
+        "greater([1, 10], [1, 9])",
+    );
+    assert_both_paths(
+        call(
+            "less",
+            &[array(&[int(1), int(2)]), array(&[int(1), int(2), int(0)])],
+        ),
+        json!(true),
+        "less([1, 2], [1, 2, 0])",
+    );
+}
+
+#[test]
+fn array_ordering_treats_signed_zeros_as_equal() {
+    assert_both_paths(
+        call(
+            "less",
+            &[array(&[float(-0.0), int(2)]), array(&[float(0.0), int(1)])],
+        ),
+        json!(false),
+        "less([-0.0, 2], [0.0, 1])",
+    );
+}
+
+#[test]
+fn array_ordering_continues_past_matching_nan_elements() {
+    let nan = || {
+        let mut bc = string("NaN");
+        bc.extend([json!(OP_CALL_GLOBAL), json!("toFloat"), json!(1)]);
+        bc
+    };
+    assert_both_paths(
+        call(
+            "greaterOrEquals",
+            &[array(&[nan(), int(0)]), array(&[nan(), int(1)])],
+        ),
+        json!(false),
+        "greaterOrEquals([NaN, 0], [NaN, 1])",
+    );
+}
+
+#[test]
 fn number_vs_numeric_string_coerces_the_string() {
     // The exact cohort case: `bc_num gt "10"` (threshold compiled as a string).
     assert_eq!(
@@ -417,4 +469,25 @@ fn pure_numeric_comparisons_are_unchanged() {
         Value::Bool(true)
     );
     assert_eq!(run(compare(&int(10), &int(10), OP_EQ)), Value::Bool(true));
+}
+
+// The reference VM computes in doubles, so an integer result past i64 continues as a float, not clamped at i64::MAX.
+#[test]
+fn integer_overflow_continues_as_a_float() {
+    let big = 1_736_944_633_250_000_i64;
+    for (op, left, right, expected) in [
+        (OP_MULTIPLY, big, 10_000_000, big as f64 * 1e7),
+        (OP_PLUS, i64::MAX, 1, i64::MAX as f64 + 1.0),
+        (OP_MINUS, i64::MIN, 1, i64::MIN as f64 - 1.0),
+    ] {
+        assert_eq!(
+            run(compare(&int(left), &int(right), op)),
+            json!(expected),
+            "op {op}"
+        );
+    }
+    assert_eq!(
+        run(compare(&int(big), &int(1000), OP_MULTIPLY)),
+        json!(big * 1000)
+    );
 }

@@ -14,7 +14,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { combineUrl, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { assignField, isGroupType, isSessionType } from 'lib/utils/guards'
 import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
@@ -51,6 +51,7 @@ import {
     RecordingUniversalFilters,
 } from '~/types'
 
+import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
@@ -155,8 +156,8 @@ export interface personsModalLogicValues {
 export interface personsModalLogicActions {
     reportPersonsModalSearched: (params: { actorType?: string; teamId?: number | null }) => {
         params: {
-            actorType?: string | undefined
-            teamId?: number | null | undefined
+            actorType?: string
+            teamId?: number | null
         }
     } // eventUsageLogic
     reportPersonsModalViewed: (params: any) => {
@@ -235,7 +236,7 @@ export interface personsModalLogicActions {
         search: string
     }
     updateActorsQuery: (query: Partial<InsightActorsQuery> | Partial<FunnelsActorsQuery>) => {
-        query: Partial<InsightActorsQuery<InsightQueryNode>> | Partial<FunnelsActorsQuery>
+        query: Partial<FunnelsActorsQuery> | Partial<InsightActorsQuery<InsightQueryNode>>
     }
     updateQuery: (query: FunnelsActorsQuery | InsightActorsQuery) => {
         query: FunnelsActorsQuery | InsightActorsQuery<InsightQueryNode>
@@ -505,8 +506,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
-            const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
+            const cohort = await cohortsCreate(String(ApiConfig.getCurrentProjectId()), {
+                ...cohortParams,
+                query: values.actorsQuery,
+            })
             cohortsModel.actions.cohortCreated(cohort)
             cohortSavedToast(cohort, 'persons_modal', `cohort-saved-${cohort.id}`)
             actions.setIsCohortModalOpen(false)

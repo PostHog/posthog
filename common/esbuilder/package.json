@@ -17,6 +17,6 @@
         "postcss": "^8.5.15",
         "postcss-preset-env": "^10.1.4",
         "ts-clone-node": "^4.0.0",
-        "typescript": "catalog:"
+        "typescript": "catalog:compiler-api"
     }
 }

@@ -1,4 +1,5 @@
 import {
+    BreakPointFunction,
     LogicWrapper,
     MakeLogicType,
     actions,
@@ -26,6 +27,7 @@ import {
     CompareFilter,
     WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilters,
+    WebAnalyticsQueryModifiers,
     WebPageDirectoryMetric,
     WebPageDirectoryQuery,
     WebPageDirectoryQueryResponse,
@@ -35,8 +37,19 @@ import {
 } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType } from '~/types'
 
-import { CancellableRequest, isCancelledRequest, startCancellableRequest } from './cancellableRequest'
-import { buildPageDirectoryBaseQuery, buildSiteTotalsQuery, looksLikePageUrl, splitPageKey } from './pageReportsUtils'
+import {
+    CancellableRequest,
+    isCancelledRequest,
+    runCancellableRequest,
+    startCancellableRequest,
+} from './cancellableRequest'
+import {
+    buildPageDirectoryBaseQuery,
+    buildSiteCrawlTotalsQuery,
+    buildSiteTotalsQuery,
+    looksLikePageUrl,
+    splitPageKey,
+} from './pageReportsUtils'
 
 export const PAGE_DIRECTORY_PAGE_SIZE = 25
 
@@ -93,6 +106,7 @@ export interface pageDirectoryLogicValues {
     compareFilter: CompareFilter // webAnalyticsLogic
     conversionGoal: WebAnalyticsConversionGoal | null // webAnalyticsLogic
     dateFilter: DateFilterState // webAnalyticsLogic
+    effectiveWebQueryModifiers: WebAnalyticsQueryModifiers // webAnalyticsLogic
     filterTestAccounts: boolean // webAnalyticsLogic
     isPathCleaningEnabled: boolean // webAnalyticsLogic
     webAnalyticsFilters: WebAnalyticsPropertyFilters // webAnalyticsLogic
@@ -114,6 +128,11 @@ export interface pageDirectoryLogicValues {
     rows: WebPageDirectoryRow[]
     search: string
     singleHost: string | null
+    siteCrawlTotals: WebPageDirectorySiteTotals | null
+    siteCrawlTotalsError: boolean
+    siteCrawlTotalsInput: string
+    siteCrawlTotalsLoading: boolean
+    siteCrawlTotalsQuery: WebPageDirectoryQuery
     siteTotals: WebPageDirectorySiteTotals | null
     siteTotalsError: boolean
     siteTotalsInput: string
@@ -160,6 +179,15 @@ export interface pageDirectoryLogicActions {
         metric: WebPageDirectoryMetric
         rows: WebPageDirectoryRow[]
     }
+    loadSiteCrawlTotals: (refresh?: boolean) => {
+        refresh: boolean
+    }
+    loadSiteCrawlTotalsFailure: () => {
+        value: true
+    }
+    loadSiteCrawlTotalsSuccess: (siteCrawlTotals: WebPageDirectorySiteTotals | null) => {
+        siteCrawlTotals: WebPageDirectorySiteTotals | null
+    }
     loadSiteTotals: (refresh?: boolean) => {
         refresh: boolean
     }
@@ -204,7 +232,8 @@ export interface pageDirectoryLogicMeta {
             conversionGoal: WebAnalyticsConversionGoal | null,
             filterTestAccounts: boolean,
             isPathCleaningEnabled: boolean,
-            webAnalyticsFilters: WebAnalyticsPropertyFilters
+            webAnalyticsFilters: WebAnalyticsPropertyFilters,
+            effectiveWebQueryModifiers: WebAnalyticsQueryModifiers
         ) => WebPageDirectoryQuery
         driverQuery: (
             baseQuery: WebPageDirectoryQuery,
@@ -216,8 +245,10 @@ export interface pageDirectoryLogicMeta {
         directoryInput: (driverQuery: WebPageDirectoryQuery) => string
         siteTotalsQuery: (baseQuery: WebPageDirectoryQuery) => WebPageDirectoryQuery
         siteTotalsInput: (siteTotalsQuery: WebPageDirectoryQuery) => string
+        siteCrawlTotalsQuery: (baseQuery: WebPageDirectoryQuery) => WebPageDirectoryQuery
+        siteCrawlTotalsInput: (siteCrawlTotalsQuery: WebPageDirectoryQuery) => string
         failedMetrics: (metricErrors: Partial<Record<WebPageDirectoryMetric, boolean>>) => WebPageDirectoryMetric[]
-        hasServerLogs: (siteTotals: WebPageDirectorySiteTotals | null) => boolean | null
+        hasServerLogs: (siteCrawlTotals: WebPageDirectorySiteTotals | null) => boolean | null
         rows: (
             driverRows: WebPageDirectoryRow[] | null,
             metricRows: Partial<Record<WebPageDirectoryMetric, Record<string, WebPageDirectoryRow>>>
@@ -257,6 +288,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 'conversionGoal',
                 'isPathCleaningEnabled',
                 'webAnalyticsFilters',
+                'effectiveWebQueryModifiers',
             ],
             teamLogic,
             ['currentTeam'],
@@ -288,6 +320,9 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         loadSiteTotals: (refresh: boolean = false) => ({ refresh }),
         loadSiteTotalsSuccess: (siteTotals: WebPageDirectorySiteTotals | null) => ({ siteTotals }),
         loadSiteTotalsFailure: true,
+        loadSiteCrawlTotals: (refresh: boolean = false) => ({ refresh }),
+        loadSiteCrawlTotalsSuccess: (siteCrawlTotals: WebPageDirectorySiteTotals | null) => ({ siteCrawlTotals }),
+        loadSiteCrawlTotalsFailure: true,
         retryFailedMetrics: true,
     }),
     reducers({
@@ -367,6 +402,28 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 loadSiteTotalsFailure: () => true,
             },
         ],
+        siteCrawlTotals: [
+            null as WebPageDirectorySiteTotals | null,
+            {
+                loadSiteCrawlTotalsSuccess: (_, { siteCrawlTotals }) => siteCrawlTotals,
+            },
+        ],
+        siteCrawlTotalsError: [
+            false,
+            {
+                loadSiteCrawlTotals: () => false,
+                loadSiteCrawlTotalsSuccess: () => false,
+                loadSiteCrawlTotalsFailure: () => true,
+            },
+        ],
+        siteCrawlTotalsLoading: [
+            false,
+            {
+                loadSiteCrawlTotals: () => true,
+                loadSiteCrawlTotalsSuccess: () => false,
+                loadSiteCrawlTotalsFailure: () => false,
+            },
+        ],
     }),
     selectors({
         visibleMetrics: [
@@ -384,6 +441,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 s.filterTestAccounts,
                 s.isPathCleaningEnabled,
                 s.webAnalyticsFilters,
+                s.effectiveWebQueryModifiers,
             ],
             (
                 dateFilter: DateFilterState,
@@ -391,7 +449,8 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 conversionGoal: WebAnalyticsConversionGoal | null,
                 filterTestAccounts: boolean,
                 isPathCleaningEnabled: boolean,
-                webAnalyticsFilters: WebAnalyticsPropertyFilters
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
+                webQueryModifiers: WebAnalyticsQueryModifiers
             ): WebPageDirectoryQuery =>
                 buildPageDirectoryBaseQuery({
                     dateFilter,
@@ -400,6 +459,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                     filterTestAccounts,
                     isPathCleaningEnabled,
                     webAnalyticsFilters,
+                    webQueryModifiers,
                 }),
         ],
         driverQuery: [
@@ -432,15 +492,23 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             (s) => [s.siteTotalsQuery],
             (siteTotalsQuery: WebPageDirectoryQuery): string => JSON.stringify(siteTotalsQuery),
         ],
+        siteCrawlTotalsQuery: [
+            (s) => [s.baseQuery],
+            (baseQuery: WebPageDirectoryQuery): WebPageDirectoryQuery => buildSiteCrawlTotalsQuery(baseQuery),
+        ],
+        siteCrawlTotalsInput: [
+            (s) => [s.siteCrawlTotalsQuery],
+            (siteCrawlTotalsQuery: WebPageDirectoryQuery): string => JSON.stringify(siteCrawlTotalsQuery),
+        ],
         failedMetrics: [
             (s) => [s.metricErrors],
             (metricErrors: Partial<Record<WebPageDirectoryMetric, boolean>>): WebPageDirectoryMetric[] =>
                 PAGE_DIRECTORY_METRICS.filter((metric) => metricErrors[metric]),
         ],
         hasServerLogs: [
-            (s) => [s.siteTotals],
-            (siteTotals: WebPageDirectorySiteTotals | null): boolean | null =>
-                siteTotals ? siteTotals.serverLogs > 0 : null,
+            (s) => [s.siteCrawlTotals],
+            (siteCrawlTotals: WebPageDirectorySiteTotals | null): boolean | null =>
+                siteCrawlTotals ? (siteCrawlTotals.serverLogs ?? 0) > 0 : null,
         ],
         rows: [
             (s) => [s.driverRows, s.metricRows],
@@ -491,10 +559,36 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         ],
     }),
     listeners(({ values, actions, cache }) => {
+        const getTeamId = (): number | null => values.currentTeam?.id ?? null
         const startRequest = (key: string): CancellableRequest =>
-            startCancellableRequest(cache.disposables, key, () => values.currentTeam?.id ?? null)
+            startCancellableRequest(cache.disposables, key, getTeamId)
         const failureMessage = (error: unknown): string =>
             error instanceof Error ? error.message : 'Could not load pages'
+        const loadTotals = async (
+            key: string,
+            query: WebPageDirectoryQuery,
+            refresh: boolean,
+            breakpoint: BreakPointFunction,
+            onSuccess: (totals: WebPageDirectorySiteTotals | null) => void,
+            onFailure: () => void
+        ): Promise<void> => {
+            await breakpoint(300)
+            try {
+                const response = (await runCancellableRequest(
+                    cache.disposables,
+                    key,
+                    getTeamId,
+                    breakpoint,
+                    ({ signal, queryId }) =>
+                        performQuery(query, { signal }, refresh ? 'force_blocking' : 'blocking', queryId)
+                )) as WebPageDirectoryQueryResponse
+                onSuccess(response.siteTotals ?? null)
+            } catch (error) {
+                if (!isCancelledRequest(error) && !cache.disposables.isDisposed) {
+                    onFailure()
+                }
+            }
+        }
 
         return {
             loadDriver: async ({ refresh }, breakpoint) => {
@@ -563,25 +657,24 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 }
             },
             loadSiteTotals: async ({ refresh }, breakpoint) => {
-                await breakpoint(300)
-                const { signal, queryId, track } = startRequest('siteTotalsRequest')
-                try {
-                    const response = (await track(
-                        performQuery(
-                            values.siteTotalsQuery,
-                            { signal },
-                            refresh ? 'force_blocking' : 'blocking',
-                            queryId
-                        )
-                    )) as WebPageDirectoryQueryResponse
-                    breakpoint()
-                    actions.loadSiteTotalsSuccess(response.siteTotals ?? null)
-                } catch (error) {
-                    if (isCancelledRequest(error) || cache.disposables.isDisposed) {
-                        return
-                    }
-                    actions.loadSiteTotalsFailure()
-                }
+                await loadTotals(
+                    'siteTotalsRequest',
+                    values.siteTotalsQuery,
+                    refresh,
+                    breakpoint,
+                    actions.loadSiteTotalsSuccess,
+                    actions.loadSiteTotalsFailure
+                )
+            },
+            loadSiteCrawlTotals: async ({ refresh }, breakpoint) => {
+                await loadTotals(
+                    'siteCrawlTotalsRequest',
+                    values.siteCrawlTotalsQuery,
+                    refresh,
+                    breakpoint,
+                    actions.loadSiteCrawlTotalsSuccess,
+                    actions.loadSiteCrawlTotalsFailure
+                )
             },
             retryFailedMetrics: () => {
                 const pageKeys = (values.driverRows ?? []).map((row) => row.page)
@@ -589,12 +682,12 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                     actions.loadMetric(metric, pageKeys, true)
                 }
             },
-            loadSiteTotalsSuccess: ({ siteTotals }) => {
+            loadSiteCrawlTotalsSuccess: ({ siteCrawlTotals }) => {
                 const pageKeys = (values.driverRows ?? []).map((row) => row.page)
                 const crawls = WebPageDirectoryMetric.AiCrawls
                 if (
-                    siteTotals &&
-                    siteTotals.serverLogs > 0 &&
+                    siteCrawlTotals &&
+                    (siteCrawlTotals.serverLogs ?? 0) > 0 &&
                     pageKeys.length > 0 &&
                     values.visibleMetrics.includes(crawls) &&
                     SORT_METRIC[values.sortBy] !== crawls &&
@@ -616,6 +709,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             reloadAll: () => {
                 actions.loadDriver(true)
                 actions.loadSiteTotals(true)
+                actions.loadSiteCrawlTotals(true)
             },
         }
     }),
@@ -630,6 +724,9 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         },
         siteTotalsInput: () => {
             actions.loadSiteTotals()
+        },
+        siteCrawlTotalsInput: () => {
+            actions.loadSiteCrawlTotals()
         },
     })),
     afterMount(({ values }) => {

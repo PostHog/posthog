@@ -21,7 +21,8 @@ import {
 } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
-import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { DASHBOARD_TAG, listAIObservabilityDashboards } from '../redesign/home/dashboardLookup'
+import { buildAiObservabilityStorageConfig } from '../redesign/shared/preferenceStorage'
 
 export type AIObservabilityDashboardLogicProps = Record<string, never>
 
@@ -228,11 +229,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
             }>,
             {
                 loadLLMDashboards: async () => {
-                    const response = await api.dashboards.list({
-                        tags: 'llm-analytics',
-                        creation_mode: 'unlisted',
-                    })
-                    const dashboards = response.results || []
+                    const dashboards = await listAIObservabilityDashboards()
 
                     return await Promise.all(
                         dashboards.map(async (dashboardSummary) => {
@@ -261,7 +258,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
         loadLLMDashboardsSuccess: async ({ availableDashboards }, breakpoint) => {
             if (availableDashboards.length === 0) {
                 try {
-                    await api.dashboards.createUnlistedDashboard('llm-analytics')
+                    await api.dashboards.createUnlistedDashboard(DASHBOARD_TAG)
                     await breakpoint(100)
                     actions.loadLLMDashboards()
                 } catch (error: unknown) {
@@ -319,7 +316,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
         ],
 
         // IMPORTANT: Keep these hardcoded tiles in sync with backend template in
-        // products/ai_observability/backend/dashboard_templates.py:4-319 until full migration to customizable dashboard.
+        // products/ai_observability/backend/dashboard_templates.py:7-325 until full migration to customizable dashboard.
         //
         // Used when LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD feature flag is OFF.
         // When feature flag is ON, dashboard is loaded from backend template instead.

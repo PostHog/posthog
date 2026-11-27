@@ -1,6 +1,6 @@
-node "medium" {
+node "ingestion_medium" {
   macros = {
-    hostClusterRole = "medium"
+    hostClusterRole = "ingestion_medium"
     hostClusterType = "online"
     replica         = "medium"
     shard           = "01"
@@ -686,6 +686,9 @@ database "posthog" {
     }
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "query_id" {
       type = "String"
@@ -1457,10 +1460,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

@@ -141,6 +141,8 @@ LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,
     where_clause=f"JSONExtractString(state, 'type') NOT IN ({', '.join(repr(s) for s in LINEAR_IGNORED_STATE_TYPES)})",
+    # HogQL's `!=` is true for null, so the null check must stay explicit.
+    emittable_where="description IS NOT NULL AND description != ''",
     # Every Linear issue belongs to exactly one team, so a team allowlist covers the whole workspace.
     scope_field="JSONExtractString(team, 'id')",
     scope_config_key=SCOPE_CONFIG_KEYS[(SignalSourceProduct.LINEAR, SignalSourceType.ISSUE)],

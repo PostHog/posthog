@@ -42,6 +42,11 @@ class _ReadSide:
     reading: SideReading
 
 
+_UNREAD_SIDE: Final = _ReadSide(
+    side=contracts.TraceMessagesSide(kind="messages", messages=[]), reading=SideReading(recognized=True)
+)
+
+
 def step_content(
     kind: contracts.TraceNodeKind,
     node_id: str,
@@ -64,9 +69,12 @@ def read_step(
     *,
     build_normalizer: Callable[[], RecipeNormalizer],
     team_id: int,
+    reads_output: bool = True,
 ) -> StepReading:
+    """With `reads_output` off, the input reads as it always does, the output value still telling whether the input is
+    a conversation, and the output side comes back empty without being normalized."""
     # Building the team's normalizer reads and compiles its recipes, so one node read builds it at most once.
-    normalizer = _built_once(build_normalizer)
+    normalizer = built_once(build_normalizer)
     input_prefix, output_prefix = f"{node_id}-in", f"{node_id}-out"
     with time_limit(NODE_READ_TIME_LIMIT_SECONDS):
         # Both sides share one deadline, so a side that is already a conversation renders before any team-recipe check
@@ -74,8 +82,19 @@ def read_step(
         input_side = _conversation_side(
             kind, node_id, input_value, output_value, "user", input_prefix, normalizer=normalizer, team_id=team_id
         )
-        output_side = _conversation_side(
-            kind, node_id, output_value, input_value, "assistant", output_prefix, normalizer=normalizer, team_id=team_id
+        output_side = (
+            _conversation_side(
+                kind,
+                node_id,
+                output_value,
+                input_value,
+                "assistant",
+                output_prefix,
+                normalizer=normalizer,
+                team_id=team_id,
+            )
+            if reads_output
+            else _UNREAD_SIDE
         )
         read_input = (
             input_side
@@ -102,9 +121,9 @@ class _NormalizerUnavailableError(RecipeRuntimeError):
     pass
 
 
-def _built_once(build: Callable[[], RecipeNormalizer]) -> Callable[[], RecipeNormalizer]:
-    # A build that fails would fail again for the other side, so the failure is kept. The first side raises it and
-    # reports it, and a later side raises a bounded error so the same failure reaches error tracking once.
+def built_once(build: Callable[[], RecipeNormalizer]) -> Callable[[], RecipeNormalizer]:
+    # A build that fails would fail again for the next side or step, so the failure is kept. The first call raises it
+    # and reports it, and a later call raises a bounded error so the same failure reaches error tracking once.
     built: list[RecipeNormalizer | Exception] = []
 
     def normalizer() -> RecipeNormalizer:
