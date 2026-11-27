@@ -6,8 +6,6 @@ import { router } from 'kea-router'
 
 import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -42,15 +40,12 @@ describe('useOpenTraceDialog', () => {
     afterEach(() => cleanup())
 
     it.each([
-        ['a plain click with the flag on', true, {}, true],
+        ['a plain click', {}, true],
         // Modifier clicks skip the dialog and leave the link to go to Tracing.
-        ['a cmd click', true, { metaKey: true }, false],
-        ['a ctrl click', true, { ctrlKey: true }, false],
-        ['a shift click', true, { shiftKey: true }, false],
-        ['a plain click with the flag off', false, {}, false],
-    ])('%s opens the dialog: %s', (_name, flagOn, modifiers, expectDialog) => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_DIALOG]: flagOn })
+        ['a cmd click', { metaKey: true }, false],
+        ['a ctrl click', { ctrlKey: true }, false],
+        ['a shift click', { shiftKey: true }, false],
+    ])('%s opens the dialog: %s', (_name, modifiers, expectDialog) => {
         traceDialogOpenLogic.mount()
         router.actions.push('/logs')
         const pathnameBeforeClick = router.values.location.pathname
