@@ -126,6 +126,7 @@ export type FakeCloudOptions = {
         runnerStatus?: string
         runnerStatusReason?: unknown
         journalsIntent?: boolean
+        intentAt?: string
         pairRoles?: (PairRole | undefined)[]
         controlStatus?: string
         controlEndedAt?: string
@@ -566,7 +567,7 @@ export class FakeCloud implements Aws {
                           requestedAt: new Date(card.startedAt).toISOString(),
                           ...(this.options.card?.journalsIntent === false
                               ? {}
-                              : { intentAt: new Date(failoverAt).toISOString() }),
+                              : { intentAt: this.options.card?.intentAt ?? new Date(failoverAt).toISOString() }),
                           appliedAt: new Date(failoverAt + 5_000).toISOString(),
                       },
                   ]

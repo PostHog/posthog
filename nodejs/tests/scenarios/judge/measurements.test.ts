@@ -531,6 +531,20 @@ describe('measurements', () => {
             (second) => !between(822, 879)(second),
         ],
         [
+            'marks both minutes of a probe silence split by a minute boundary as incomplete and not recovered',
+            () => 10,
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10, incomplete: true },
+                { key: 't60', value: 10, incomplete: true },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+            (second) => !between(752, 768)(second),
+        ],
+        [
             'keeps the minutes of a valve whose baseline had a failed probe, with no bar and no recovery',
             (second) => (second === 650 ? 'failed' : between(700, 759)(second) ? 400 : 10),
             THREE_MINUTE_VALVE,
@@ -627,6 +641,30 @@ describe('measurements', () => {
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
                 { key: 'hogflow_recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'counts the scrape interval that straddles the valve end in the last minute, so late pickups at its tail stay',
+            pickedEvery5s((second) => between(705, 760)(second) || second === 882, { offsetS: 2, slowCount: 50 }),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 5 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
+            'marks the last minute incomplete and not recovered when no scrape closes the valve end',
+            pickedEvery5s(between(705, 760), { offsetS: 2 }).filter(({ at }) => at <= atS(877)),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 0.5, incomplete: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
             ],
         ],
         [
