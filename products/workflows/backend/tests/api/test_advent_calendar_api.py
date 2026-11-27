@@ -107,7 +107,6 @@ class TestAdventCalendarAPI(APIBaseTest):
 
         def vote_lands_during_the_deletion(sender: type, instance: User, **kwargs: Any) -> None:
             AdventCalendarAnswer.objects.create(user_id=instance.id, day=21, option="tea")
-            AdventCalendarDoorOpen.objects.create(user_id=instance.id, day=21, hoggy="hoggy-elf", utc_offset_minutes=0)
 
         pre_delete.connect(vote_lands_during_the_deletion, sender=User, dispatch_uid="advent_test_vote_during_deletion")
         self.addCleanup(pre_delete.disconnect, sender=User, dispatch_uid="advent_test_vote_during_deletion")
@@ -144,6 +143,17 @@ class TestAdventCalendarAPI(APIBaseTest):
         assert other_day == {"day": 4, "opened_at": "2026-12-04T07:30:00Z"}
         stored = AdventCalendarDoorOpen.objects.get(user_id=self.user.id, day=3)
         assert (stored.hoggy, stored.utc_offset_minutes) == ("hoggy-santa", -300)
+
+    def test_an_open_from_an_account_deleted_after_sign_in_returns_not_found(self) -> None:
+        with patch(
+            "products.workflows.backend.presentation.views.workflow_advent_calendar.open_advent_calendar_door",
+            return_value=None,
+        ):
+            response = self.client.post(
+                self._url(self.team, "open"), {"day": 2, "hoggy": "hoggy-santa", "utc_offset_minutes": 0}
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     @parameterized.expand(
         [
