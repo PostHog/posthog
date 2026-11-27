@@ -28,6 +28,9 @@ const IMPACT: TransactionalEmailImpactApi = {
     without_click: null,
 }
 
+const REPLAY_OFF_COPY =
+    'Replay vision will watch the sessions this email starts and group what people did. It needs session replay to record those sessions.'
+
 describe('AfterClickingCard', () => {
     afterEach(() => {
         cleanup()
@@ -46,5 +49,6 @@ describe('AfterClickingCard', () => {
 
         await screen.findByText('Sent')
         expect(screen.queryByText('What people did after clicking') !== null).toBe(shown)
+        expect(screen.queryByText(REPLAY_OFF_COPY) !== null).toBe(shown)
     })
 })
