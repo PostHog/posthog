@@ -8,6 +8,7 @@ import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariabl
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
 import { appCellTitle } from './notebookAppLayout'
+import { NotebookAppSizeControls } from './NotebookAppSizeControls'
 
 const SLIDER_FIELDS = [
     { key: 'min', label: 'Minimum', defaultValue: 0 },
@@ -84,19 +85,11 @@ export function NotebookAppInspector({
                         onChange={(title) => onBlock(block.id, { title })}
                         aria-label="Component title"
                     />
-                    <LemonLabel>Width</LemonLabel>
-                    <LemonSelect
-                        fullWidth
-                        value={block.width ?? 12}
-                        options={[
-                            { value: 3, label: 'Quarter' },
-                            { value: 4, label: 'Third' },
-                            { value: 6, label: 'Half' },
-                            { value: 8, label: 'Two thirds' },
-                            { value: 9, label: 'Three quarters' },
-                            { value: 12, label: 'Full' },
-                        ]}
-                        onChange={(width) => onBlock(block.id, { width })}
+                    <NotebookAppSizeControls
+                        key={block.id}
+                        width={block.width}
+                        height={block.height}
+                        onChange={(size) => onBlock(block.id, size)}
                     />
                     <LemonLabel>Tab</LemonLabel>
                     <LemonSelect
