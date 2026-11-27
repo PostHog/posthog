@@ -205,6 +205,7 @@ def get_rankings(
                 domain=domain,
                 name=", ".join(brand_names(target_domains)) if is_target else names[domain],
                 is_target=is_target,
+                brand_id=str(ids[0]) if ids else None,
                 answers_mentioning=brand_days.current[domain][1],
                 visibility=_share(*brand_days.current[domain]),
                 previous_visibility=comparable_previous_share(brand_days.current[domain], brand_days.previous[domain]),

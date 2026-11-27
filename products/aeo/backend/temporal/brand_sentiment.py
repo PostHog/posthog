@@ -43,12 +43,12 @@ from products.aeo.backend.sentiment import (
     UNSCORABLE,
     AnswerSentiment,
     BrandSentence,
-    MentionSpan,
     SentenceSentiment,
     aggregate_sentiment,
     brand_sentences,
     mention_sentences,
     sentence_sentiment,
+    stored_mention_spans,
 )
 from products.aeo.backend.stored_results import bump_data_version_on_commit
 
@@ -183,17 +183,6 @@ class _PendingBrands:
     unscorable: list[str]
 
 
-def _mention_spans(answer_text: str, mentions: list[dict[str, Any]]) -> list[MentionSpan]:
-    """The mentions the row stored, as spans of the answer. A span whose text no longer reads as the stored
-    surface is left out, so a sentence is never picked for a mention it does not hold."""
-    spans: list[MentionSpan] = []
-    for mention in mentions:
-        start, surface = mention.get("start"), mention.get("surface")
-        if isinstance(start, int) and surface and answer_text[start : start + len(surface)] == surface:
-            spans.append(MentionSpan(start=start, end=start + len(surface)))
-    return spans
-
-
 def _load_pending_brands(team_id: int) -> _PendingBrands:
     """The recent brand rows that name a brand other than the own one and have no score yet, oldest first,
     capped like the answers. The own brand's sentiment is on the check, so its rows are skipped. The sentences
@@ -216,7 +205,7 @@ def _load_pending_brands(team_id: int) -> _PendingBrands:
     unscorable: list[str] = []
     for row_id, check_id, mentions in rows:
         text = texts.get(check_id) or ""
-        sentences = mention_sentences(text, _mention_spans(text, mentions))
+        sentences = mention_sentences(text, stored_mention_spans(text, mentions))
         if sentences:
             brands.append(_PendingBrand(check_brand_id=str(row_id), sentences=sentences))
         else:

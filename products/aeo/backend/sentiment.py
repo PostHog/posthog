@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import Any
 
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.sentiment_labeling import select_sentiment_label
@@ -82,6 +83,17 @@ def mention_sentences(answer_text: str | None, spans: Iterable[MentionSpan]) -> 
         # The break's first character follows the punctuation that ends the sentence.
         breaks_at=lambda break_start, break_end: not in_mention(break_start - 1) and not in_mention(break_start),
     )
+
+
+def stored_mention_spans(answer_text: str, mentions: list[dict[str, Any]]) -> list[MentionSpan]:
+    """The mentions an `AEOCheckBrand` row stored, as spans of the answer. A span whose text no longer reads as
+    the stored surface is left out, so a sentence is never picked for a mention it does not hold."""
+    spans: list[MentionSpan] = []
+    for mention in mentions:
+        start, surface = mention.get("start"), mention.get("surface")
+        if isinstance(start, int) and surface and answer_text[start : start + len(surface)] == surface:
+            spans.append(MentionSpan(start=start, end=start + len(surface)))
+    return spans
 
 
 def matching_sentences(answer_text: str | None, pattern: re.Pattern[str] | None) -> list[BrandSentence]:

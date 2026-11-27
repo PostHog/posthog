@@ -43,6 +43,7 @@ from posthog.redis import get_client
 
 from products.aeo.backend import (
     auto_setup,
+    brand_details,
     catalog,
     dashboard,
     engine_settings,
@@ -74,6 +75,7 @@ from products.aeo.backend.facade.contracts import (
     Brand,
     BrandCreate,
     BrandCreateError,
+    BrandDetail,
     BrandedSegment,
     BrandKind,
     BrandNotFoundError,
@@ -959,6 +961,40 @@ def get_prompt_set_search_detail(
         refresh=refresh,
     )
     return dataclasses.replace(detail, keywords=search_details.matching_keywords(team_id, query))
+
+
+def get_brand_detail(
+    team_id: int,
+    brand_id: str,
+    *,
+    timezone_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
+    refresh: bool = False,
+) -> BrandDetail:
+    """What the answers from `date_from` to `date_to` in the team's timezone say about one brand of the team's
+    catalog, against the window of the same length before. An own brand counts with every own brand, as on the
+    rankings. Raises BrandNotFoundError for a brand of another team, and InvalidDateRangeError."""
+    window = _window(timezone_name, date_from, date_to)
+    row = _get_brand_row(team_id, brand_id)
+    brand = _to_brand(row)
+    return stored_result(
+        team_id,
+        "brand_detail",
+        (*_window_key(timezone_name, window, branded, engine, topic), brand.id),
+        lambda: brand_details.get_brand_detail(
+            team_id,
+            row,
+            brand=brand,
+            timezone_name=timezone_name,
+            window=window,
+            scope=CheckScope(segment=branded, engine=engine, topic=topic),
+        ),
+        refresh=refresh,
+    )
 
 
 def get_prompt_set_movers(

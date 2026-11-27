@@ -1349,6 +1349,12 @@ class TestAEOPromptAPI(APIBaseTest):
             ("acme.co.uk", "Acme", 1),
             ("example.com", "example", 1),
         ]
+        with team_scope(self.team.pk):
+            catalog_ids = dict(AEOBrand.objects.values_list("domain", "id"))
+        assert [row["brand_id"] for row in rankings["brands"]] == [
+            str(catalog_ids["acme.co.uk"]),
+            str(catalog_ids["example.com"]),
+        ]
         assert {row["domain"]: row["positive_share"] for row in rankings["brands"]} == {
             "acme.co.uk": None,
             "example.com": None,
@@ -2236,17 +2242,158 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Update the existing brand" in json.dumps(response.json())
 
-    @parameterized.expand([("get", None), ("patch", {"status": "ignored"})])
-    def test_another_teams_brand_is_not_found(self, method: str, body: dict | None) -> None:
+    @parameterized.expand(
+        [("get", "", None), ("patch", "", {"status": "ignored"}), ("detail", "detail/", None)],
+    )
+    def test_another_teams_brand_is_not_found(self, name: str, suffix: str, body: dict | None) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
         brand_id = self._brand(other_team, "amplitude.com")
+        method = "patch" if name == "patch" else "get"
 
         response = getattr(self.client, method)(
-            f"/api/projects/{self.team.id}/aeo_brands/{brand_id}/", body, format="json"
+            f"/api/projects/{self.team.id}/aeo_brands/{brand_id}/{suffix}", body, format="json"
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert AEOBrand.objects.for_team(other_team.id).get(id=brand_id).status == "suggested"
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_brand_detail_counts_the_answers_that_name_a_competitor(self) -> None:
+        create_own_brand(self.team, "example.com")
+        acme_id = self._brand(self.team, "acme.com", kind="competitor")
+        ids = self._import_prompts([{"prompt": "best crm?", "topic": "CRM"}, {"prompt": "cheap crm?"}])
+        named = self._record_check(
+            ids["best crm?"],
+            "openai-web-search",
+            minutes_ago=60,
+            answer_text="Acme is great for teams. Other tools exist.",
+            cited_urls=[
+                "https://acme.com/pricing?utm_source=openai",
+                "https://acme.com/pricing",
+                "https://www.g2.com/acme",
+                "https://example.com/blog",
+            ],
+            search_queries=["acme pricing"],
+        )
+        # Names only another brand of the catalog, so it counts as an answer but not as one naming Acme.
+        self._record_check(
+            ids["best crm?"],
+            "openai-web-search",
+            minutes_ago=70,
+            answer_text="example.com is cheaper.",
+            cited_urls=["https://www.g2.com/x"],
+        )
+        slow = self._record_check(
+            ids["cheap crm?"],
+            "claude-web-search",
+            minutes_ago=80,
+            answer_text="Acme is slow.",
+            search_queries=["acme pricing", "acme review"],
+        )
+        unscorable = self._record_check(
+            ids["cheap crm?"], "openai-web-search", minutes_ago=90, answer_text="We like Acme."
+        )
+        # Left out: a failed answer, and the window before, which only feeds the comparison.
+        self._record_check(ids["cheap crm?"], "openai-web-search", minutes_ago=30, check_failed=True)
+        ten_days = 10 * 24 * 60
+        self._record_check(ids["best crm?"], "openai-web-search", minutes_ago=ten_days, answer_text="Acme works.")
+        self._record_check(ids["best crm?"], "openai-web-search", minutes_ago=ten_days + 1, answer_text="No idea.")
+        with team_scope(self.team.pk):
+            rows = AEOCheckBrand.objects.filter(brand_id=acme_id)
+            rows.filter(citation_check_id=named).update(sentiment="positive")
+            rows.filter(citation_check_id=slow).update(sentiment="negative")
+            rows.filter(citation_check_id=unscorable).update(sentiment="unscorable")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/aeo_brands/{acme_id}/detail/", {"date_from": "-7d"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        detail = response.json()
+        assert (detail["brand"]["domain"], detail["domains"], detail["days_with_answers"]) == (
+            "acme.com",
+            ["acme.com"],
+            1,
+        )
+        rates = ("answers", "answers_mentioning", "visibility", "citation_rate", "average_position", "positive_share")
+        assert [detail["current"][key] for key in rates] == [4, 3, 0.75, 0.25, 1.0, 0.5]
+        assert [detail["previous"][key] for key in rates] == [2, 1, 0.5, 0.0, None, None]
+        assert detail["latest_date"] == "2026-10-20"
+        assert [
+            (row["text"], row["topic"], row["answers"], row["mention_rate"], row["engines"])
+            for row in detail["prompts"]
+        ] == [
+            ("cheap crm?", None, 2, 1.0, ["claude-web-search", "openai-web-search"]),
+            ("best crm?", "CRM", 2, 0.5, ["openai-web-search"]),
+        ]
+        assert [
+            (
+                site["domain"],
+                site["relation"],
+                round(site["share_of_answers"], 3),
+                [page["url"] for page in site["pages"]],
+            )
+            for site in detail["cited_sites"]
+        ] == [
+            ("acme.com", "owned", 0.333, ["https://acme.com/pricing"]),
+            ("example.com", "competitor", 0.333, ["https://example.com/blog"]),
+            ("g2.com", "other", 0.333, ["https://www.g2.com/acme"]),
+        ]
+        sentiment = detail["sentiment"]
+        assert (
+            sentiment["scored"],
+            sentiment["positive_share"],
+            sentiment["neutral_share"],
+            sentiment["negative_share"],
+        ) == (
+            2,
+            0.5,
+            0.0,
+            0.5,
+        )
+        assert [(example["sentiment"], example["sentence"]) for example in sentiment["examples"]] == [
+            ("negative", "Acme is slow."),
+            ("positive", "Acme is great for teams."),
+        ]
+        assert [(row["query"], row["answers"], row["prompts"], row["engines"]) for row in detail["searches"]] == [
+            ("acme pricing", 2, 2, ["claude-web-search", "openai-web-search"]),
+            ("acme review", 1, 1, ["claude-web-search"]),
+        ]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_brand_detail_of_an_own_brand_counts_every_own_brand_and_the_checks_cited_flag(self) -> None:
+        create_own_brand(self.team, "example.com")
+        create_own_brand(self.team, "example.org")
+        own_id = str(AEOBrand.objects.for_team(self.team.id).get(domain="example.org").id)
+        prompt_id = self._import_one_prompt()
+        named = self._record_check(
+            prompt_id,
+            "openai-web-search",
+            minutes_ago=10,
+            cited=True,
+            position=1,
+            answer_text="example.com is fine.",
+            cited_urls=["https://example.com/a"],
+        )
+        # Cited past the hosts the check keeps: only its cited flag knows.
+        self._record_check(prompt_id, "openai-web-search", minutes_ago=20, cited=True, position=5, answer_text="Hmm.")
+        self._record_check(prompt_id, "openai-web-search", minutes_ago=30, answer_text="Nothing here.")
+        with team_scope(self.team.pk):
+            AEOCitationCheck.objects.filter(id=named).update(
+                brand_sentiment="positive",
+                brand_sentiment_sentences=[{"start": 0, "end": 20, "label": "positive", "score": 0.9}],
+            )
+            bump_data_version_on_commit(self.team.id)
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/aeo_brands/{own_id}/detail/").json()
+
+        assert detail["domains"] == ["example.com", "example.org"]
+        assert [round(detail["current"][key], 3) for key in ("visibility", "citation_rate", "average_position")] == [
+            0.667,
+            0.667,
+            3.0,
+        ]
+        assert detail["sentiment"]["positive_share"] == 1.0
+        assert [example["sentence"] for example in detail["sentiment"]["examples"]] == ["example.com is fine."]
+        assert [site["relation"] for site in detail["cited_sites"]] == ["owned"]
 
     def test_competitor_candidates_lists_brands_answers_name_and_cite(self) -> None:
         ids = self._import_prompts([{"prompt": "which lighting tools?"}])
