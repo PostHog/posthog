@@ -1858,8 +1858,16 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    def test_update_schema_to_xmin_rejected_when_table_not_capable(self):
-        # A plain view / partitioned parent reports supports_xmin=False — reject even with a PK.
+    @parameterized.expand(
+        [
+            # A plain view / partitioned parent reports supports_xmin=False — reject even with a PK.
+            ("table_not_capable", None, "xmin replication is not available"),
+            ("discovery_failed", ConnectionError("could not connect to server"), "couldn't check whether"),
+        ]
+    )
+    def test_update_schema_to_xmin_rejected_when_table_not_capable(
+        self, _name: str, discovery_error: Exception | None, expected_message: str
+    ):
         source = self._xmin_postgres_source()
         schema = ExternalDataSchema.objects.create(
             name="public.orders",
@@ -1870,14 +1878,15 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        with self._xmin_discovery_patch(supports_xmin=False):
+        with self._xmin_discovery_patch(supports_xmin=False) as get_schemas:
+            get_schemas.side_effect = discovery_error
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "xmin", "primary_key_columns": ["id"]},
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not available" in str(response.json()).lower()
+        assert expected_message in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
