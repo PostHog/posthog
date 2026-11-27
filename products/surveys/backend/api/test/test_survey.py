@@ -1848,8 +1848,8 @@ class TestSurvey(APIBaseTest):
             (
                 "realtime_off",
                 None,
-                "Realtime is off for cohort 'Weekly visitors', so surveys can't target it. Open the cohort's page to "
-                "turn realtime on, or to see why it can't be turned on.",
+                "Real-time is off for cohort 'Weekly visitors', so surveys can't target it. Open the cohort's page to "
+                "turn real-time on, or to see why it can't be turned on.",
             ),
             (
                 "realtime_not_ready",
