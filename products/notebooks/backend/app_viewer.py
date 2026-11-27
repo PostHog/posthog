@@ -8,6 +8,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.exceptions import Conflict
 
+from products.notebooks.backend.app_draft import draft_release_from_notebook
 from products.notebooks.backend.app_releases import read_release
 from products.notebooks.backend.facade.contracts import AppRelease, AppViewerQuery, AppWidgetSlot
 from products.notebooks.backend.markdown_collab import get_markdown_notebook_markdown
@@ -45,23 +46,9 @@ def plan_viewer_queries(
 def plan_draft_queries(
     team_id: int, notebook_id: UUID, revision: int, layout: dict[str, Any], inputs: dict[str, NotebookVariableValue]
 ) -> list[AppViewerQuery]:
-    return _plan_layout_queries(team_id, notebook_id, draft_app_release(team_id, notebook_id, revision, layout), inputs)
-
-
-def draft_app_release(team_id: int, notebook_id: UUID, revision: int, layout: dict[str, Any]) -> AppRelease:
     notebook = Notebook.objects.get(team_id=team_id, pk=notebook_id)
-    if revision != notebook.version:
-        raise Conflict("The notebook changed. Reopen the preview to load its latest sources.")
-    return AppRelease(
-        revision=revision,
-        published_at=None,
-        results_as_of=None,
-        title=notebook.title or "",
-        layout=layout,
-        markdown=get_markdown_notebook_markdown(notebook.content) or "",
-        variables=notebook.variables or [],
-        has_previous=False,
-    )
+    draft = draft_release_from_notebook(notebook, revision, layout, get_markdown_notebook_markdown(notebook.content))
+    return _plan_layout_queries(team_id, notebook_id, draft, inputs)
 
 
 def _plan_layout_queries(

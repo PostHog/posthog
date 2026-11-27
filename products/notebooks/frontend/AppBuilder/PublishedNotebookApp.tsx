@@ -13,12 +13,13 @@ import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
 import { WidgetFrameSessionContext } from '../NotebookNodeGeneratedWidget/widgetFrameSession'
+import { NotebookAppOutputControlsContext } from './NotebookAppBlock'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { appSourceCells } from './notebookAppLayout'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
-import { ViewerComputeCell } from './ViewerComputeCell'
+import { ViewerComputeControls, ViewerComputeResult } from './ViewerComputeCell'
 import { viewerWidgetSession } from './viewerWidgetFrames'
 
 export default function PublishedNotebookApp({
@@ -41,14 +42,27 @@ export default function PublishedNotebookApp({
             </LemonBanner>
         )
     }
-    return release ? <AppSession key={release.revision} viewer={viewer} release={release} /> : <Spinner />
+    if (!release) {
+        return <Spinner />
+    }
+    return (
+        <NotebookAppOutputControlsContext.Provider
+            value={(cell) =>
+                cell.type === 'component' && (cell.tagName === 'PythonV2' || cell.tagName === 'SQLV2') ? (
+                    <ViewerComputeControls viewer={viewer} cell={cell} />
+                ) : undefined
+            }
+        >
+            <AppSession key={release.revision} viewer={viewer} release={release} />
+        </NotebookAppOutputControlsContext.Provider>
+    )
 }
 
 function AppSession({ viewer, release }: { viewer: ViewerProps; release: NotebookAppReleaseApi }): JSX.Element {
     const { shortId, sessionId } = viewer
     const { layout } = release
     const logic = notebookAppViewerLogic(viewer)
-    const { variables, results, nativeOutputIds, publishedResults, refreshFailed: error } = useValues(logic)
+    const { variables, results, privateCells, publishedResults, refreshFailed: error } = useValues(logic)
     const { changeInput } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
@@ -113,12 +127,15 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                     selectedId={null}
                     canInteract
                     onInput={changeInput}
-                    renderOutput={(cell, saved) => {
+                    renderOutput={(cell) => {
                         if (cell.type !== 'component') {
                             return
                         }
-                        const sql = cell.tagName === 'SQLV2'
-                        const savedOutput = sql ? (
+                        const result = privateCells[cell.id]?.result
+                        if (result) {
+                            return <ViewerComputeResult data={result.data} />
+                        }
+                        return cell.tagName === 'SQLV2' ? (
                             <PublishedNotebookQuery
                                 cell={cell}
                                 sessionId={sessionId}
@@ -127,26 +144,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                                 pinned={publishedResults[cell.id]}
                                 chartInputFilters={chartInputFilters}
                             />
-                        ) : (
-                            saved
-                        )
-                        if (
-                            cell.tagName === 'PythonV2' ||
-                            (sql &&
-                                (cell.props.connectionId ||
-                                    (nativeOutputIds !== null && !nativeOutputIds.includes(cell.id))))
-                        ) {
-                            return (
-                                <ViewerComputeCell
-                                    key={cell.id}
-                                    viewer={viewer}
-                                    cell={cell}
-                                    variables={variables}
-                                    saved={savedOutput}
-                                />
-                            )
-                        }
-                        return sql ? savedOutput : undefined
+                        ) : undefined
                     }}
                     onSource={(node) => router.actions.push(urls.notebook(shortId), {}, { node })}
                 />

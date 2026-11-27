@@ -1,3 +1,5 @@
+import { createContext, useContext } from 'react'
+
 import { IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
@@ -13,6 +15,10 @@ import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/N
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { NotebookAppInput } from './NotebookAppInput'
 import { appCellMarkdown } from './notebookAppLayout'
+
+export const NotebookAppOutputControlsContext = createContext<
+    ((cell: NotebookBlockNode) => JSX.Element | undefined) | null
+>(null)
 
 export function NotebookAppBlock({
     block,
@@ -33,8 +39,9 @@ export function NotebookAppBlock({
     canInteract: boolean
     onInput: (name: string, value: NotebookVariableValue) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
-    renderOutput?: (cell: NotebookBlockNode, saved: JSX.Element) => JSX.Element | undefined
+    renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
 }): JSX.Element {
+    const renderOutputControls = useContext(NotebookAppOutputControlsContext)
     if (block.kind === 'divider') {
         return <hr aria-label={block.title || undefined} />
     }
@@ -65,24 +72,6 @@ export function NotebookAppBlock({
     }
     const source =
         cell.type === 'component' && typeof cell.props.code === 'string' ? cell.props.code : serializeNode(cell)
-    const savedOutput = (
-        <ComponentPanelContext.Provider
-            value={{
-                componentPanels: { filters: false, results: true },
-                showEditPanel: false,
-                showViewPanel: true,
-                outputOnly: true,
-            }}
-        >
-            <MarkdownNotebook
-                value={appCellMarkdown(cell)}
-                onChange={canInteract && onCellOutput ? (markdown) => onCellOutput(cell.id, markdown) : undefined}
-                registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                mode="view"
-                className="NotebookAppBuilder__cell"
-            />
-        </ComponentPanelContext.Provider>
-    )
     return (
         <div className="min-w-0">
             {(block.title || stale || onSource) && (
@@ -117,12 +106,33 @@ export function NotebookAppBlock({
                     </div>
                 </div>
             )}
+            {block.display !== 'source' && renderOutputControls?.(cell)}
             {block.display === 'source' || block.display === 'both' ? (
                 <pre className="p-3 rounded bg-surface-secondary overflow-auto text-xs">
                     <code>{source}</code>
                 </pre>
             ) : null}
-            {block.display !== 'source' && (renderOutput?.(cell, savedOutput) ?? savedOutput)}
+            {block.display !== 'source' &&
+                (renderOutput?.(cell) ?? (
+                    <ComponentPanelContext.Provider
+                        value={{
+                            componentPanels: { filters: false, results: true },
+                            showEditPanel: false,
+                            showViewPanel: true,
+                            outputOnly: true,
+                        }}
+                    >
+                        <MarkdownNotebook
+                            value={appCellMarkdown(cell)}
+                            onChange={
+                                canInteract && onCellOutput ? (markdown) => onCellOutput(cell.id, markdown) : undefined
+                            }
+                            registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                            mode="view"
+                            className="NotebookAppBuilder__cell"
+                        />
+                    </ComponentPanelContext.Provider>
+                ))}
         </div>
     )
 }

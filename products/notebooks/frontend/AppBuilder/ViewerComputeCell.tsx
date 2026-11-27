@@ -4,23 +4,26 @@ import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { objectsEqual } from 'lib/utils/objects'
-import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
+import type { NotebookAppComputeResultApi } from '../generated/api.schemas'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 
-export function ViewerComputeCell({
+export function ViewerComputeControls({
     viewer,
     cell,
-    variables,
-    saved,
 }: {
     viewer: ViewerProps
     cell: NotebookComponentBlockNode
-    variables: NotebookVariable[]
-    saved: JSX.Element
-}): JSX.Element {
-    const { privateCells } = useValues(notebookAppViewerLogic(viewer))
+}): JSX.Element | null {
+    const { privateCells, variables, nativeOutputIds } = useValues(notebookAppViewerLogic(viewer))
     const { runPrivateCell } = useActions(notebookAppViewerLogic(viewer))
+    if (
+        cell.tagName === 'SQLV2' &&
+        !cell.props.connectionId &&
+        (!nativeOutputIds || nativeOutputIds.includes(cell.id))
+    ) {
+        return null
+    }
     const { result, loading, error } = privateCells[cell.id] ?? {}
     const kind = cell.tagName === 'PythonV2' ? 'python' : cell.props.connectionId ? 'connected_sql' : 'dataframe_sql'
     const python = cell.tagName === 'PythonV2'
@@ -44,22 +47,23 @@ export function ViewerComputeCell({
                 </span>
             </div>
             {error && <LemonBanner type="error">{error}</LemonBanner>}
-            {result?.data.rows && result.data.columns ? (
-                <LemonTable
-                    dataSource={result.data.rows}
-                    pagination={{ pageSize: 20 }}
-                    virtualizedColumnWidth={160}
-                    columns={result.data.columns.map((title, index) => ({
-                        title,
-                        key: String(index),
-                        render: (_, row) => String(row[index] ?? ''),
-                    }))}
-                />
-            ) : result ? (
-                <pre className="whitespace-pre-wrap">{result.data.text || 'Calculation finished.'}</pre>
-            ) : (
-                saved
-            )}
         </div>
+    )
+}
+
+export function ViewerComputeResult({ data }: { data: NotebookAppComputeResultApi }): JSX.Element {
+    return data.rows && data.columns ? (
+        <LemonTable
+            dataSource={data.rows}
+            pagination={{ pageSize: 20 }}
+            virtualizedColumnWidth={160}
+            columns={data.columns.map((title, index) => ({
+                title,
+                key: String(index),
+                render: (_, row) => String(row[index] ?? ''),
+            }))}
+        />
+    ) : (
+        <pre className="whitespace-pre-wrap">{data.text || 'Calculation finished.'}</pre>
     )
 }
