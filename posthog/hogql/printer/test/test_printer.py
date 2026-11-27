@@ -2080,13 +2080,39 @@ class TestPrinter(BaseTest):
             ("toInt64OrZero(event)", "toIntOrZero(event)"),
             ("toInt64OrDefault(event, 3)", "toIntOrDefault(event, 3)"),
             ("toInt64OrDefault(event)", "toIntOrDefault(event)"),
+            ("parseDateTimeBestEffortOrNull(event)", "parseDateTimeBestEffort(event)"),
+            ("parseDateTime64BestEffort(event)", "parseDateTimeBestEffort(event)"),
+            ("parseDateTime64BestEffortOrNull(event)", "parseDateTimeBestEffort(event)"),
+            ("toDateTimeOrNull(event)", "toDateTime(event)"),
+            ("toDateOrNull(timestamp)", "toDate(timestamp)"),
+            ("toTimezone(timestamp, 'UTC')", "toTimeZone(timestamp, 'UTC')"),
+            ("toStartOfFiveMinute(timestamp)", "toStartOfFiveMinutes(timestamp)"),
+            ("trimBoth(event)", "trim(event)"),
+            ("leftUTF8(event, 2)", "left(event, 2)"),
+            ("rightUTF8(event, 2)", "right(event, 2)"),
         ]
     )
-    def test_numeric_conversion_aliases_print_as_hogql_names(self, alias_expr: str, hogql_expr: str) -> None:
+    def test_clickhouse_spelling_aliases_print_as_hogql_names(self, alias_expr: str, hogql_expr: str) -> None:
         alias_context = HogQLContext(team_id=self.team.pk)
         hogql_context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(alias_expr, alias_context), self._expr(hogql_expr, hogql_context))
         self.assertEqual(alias_context.values, hogql_context.values)
+
+    @parameterized.expand(
+        [
+            ("SHA256(event)", "SHA256(events.event)"),
+            ("sipHash64(event)", "sipHash64(events.event)"),
+            (
+                "toUnixTimestamp64Micro(timestamp)",
+                "toUnixTimestamp64Micro(toTimeZone(events.timestamp, %(hogql_val_0)s))",
+            ),
+            ("toIntervalMillisecond(5)", "toIntervalMillisecond(5)"),
+            ("topKIf(3)(event, 1)", "topKIf(3)(events.event, 1)"),
+            ("groupArrayArray([event])", "groupArrayArray([events.event])"),
+        ]
+    )
+    def test_clickhouse_functions_print(self, expr: str, expected: str) -> None:
+        self.assertEqual(self._expr(expr), expected)
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")

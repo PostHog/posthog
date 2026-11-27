@@ -9,7 +9,7 @@ from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
 from .aggregations import HOGQL_AGGREGATIONS
 from .clickhouse.arithmetic import ARITHMETIC_FUNCTIONS
 from .clickhouse.arrays import ARRAYS_FUNCTIONS
-from .clickhouse.conversions import CONVERSION_FUNCTIONS
+from .clickhouse.conversions import CONVERSION_FUNCTIONS, NUMERIC_CONVERSION_ALIASES
 from .clickhouse.datetime import DATETIME_AND_INTERVAL_FUNCTIONS
 from .clickhouse.geo import GEO_FUNCTIONS
 from .clickhouse.json import JSON_FUNCTIONS
@@ -273,6 +273,23 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 
 
 HOGQL_CLICKHOUSE_FUNCTIONS.update(UDFS)
+
+# ClickHouse spellings of HogQL functions that behave the same. The resolver renames each one before anything else
+# reads the name, so dialect printers and transforms only ever see the HogQL name.
+FUNCTION_ALIASES: dict[str, str] = {
+    **NUMERIC_CONVERSION_ALIASES,
+    "parseDateTimeBestEffortOrNull": "parseDateTimeBestEffort",
+    "parseDateTime64BestEffort": "parseDateTimeBestEffort",
+    "parseDateTime64BestEffortOrNull": "parseDateTimeBestEffort",
+    "toDateTimeOrNull": "toDateTime",
+    "toDateOrNull": "toDate",
+    "toTimezone": "toTimeZone",
+    "toStartOfFiveMinute": "toStartOfFiveMinutes",
+    "trimBoth": "trim",
+    "leftUTF8": "left",
+    "rightUTF8": "right",
+}
+HOGQL_CLICKHOUSE_FUNCTIONS.update({alias: HOGQL_CLICKHOUSE_FUNCTIONS[name] for alias, name in FUNCTION_ALIASES.items()})
 
 ALL_EXPOSED_FUNCTION_NAMES = [
     name
