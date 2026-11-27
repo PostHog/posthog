@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError, router, transaction
 from django.db.models import Q, QuerySet
@@ -27,7 +28,6 @@ from celery import Task, shared_task
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
@@ -210,7 +210,7 @@ def _self_driving_pr_author_login() -> str | None:
     when the App slug isn't configured, so callers fail closed instead of trusting an identity they
     can't verify (the same posture as ``allow_any_bot=False`` on the approval writes).
     """
-    slug = get_instance_setting("GITHUB_APP_SLUG")
+    slug = settings.GITHUB_APP_SLUG
     return f"{slug}[bot]" if slug else None
 
 

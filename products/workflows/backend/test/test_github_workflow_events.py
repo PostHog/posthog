@@ -7,9 +7,9 @@ import pytest
 from unittest.mock import patch
 
 from django.db import OperationalError
+from django.test import override_settings
 
 from posthog.ingress.contracts import WebhookDelivery
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -149,7 +149,7 @@ def test_bot_sender_is_nullable_so_filters_can_use_is_set(sink, integration, sen
 def test_own_app_is_precomputed_from_the_app_slug(sink, integration, app_slug, sender, expected) -> None:
     with (
         patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True),
-        override_instance_config("GITHUB_APP_SLUG", app_slug),
+        override_settings(GITHUB_APP_SLUG=app_slug),
     ):
         emit_github_event("issues", {**ISSUE_EVENT, "sender": sender}, "delivery-1")
 

@@ -50,7 +50,6 @@ from posthog.models import OrganizationInvite, OrganizationMembership, Team, Use
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.identity_provider_email_verification import IdentityProviderEmailVerification
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import UserType
@@ -560,7 +559,7 @@ class TestOIDCAuthentication(APILicensedTest):
             override_settings(
                 EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", POSTHOG_HOST="http://localhost"
             ),
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=True),
             patch("posthog.helpers.two_factor_session.is_email_code_exempt", return_value=True),
             patch("posthog.email.is_http_email_service_available", return_value=False),
@@ -629,7 +628,7 @@ class TestOIDCAuthentication(APILicensedTest):
 
         with (
             override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_example", POSTHOG_HOST="https://example.com"),
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"code_based_verification": "example-template"}),
             patch("posthog.email.requests.post", side_effect=send_email),
             patch("posthog.email._send_email.apply_async", side_effect=lambda **kwargs: queued.append(kwargs)),
@@ -704,7 +703,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.client.logout()
         with (
             override_settings(DEBUG=True),
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             enable_code_sending() as sent,
         ):
             response = self._complete_oidc_login("signup@example.com", sub="signup-user")
@@ -975,7 +974,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         with (
             override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"),
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
         ):
             login_from_new_device_notification(*queued.call_args.args)
         self.assertTrue(any(message.subject == "A new device logged into your account" for message in mail.outbox))
@@ -1105,7 +1104,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.client.logout()
         with (
             override_settings(DEBUG=True),
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock,
         ):
             self._complete_oidc_login("new@example.com")

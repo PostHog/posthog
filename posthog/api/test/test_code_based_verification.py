@@ -15,7 +15,6 @@ from rest_framework import status
 from posthog.api.authentication import CodeBasedVerificationSerializer
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
 from posthog.inbox_providers import InboxProvider
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.user import User, UserType
 
 VERIFY_URL = "/api/login/code-based-verification/"
@@ -40,7 +39,7 @@ def workflows_refuses_the_recipient() -> Iterator[None]:
     with (
         patch("posthog.helpers.two_factor_session.is_email_available", return_value=True),
         patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True),
-        override_instance_config("EMAIL_HOST", "localhost"),
+        override_settings(EMAIL_HOST="localhost"),
         override_settings(
             POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
             POSTHOG_HOST="https://us.posthog.com",

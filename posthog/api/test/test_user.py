@@ -41,7 +41,6 @@ from posthog.helpers.two_factor_session import CodeBasedVerificationTokenGenerat
 from posthog.models import Team, User
 from posthog.models.id_jag_identity import IdJagIdentity
 from posthog.models.identity_provider_config import IdentityProviderConfig
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -3654,7 +3653,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         cache.clear()
         super().setUp()
 
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
         self.other_user = self._create_user("otheruser@posthog.com", password="12345678")
         assert not self.other_user.is_email_verified
@@ -3673,7 +3672,7 @@ class TestEmailVerificationAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_user_can_request_verification_email(self, mock_capture):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -3714,7 +3713,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mock_capture.call_count, 2)
 
     def test_cant_verify_if_email_is_not_configured(self):
-        set_instance_setting("EMAIL_HOST", "")
+        self.enterContext(override_settings(EMAIL_HOST=""))
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
             response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -3729,7 +3728,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         )
 
     def test_cant_verify_more_than_six_times(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
         for i in range(7):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
@@ -3842,7 +3841,7 @@ class TestEmailVerificationAPI(APIBaseTest):
     def test_can_request_verification_for_pending_email_change(self):
         # An already-verified user who initiated an email change still needs to
         # verify the new address, so re-requesting the code must work.
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         self.user.is_email_verified = True
         self.user.pending_email = "new-address@posthog.com"
         self.user.save()
@@ -3860,7 +3859,7 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
     def setUp(self):
         cache.clear()
         super().setUp()
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         email_verification_code_verifier.invalidate(self.user)
 
     def _request_code(self) -> str:

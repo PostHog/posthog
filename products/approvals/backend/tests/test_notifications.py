@@ -3,13 +3,13 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.email import WORKFLOWS_TEMPLATE_ID_MAP
 from posthog.models import Organization, OrganizationMembership
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization_notification_lock import OrganizationMemberNotificationLock
 
 from products.approvals.backend.models import (
@@ -110,7 +110,7 @@ class TestSendApprovalEmail(TestApprovalNotifications):
         mock_message_instance = MagicMock()
         mock_email_message.return_value = mock_message_instance
 
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             _send_approval_email(
                 recipient=self.approver,
                 template_name="approval_requested",
@@ -420,7 +420,7 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
     def test_approval_requested_template_renders(self, mock_is_email_available):
         mock_is_email_available.return_value = True
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(SITE_URL="https://app.posthog.com"):
+        with override_settings(EMAIL_HOST="localhost"), self.settings(SITE_URL="https://app.posthog.com"):
             from posthog.email import EmailMessage
 
             message = EmailMessage(
@@ -441,7 +441,7 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
     def test_approval_approved_template_renders(self, mock_is_email_available):
         mock_is_email_available.return_value = True
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(SITE_URL="https://app.posthog.com"):
+        with override_settings(EMAIL_HOST="localhost"), self.settings(SITE_URL="https://app.posthog.com"):
             from posthog.email import EmailMessage
 
             message = EmailMessage(
@@ -462,7 +462,7 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
     def test_approval_rejected_template_renders(self, mock_is_email_available):
         mock_is_email_available.return_value = True
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(SITE_URL="https://app.posthog.com"):
+        with override_settings(EMAIL_HOST="localhost"), self.settings(SITE_URL="https://app.posthog.com"):
             from posthog.email import EmailMessage
 
             message = EmailMessage(
@@ -483,7 +483,7 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
     def test_approval_expired_template_renders(self, mock_is_email_available):
         mock_is_email_available.return_value = True
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(SITE_URL="https://app.posthog.com"):
+        with override_settings(EMAIL_HOST="localhost"), self.settings(SITE_URL="https://app.posthog.com"):
             from posthog.email import EmailMessage
 
             message = EmailMessage(
@@ -503,7 +503,7 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
     def test_approval_applied_template_renders(self, mock_is_email_available):
         mock_is_email_available.return_value = True
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(SITE_URL="https://app.posthog.com"):
+        with override_settings(EMAIL_HOST="localhost"), self.settings(SITE_URL="https://app.posthog.com"):
             from posthog.email import EmailMessage
 
             message = EmailMessage(
@@ -530,7 +530,7 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
             "approval_applied": "View details",
         }
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(SITE_URL="https://app.posthog.com"):
+        with override_settings(EMAIL_HOST="localhost"), self.settings(SITE_URL="https://app.posthog.com"):
             from posthog.email import EmailMessage
 
             for template_name, expected_cta in templates_with_cta.items():

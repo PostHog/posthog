@@ -7,11 +7,11 @@ from posthog.test.base import APIBaseTest
 
 from django.conf import settings
 from django.core import mail
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 from posthog.models.user import User
 
@@ -61,7 +61,7 @@ class TestDecisionEmails(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
 
-        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         self.submitter = User.objects.create_and_join(self.organization, SUBMITTER_EMAIL, None, first_name="Ada")
         AgentTranscriptSubmission.objects.create(
             organization=self.organization,

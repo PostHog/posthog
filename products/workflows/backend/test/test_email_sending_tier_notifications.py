@@ -9,7 +9,6 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.models import OrganizationMembership, Team
-from posthog.models.instance_setting import override_instance_config
 
 from products.notifications.backend.facade.testing import stored_notifications_for_team
 from products.workflows.backend.services import email_sending_tier_notifications
@@ -23,7 +22,7 @@ from products.workflows.backend.services.email_sending_tier import TierDecision
 class TestNotifyEmailSendingTierChanges(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

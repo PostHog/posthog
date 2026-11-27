@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.instance_setting import get_instance_settings
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -131,8 +131,7 @@ class TeamsAuthorizeView(APIView):
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def get(self, request: Request, *args, **kwargs) -> Response:
-        support_settings = get_instance_settings(["SUPPORT_TEAMS_APP_ID"])
-        client_id = str(support_settings.get("SUPPORT_TEAMS_APP_ID") or "")
+        client_id = settings.SUPPORT_TEAMS_APP_ID
         if not client_id:
             return Response({"error": "Support Teams OAuth client ID is not configured"}, status=503)
 
@@ -219,9 +218,8 @@ def teams_oauth_callback(request: HttpRequest) -> HttpResponse:
     if not code:
         return _error_response(next_path, "missing_code", 400)
 
-    support_settings = get_instance_settings(["SUPPORT_TEAMS_APP_ID", "SUPPORT_TEAMS_APP_SECRET"])
-    client_id = str(support_settings.get("SUPPORT_TEAMS_APP_ID") or "")
-    client_secret = str(support_settings.get("SUPPORT_TEAMS_APP_SECRET") or "")
+    client_id = settings.SUPPORT_TEAMS_APP_ID
+    client_secret = str(get_instance_setting("SUPPORT_TEAMS_APP_SECRET") or "")
     if not client_id or not client_secret:
         return _error_response(next_path, "support_teams_not_configured", 503)
 

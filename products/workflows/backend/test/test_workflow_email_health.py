@@ -22,7 +22,6 @@ from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 
 from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.settings import ses as ses_settings
@@ -344,8 +343,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         decided: list[str],
         paused: list[str],
     ):
-        set_instance_setting("EMAIL_HOST", "localhost")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="localhost", EMAIL_ENABLED=True))
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.flow.actions = actions
@@ -468,8 +466,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         paused: list[str],
         emails: list[tuple[str, bool, bool]],
     ):
-        set_instance_setting("EMAIL_HOST", "localhost")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="localhost", EMAIL_ENABLED=True))
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         other_steps: dict[str, dict[str, object]] = {
@@ -587,8 +584,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
     def test_a_project_breach_from_transactional_workflows_warns_each_without_a_pause(
         self, window: str, hours_ago: int, sent: int, bounces: int, rate: float, window_description: str
     ):
-        set_instance_setting("EMAIL_HOST", "localhost")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="localhost", EMAIL_ENABLED=True))
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         sibling = HogFlow.objects.create(name="Password reset", team=self.team, actions=TRANSACTIONAL_ACTIONS)
@@ -672,8 +668,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         }
 
     def test_a_transactional_project_breach_is_reported_alongside_own_warning(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="localhost", EMAIL_ENABLED=True))
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.flow.actions = TRANSACTIONAL_ACTIONS
@@ -737,8 +732,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         pool_label: str,
         pause_note: str,
     ):
-        set_instance_setting("EMAIL_HOST", "localhost")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="localhost", EMAIL_ENABLED=True))
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.flow.actions = actions

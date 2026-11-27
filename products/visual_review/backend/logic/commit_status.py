@@ -13,13 +13,13 @@ from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.instance_setting import get_instance_setting
 
 from ..db import WRITER_DB
 from ..facade.contracts import NoRunNeededInput
@@ -645,7 +645,7 @@ class RecheckResult:
 
 def _app_bot_login() -> str:
     """The login GitHub gives the statuses this app posts, or empty when the instance does not name its app."""
-    slug = get_instance_setting("GITHUB_APP_SLUG")
+    slug = settings.GITHUB_APP_SLUG
     return f"{slug}[bot]" if slug else ""
 
 

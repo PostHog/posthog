@@ -431,7 +431,7 @@ def _send_test_digest(email: str, team_id: int | None = None) -> None:
     close_old_connections()
 
     if not is_email_available(with_absolute_urls=True):
-        raise RuntimeError("Email is not available — check EMAIL_HOST in instance settings")
+        raise RuntimeError("Email is not available — check the EMAIL_HOST environment variable")
 
     user = User.objects.filter(email__iexact=email, is_active=True).first()
     if not user:

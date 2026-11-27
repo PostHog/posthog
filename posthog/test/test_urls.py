@@ -22,7 +22,6 @@ from posthog.frontend_views import (
     public_page_metadata_context,
     region_host_from_current_instance,
 )
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.user import User, UserType
 from posthog.temporal.codec_server import decode_payloads
 from posthog.views import handler500, metrics_view
@@ -89,7 +88,7 @@ class TestUrls(APIBaseTest):
         # With no region cookie, REDIRECT_APP_TO_US routes app.posthog.com to US before the auth gate.
         self.client.logout()
         self.client.cookies.pop("ph_current_instance", None)
-        with override_instance_config("REDIRECT_APP_TO_US", True):
+        with override_settings(REDIRECT_APP_TO_US=True):
             response = self.client.get("/organization/billing", HTTP_HOST="app.posthog.com", follow=False)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], "https://us.posthog.com/organization/billing")

@@ -7,11 +7,11 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.test import override_settings
 
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 
 from products.knowledge_writer.backend.logic.pull_requests import OUTCOME_EVENT
@@ -97,7 +97,7 @@ def writer_env(team, user):
         team=team, kind="github", integration_id="31337", config={"account": {"name": "PostHog"}}
     )
     with (
-        override_instance_config("GITHUB_APP_SLUG", "posthog-app"),
+        override_settings(GITHUB_APP_SLUG="posthog-app"),
         patch.dict(os.environ, {"KNOWLEDGE_WRITER_DOCS_REPOSITORY": DOCS_REPOSITORY}),
     ):
         yield

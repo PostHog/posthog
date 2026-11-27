@@ -70,7 +70,7 @@ def is_smtp_email_service_available() -> bool:
     """
     Returns whether SMTP email services are available on this instance (i.e. settings are in place).
     """
-    return bool(get_instance_setting("EMAIL_HOST"))
+    return bool(settings.EMAIL_HOST)
 
 
 def single_line(value: str) -> str:
@@ -88,7 +88,7 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     Returns whether email services are available on this instance (i.e. settings are in place).
     Emails with absolute URLs can't be sent if SITE_URL is unset.
     """
-    email_enabled = get_instance_setting("EMAIL_ENABLED")
+    email_enabled = settings.EMAIL_ENABLED
     smtp_email_service_available = is_smtp_email_service_available()
     http_email_service_available = is_http_email_service_available()
     site_url_set = settings.SITE_URL is not None
@@ -596,7 +596,7 @@ def _send_via_smtp(
     # Set while Workflows accepted an email whose `sent_at` has not committed yet.
     workflows_unrecorded = False
     try:
-        effective_reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
+        effective_reply_to = reply_to or settings.EMAIL_REPLY_TO
         workflows_content: dict[str, Any] = {"template_key": template_name, "subject": subject, "html": html_body}
         if txt_body:
             workflows_content["text"] = txt_body
@@ -672,7 +672,7 @@ def _send_via_smtp(
                 email_message = mail.EmailMultiAlternatives(
                     subject=subject,
                     body=txt_body,
-                    from_email=get_instance_setting("EMAIL_DEFAULT_FROM"),
+                    from_email=settings.EMAIL_DEFAULT_FROM,
                     to=[dest["recipient"]],
                     headers=headers,
                     reply_to=[effective_reply_to] if effective_reply_to else None,
@@ -686,15 +686,15 @@ def _send_via_smtp(
                 if connection is None:
                     klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
                     connection = klass(
-                        host=get_instance_setting("EMAIL_HOST"),
-                        port=get_instance_setting("EMAIL_PORT"),
-                        username=get_instance_setting("EMAIL_HOST_USER"),
+                        host=settings.EMAIL_HOST,
+                        port=settings.EMAIL_PORT,
+                        username=settings.EMAIL_HOST_USER,
                         password=get_instance_setting("EMAIL_HOST_PASSWORD"),
-                        use_tls=get_instance_setting("EMAIL_USE_TLS"),
-                        use_ssl=get_instance_setting("EMAIL_USE_SSL"),
+                        use_tls=settings.EMAIL_USE_TLS,
+                        use_ssl=settings.EMAIL_USE_SSL,
                         # Bound the socket so a relay that goes silent mid-conversation raises TimeoutError
                         # (retried below) instead of pinning the worker forever — the silent-hang case.
-                        timeout=get_instance_setting("EMAIL_TIMEOUT"),
+                        timeout=settings.EMAIL_TIMEOUT,
                     )
                     connection.open()
                 accepted_count = connection.send_messages([email_message])

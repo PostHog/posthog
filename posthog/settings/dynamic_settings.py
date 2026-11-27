@@ -152,73 +152,15 @@ CONSTANCE_CONFIG = {
         "Whether to always try to find cached data for historical intervals on trends",
         str,
     ),
-    "EMAIL_ENABLED": (
-        get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool),
-        "Whether email service is enabled or not.",
-        bool,
-    ),
-    "EMAIL_HOST": (
-        get_from_env("EMAIL_HOST", default=""),
-        "Hostname to connect to for establishing SMTP connections.",
-        str,
-    ),
-    "EMAIL_PORT": (
-        get_from_env("EMAIL_PORT", 25, type_cast=int),
-        "Port that should be used to connect to the email host.",
-        int,
-    ),
-    "EMAIL_HOST_USER": (
-        get_from_env(
-            "EMAIL_HOST_USER", default=""
-        ),  # we use default='' so an unconfigured value is an empty string, not a `None`
-        "Credentials to connect to the email host.",
-        str,
-    ),
     "EMAIL_HOST_PASSWORD": (
         get_from_env("EMAIL_HOST_PASSWORD", default=""),
         "Credentials to connect to the email host.",
         str,
     ),
-    "EMAIL_USE_TLS": (
-        get_from_env("EMAIL_USE_TLS", False, type_cast=str_to_bool),
-        "Whether to use TLS protocol when connecting to the email host.",
-        bool,
-    ),
-    "EMAIL_USE_SSL": (
-        get_from_env("EMAIL_USE_SSL", False, type_cast=str_to_bool),
-        "Whether to use SSL protocol when connecting to the email host.",
-        bool,
-    ),
-    "EMAIL_DEFAULT_FROM": (
-        get_from_env("EMAIL_DEFAULT_FROM", get_from_env("DEFAULT_FROM_EMAIL", "root@localhost")),
-        "Email address that will appear as the sender in emails (From header).",
-        str,
-    ),
-    "EMAIL_REPLY_TO": (
-        get_from_env("EMAIL_REPLY_TO", default=""),
-        "Reply address to which email clients should send responses.",
-        str,
-    ),
-    "EMAIL_TIMEOUT": (
-        get_from_env("EMAIL_TIMEOUT", 30, type_cast=int),
-        "Socket timeout in seconds for SMTP connections. Bounds how long a send waits on an "
-        "unresponsive relay before raising (and being retried), instead of blocking forever.",
-        int,
-    ),
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
         get_from_env("ASYNC_MIGRATIONS_OPT_OUT_EMAILS", False, type_cast=str_to_bool),
         "Used to disable emails from async migrations service",
         bool,
-    ),
-    "GITHUB_APP_SLUG": (
-        get_from_env("GITHUB_APP_SLUG", default=""),
-        "Used to redirect to the correct GitHub App installation page",
-        str,
-    ),
-    "SLACK_APP_CLIENT_ID": (
-        get_from_env("SLACK_APP_CLIENT_ID", default=""),
-        "Used to enable the 'Add to Slack' button across all projects",
-        str,
     ),
     "SLACK_APP_CLIENT_SECRET": (
         get_from_env("SLACK_APP_CLIENT_SECRET", default=""),
@@ -228,11 +170,6 @@ CONSTANCE_CONFIG = {
     "SLACK_APP_SIGNING_SECRET": (
         get_from_env("SLACK_APP_SIGNING_SECRET", default=""),
         "Used to validate Slack events for example when unfurling links",
-        str,
-    ),
-    "SUPPORT_SLACK_APP_CLIENT_ID": (
-        get_from_env("SUPPORT_SLACK_APP_CLIENT_ID", default=""),
-        "Used to enable the 'Add to Slack' button for the SupportHog Slack app.",
         str,
     ),
     "SUPPORT_SLACK_APP_CLIENT_SECRET": (
@@ -245,43 +182,14 @@ CONSTANCE_CONFIG = {
         "Used to validate incoming webhook events for the Support Slack bot.",
         str,
     ),
-    "SUPPORT_TEAMS_APP_ID": (
-        get_from_env("SUPPORT_TEAMS_APP_ID", default=""),
-        "Azure AD Application (client) ID for the SupportHog Teams bot. Shared across all tenants.",
-        str,
-    ),
     "SUPPORT_TEAMS_APP_SECRET": (
         get_from_env("SUPPORT_TEAMS_APP_SECRET", default=""),
         "Azure AD client secret for the SupportHog Teams bot.",
         str,
     ),
-    "SUPPORT_TEAMS_APP_TENANT_ID": (
-        get_from_env("SUPPORT_TEAMS_APP_TENANT_ID", default=""),
-        (
-            "Azure AD tenant ID where the SupportHog Teams bot app is registered. "
-            "Set this only if the Azure Bot resource was created as SingleTenant. "
-            "Leave empty for MultiTenant bots (default)."
-        ),
-        str,
-    ),
-    "SUPPORT_TEAMS_CATALOG_APP_ID": (
-        get_from_env("SUPPORT_TEAMS_CATALOG_APP_ID", default=""),
-        (
-            "Teams catalog app id (GUID) for the published SupportHog manifest. This is the id "
-            "Microsoft assigns when the manifest is listed in the Teams Store (AppSource) or uploaded "
-            "to an org catalog — different from SUPPORT_TEAMS_APP_ID, which is the bot's Azure AD "
-            "client id. Required for programmatic install via Graph /teams/{id}/installedApps."
-        ),
-        str,
-    ),
     "CONVERSATIONS_HMAC_SIGNING_SECRET": (
         get_from_env("CONVERSATIONS_HMAC_SIGNING_SECRET", default=""),
         "HMAC signing secret for conversations widget identity verification in the support sidebar.",
-        str,
-    ),
-    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN": (
-        get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", default=""),
-        "Mailgun receiving domain for inbound email routing, e.g. mg.posthog.com.",
         str,
     ),
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY": (
@@ -372,11 +280,6 @@ CONSTANCE_CONFIG = {
         "reads the native JSON events table, events holds no new flag calls, so those queries return no new flag "
         "calls. Queries that read only flag calls keep reading flag_evaluations. Use it when the combined reads "
         "time out or overload ClickHouse. Takes up to two minutes to apply.",
-        bool,
-    ),
-    "REDIRECT_APP_TO_US": (
-        get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
-        "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
         bool,
     ),
     "WEB_ANALYTICS_WARMING_DAYS": (
@@ -494,35 +397,19 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
     "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
     "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION",
-    "EMAIL_ENABLED",
-    "EMAIL_HOST",
-    "EMAIL_PORT",
-    "EMAIL_HOST_USER",
     "EMAIL_HOST_PASSWORD",
-    "EMAIL_USE_TLS",
-    "EMAIL_USE_SSL",
-    "EMAIL_DEFAULT_FROM",
-    "EMAIL_REPLY_TO",
-    "EMAIL_TIMEOUT",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
     "STRICT_CACHING_TEAMS",
-    "GITHUB_APP_SLUG",
-    "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
-    "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
-    "SUPPORT_TEAMS_APP_ID",
     "SUPPORT_TEAMS_APP_SECRET",
-    "SUPPORT_TEAMS_APP_TENANT_ID",
-    "SUPPORT_TEAMS_CATALOG_APP_ID",
     "CONVERSATIONS_HMAC_SIGNING_SECRET",
-    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",
@@ -535,7 +422,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
-    "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",

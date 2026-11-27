@@ -20,7 +20,6 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthAccessToken, Team
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
@@ -4140,7 +4139,7 @@ def test_inbox_review_approves_a_selfdriving_draft_pr_end_to_end(team, stamphog_
     )
 
     with (
-        override_instance_config("GITHUB_APP_SLUG", "posthog-code"),
+        override_settings(GITHUB_APP_SLUG="posthog-code"),
         # An opted-in reviewer for the execution-time re-check (fail-closed when unregistered).
         patch(
             "products.stamphog.backend.facade.inbox_hooks._inbox_acting_reviewer_resolver",

@@ -337,6 +337,7 @@ CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS + ("x-posthog-client-provenance",)
 CORS_EXPOSE_HEADERS = ["X-PostHog-Events-Default-After", "X-Request-ID"]
 X_FRAME_OPTIONS = "SAMEORIGIN"
+REDIRECT_APP_TO_US: bool = get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool)
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"

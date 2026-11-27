@@ -24,7 +24,6 @@ from posthog.credentials_service.errors import (
 from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.helpers.dev_login import is_dev_login_allowed
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
@@ -60,14 +59,11 @@ class TestPreflightCredentials(SimpleTestCase):
             client.get_many.return_value = {key: result}
 
         with (
-            self.settings(HUBSPOT_APP_CLIENT_ID="old-id", SALESFORCE_CONSUMER_KEY="old-id"),
+            self.settings(
+                HUBSPOT_APP_CLIENT_ID="old-id", SALESFORCE_CONSUMER_KEY="old-id", SLACK_APP_CLIENT_ID="old-id"
+            ),
             patch.dict(os.environ, {key: ""}),
             patch("posthog.credentials_service.instance_settings.credentials_service_enabled", return_value=True),
-            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="old-id"),
-            patch(
-                "posthog.models.integration.slack.get_instance_settings",
-                return_value={"SLACK_APP_CLIENT_ID": "old-id"},
-            ),
             patch("posthog.views.get_many_or_settings", side_effect=partial(get_many_or_settings, client=client)),
             patch(
                 "posthog.models.integration.slack.get_many_or_instance_settings",
@@ -204,8 +200,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
 
     @pytest.mark.ee
     def test_cloud_preflight_request_unauthenticated(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
-        set_instance_setting("SLACK_APP_CLIENT_ID", "slack-client-id")
+        self.enterContext(override_settings(EMAIL_HOST="localhost", SLACK_APP_CLIENT_ID="slack-client-id"))
 
         self.client.logout()  # make sure it works anonymously
 
@@ -272,7 +267,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
 
     @pytest.mark.ee
     def test_cloud_preflight_request_with_social_auth_providers(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
         with self.is_cloud(True):
             with self.settings(

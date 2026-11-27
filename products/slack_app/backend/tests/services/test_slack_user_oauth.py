@@ -12,6 +12,8 @@ from uuid import uuid4
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from slack_sdk.errors import SlackApiError
 
 from posthog.credentials_service.errors import CredentialsServiceUnreachableError
@@ -323,9 +325,12 @@ class TestExchangeCode:
 
     @pytest.fixture(autouse=True)
     def credentials(self):
-        with patch(
-            "posthog.credentials_service.instance_settings.get_instance_settings",
-            return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
+        with (
+            override_settings(SLACK_APP_CLIENT_ID="cid"),
+            patch(
+                "posthog.credentials_service.instance_settings.get_instance_settings",
+                return_value={"SLACK_APP_CLIENT_SECRET": "csecret"},
+            ),
         ):
             yield
 

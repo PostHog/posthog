@@ -8,13 +8,12 @@ from unittest.mock import MagicMock, patch
 
 from django.core import mail
 from django.db import DatabaseError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
 
 from posthog.models import OrganizationMembership
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord
 
 from products.customer_analytics.backend.facade.contracts import TaskDigestPreferences
@@ -54,7 +53,7 @@ class TestTaskDigestSchedule(SimpleTestCase):
 class TestTaskDigestDelivery(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
         self.team.timezone = "UTC"
@@ -180,7 +179,7 @@ class TestTaskDigestDelivery(BaseTest):
         assert not MessagingRecord.objects.filter(campaign_key=self.campaign_key, sent_at__isnull=False).exists()
 
     def test_missing_smtp_configuration_is_not_acceptance(self) -> None:
-        with override_instance_config("EMAIL_HOST", None):
+        with override_settings(EMAIL_HOST=None):
             deliver_task_digest(self.team.pk, self.user.pk, "2026-09-18")
         assert len(mail.outbox) == 0
         record = MessagingRecord.objects.get(campaign_key=self.campaign_key)

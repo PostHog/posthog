@@ -5,12 +5,12 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import User
-from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, sync_saved_query_to_dag
@@ -29,14 +29,9 @@ from products.data_modeling.backend.tasks.failure_emails import (
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
+@override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True)
 @patch("products.data_modeling.backend.tasks.failure_emails.EmailMessage")
 class TestMaterializationFailureEmails(APIBaseTest, ClickhouseTestMixin):
-    @classmethod
-    def setUpTestData(cls) -> None:
-        super().setUpTestData()
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
-
     def _schedule(self, saved_query: DataWarehouseSavedQuery, target: dt.timedelta) -> Node:
         node = sync_saved_query_to_dag(saved_query)
         assert node is not None

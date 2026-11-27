@@ -13,7 +13,7 @@ from django.core.cache import cache
 from django.core.signing import SignatureExpired
 from django.db import connection
 from django.http import HttpResponse
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -4502,7 +4502,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
 
         with (
-            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
             override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
         ):
             response = self.client.post(
@@ -4523,7 +4523,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
 
         with (
-            override_instance_config("SLACK_APP_CLIENT_ID", ""),
+            override_settings(SLACK_APP_CLIENT_ID=""),
             override_instance_config("SLACK_APP_CLIENT_SECRET", ""),
         ):
             response = self.client.post(

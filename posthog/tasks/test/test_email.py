@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.conf import settings
 from django.core import mail
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,7 +22,6 @@ from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
-from posthog.models.instance_setting import override_instance_config, set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
@@ -105,6 +105,7 @@ def create_org_team_and_user(creation_date: str, email: str, ingested_event: boo
         return org, user
 
 
+@override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True)
 @patch("posthog.tasks.email.EmailMessage")
 class TestEmail(APIBaseTest, ClickhouseTestMixin):
     """
@@ -116,8 +117,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     @classmethod
     def setUpTestData(cls) -> None:
         super().setUpTestData()
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
         create_org_team_and_user("2022-01-01 00:00:00", "too_late_user@posthog.com")
         create_org_team_and_user(
             "2022-01-02 00:00:00",
@@ -2681,7 +2680,7 @@ class TestEmailSendingNoticeDelivery(APIBaseTest):
         super().setUp()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
     def delivered_to(self) -> list[str]:
         return sorted(address for message in mail.outbox for address in message.to)

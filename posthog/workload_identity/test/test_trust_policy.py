@@ -17,7 +17,6 @@ from rest_framework import status
 from posthog.email import WORKFLOWS_TEMPLATE_ID_MAP
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -387,8 +386,7 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
 class TestSendWorkloadTrustPolicyChangedEmail(APIBaseTest):
     @patch("posthog.tasks.email.EmailMessage")
     def test_emails_every_active_admin_and_owner(self, MockEmailMessage: MagicMock) -> None:
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True))
         sent = mock_email_messages(MockEmailMessage)
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()

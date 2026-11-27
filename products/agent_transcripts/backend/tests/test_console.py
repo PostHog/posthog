@@ -3,12 +3,11 @@ from email.utils import parseaddr
 from typing import Any
 
 from django.core import mail
-from django.test import Client
+from django.test import Client, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.storage import object_storage
@@ -56,7 +55,7 @@ class TestAgentTranscriptConsole(TranscriptStorageTestCase):
         self.browser = Client()
         self.browser.force_login(self.user)
         self.submitter = User.objects.create_and_join(self.organization, SUBMITTER_EMAIL, None, first_name="Ada")
-        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
     def _submission(
         self,

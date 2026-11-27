@@ -381,16 +381,12 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @parameterized.expand(
         [
-            (
-                "app_configured",
-                {"GITHUB_APP_SLUG": "posthog-dev"},
-                "https://github.com/apps/posthog-dev/installations/new",
-            ),
-            ("app_not_configured", {}, None),
+            ("app_configured", "posthog-dev", "https://github.com/apps/posthog-dev/installations/new"),
+            ("app_not_configured", "", None),
         ]
     )
-    def test_github_install_requests_includes_shareable_install_url(self, _name, instance_settings, expected):
-        with patch("posthog.api.github_callback.types.get_instance_settings", return_value=instance_settings):
+    def test_github_install_requests_includes_shareable_install_url(self, _name, app_slug, expected):
+        with self.settings(GITHUB_APP_SLUG=app_slug):
             response = self.client.get("/api/users/@me/integrations/github/install_requests/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -478,11 +474,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_called_once_with("12345")
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
-    @patch(
-        "posthog.api.github_callback.types.get_instance_settings",
-        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
-    )
-    def test_github_start_returns_install_url_when_no_team_github(self, _mock_settings):
+    @override_settings(GITHUB_APP_SLUG="posthog-dev")
+    def test_github_start_returns_install_url_when_no_team_github(self):
         response = self.client.post("/api/users/@me/integrations/github/start/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
@@ -566,12 +559,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         ]
     )
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
-    @patch(
-        "posthog.api.github_callback.types.get_instance_settings",
-        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
-    )
+    @override_settings(GITHUB_APP_SLUG="posthog-dev")
     def test_github_start_posthog_code_fast_path_with_an_existing_link(
-        self, _name, link_config, expected_flow, expected_url, _mock_settings
+        self, _name, link_config, expected_flow, expected_url
     ):
         integration = Integration.objects.create(
             team=self.team,
@@ -619,12 +609,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     )
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=None)
-    @patch(
-        "posthog.api.github_callback.types.get_instance_settings",
-        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
-    )
+    @override_settings(GITHUB_APP_SLUG="posthog-dev")
     def test_github_start_records_the_selected_project_organization(
-        self, expected_flow, connect_from, policy, _mock_settings, _mock_unlinked
+        self, expected_flow, connect_from, policy, _mock_unlinked
     ):
         other_org = Organization.objects.create(name="Synthetic other organization")
         OrganizationMembership.objects.create(organization=other_org, user=self.user)
@@ -675,11 +662,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
-    @patch(
-        "posthog.api.github_callback.types.get_instance_settings",
-        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
-    )
-    def test_github_start_rejects_when_all_installations_linked(self, _mock_settings, _mock_unlinked):
+    @override_settings(GITHUB_APP_SLUG="posthog-dev")
+    def test_github_start_rejects_when_all_installations_linked(self, _mock_unlinked):
         UserIntegration.objects.create(
             user=self.user,
             kind="github",
@@ -692,10 +676,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("already linked", response.json()["detail"])
 
     def test_github_start_without_app_slug_returns_400(self):
-        with patch(
-            "posthog.api.github_callback.types.get_instance_settings",
-            return_value={"GITHUB_APP_SLUG": ""},
-        ):
+        with self.settings(GITHUB_APP_SLUG=""):
             response = self.client.post("/api/users/@me/integrations/github/start/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -875,14 +856,11 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         GITHUB_APP_CLIENT_SECRET="client_secret",
         SITE_URL="https://us.posthog.com",
     )
-    @patch(
-        "posthog.api.github_callback.types.get_instance_settings",
-        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
-    )
+    @override_settings(GITHUB_APP_SLUG="posthog-dev")
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_discover_redirects_to_app_install_when_no_installations(
-        self, mock_user_from_code, mock_requests_get, _mock_settings
+        self, mock_user_from_code, mock_requests_get
     ):
         mock_user_from_code.return_value = _authorization()
         mock_requests_get.return_value = MagicMock(

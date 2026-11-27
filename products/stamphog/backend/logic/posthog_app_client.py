@@ -6,9 +6,10 @@ for that App. Coordinating who looks at a pull request goes out as the PostHog A
 review requests, fork labels and routing comment.
 """
 
+from django.conf import settings
+
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import GitHubIntegration
 
 from products.stamphog.backend.facade.contracts import StamphogGitHubError
@@ -23,7 +24,7 @@ class PostHogAppNotInstalled(StamphogGitHubError):
 
 def posthog_app_bot_login() -> str | None:
     """The login the PostHog GitHub App acts under (``<slug>[bot]``), or None when no slug is set."""
-    slug = get_instance_setting("GITHUB_APP_SLUG")
+    slug = settings.GITHUB_APP_SLUG
     return f"{slug}[bot]" if slug else None
 
 

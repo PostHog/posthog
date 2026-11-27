@@ -19,7 +19,6 @@ import structlog
 
 from posthog.github.installations import installation_integrations
 from posthog.ingress.dispatch.database import is_statement_timeout
-from posthog.models.instance_setting import get_instance_setting
 
 from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
 
@@ -90,7 +89,7 @@ def _is_own_app_sender(sender: dict[str, Any]) -> bool:
     """
     if sender.get("type") != "Bot":
         return False
-    app_slug = get_instance_setting("GITHUB_APP_SLUG")
+    app_slug = settings.GITHUB_APP_SLUG
     return bool(app_slug) and sender.get("login") == f"{app_slug}[bot]"
 
 

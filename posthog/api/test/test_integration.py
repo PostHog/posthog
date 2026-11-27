@@ -2013,10 +2013,10 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["kind"] == "twilio"
 
+    @override_settings(SLACK_APP_CLIENT_ID="test-client-id")
     @patch(
         "posthog.credentials_service.instance_settings.get_instance_settings",
         return_value={
-            "SLACK_APP_CLIENT_ID": "test-client-id",
             "SLACK_APP_CLIENT_SECRET": "test-client-secret",
             "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
         },
@@ -8593,10 +8593,10 @@ class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
         config = {"team": {"name": "Test Workspace"}} if kind == "slack" else {"installation_id": "12345"}
         integration = Integration.objects.create(team=self.team, kind=kind, config=config)
         with (
+            self.settings(SLACK_APP_CLIENT_ID="test-client-id"),
             patch(
                 "posthog.credentials_service.instance_settings.get_instance_settings",
                 return_value={
-                    "SLACK_APP_CLIENT_ID": "test-client-id",
                     "SLACK_APP_CLIENT_SECRET": "test-client-secret",
                     "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
                 },

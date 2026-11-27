@@ -13,7 +13,6 @@ from rest_framework.exceptions import ValidationError as ApiValidationError
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
-from posthog.models.instance_setting import get_instance_settings
 
 # Server-side state cache used by the personal GitHub linking flow (the install
 # callback and the OAuth-only fast paths). Keys are written when a flow starts
@@ -158,8 +157,7 @@ def github_oauth_redirect_uri() -> str:
 def github_app_install_url_shareable() -> str:
     """The App's install page with no PostHog state attached, safe to hand to a GitHub org owner
     who has no PostHog session to resume."""
-    instance_settings = get_instance_settings(["GITHUB_APP_SLUG"])
-    app_slug = instance_settings.get("GITHUB_APP_SLUG")
+    app_slug = settings.GITHUB_APP_SLUG
     if not app_slug:
         raise ApiValidationError("GitHub App is not configured on this instance (missing GITHUB_APP_SLUG).")
     return f"https://github.com/apps/{app_slug}/installations/new"

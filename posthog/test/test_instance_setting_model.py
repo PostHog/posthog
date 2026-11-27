@@ -151,10 +151,12 @@ def test_admin_save_model_wraps_bare_strings(db):
 def test_db_change_propagates_after_ttl(db, monkeypatch):
     # A direct DB change (no cache_clear) stays stale while cached, then propagates once the TTL
     # elapses — guards against reverting to a permanent cache (the stale-credential bug).
-    initial = get_instance_setting("EMAIL_HOST")
+    initial = get_instance_setting("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES")
 
-    InstanceSetting.objects.create(key="constance:posthog:EMAIL_HOST", raw_value='"smtp.changed.test"')
-    assert get_instance_setting("EMAIL_HOST") == initial
+    InstanceSetting.objects.create(
+        key="constance:posthog:TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", raw_value='"0123456789abcdef"'
+    )
+    assert get_instance_setting("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES") == initial
 
     monkeypatch.setattr("posthog.models.instance_setting._INSTANCE_SETTING_CACHE_TTL_SECONDS", 0)
-    assert get_instance_setting("EMAIL_HOST") == "smtp.changed.test"
+    assert get_instance_setting("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES") == "0123456789abcdef"

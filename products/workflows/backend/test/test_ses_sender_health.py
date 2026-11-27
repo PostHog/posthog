@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.core import mail
 from django.db import OperationalError
+from django.test import override_settings
 
 import responses
 import posthoganalytics
@@ -15,7 +16,6 @@ from rest_framework import status
 from structlog.testing import capture_logs
 
 from posthog.integrations import IntegrationManager, IntegrationPatch
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration.email import SES_SENDING_STATUS_KEY
 from posthog.models.user import User
 from posthog.tasks.email import send_email_sender_domain_sending_stopped
@@ -43,7 +43,7 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         self.enterContext(patch("posthoganalytics.feature_enabled", side_effect=feature_enabled))
 
     def deliver_notices(self) -> None:
-        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         self.enterContext(
             patch(
                 "posthoganalytics.feature_enabled",

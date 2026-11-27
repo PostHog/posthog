@@ -38,7 +38,6 @@ from posthog.helpers.oauth_pending_connection import (
 from posthog.inbox_providers import InboxProvider
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -3061,7 +3060,7 @@ class TestInviteSignupAPI(APIBaseTest):
             target_email="test+100@posthog.com", organization=self.organization
         )
 
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             with self.settings(
                 EMAIL_ENABLED=True,
                 SITE_URL="http://test.posthog.com",
@@ -3083,7 +3082,7 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertListEqual(mail.outbox[0].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
 
             invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -3118,7 +3117,7 @@ class TestInviteSignupAPI(APIBaseTest):
             target_email="test+100@posthog.com", organization=self.organization
         )
 
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             with self.settings(
                 EMAIL_ENABLED=True,
                 SITE_URL="http://test.posthog.com",

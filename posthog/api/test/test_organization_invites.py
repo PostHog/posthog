@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
+from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -19,7 +20,6 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
@@ -190,7 +190,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_with_email(self, mock_capture):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         email = "x@x.com"
 
         with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
@@ -303,7 +303,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         """
         Email is available on the instance, but the user creating the invite does not want to send an email to the invitee.
         """
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         email = "x@x.com"
 
         with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
@@ -688,7 +688,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_allow_bulk_creating_invites(self, mock_capture):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
         count = OrganizationInvite.objects.count()
         payload = self.helper_generate_bulk_invite_payload(7)
@@ -1532,7 +1532,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_case_insensitive_email_normalization(self, mock_capture):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         mixed_case_email = "Test.User@Example.COM"
         expected_normalized_email = "test.user@example.com"
 
@@ -1551,7 +1551,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response_data["target_email"], expected_normalized_email)
 
     def test_add_organization_invite_case_insensitive_duplicate_prevention(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         base_email = "user@example.com"
 
         # Create first invite with lowercase email
@@ -1744,7 +1744,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 class TestOnboardingDelegationInviteAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         # Delegation grants ADMIN-level access on accept; the caller must themselves hold ADMIN+.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -1980,7 +1980,7 @@ class TestOnboardingSkipAPI(APIBaseTest):
 class TestDelegationCancellationUnsuppressesRedirect(APIBaseTest):
     def setUp(self):
         super().setUp()
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -2009,7 +2009,7 @@ class TestDelegationCancellationUnsuppressesRedirect(APIBaseTest):
 class TestOnboardingDelegationStateTransitionTable(APIBaseTest):
     def setUp(self):
         super().setUp()
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
