@@ -446,10 +446,8 @@ def every_member_has_resource_access(
     restriction on one member, so it asks whether any restriction exists at all and leaves the
     data out when one does.
 
-    Deliberately conservative, and for that reason the same answer under both resolution orders:
-    one restricting rule makes this False, including where highest-wins resolution would let a
-    permissive default outrank it. Erring toward withholding keeps the answer stable when an
-    organization moves to most-specific resolution.
+    Deliberately conservative: one restricting rule makes this False, even when a more specific
+    rule restores access for some members.
     """
     team = Team.objects.select_related("organization").filter(id=team_id).first()
     if team is None:
@@ -491,8 +489,7 @@ def object_ids_restricted_from_any_member(
     withholds from any of them.
 
     Conservative in the same way. One restricting rule on an object is enough to name it, even
-    where resolution would let a permissive rule outrank that one, so the answer does not change
-    when an organization moves to most-specific resolution.
+    where resolution would let a permissive rule outrank that one.
     """
     team = Team.objects.select_related("organization").filter(id=team_id).first()
     if team is None or not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
