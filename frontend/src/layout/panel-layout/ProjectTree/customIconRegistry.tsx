@@ -1,10 +1,7 @@
-import { useValues } from 'kea'
 import { Suspense } from 'react'
 
 import { IconTableOfContents } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -30,19 +27,6 @@ function DataCatalogNavBadge({ className }: { className?: string }): JSX.Element
     )
 }
 
-function WorkflowsNavSuffix(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]) {
-        return null
-    }
-    return (
-        <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-success" data-attr="advent-nav-tree" aria-hidden>
-            <path d="M8 1 4.5 5.5h2L3.5 9.5h2.5L3 13.5h10L10 9.5h2.5l-3-4h2Z" fill="currentColor" />
-            <rect x="7" y="13.5" width="2" height="1.5" rx="0.3" className="fill-warning" />
-        </svg>
-    )
-}
-
 /**
  * Map of item types to custom icon components.
  * When an item's `type` matches a key here, the custom component is used instead of iconForType.
@@ -59,15 +43,6 @@ export const customIconRegistry: Record<string, React.ComponentType<{ className?
 export const customNavCountRegistry = {
     conversations: useSupportUnreadCount,
 } satisfies Record<string, () => number>
-
-const customNavSuffixRegistry: Record<string, React.ComponentType> = {
-    workflows: WorkflowsNavSuffix,
-}
-
-export function CustomNavSuffix({ type }: { type?: string }): JSX.Element | null {
-    const Suffix = type ? customNavSuffixRegistry[type] : undefined
-    return Suffix ? <Suffix /> : null
-}
 
 /**
  * Get a custom icon component for the given type, or undefined if none registered.
