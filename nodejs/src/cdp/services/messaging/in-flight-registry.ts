@@ -36,8 +36,6 @@ export const deferralTokensSpent = new Counter({
     labelNames: ['reason'],
 })
 
-// An alert reads the increase of each reason, so every series must exist from the first scrape.
-// A series born at its first deferral hides that deferral from the alert.
 for (const reason of DEFERRAL_REASONS) {
     deferralTokensSpent.labels({ reason }).inc(0)
 }
