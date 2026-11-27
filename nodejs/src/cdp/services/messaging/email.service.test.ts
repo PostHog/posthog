@@ -3307,6 +3307,16 @@ describe('EmailService', () => {
                     'attachment_unavailable',
                 ],
                 [
+                    0,
+                    true,
+                    'the bucket does not answer',
+                    'fails a test send at once as attachment_unavailable',
+                    bucketRefuses,
+                    true,
+                    expect.stringMatching(/^attachment_unavailable: .* after 1 try\./),
+                    null,
+                ],
+                [
                     10,
                     false,
                     'SES refuses the connection',
