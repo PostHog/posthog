@@ -3,8 +3,6 @@
     "tasks": {
         "backend:contract-check": {
             "inputs": [
-                "__init__.py",
-                "backend/__init__.py",
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
@@ -21,17 +19,13 @@
                 "backend/replay_linkage.py",
                 "backend/timeseries_backfill.py",
                 "backend/warehouse_native_sources.py",
-                "backend/hogql_queries/__init__.py",
                 "backend/hogql_queries/experiment_exposures_query_runner.py",
                 "backend/hogql_queries/experiment_query_runner.py",
-                "backend/metric_calculation/__init__.py",
                 "backend/metric_calculation/keys.py",
-                "backend/temporal/__init__.py",
                 "backend/temporal/canary_activities.py",
                 "backend/temporal/canary_workflow.py",
                 "backend/temporal/enrollment_census_activities.py",
                 "backend/temporal/enrollment_census_workflow.py",
-                "backend/temporal/recalculation/__init__.py",
                 "backend/temporal/recalculation/activities.py",
                 "backend/temporal/recalculation/metrics.py",
                 "backend/temporal/recalculation/workflow.py",
@@ -39,7 +33,6 @@
                 "backend/temporal/schedule.py",
                 "backend/temporal/scheduled_recalculation_activities.py",
                 "backend/temporal/scheduled_recalculation_workflow.py",
-                "backend/temporal/timeseries/__init__.py",
                 "backend/temporal/timeseries/activities.py",
                 "backend/temporal/timeseries/schedule.py",
                 "backend/temporal/timeseries/workflows.py"
