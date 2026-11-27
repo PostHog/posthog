@@ -203,7 +203,9 @@ jobs:
             - name: Prepare symbol upload credentials
               id: symbols
               env:
-                  ENABLED: ${{ github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true' }}
+                  # Master pushes only, the runs the trust policy admits. A dispatch runs the
+                  # dispatched branch's unreviewed Dockerfile, which must never see these.
+                  ENABLED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' }}
               run: |
                   if [ "$ENABLED" = "true" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
                       echo "::add-mask::$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
