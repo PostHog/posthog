@@ -82,20 +82,18 @@ async function retryInPlace(
 }
 
 /**
- * The events are not at fault when Cymbal could not take an event's last resend, or when every
- * event still asks to retry, because then Cymbal or one of its dependencies is down. A lane that
- * cannot redirect then retries the whole batch instead of sending the events to the DLQ.
+ * An event is not at fault when Cymbal could not take its last resend, so a lane that cannot
+ * redirect retries the whole batch instead of sending the event to the DLQ. Any other `retry` can
+ * come from the event itself, so it goes to the DLQ, and a batch of such events cannot stall the lane.
  */
-function cymbalUnavailableError(results: CymbalResult[]): CymbalError | undefined {
-    const retries = results.filter((result) => result.result === 'retry')
-    const notTaken = retries.filter((result) => result.error.code === CYMBAL_UNAVAILABLE_CODE)
-    if (notTaken.length === 0 && retries.length < results.length) {
+function resendNotTakenError(results: CymbalResult[]): CymbalError | undefined {
+    const notTaken = results.filter(
+        (result) => result.result === 'retry' && result.error.code === CYMBAL_UNAVAILABLE_CODE
+    ).length
+    if (notTaken === 0) {
         return undefined
     }
-    return new CymbalError(
-        `Cymbal is unavailable: ${retries.length} of ${results.length} events ask to retry, ${notTaken.length} not taken`,
-        true
-    )
+    return new CymbalError(`Cymbal could not take the last resend of ${notTaken} of ${results.length} events`, true)
 }
 
 /** Returns `undefined`, which sends the event to the DLQ, unless this lane redirects to an overflow lane. */
@@ -191,9 +189,9 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                     retryOptions.inPlaceRetrySoftDeadlineMs,
                     startedAt
                 )
-                const unavailable = cymbalUnavailableError(results)
-                if (unavailable) {
-                    throw unavailable
+                const notTaken = resendNotTakenError(results)
+                if (notTaken) {
+                    throw notTaken
                 }
             }
 

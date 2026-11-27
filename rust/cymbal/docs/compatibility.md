@@ -20,7 +20,7 @@ A cymbal version that does not know the header answers with the array described 
 
 The Node.js error-tracking consumer sends a `retry` event to its overflow lane.
 The overflow lane, and a consumer without an overflow lane, resend it in its own request after a growing wait while `ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS` allows, and send it to the DLQ when it still asks to retry after the last resend.
-They retry the whole batch instead when cymbal could not take an event's last resend, or when every event of the batch still asks to retry.
+They retry the whole batch instead when cymbal could not take an event's last resend.
 The consumer also gives a `retry` result to each event of a request that fails with a 500 or a timeout.
 When cymbal cannot take a request at all (a network error, 429 or 503), the consumer retries the whole batch.
 

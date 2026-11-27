@@ -281,15 +281,15 @@ describe('createCymbalProcessingStep', () => {
         })
 
         it.each([0, 60_000])(
-            'retries the whole batch when every event still asks to retry, with a %d ms soft deadline',
+            'sends a batch where every event still asks to retry to the DLQ, with a %d ms soft deadline',
             async (inPlaceRetrySoftDeadlineMs) => {
                 usesInPlaceRetries('consume', inPlaceRetrySoftDeadlineMs)
                 mockCymbalClient.processExceptions.mockResolvedValueOnce([retry, retry])
                 mockCymbalClient.processEachException.mockResolvedValue([retry, retry])
 
-                await expect(
-                    runPastRetryWaits([createInput({ uuid: 'a' }), createInput({ uuid: 'b' })])
-                ).rejects.toMatchObject({ isRetriable: true })
+                const results = await runPastRetryWaits([createInput({ uuid: 'a' }), createInput({ uuid: 'b' })])
+
+                expect(results).toMatchObject([dlq, dlq])
             }
         )
 
