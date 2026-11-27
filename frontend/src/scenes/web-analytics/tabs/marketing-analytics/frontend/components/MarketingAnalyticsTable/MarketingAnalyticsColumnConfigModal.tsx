@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconEye, IconHide, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
 import { MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
@@ -13,6 +14,7 @@ import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
 import { columnsForView } from '../../logic/marketingTableColumnViews'
 import { createMarketingAnalyticsOrderBy } from '../../logic/utils'
+import { QuillMarketingAnalyticsColumnConfigModal } from './QuillMarketingAnalyticsColumnConfigModal'
 
 const directionOptions = [
     { label: 'No direction', value: null },
@@ -25,6 +27,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
     const { hideColumnConfigModal } = useActions(marketingAnalyticsLogic)
     const { sortedColumns } = useValues(marketingAnalyticsTableLogic)
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const marketingQuery = useMemo(() => rawQuery?.source as MarketingAnalyticsTableQuery | undefined, [rawQuery])
 
     // Local draft state — changes are buffered here until the user applies them
@@ -190,6 +193,61 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
         )
     }, [draftSelect, draftOrderBy, draftPinnedColumns, marketingQuery, rawQuery, sortedColumns])
 
+    const onSortColumnChange = (value: string | null): void => {
+        if (value === null) {
+            clearOrderBy()
+        } else if (currentSortDirection) {
+            updateOrderBy(value, currentSortDirection)
+        } else {
+            updateOrderBy(value, 'ASC')
+        }
+    }
+
+    const onSortDirectionChange = (value: 'ASC' | 'DESC' | null): void => {
+        if (value === null) {
+            clearOrderBy()
+        } else if (currentSortColumn) {
+            updateOrderBy(currentSortColumn, value)
+        }
+    }
+
+    // Intentionally checks draft vs defaults (not vs committed state like hasChanges),
+    // so this stays enabled when the committed config is non-default
+    const resetDisabledReason =
+        draftPinnedColumns.length === 0 &&
+        !draftOrderBy &&
+        hiddenColumns.length === 0 &&
+        draftSelect.length === sortedColumns.length
+            ? 'Already at defaults'
+            : undefined
+    const applyDisabledReason = !hasChanges ? 'No changes to apply' : undefined
+
+    if (todayRailNav) {
+        return (
+            <QuillMarketingAnalyticsColumnConfigModal
+                isOpen={columnConfigModalVisible}
+                onClose={hideColumnConfigModal}
+                sortedColumns={sortedColumns}
+                hiddenColumns={hiddenColumns}
+                pinnedColumns={draftPinnedColumns}
+                hasSorting={!!draftOrderBy}
+                currentSortColumn={currentSortColumn}
+                currentSortDirection={currentSortDirection}
+                sortOptions={sortOptions}
+                directionOptions={directionOptions}
+                resetDisabledReason={resetDisabledReason}
+                applyDisabledReason={applyDisabledReason}
+                onSortColumnChange={onSortColumnChange}
+                onSortDirectionChange={onSortDirectionChange}
+                onSortToggle={handleSortToggle}
+                onToggleVisibility={toggleColumnVisibility}
+                onTogglePinning={toggleColumnPinning}
+                onReset={resetColumnConfigToDefaults}
+                onApply={applyChanges}
+            />
+        )
+    }
+
     return (
         <LemonModal
             isOpen={columnConfigModalVisible}
@@ -201,16 +259,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                     <LemonButton
                         type="secondary"
                         onClick={resetColumnConfigToDefaults}
-                        // Intentionally checks draft vs defaults (not vs committed state like hasChanges),
-                        // so this stays enabled when the committed config is non-default
-                        disabledReason={
-                            draftPinnedColumns.length === 0 &&
-                            !draftOrderBy &&
-                            hiddenColumns.length === 0 &&
-                            draftSelect.length === sortedColumns.length
-                                ? 'Already at defaults'
-                                : undefined
-                        }
+                        disabledReason={resetDisabledReason}
                     >
                         Reset to defaults
                     </LemonButton>
@@ -218,11 +267,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                         <LemonButton type="secondary" onClick={hideColumnConfigModal}>
                             Cancel
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={applyChanges}
-                            disabledReason={!hasChanges ? 'No changes to apply' : undefined}
-                        >
+                        <LemonButton type="primary" onClick={applyChanges} disabledReason={applyDisabledReason}>
                             Apply
                         </LemonButton>
                     </div>
@@ -278,15 +323,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                             <div className="flex-1">
                                 <LemonSelect
                                     value={currentSortColumn}
-                                    onChange={(value) => {
-                                        if (value === null) {
-                                            clearOrderBy()
-                                        } else if (currentSortDirection) {
-                                            updateOrderBy(value, currentSortDirection)
-                                        } else {
-                                            updateOrderBy(value, 'ASC')
-                                        }
-                                    }}
+                                    onChange={onSortColumnChange}
                                     options={sortOptions}
                                     placeholder="Select column..."
                                     fullWidth
@@ -299,13 +336,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                             <div className="flex-1">
                                 <LemonSelect
                                     value={currentSortDirection}
-                                    onChange={(value) => {
-                                        if (value === null) {
-                                            clearOrderBy()
-                                        } else if (currentSortColumn) {
-                                            updateOrderBy(currentSortColumn, value)
-                                        }
-                                    }}
+                                    onChange={onSortDirectionChange}
                                     options={directionOptions}
                                     placeholder="Select direction..."
                                     fullWidth

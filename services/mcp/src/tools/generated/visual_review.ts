@@ -456,14 +456,21 @@ const visualReviewReposTolerationPileupsRetrieve = (): ToolBase<
 const VisualReviewRunsApproveCreateSchema = () => {
     const VisualReviewRunsApproveCreateBody = orvalSchemas.VisualReviewRunsApproveCreateBody()
     const VisualReviewRunsApproveCreateParams = orvalSchemas.VisualReviewRunsApproveCreateParams()
-    return VisualReviewRunsApproveCreateParams.omit({ project_id: true }).extend(
-        VisualReviewRunsApproveCreateBody.shape
+    return z.preprocess(
+        normalizeParamAliases({ id: ['run_id'] }),
+        VisualReviewRunsApproveCreateParams.omit({ project_id: true })
+            .extend(VisualReviewRunsApproveCreateBody.shape)
+            .extend({
+                id: VisualReviewRunsApproveCreateParams.shape['id'].describe(
+                    'The UUID of a run of the pull request, not a snapshot `id`.'
+                ),
+            })
     )
 }
 
 const visualReviewRunsApproveCreate = (): ToolBase<
     ReturnType<typeof VisualReviewRunsApproveCreateSchema>,
-    Schemas.Run
+    Schemas.DecisionResult
 > => ({
     name: 'visual-review-runs-approve-create',
     schema: VisualReviewRunsApproveCreateSchema(),
@@ -473,9 +480,51 @@ const visualReviewRunsApproveCreate = (): ToolBase<
         if (params.snapshots !== undefined) {
             body['snapshots'] = params.snapshots
         }
-        const result = await context.api.request<Schemas.Run>({
+        if (params.expected_seq !== undefined) {
+            body['expected_seq'] = params.expected_seq
+        }
+        const result = await context.api.request<Schemas.DecisionResult>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/approve/`,
+            body,
+        })
+        return result
+    },
+})
+
+const VisualReviewRunsClearCreateSchema = () => {
+    const VisualReviewRunsClearCreateBody = orvalSchemas.VisualReviewRunsClearCreateBody()
+    const VisualReviewRunsClearCreateParams = orvalSchemas.VisualReviewRunsClearCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['run_id'] }),
+        VisualReviewRunsClearCreateParams.omit({ project_id: true })
+            .extend(VisualReviewRunsClearCreateBody.shape)
+            .extend({
+                id: VisualReviewRunsClearCreateParams.shape['id'].describe(
+                    'The UUID of a run of the pull request, not a snapshot `id`.'
+                ),
+            })
+    )
+}
+
+const visualReviewRunsClearCreate = (): ToolBase<
+    ReturnType<typeof VisualReviewRunsClearCreateSchema>,
+    Schemas.DecisionResult
+> => ({
+    name: 'visual-review-runs-clear-create',
+    schema: VisualReviewRunsClearCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisualReviewRunsClearCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.identifiers !== undefined) {
+            body['identifiers'] = params.identifiers
+        }
+        if (params.expected_seq !== undefined) {
+            body['expected_seq'] = params.expected_seq
+        }
+        const result = await context.api.request<Schemas.DecisionResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/clear/`,
             body,
         })
         return result
@@ -702,6 +751,45 @@ const visualReviewRunsRecomputeCreate = (): ToolBase<
     },
 })
 
+const VisualReviewRunsRejectCreateSchema = () => {
+    const VisualReviewRunsRejectCreateBody = orvalSchemas.VisualReviewRunsRejectCreateBody()
+    const VisualReviewRunsRejectCreateParams = orvalSchemas.VisualReviewRunsRejectCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['run_id'] }),
+        VisualReviewRunsRejectCreateParams.omit({ project_id: true })
+            .extend(VisualReviewRunsRejectCreateBody.shape)
+            .extend({
+                id: VisualReviewRunsRejectCreateParams.shape['id'].describe(
+                    'The UUID of a run of the pull request, not a snapshot `id`.'
+                ),
+            })
+    )
+}
+
+const visualReviewRunsRejectCreate = (): ToolBase<
+    ReturnType<typeof VisualReviewRunsRejectCreateSchema>,
+    Schemas.DecisionResult
+> => ({
+    name: 'visual-review-runs-reject-create',
+    schema: VisualReviewRunsRejectCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisualReviewRunsRejectCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.snapshots !== undefined) {
+            body['snapshots'] = params.snapshots
+        }
+        if (params.expected_seq !== undefined) {
+            body['expected_seq'] = params.expected_seq
+        }
+        const result = await context.api.request<Schemas.DecisionResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/reject/`,
+            body,
+        })
+        return result
+    },
+})
+
 const VisualReviewRunsRetrieveSchema = () => {
     const VisualReviewRunsRetrieveParams = orvalSchemas.VisualReviewRunsRetrieveParams()
     return VisualReviewRunsRetrieveParams.omit({ project_id: true })
@@ -791,6 +879,7 @@ const visualReviewRunsSnapshotsList = (): ToolBase<
                     limit: params.limit,
                     offset: params.offset,
                     quarantined_only: params.quarantined_only,
+                    review_state: params.review_state,
                     snapshot_id: params.snapshot_id,
                 },
             })
@@ -881,6 +970,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-repos-runs-list': visualReviewReposRunsList,
     'visual-review-repos-toleration-pileups-retrieve': visualReviewReposTolerationPileupsRetrieve,
     'visual-review-runs-approve-create': visualReviewRunsApproveCreate,
+    'visual-review-runs-clear-create': visualReviewRunsClearCreate,
     'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
     'visual-review-runs-finalize-create': visualReviewRunsFinalizeCreate,
     'visual-review-runs-lift-on-merge-create': visualReviewRunsLiftOnMergeCreate,
@@ -888,6 +978,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-runs-quarantine-lifts-cancel-create': visualReviewRunsQuarantineLiftsCancelCreate,
     'visual-review-runs-quarantine-lifts-list': visualReviewRunsQuarantineLiftsList,
     'visual-review-runs-recompute-create': visualReviewRunsRecomputeCreate,
+    'visual-review-runs-reject-create': visualReviewRunsRejectCreate,
     'visual-review-runs-retrieve': visualReviewRunsRetrieve,
     'visual-review-runs-snapshot-history-list': visualReviewRunsSnapshotHistoryList,
     'visual-review-runs-snapshots-list': visualReviewRunsSnapshotsList,

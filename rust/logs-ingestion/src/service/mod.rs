@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod consumer_loop;
+pub mod consumer_telemetry;
 pub mod hog_functions;
 pub mod kafka_outputs;
 pub mod kafka_source;
@@ -111,7 +112,7 @@ pub fn create_consumer(config: &ServiceConfig) -> anyhow::Result<LogsConsumer> {
         config.kafka_client_rack.as_deref(),
         config.node_env == NodeEnv::Test,
     )
-    .create_with_context(FencingContext::default())?;
+    .create_with_context(FencingContext::new(config.consumer_loop.telemetry.clone()))?;
     consumer.subscribe(&[config.input_topic.as_str()])?;
     Ok(consumer)
 }
@@ -248,7 +249,7 @@ pub async fn run(config: ServiceConfig) -> anyhow::Result<()> {
         routes = ?config.routes,
         "starting logs-ingestion"
     );
-    let recorder = serve_metrics::setup_metrics_recorder();
+    let recorder = consumer_telemetry::prometheus_builder()?.install_recorder()?;
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(config.shutdown_timeout)
         .build();

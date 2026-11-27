@@ -116,17 +116,21 @@ describe('AdventFlowStage', () => {
         expect(card()).toBeNull()
     })
 
-    it('moves focus into a pinned card and back to its door when the card closes', () => {
+    it.each([
+        ['Close', 2, '[data-attr="advent-door-card-close"]'],
+        ['the tip link', 1, '[data-attr="advent-tip-link"]'],
+    ])('moves focus into a pinned card and back to its door when Escape closes it from %s', (_, day, focused) => {
         seed([1, 2], { 2: 'tim' })
         renderStage({ width: 375, height: 700 })
 
-        act(() => (door(2) as HTMLElement).focus())
-        act(() => fireEvent.click(door(2) as HTMLElement))
+        act(() => (door(day) as HTMLElement).focus())
+        act(() => fireEvent.click(door(day) as HTMLElement))
         const focusInCard = document.activeElement?.getAttribute('data-attr')
+        act(() => (document.querySelector(focused) as HTMLElement).focus())
         act(() => fireEvent.keyDown(window, { key: 'Escape' }))
         waitForTheCardToClose()
 
-        expect([focusInCard, document.activeElement === door(2)]).toEqual(['advent-door-card-close', true])
+        expect([focusInCard, document.activeElement === door(day)]).toEqual(['advent-door-card-close', true])
     })
 
     it.each([

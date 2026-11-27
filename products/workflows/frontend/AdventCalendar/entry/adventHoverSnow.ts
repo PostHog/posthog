@@ -1,18 +1,16 @@
 import './AdventHoverSnow.scss'
 
 const FLAKE_COUNT = 48
-const CLEARANCE_PX = 6
 
 let layer: HTMLDivElement | null = null
 
 function createFlake(index: number): HTMLSpanElement {
     const flake = document.createElement('span')
-    flake.className = 'AdventHoverSnow__flake'
+    flake.className = `AdventHoverSnow__flake AdventHoverSnow__flake--drift-${(index * 11) % 7}`
     flake.style.left = `${(index * 37) % 100}%`
     flake.style.setProperty('--advent-flake-size', `${8 + ((index * 7) % 9)}px`)
     flake.style.setProperty('--advent-flake-duration', `${7 + ((index * 13) % 7)}s`)
     flake.style.setProperty('--advent-flake-delay', `-${(index * 5) % 13}s`)
-    flake.style.setProperty('--advent-flake-drift', `${(((index * 11) % 7) - 3) * 12}px`)
     return flake
 }
 
@@ -30,12 +28,8 @@ function mountHiddenSoItFadesIn(element: HTMLDivElement): void {
     element.getBoundingClientRect()
 }
 
-export function showAdventHoverSnow(trigger: DOMRect): void {
+export function showAdventHoverSnow(): void {
     layer ??= createLayer()
-    layer.style.setProperty('--advent-clear-x', `${trigger.left - CLEARANCE_PX}px`)
-    layer.style.setProperty('--advent-clear-y', `${trigger.top - CLEARANCE_PX}px`)
-    layer.style.setProperty('--advent-clear-width', `${trigger.width + 2 * CLEARANCE_PX}px`)
-    layer.style.setProperty('--advent-clear-height', `${trigger.height + 2 * CLEARANCE_PX}px`)
     if (!layer.isConnected) {
         mountHiddenSoItFadesIn(layer)
     }

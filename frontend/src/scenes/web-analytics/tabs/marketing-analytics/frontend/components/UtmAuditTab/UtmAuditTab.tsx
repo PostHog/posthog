@@ -15,6 +15,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 
 import {
@@ -25,110 +26,23 @@ import {
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { formatMarketingMoney } from '../../logic/utils'
-import type {
-    AggregatedUtmSource,
-    CampaignAuditResult,
-    HealthTab,
-    UtmEvent,
-    UtmIssueKind,
-} from '../../logic/utmAuditLogic'
+import type { AggregatedUtmSource, CampaignAuditResult, HealthTab, UtmEvent } from '../../logic/utmAuditLogic'
 import { utmAuditLogic } from '../../logic/utmAuditLogic'
 import { CampaignMappingCellActions } from '../CampaignMapping/CampaignMappingCellActions'
 import { CampaignFieldPreferencesConfiguration } from '../settings/CampaignFieldPreferencesConfiguration'
 import { CampaignNameMappingsConfiguration } from '../settings/CampaignNameMappingsConfiguration'
 import { CustomSourceMappingsConfiguration } from '../settings/CustomSourceMappingsConfiguration'
 import { IntegrationSettingsModal } from '../settings/IntegrationSettingsModal'
+import { QuillUtmAuditCampaignTab } from './QuillUtmAuditCampaignTab'
+import { QuillUtmAuditSourceTab } from './QuillUtmAuditSourceTab'
+import { QuillUtmAuditTab } from './QuillUtmAuditTab'
+import { formatNumber, issueLabel, issueTooltip, sourceLabel } from './utmAuditLabels'
 
 const SOURCE_TO_INTEGRATION: Record<string, NativeMarketingSource> = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [MARKETING_INTEGRATION_CONFIGS[source].primarySource, source])
 )
 
-const DISPLAY_NAMES: Record<string, string> = {
-    google: 'Google Ads',
-    meta: 'Meta Ads',
-    linkedin: 'LinkedIn Ads',
-    tiktok: 'TikTok Ads',
-    reddit: 'Reddit Ads',
-    bing: 'Bing Ads',
-    snapchat: 'Snapchat Ads',
-    pinterest: 'Pinterest Ads',
-    GoogleAds: 'Google Ads',
-    MetaAds: 'Meta Ads',
-    LinkedinAds: 'LinkedIn Ads',
-    TikTokAds: 'TikTok Ads',
-    RedditAds: 'Reddit Ads',
-    BingAds: 'Bing Ads',
-    SnapchatAds: 'Snapchat Ads',
-    PinterestAds: 'Pinterest Ads',
-}
-
-function sourceLabel(source: string): string {
-    return DISPLAY_NAMES[source] || source
-}
-
-// Keyed by the generated issue-kind union, so a new kind added on the backend fails the typecheck
-// here instead of silently falling back to the wrong label.
-const ISSUE_LABELS: Record<UtmIssueKind, string> = {
-    not_linked: 'Not linked',
-    missing_source: 'Missing source',
-    name_collision: 'Name collision',
-    no_tagged_events: 'Source mismatch',
-    unknown_source: 'Source mismatch',
-}
-
-function joinSources(sources: string[]): string {
-    if (sources.length < 2) {
-        return sources[0] ?? ''
-    }
-    return `${sources.slice(0, -1).join(', ')} or ${sources[sources.length - 1]}`
-}
-
-// Compose scoped, honest text for a campaign's status pill. The pill label is intentionally
-// terse; this explains what the audit actually found for this specific campaign.
-function issueTooltip(record: CampaignAuditResult): string {
-    const issue = record.issues[0]
-    if (!issue) {
-        return ''
-    }
-    const platform = sourceLabel(record.source_name)
-    const fix = `Add utm_source=${record.source_name} to your ${platform} tracking URLs.`
-    // A campaign is classified by its mistagged pageviews, so untagged ones ride along as an extra
-    // sentence rather than disappearing. Zero on kinds where it can't happen.
-    const untagged = issue.missing_source_count ?? 0
-    const untaggedNote =
-        untagged > 0 ? ` A further ${formatNumber(untagged)} pageviews arrived with no utm_source at all.` : ''
-
-    switch (issue.kind) {
-        case 'not_linked':
-            return `No pageviews were found for this campaign. Check that your ${platform} tracking URLs include utm_source and utm_campaign.`
-        case 'missing_source':
-            return `${formatNumber(untagged)} pageviews reached this campaign with no utm_source set, so they can't be attributed to ${platform}. ${fix}`
-        case 'name_collision': {
-            const shared = (issue.shared_with_integrations ?? []).map(sourceLabel).join(', ') || 'another integration'
-            return `This campaign's name is also used by ${shared}. Switch to matching on campaign ID so they can be told apart.${untaggedNote}`
-        }
-        case 'no_tagged_events':
-        case 'unknown_source': {
-            const sources = joinSources((issue.alternative_sources ?? []).map((s) => s.utm_source).filter(Boolean))
-            if (!sources) {
-                return issue.message
-            }
-            return `Pageviews matched this campaign, but their utm_source was ${sources}, not ${record.source_name}. ${fix}${untaggedNote}`
-        }
-        default:
-            return issue.message
-    }
-}
-
-// Short pill label reflecting the issue kind. The tooltip carries the full explanation.
-function issueLabel(record: CampaignAuditResult): string {
-    const kind = record.issues[0]?.kind
-    return (kind && ISSUE_LABELS[kind]) || 'Source mismatch'
-}
-
-function formatNumber(value: number): string {
-    return new Intl.NumberFormat('en-US').format(value)
-}
+const ALL_INTEGRATIONS = '__all__'
 
 function StatCard({
     label,
@@ -184,35 +98,49 @@ function CampaignTabContent(): JSX.Element {
     const { setSelectedCampaign, setSelectedUtmCampaign, setCampaignSearch, setUtmSearch } = useActions(utmAuditLogic)
     const { openIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const canMap = selectedCampaign !== null && selectedUtmCampaign !== null && selectedCampaignData !== null
+    const mapPrompt = canMap
+        ? `Map "${selectedUtmCampaign}" → "${selectedCampaign}"`
+        : 'Select a campaign on the left and a UTM campaign on the right to create a mapping'
+    const mapCampaign = (): void => {
+        if (canMap && selectedCampaignData) {
+            const integration = SOURCE_TO_INTEGRATION[selectedCampaignData.source_name.toLowerCase()]
+            if (integration) {
+                openIntegrationSettingsModal(integration, 'mappings', selectedUtmCampaign!, selectedCampaign!)
+            }
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillUtmAuditCampaignTab
+                loading={auditDataLoading}
+                campaigns={filteredCampaigns}
+                utmCampaigns={sortedUtmCampaigns}
+                selectedCampaign={selectedCampaign}
+                selectedUtmCampaign={selectedUtmCampaign}
+                onSelectCampaign={setSelectedCampaign}
+                onSelectUtmCampaign={setSelectedUtmCampaign}
+                campaignSearch={campaignSearch}
+                onCampaignSearchChange={setCampaignSearch}
+                utmSearch={utmSearch}
+                onUtmSearchChange={setUtmSearch}
+                baseCurrency={baseCurrency}
+                canMap={canMap}
+                mapPrompt={mapPrompt}
+                onMapCampaign={mapCampaign}
+            />
+        )
+    }
 
     return (
         <>
             {/* Map campaigns action bar */}
             <div className="flex items-center justify-between p-3 rounded border mb-4">
-                <div className="text-sm text-secondary">
-                    {canMap
-                        ? `Map "${selectedUtmCampaign}" → "${selectedCampaign}"`
-                        : 'Select a campaign on the left and a UTM campaign on the right to create a mapping'}
-                </div>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    disabled={!canMap}
-                    onClick={() => {
-                        if (canMap && selectedCampaignData) {
-                            const integration = SOURCE_TO_INTEGRATION[selectedCampaignData.source_name.toLowerCase()]
-                            if (integration) {
-                                openIntegrationSettingsModal(
-                                    integration,
-                                    'mappings',
-                                    selectedUtmCampaign!,
-                                    selectedCampaign!
-                                )
-                            }
-                        }
-                    }}
-                >
+                <div className="text-sm text-secondary">{mapPrompt}</div>
+                <LemonButton type="primary" size="small" disabled={!canMap} onClick={mapCampaign}>
                     Map campaign
                 </LemonButton>
             </div>
@@ -375,6 +303,18 @@ function CampaignTabContent(): JSX.Element {
 function SourceTabContent(): JSX.Element {
     const { auditDataLoading, aggregatedUtmSources, utmSearch } = useValues(utmAuditLogic)
     const { setUtmSearch } = useActions(utmAuditLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillUtmAuditSourceTab
+                loading={auditDataLoading}
+                sources={aggregatedUtmSources}
+                utmSearch={utmSearch}
+                onUtmSearchChange={setUtmSearch}
+            />
+        )
+    }
 
     return (
         <div>
@@ -502,8 +442,38 @@ export function UtmAuditTab(): JSX.Element {
     const { setActiveTab, setSourceFilter, loadAuditData } = useActions(utmAuditLogic)
     const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const integrationFilter = sourceFilter ? SOURCE_TO_INTEGRATION[sourceFilter] : undefined
+    const sourceFilterOptions = [
+        { value: ALL_INTEGRATIONS, label: 'All integrations' },
+        ...availableSources.map((s) => ({ value: s, label: sourceLabel(s) })),
+    ]
+    const onSourceFilterChange = (value: string): void => setSourceFilter(value === ALL_INTEGRATIONS ? null : value)
+
+    if (todayRailNav) {
+        return (
+            <QuillUtmAuditTab
+                loading={auditDataLoading}
+                failed={!!auditDataFailure}
+                onReload={() => loadAuditData()}
+                sourceFilterValue={sourceFilter ?? ALL_INTEGRATIONS}
+                sourceFilterOptions={sourceFilterOptions}
+                onSourceFilterChange={onSourceFilterChange}
+                stats={[
+                    { label: 'Campaigns', value: auditData?.total_campaigns ?? 0 },
+                    { label: 'Not linked', value: campaignsWithoutUtmCount, alert: campaignsWithoutUtmCount > 0 },
+                    { label: 'UTM sources', value: totalUtmSourcesCount },
+                    { label: 'Unmapped sources', value: unmappedSourcesCount, alert: unmappedSourcesCount > 0 },
+                ]}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                campaignContent={<CampaignTabContent />}
+                sourceContent={<SourceTabContent />}
+                integrationFilter={integrationFilter}
+            />
+        )
+    }
 
     return (
         <div className="mt-4 mb-8 space-y-4">
@@ -516,12 +486,9 @@ export function UtmAuditTab(): JSX.Element {
                 </div>
                 <LemonSelect
                     size="small"
-                    value={sourceFilter ?? '__all__'}
-                    onChange={(value) => setSourceFilter(value === '__all__' ? null : value)}
-                    options={[
-                        { value: '__all__', label: 'All integrations' },
-                        ...availableSources.map((s) => ({ value: s, label: sourceLabel(s) })),
-                    ]}
+                    value={sourceFilter ?? ALL_INTEGRATIONS}
+                    onChange={onSourceFilterChange}
+                    options={sourceFilterOptions}
                 />
             </div>
 

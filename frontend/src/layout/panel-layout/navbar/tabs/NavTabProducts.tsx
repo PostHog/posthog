@@ -5,7 +5,7 @@ import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShad
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { cn } from 'lib/utils/css-classes'
 
-import { CustomCategorySuffix } from '../../ProjectTree/customCategorySuffixRegistry'
+import { CustomCategorySuffix } from '../../ProjectTree/CustomCategorySuffix'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { CustomizeSidebarModal } from './CustomizeSidebarModal'

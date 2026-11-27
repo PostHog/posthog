@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
@@ -33,11 +34,13 @@ const MAX_BUTTON_DOTS = 3
 export function IssueTagsButton({
     tags,
     onTagClick,
+    surface,
     size = 'sm',
     defaultOpen = false,
 }: {
     tags: Pick<ErrorTrackingIssueTag, 'key' | 'label' | 'color'>[] | null | undefined
     onTagClick: (key: string) => void
+    surface: 'issues_list' | 'issue_page'
     size?: 'sm' | 'default'
     defaultOpen?: boolean
 }): JSX.Element | null {
@@ -53,8 +56,15 @@ export function IssueTagsButton({
         MAX_BUTTON_DOTS
     )
 
+    const onOpenChange = (nextOpen: boolean): void => {
+        if (nextOpen) {
+            posthog.capture('error_tracking_issue_tags_opened', { ui_source: surface, tag_count: tags.length })
+        }
+        setOpen(nextOpen)
+    }
+
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={onOpenChange}>
             <PopoverTrigger
                 render={<Button variant="outline" size={size} data-attr="error-tracking-issue-tags-button" />}
             >
@@ -84,6 +94,7 @@ export function IssueTagsButton({
                                     aria-label={`Show issues tagged ${tag.label}`}
                                     data-attr="error-tracking-issue-tags-button-tag"
                                     onClick={() => {
+                                        posthog.capture('error_tracking_issue_tag_clicked', { ui_source: surface })
                                         setOpen(false)
                                         onTagClick(tag.key)
                                     }}

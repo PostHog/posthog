@@ -66,13 +66,20 @@ Without AI recommendations enabled, users configure goals manually; capability r
 ## Discovery and access
 
 Discovery reads PostgreSQL event definitions, event-property associations, and numeric property definitions instead of aggregating the ClickHouse events table.
-It reads at most 1,000 non-system event definitions in indexed name order and 50 recently updated accessible actions.
+It reads at most 1,000 non-system event definitions and 50 recently updated accessible actions.
+The events that queries used most in the last 30 days come first, then the rest in indexed name order.
+Query usage comes from the usage metrics that query execution records in ClickHouse, not from the events table.
+When that read fails or returns nothing, discovery keeps the name order.
+Usage is recorded per environment, so queries run in a sibling environment of the project do not count.
 It excludes hidden events, definitions last seen before the analysis cutoff, and sources already configured as goals.
 The initial catalog has a 60,000-character JSON budget, including event names and descriptions but no property values.
 Larger catalogs may omit useful sources; the scan is not exhaustive.
 For more than ten candidates, an AI call selects up to ten source references before property metadata is loaded.
 The shortlist uses existing goals as context, and the backend rejects unknown references and removes duplicates.
 Each selected event receives at most 50 property names and their numeric status, with restricted property names removed.
+Custom properties come before `$` properties, and within each group the ones queries used most come first.
+Property usage is recorded only for teams with the `property-usage-tracking` flag; without it, each group stays in name order.
+The ranking covers the first 500 property names of an event, read custom first in name order.
 A second call uses the existing recommendation schema to propose up to three goals; catalogs of ten candidates or fewer skip shortlisting.
 The schema queries use the catalog’s project index and a five-second statement timeout.
 Discovery does not evaluate event counts, distinct users, or test-account filters. Missing counts remain null.

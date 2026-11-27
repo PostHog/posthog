@@ -867,6 +867,45 @@ describe('EmailService', () => {
                 })
             })
 
+            it.each<[string, FakeSesFault]>([
+                ['drops the answer', 'accept-then-drop-connection'],
+                [
+                    'answers 500',
+                    { acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' } },
+                ],
+            ])(
+                'fails the job without a resend when SES records the email, %s, then throttles the retry',
+                async (_name, firstAnswer) => {
+                    ses.failInTurn(firstAnswer, tooManyRequests)
+                    service.sesTransport = sesTransportFor(ses, { maxAttempts: 2 })
+                    const before = await metricValue('cdp_ses_send_results_total', { result: 'may_have_sent' })
+                    const throttledBefore = await metricValue('cdp_ses_send_results_total', { result: 'throttled' })
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect({
+                        finished: result.finished,
+                        rescheduledAt: result.invocation.queueScheduledAt,
+                        error: result.error,
+                        failed: result.metrics.map((metric) => metric.metric_name),
+                        counted:
+                            (await metricValue('cdp_ses_send_results_total', { result: 'may_have_sent' })) - before,
+                        countedThrottled:
+                            (await metricValue('cdp_ses_send_results_total', { result: 'throttled' })) -
+                            throttledBefore,
+                        sent: ses.sent.length,
+                    }).toEqual({
+                        finished: true,
+                        rescheduledAt: invocation.queueScheduledAt,
+                        error: 'Failed to send email via SES: SES throttled a retry after an earlier attempt that may have sent the email, so it is not sent again.',
+                        failed: ['email_failed'],
+                        counted: 1,
+                        countedThrottled: 0,
+                        sent: 1,
+                    })
+                }
+            )
+
             it.each(throttleCases)('counts an SES send that fails with %s as throttled', async (_name, fault) => {
                 const labels = { result: 'throttled' }
                 const before = await metricValue('cdp_ses_send_results_total', labels)
@@ -2381,20 +2420,41 @@ describe('EmailService', () => {
                     attachments: files.map((file) => file.metadata),
                 })
             }
+            const inOneAdmission = async <T>(files: StoredFile['metadata'][], sends: () => Promise<T>): Promise<T> => {
+                const registry = new InFlightRegistry({
+                    budgetBytes: Number.MAX_SAFE_INTEGER,
+                    heapLimitBytes: Number.MAX_SAFE_INTEGER,
+                    maxInFlight: 1,
+                })
+                const admission = registry.tryStart(files, sends)
+                return await (admission as Extract<typeof admission, { started: unknown }>).started
+            }
+            const admittingEachSendWithFiles = (emailService: EmailService): EmailService => {
+                const executeSendEmail = emailService.executeSendEmail.bind(emailService)
+                emailService.executeSendEmail = (sent, isTest = false) => {
+                    const files = sent.queueParameters?.type === 'email' ? (sent.queueParameters.attachments ?? []) : []
+                    return files.length && !isTest
+                        ? inOneAdmission(files, () => executeSendEmail(sent, isTest))
+                        : executeSendEmail(sent, isTest)
+                }
+                return emailService
+            }
             const sender = ({
                 teamDailyCap,
                 teamConfigDb,
                 attachmentSendDeadlineMs,
                 ownershipCheckTimeoutMs,
                 textPartTeams,
+                admits = 'each send with files',
             }: {
                 teamDailyCap?: number
                 teamConfigDb?: PostgresRouter
                 attachmentSendDeadlineMs?: number
                 ownershipCheckTimeoutMs?: number
                 textPartTeams?: string
-            } = {}): EmailService =>
-                createService(
+                admits?: 'each send with files' | 'nothing'
+            } = {}): EmailService => {
+                const emailService = createService(
                     {
                         ...(teamDailyCap
                             ? { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [teamDailyCap] }
@@ -2409,6 +2469,8 @@ describe('EmailService', () => {
                     },
                     { attachmentStore: bucket.store(), teamConfigDb, emailStatusService: emailStatus }
                 )
+                return admits === 'nothing' ? emailService : admittingEachSendWithFiles(emailService)
+            }
             const sesThrottles: FakeSesFault = {
                 status: 429,
                 type: 'TooManyRequestsException',
@@ -3048,15 +3110,6 @@ describe('EmailService', () => {
                 }
             )
 
-            const inOneAdmission = async <T>(sends: () => Promise<T>): Promise<T> => {
-                const registry = new InFlightRegistry({
-                    budgetBytes: Number.MAX_SAFE_INTEGER,
-                    heapLimitBytes: Number.MAX_SAFE_INTEGER,
-                    maxInFlight: 1,
-                })
-                const admission = registry.tryStart(pdf.bytes.length, sends)
-                return await (admission as Extract<typeof admission, { started: unknown }>).started
-            }
             const outcomeOf = (result: Awaited<ReturnType<EmailService['executeSendEmail']>>) => ({
                 finished: result.finished,
                 error: result.error,
@@ -3119,15 +3172,17 @@ describe('EmailService', () => {
                 }
             )
 
-            it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
-                const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
+            it('after an email abandoned a download mid-body, the next email in the same admission loads its files and sends', async () => {
+                const emailService = sender({ attachmentSendDeadlineMs: 2_000, admits: 'nothing' })
+                const logoRef = { filename: 'logo.png', contentType: 'image/png', contentId: 'logo' }
+                logo = attachmentFile(logoRef)
+                send([pdf, logo])
                 bucket.answer = 'stallFileBodies'
 
-                const { first, second } = await inOneAdmission(async () => {
-                    send([pdf, attachmentFile()])
+                const { first, second } = await inOneAdmission([pdf.metadata, logo.metadata], async () => {
                     const first = await emailService.executeSendEmail(invocation)
+                    await uploadAttachment(team.id, logoRef, logo.bytes)
                     bucket.answer = 'pass'
-                    send([pdf, logo])
                     return { first, second: await emailService.executeSendEmail(invocation) }
                 })
 
@@ -3153,7 +3208,7 @@ describe('EmailService', () => {
             ])(
                 'when a flow sends its next email inline while the SES call of the email before still waits for its credentials, it %s',
                 async (_name, credentialsArrive, attachmentSendDeadlineMs, expected, inbox) => {
-                    const emailService = sender({ attachmentSendDeadlineMs })
+                    const emailService = sender({ attachmentSendDeadlineMs, admits: 'nothing' })
                     let giveCredentials!: () => void
                     const credentials = new Promise<{ accessKeyId: string; secretAccessKey: string }>((resolve) => {
                         giveCredentials = () =>
@@ -3161,7 +3216,7 @@ describe('EmailService', () => {
                     })
                     emailService.sesTransport = sesTransportFor(ses, { credentials: () => credentials })
 
-                    const { first, second } = await inOneAdmission(async () => {
+                    const { first, second } = await inOneAdmission([pdf.metadata, logo.metadata], async () => {
                         const first = await emailService.executeSendEmail(invocation)
                         bucket.answer = 'refuse'
                         if (credentialsArrive) {
@@ -3228,26 +3283,30 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each<[string, FakeSesFault, number]>([
-                ['SES receives the request and does not answer past the deadline', 'no-answer', 0],
-                ['SES answers 200 and its body stalls past the deadline', 'stalled-body', 0],
-                ['the connection drops after the request went out', 'drop-connection', 0],
+            it.each<[string, FakeSesFault, number, number]>([
+                ['SES receives the request and does not answer past the deadline', 'no-answer', 0, 1],
+                ['SES answers 200 and its body stalls past the deadline', 'stalled-body', 0, 1],
+                ['the connection drops after the request went out', 'drop-connection', 0, 0],
                 [
                     'SES records the email and answers 500',
                     { acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' } },
                     1,
+                    0,
                 ],
-                ['SES records the email and drops the connection', 'accept-then-drop-connection', 1],
+                ['SES records the email and drops the connection', 'accept-then-drop-connection', 1, 0],
                 [
                     'SES answers 500 without recording the email',
                     { status: 500, type: 'InternalFailure', message: 'Internal failure' },
                     0,
+                    0,
                 ],
             ])(
                 'when %s once, fails the send without a retry, because SES may have sent it',
-                async (_name, fault, timesSesRecordedIt) => {
+                async (_name, fault, timesSesRecordedIt, countedAsMayHaveSent) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     ses.failOnce(fault)
+                    const labels = { result: 'may_have_sent' }
+                    const before = await metricValue('cdp_ses_send_results_total', labels)
 
                     const result = await emailService.executeSendEmail(invocation)
 
@@ -3256,11 +3315,13 @@ describe('EmailService', () => {
                         error: result.error,
                         failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
                         timesSesRecordedIt: deliveredTo(ses, recipient).length,
+                        countedAsMayHaveSent: (await metricValue('cdp_ses_send_results_total', labels)) - before,
                     }).toEqual({
                         finished: true,
                         error: expect.stringMatching(/^Failed to send email via SES: /),
                         failed: true,
                         timesSesRecordedIt,
+                        countedAsMayHaveSent,
                     })
                 }
             )
@@ -3336,6 +3397,56 @@ describe('EmailService', () => {
                     expect(await recordedEmailStatuses()).toEqual(
                         failedStatusReason ? [failedEmailStatus(failedStatusReason)] : []
                     )
+                }
+            )
+
+            it.each([
+                {
+                    send: 'a send',
+                    retriesSoFar: 0,
+                    isTest: false,
+                    outcome: { finished: false, error: undefined, retries: 1 },
+                },
+                {
+                    send: 'a send at its retry cap',
+                    retriesSoFar: 10,
+                    isTest: false,
+                    outcome: {
+                        finished: true,
+                        error: expect.stringMatching(/^attachment_unavailable: .* after 11 tries\./),
+                        retries: undefined,
+                    },
+                },
+                {
+                    send: 'a test send',
+                    retriesSoFar: 0,
+                    isTest: true,
+                    outcome: {
+                        finished: true,
+                        error: expect.stringMatching(/^attachment_unavailable: .* after 1 try\./),
+                        retries: undefined,
+                    },
+                },
+            ])(
+                '$send with files outside any admission downloads nothing, sends nothing and counts the refusal',
+                async ({ retriesSoFar, isTest, outcome }) => {
+                    sendAsTransactionalEmail()
+                    invocation.queueMetadata = { attachmentLoadRetries: retriesSoFar }
+                    const refusals = (): Promise<number> =>
+                        metricValue('cdp_email_attachments_unadmitted_loads_total', {
+                            reason: 'outside_any_admission',
+                        })
+                    const refusalsBefore = await refusals()
+
+                    const result = await sender({ admits: 'nothing' }).executeSendEmail(invocation, isTest)
+
+                    expect({
+                        finished: result.finished,
+                        error: result.error,
+                        retries: result.invocation.queueMetadata?.attachmentLoadRetries,
+                    }).toEqual(outcome)
+                    expect({ downloads: bucket.downloads, sent: ses.sent }).toEqual({ downloads: 0, sent: [] })
+                    expect(await refusals()).toBe(refusalsBefore + 1)
                 }
             )
 

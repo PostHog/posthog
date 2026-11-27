@@ -168,6 +168,9 @@ const businessKnowledgeLibrariesPartialUpdate = (): ToolBase<
         if (params.repos !== undefined) {
             body['repos'] = params.repos
         }
+        if (params.is_default !== undefined) {
+            body['is_default'] = params.is_default
+        }
         const result = await context.api.request<Schemas.KnowledgeLibrary>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/libraries/${encodeURIComponent(String(params.id))}/`,

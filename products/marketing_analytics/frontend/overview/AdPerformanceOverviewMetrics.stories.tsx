@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
 import type { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 
 import { expect, userEvent } from 'storybook/test'
@@ -151,6 +154,40 @@ export const ConfigureMetricsWithChanges: Story = {
         await expect(applyButton).toBeEnabled()
         const content = dialog.querySelector<HTMLElement>('.LemonModal__content')!
         // The last interaction focuses a control below the fold and scrolls the modal.
+        ;(dialog.ownerDocument.activeElement as HTMLElement | null)?.blur()
+        content.scrollTo({ top: 0, behavior: 'instant' })
+        await waitFor(() => expect(content.scrollTop).toBe(0))
+    },
+}
+
+export const ConfigureMetricsWithChangesQuill: Story = {
+    args: { viewKey: 'overview-metrics-configure-changes-quill-story' },
+    decorators: [
+        (Story) => (
+            <QuillSurfaceContext.Provider value={true}>
+                <Story />
+            </QuillSurfaceContext.Provider>
+        ),
+    ],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { waitForSelector: '[role="dialog"]', snapshotTargetSelector: '[role="dialog"]' },
+    },
+    play: async (context) => {
+        await openEditor(context)
+        const dialog = within(context.canvasElement.ownerDocument.body).getByRole('dialog')
+        await userEvent.click(within(dialog).getByRole('button', { name: 'Move Clicks up' }))
+        const platforms = within(within(dialog).getByRole('region', { name: 'Ad platforms' }))
+        await userEvent.click(platforms.getByText('Impressions', { exact: true }))
+        await userEvent.click(platforms.getByText('CTR', { exact: true }))
+        await userEvent.click(
+            within(within(dialog).getByRole('region', { name: 'PostHog' })).getByText('Trial started', {
+                exact: true,
+            })
+        )
+        await expect(within(dialog).getByRole('button', { name: 'Apply' })).toBeEnabled()
+        const content = dialog.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')!
+        // The last interaction focuses a control below the fold and scrolls the dialog.
         ;(dialog.ownerDocument.activeElement as HTMLElement | null)?.blur()
         content.scrollTo({ top: 0, behavior: 'instant' })
         await waitFor(() => expect(content.scrollTop).toBe(0))

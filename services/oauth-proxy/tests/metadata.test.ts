@@ -19,7 +19,7 @@ const AUTHORITATIVE_METADATA = {
     service_documentation: 'https://posthog.com/docs/model-context-protocol',
     client_id_metadata_document_supported: true,
     agent_auth: {
-        skill: 'https://us.posthog.com/auth.md',
+        skill: 'https://posthog.com/auth.md',
         identity_endpoint: 'https://us.posthog.com/oauth/token/',
         identity_types_supported: ['identity_assertion'],
     },
@@ -98,7 +98,7 @@ describe('handleMetadata', () => {
         const response = await handleMetadata(request)
         const data = (await response.json()) as { agent_auth: Record<string, unknown> }
 
-        expect(data.agent_auth.skill).toBe('https://oauth.posthog.com/auth.md')
+        expect(data.agent_auth.skill).toBe('https://posthog.com/auth.md')
         expect(data.agent_auth.identity_endpoint).toBe('https://oauth.posthog.com/oauth/token/')
     })
 
@@ -270,33 +270,13 @@ describe('handleScopes', () => {
 })
 
 describe('handleClientManifest', () => {
-    beforeEach(() => {
-        vi.resetModules()
-        vi.stubGlobal(
-            'fetch',
-            vi.fn().mockResolvedValue(
-                new Response('Authorize at https://us.posthog.com/oauth/authorize/ with scope `openid`.', {
-                    status: 200,
-                })
-            )
-        )
-    })
-
-    afterEach(() => {
-        vi.restoreAllMocks()
-    })
-
-    it('serves the manifest the metadata advertises, with its URLs on the proxy', async () => {
-        // `agent_auth.skill` points agents at this path on the proxy, which had no route for it.
+    it('redirects to the shared manifest on posthog.com', async () => {
         const { handleClientManifest } = await import('@/handlers/metadata')
-        const request = new Request('https://oauth.posthog.com/auth.md')
 
-        const response = await handleClientManifest(request)
+        const response = handleClientManifest()
 
-        expect(response.status).toBe(200)
-        expect(response.headers.get('content-type')).toContain('text/markdown')
-        expect(await response.text()).toBe(
-            'Authorize at https://oauth.posthog.com/oauth/authorize/ with scope `openid`.'
-        )
+        expect(response.status).toBe(301)
+        expect(response.headers.get('location')).toBe('https://posthog.com/auth.md')
+        expect(response.headers.get('access-control-allow-origin')).toBe('*')
     })
 })
