@@ -11,7 +11,7 @@ export const TILE_DESCRIPTION_MODES = ['icon', 'below', 'hidden'] as const
 /** How a tile looks. A setting that is missing is on. */
 export const tileAppearanceSchema = z.object({
     border: z.boolean().optional(),
-    /** Where a tile shows its description. Missing means `icon`, which an image of the tile shows as `below`. A section shows `below` next to its title. */
+    /** Where a tile shows its description. Missing means `icon`, which an image of the tile shows as `below`. */
     description: z.enum(TILE_DESCRIPTION_MODES).optional(),
     /** Any CSS color. The tile mixes it into its background as a tint, and `transparent` removes the background. */
     backgroundColor: z.string().min(1).optional(),

@@ -5,6 +5,7 @@ import {
     GRID,
     isSection,
     panelSize,
+    sectionDescriptionRows,
 } from '../../dashboard/document/dashboardTypes'
 import { type SizeOf } from '../../panels/core/panelSpec'
 import { type PlacedItem, bottomOf, placeTiles } from './placeTiles'
@@ -69,14 +70,18 @@ export function withSectionRows(tiles: Tile[], cols: number, rows: Record<string
 
 function sectionRows(section: SectionPanel): number {
     if (section.collapsed) {
-        return GRID.collapsedSectionRows
+        return GRID.collapsedSectionRows + sectionDescriptionRows(section)
     }
     return Math.max(contentRows(section), section.minRows ?? 0)
 }
 
 /** The rows an open section needs for its header, its padding and its tiles. It is never shorter than this. */
 export function contentRows(section: SectionPanel): number {
-    return GRID.sectionChromeRows + Math.max(GRID.emptySectionRows, bottomOf(section.tiles.map((tile) => tile.place)))
+    return (
+        GRID.sectionChromeRows +
+        sectionDescriptionRows(section) +
+        Math.max(GRID.emptySectionRows, bottomOf(section.tiles.map((tile) => tile.place)))
+    )
 }
 
 /** Brings one grid into shape, innermost first because a section's height comes from what is inside it. */

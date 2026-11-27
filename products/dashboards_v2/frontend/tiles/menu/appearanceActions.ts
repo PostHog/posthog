@@ -144,7 +144,7 @@ function descriptionChoices(
         }
         // A section always shows its header.
         const header = isSectionPanel(panel) || showsPart(panel, 'header')
-        return [{ id, mode: panel.appearance?.description ?? 'icon', header, section: isSectionPanel(panel) }]
+        return [{ id, mode: panel.appearance?.description ?? 'icon', header }]
     })
     if (applies.length === 0) {
         return []
@@ -152,11 +152,9 @@ function descriptionChoices(
     const ids = applies.map(({ id }) => id)
     // The description sits in the header, so no choice changes anything while the header is off.
     const headerOff = applies.every(({ header }) => !header) ? 'The header is off' : null
-    // A section's header keeps one height, so its description goes next to the title instead of below it.
-    const allSections = applies.every(({ section }) => section)
     return DESCRIPTION_MODES.map(({ mode, label }) => ({
         key: `description-${mode}`,
-        label: mode === 'below' && allSections ? 'Next to the title' : label,
+        label,
         section: 'Description',
         exclusive: true,
         dataAttr: `${menu.dataAttr}-description`,
