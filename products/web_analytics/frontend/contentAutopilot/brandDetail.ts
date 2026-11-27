@@ -3,7 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import type { AEOBrandApi, AEOBrandDetailApi } from 'products/web_analytics/frontend/generated/api.schemas'
 import { BrandKindEnumApi, BrandStatusEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { positionLabel } from './promptReport'
+import { type KpiDelta, positionDelta, positionLabel } from './promptReport'
 import { formatShare, shareChange } from './shares'
 
 export type BrandDetailKpiKey = 'visibility' | 'citation_rate' | 'average_position' | 'positive_share'
@@ -24,6 +24,8 @@ export interface BrandDetailKpi {
     changeLabel: string | null
     /** A lower position is better. */
     goodDirection: 'up' | 'down'
+    /** The change as the AI visibility KPI tiles show it, or null when the range before can't be compared. */
+    delta: KpiDelta | null
     /** The value on the last day with answers, such as "Nov 26: 42%", or null without one. */
     latest: string | null
 }
@@ -90,6 +92,7 @@ export const brandDetailKpis = (detail: AEOBrandDetailApi): BrandDetailKpi[] =>
         const previous = detail.previous ? detail.previous[key] : null
         const latest = detail.latest ? detail.latest[key] : null
         const change = changeBetween(key, value, previous)
+        const tooltip = `Against the ${detail.days} days before`
         return {
             key,
             label,
@@ -101,6 +104,16 @@ export const brandDetailKpis = (detail: AEOBrandDetailApi): BrandDetailKpi[] =>
             change,
             changeLabel: change === null ? null : changeLabel(key, change),
             goodDirection: key === 'average_position' ? 'down' : 'up',
+            delta:
+                change === null
+                    ? null
+                    : key === 'average_position'
+                      ? positionDelta(change, `${tooltip}. Lower is better`)
+                      : {
+                            label: changeLabel(key, change),
+                            direction: change > 0 ? 'up' : change < 0 ? 'down' : 'flat',
+                            tooltip: `${tooltip}, in percentage points`,
+                        },
             latest:
                 detail.latest_date && latest !== null
                     ? `${dayjs(detail.latest_date).format('MMM D')}: ${format(key, latest)}`

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, Tabs, TabsContent, TabsList, TabsTrigger, Text } from '@posthog/quill'
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger, Text, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -89,7 +89,11 @@ export const ContentAutopilotBrandDetail = (): JSX.Element | null => {
                 <ContentAutopilotBrandDetailSkeleton />
             ) : (
                 <div
-                    className={detailLoading ? 'flex flex-col gap-4 opacity-50' : 'flex flex-col gap-4'}
+                    className={cn(
+                        '@container/brand-page flex flex-col gap-4 transition-opacity motion-reduce:transition-none',
+                        // The numbers on screen belong to the previous filters until the new detail arrives.
+                        detailLoading && 'opacity-50'
+                    )}
                     aria-busy={detailLoading}
                 >
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

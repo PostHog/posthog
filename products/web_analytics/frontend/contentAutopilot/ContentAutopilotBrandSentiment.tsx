@@ -10,6 +10,7 @@ import type { LemonTagType } from 'lib/lemon-ui/LemonTag'
 
 import type { AEOBrandSentimentApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityCard } from './AiVisibilityCard'
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { SENTIMENT_LABELS } from './answerSentiment'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
@@ -50,68 +51,80 @@ export const ContentAutopilotBrandSentiment = ({
 
     if (sentiment.scored === 0) {
         return (
-            <Text
-                size="xs"
-                variant="muted"
-                render={<p className="m-0" />}
-                data-attr="content-autopilot-brand-sentiment-empty"
-            >
-                No answer in this date range has a scored sentence about this brand yet.
-            </Text>
+            <AiVisibilityCard title="Sentiment">
+                <Text
+                    size="xs"
+                    variant="muted"
+                    render={<p className="m-0" />}
+                    data-attr="content-autopilot-brand-sentiment-empty"
+                >
+                    No answer in this date range has a scored sentence about this brand yet.
+                </Text>
+            </AiVisibilityCard>
         )
     }
     return (
         <div className="flex flex-col gap-4" data-attr="content-autopilot-brand-sentiment">
-            <div className="flex flex-col gap-2">
-                <ProportionBar
-                    series={series}
-                    theme={theme}
-                    config={LEGEND_HIDDEN}
-                    valueFormatter={formatShare}
-                    dataAttr="content-autopilot-brand-sentiment-bar"
-                />
-                <div className="flex flex-wrap items-center gap-1" data-attr="content-autopilot-brand-sentiment-shares">
-                    {SHARES.map(({ key, label, type }) => {
-                        const share = sentiment[key]
-                        return (
-                            <AiVisibilityTag key={key} type={type}>
-                                <span className="opacity-75">{label}</span>{' '}
-                                <span className="tabular-nums" translate="no">
-                                    {share === null ? '-' : formatShare(share)}
-                                </span>
-                            </AiVisibilityTag>
-                        )
-                    })}
-                </div>
-            </div>
-            {sentiment.examples.length > 0 ? (
-                <ul className="m-0 flex flex-col gap-2 p-0" data-attr="content-autopilot-brand-sentiment-examples">
-                    {sentiment.examples.map((example, index) => (
-                        <li
-                            key={`${example.prompt_id}-${index}`}
-                            className="flex list-none flex-col gap-1 rounded-md border border-border p-3"
-                        >
-                            <span className="flex flex-wrap items-center gap-2">
-                                <AiVisibilityTag type={TAG_TYPES[example.sentiment] ?? 'default'}>
-                                    {SENTIMENT_LABELS[example.sentiment] ?? example.sentiment}
+            <AiVisibilityCard title="Sentiment">
+                <div className="flex flex-col gap-2">
+                    <ProportionBar
+                        series={series}
+                        theme={theme}
+                        config={LEGEND_HIDDEN}
+                        valueFormatter={formatShare}
+                        dataAttr="content-autopilot-brand-sentiment-bar"
+                    />
+                    <div
+                        className="flex flex-wrap items-center gap-1"
+                        data-attr="content-autopilot-brand-sentiment-shares"
+                    >
+                        {SHARES.map(({ key, label, type }) => {
+                            const share = sentiment[key]
+                            return (
+                                <AiVisibilityTag key={key} type={type}>
+                                    <span className="opacity-75">{label}</span>{' '}
+                                    <span className="tabular-nums" translate="no">
+                                        {share === null ? '-' : formatShare(share)}
+                                    </span>
                                 </AiVisibilityTag>
-                                <ContentAutopilotEngineLabel engine={example.engine} />
-                                <Button
-                                    variant="link-muted"
-                                    size="inline"
-                                    className="ml-auto"
-                                    onClick={() => onOpenPrompt(example.prompt_id)}
-                                    data-attr="content-autopilot-brand-sentiment-prompt"
-                                >
-                                    Open prompt
-                                </Button>
-                            </span>
-                            <Text size="sm" render={<blockquote className="m-0" />}>
-                                {example.sentence}
-                            </Text>
-                        </li>
-                    ))}
-                </ul>
+                            )
+                        })}
+                    </div>
+                </div>
+            </AiVisibilityCard>
+            {sentiment.examples.length > 0 ? (
+                <AiVisibilityCard title="Sentences that name the brand">
+                    <ul
+                        className="m-0 flex flex-col divide-y divide-border p-0"
+                        data-attr="content-autopilot-brand-sentiment-examples"
+                    >
+                        {sentiment.examples.map((example, index) => (
+                            <li
+                                key={`${example.prompt_id}-${index}`}
+                                className="flex list-none flex-col gap-1 py-3 first:pt-0 last:pb-0"
+                            >
+                                <span className="flex flex-wrap items-center gap-2">
+                                    <AiVisibilityTag type={TAG_TYPES[example.sentiment] ?? 'default'}>
+                                        {SENTIMENT_LABELS[example.sentiment] ?? example.sentiment}
+                                    </AiVisibilityTag>
+                                    <ContentAutopilotEngineLabel engine={example.engine} />
+                                    <Button
+                                        variant="link-muted"
+                                        size="inline"
+                                        className="ml-auto"
+                                        onClick={() => onOpenPrompt(example.prompt_id)}
+                                        data-attr="content-autopilot-brand-sentiment-prompt"
+                                    >
+                                        Open prompt
+                                    </Button>
+                                </span>
+                                <Text size="sm" render={<blockquote className="m-0" />}>
+                                    {example.sentence}
+                                </Text>
+                            </li>
+                        ))}
+                    </ul>
+                </AiVisibilityCard>
             ) : null}
         </div>
     )

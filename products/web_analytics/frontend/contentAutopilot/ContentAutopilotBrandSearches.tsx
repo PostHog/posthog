@@ -1,5 +1,6 @@
 import type { AEOBrandSearchApi, BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityCard } from './AiVisibilityCard'
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { REPORT_TABLE_PAGE_SIZE } from './aiVisibilityTablePaging'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
@@ -26,56 +27,59 @@ export const ContentAutopilotBrandSearches = ({
     topic: string | null
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => (
-    <AiVisibilityTable<AEOBrandSearchApi>
-        size="small"
-        data-attr="content-autopilot-brand-searches"
-        pagination={{ pageSize: REPORT_TABLE_PAGE_SIZE }}
-        emptyState="No web searches in this date range."
-        dataSource={searches}
-        rowKey="query"
-        expandable={{
-            noIndent: true,
-            expandedRowRender: (search) => (
-                <ContentAutopilotSearchDetail
-                    query={search.query}
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    branded={branded}
-                    engine={engine}
-                    topic={topic}
-                    onOpenPrompt={onOpenPrompt}
-                />
-            ),
-        }}
-        columns={[
-            {
-                title: 'Search',
-                key: 'query',
-                className: 'w-full max-w-0',
-                render: (_, search) => (
-                    <ContentAutopilotCitationsLink
-                        lookup={{ kind: 'search', value: search.query, dateFrom, dateTo, branded, engine, topic }}
-                        source="brand-searches"
-                        title={search.query}
-                    >
-                        {search.query}
-                    </ContentAutopilotCitationsLink>
+    <AiVisibilityCard title="Searches behind the answers">
+        <AiVisibilityTable<AEOBrandSearchApi>
+            size="small"
+            embedded
+            data-attr="content-autopilot-brand-searches"
+            pagination={{ pageSize: REPORT_TABLE_PAGE_SIZE }}
+            emptyState="No web searches in this date range."
+            dataSource={searches}
+            rowKey="query"
+            expandable={{
+                noIndent: true,
+                expandedRowRender: (search) => (
+                    <ContentAutopilotSearchDetail
+                        query={search.query}
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        branded={branded}
+                        engine={engine}
+                        topic={topic}
+                        onOpenPrompt={onOpenPrompt}
+                    />
                 ),
-            },
-            {
-                title: 'Engines',
-                key: 'engines',
-                className: 'hidden @md/ai-visibility-table:table-cell',
-                render: (_, search) => <ContentAutopilotEngineMarks engines={search.engines} />,
-            },
-            {
-                title: 'Share of answers',
-                key: 'share_of_answers',
-                align: 'right',
-                tooltip: 'Share of the answers naming the brand that ran this search.',
-                sorter: (a, b) => a.share_of_answers - b.share_of_answers,
-                render: (_, search) => <ContentAutopilotRateBar rate={search.share_of_answers} />,
-            },
-        ]}
-    />
+            }}
+            columns={[
+                {
+                    title: 'Search',
+                    key: 'query',
+                    className: 'w-full max-w-0',
+                    render: (_, search) => (
+                        <ContentAutopilotCitationsLink
+                            lookup={{ kind: 'search', value: search.query, dateFrom, dateTo, branded, engine, topic }}
+                            source="brand-searches"
+                            title={search.query}
+                        >
+                            {search.query}
+                        </ContentAutopilotCitationsLink>
+                    ),
+                },
+                {
+                    title: 'Engines',
+                    key: 'engines',
+                    className: 'hidden @md/ai-visibility-table:table-cell',
+                    render: (_, search) => <ContentAutopilotEngineMarks engines={search.engines} />,
+                },
+                {
+                    title: 'Share of answers',
+                    key: 'share_of_answers',
+                    align: 'right',
+                    tooltip: 'Share of the answers naming the brand that ran this search.',
+                    sorter: (a, b) => a.share_of_answers - b.share_of_answers,
+                    render: (_, search) => <ContentAutopilotRateBar rate={search.share_of_answers} />,
+                },
+            ]}
+        />
+    </AiVisibilityCard>
 )

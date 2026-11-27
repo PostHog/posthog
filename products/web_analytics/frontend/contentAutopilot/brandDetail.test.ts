@@ -60,12 +60,14 @@ describe('brandDetail', () => {
             changeLabel: '+5 pts',
             goodDirection: 'up',
             latest: 'Oct 29: 50%',
+            delta: { label: '+5 pts', direction: 'up', tooltip: 'Against the 30 days before, in percentage points' },
         })
         expect(kpis.average_position).toMatchObject({
             formatted: '#2.4',
             change: -0.6,
             changeLabel: '-0.6',
             goodDirection: 'down',
+            delta: { label: '0.6 better', direction: 'up', tooltip: 'Against the 30 days before. Lower is better' },
         })
     })
 
