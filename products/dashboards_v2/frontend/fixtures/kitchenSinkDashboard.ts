@@ -35,7 +35,7 @@ const bar = (title: string, sql: string): ContentPanel<ChartConfig> => chart(tit
 const text = (markdown: string): SavedPanel => ({
     type: 'markdown',
     config: { text: markdown },
-    appearance: { backgroundColor: 'transparent' },
+    appearance: { backgroundColor: 'transparent', border: false },
 })
 
 const tile = (id: string, x: number, y: number, w: number, h: number, panel: Tile['panel']): Tile => ({

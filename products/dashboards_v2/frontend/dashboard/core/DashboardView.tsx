@@ -14,6 +14,8 @@ import {
 } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
 
+import { Button } from '@posthog/quill'
+
 import { getJSHeapMemory } from 'lib/utils/dom'
 
 import { FilterBar } from '../../filters/bar/FilterBar'
@@ -23,6 +25,7 @@ import type { DropTarget } from '../../grid/drag/dropTargets'
 import { GridDragContext, type GridDragState } from '../../grid/drag/gridDrag'
 import { stackTiles } from '../../grid/layout/gridTiles'
 import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../../grid/tileMounting'
+import { ErrorBoundary } from '../../panels/core/ErrorBoundary'
 import { PanelHostContext } from '../../panels/core/panelHostContext'
 import { sizeOfPanels } from '../../panels/core/panelSpec'
 import { TileSlideshow } from '../../tiles/TileSlideshow'
@@ -39,9 +42,9 @@ import {
     type DashboardState,
     DashboardStateContext,
 } from './dashboardContext'
-import { DashboardErrorBoundary } from './DashboardErrorBoundary'
 import { DashboardTabs } from './DashboardTabs'
 import { DashboardTileGrid } from './DashboardTileGrid'
+import { DashboardUnavailable } from './DashboardUnavailable'
 import { useStableController } from './useStableController'
 
 // A stacked column is not the saved layout, so only dragging and resizing tiles in it is blocked.
@@ -60,9 +63,29 @@ export type DashboardViewProps = DashboardController & {
 /** A whole dashboard: tabs and grid. Its own state is only what the screen and a drag in progress decide. */
 export function DashboardView(props: DashboardViewProps): JSX.Element {
     return (
-        <DashboardErrorBoundary dashboard={props.dashboard}>
+        <ErrorBoundary
+            resetKey={props.dashboard}
+            tag="dashboards-v2-dashboard"
+            fallback={<DashboardFailed history={props.history} />}
+        >
             <DashboardViewContent {...props} />
-        </DashboardErrorBoundary>
+        </ErrorBoundary>
+    )
+}
+
+/** A bad edit is the likeliest cause, and the boundary tries again on the document an undo gives. */
+function DashboardFailed({ history }: { history: DashboardController['history'] }): JSX.Element {
+    return (
+        <DashboardUnavailable
+            problem="error"
+            actions={
+                history?.canUndo && (
+                    <Button variant="outline" onClick={history.onUndo} data-attr="dashboard-v2-error-undo">
+                        Undo last change
+                    </Button>
+                )
+            }
+        />
     )
 }
 
@@ -253,16 +276,23 @@ function DashboardViewContent({ header, surface, ...props }: DashboardViewProps)
                                             ref={containerRef as RefObject<HTMLDivElement>}
                                             className="DashboardView__canvas"
                                         >
-                                            {mounted && width > 0 && (
-                                                <DashboardTileGrid
-                                                    key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                                                    gridId={activeTab.id}
-                                                    tiles={tiles}
-                                                    cols={GRID.columns}
-                                                    width={width}
-                                                    editable={can('placeTiles')}
-                                                />
-                                            )}
+                                            {/* The header, filters and tabs stay outside, so a broken tab still lets a person switch tabs or undo. */}
+                                            <ErrorBoundary
+                                                resetKey={state.dashboard}
+                                                tag="dashboards-v2-grid"
+                                                fallback={<DashboardFailed history={history} />}
+                                            >
+                                                {mounted && width > 0 && (
+                                                    <DashboardTileGrid
+                                                        key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
+                                                        gridId={activeTab.id}
+                                                        tiles={tiles}
+                                                        cols={GRID.columns}
+                                                        width={width}
+                                                        editable={can('placeTiles')}
+                                                    />
+                                                )}
+                                            </ErrorBoundary>
                                         </div>
                                     </div>
                                     <TileSlideshow />

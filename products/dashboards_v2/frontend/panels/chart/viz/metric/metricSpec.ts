@@ -11,7 +11,7 @@ export type MetricOptions = z.infer<typeof metricOptionsSchema>
 export const metricSpec: VizSpec<MetricOptions> = {
     type: 'metric',
     label: 'Metric',
-    // Eight rows fit the title, the number and the footer.
-    size: { w: 6, h: 8, minW: 4, minH: 4 },
+    // Eight rows fit the title, the number, its date and the sparkline. Any shorter and the sparkline goes.
+    size: { w: 6, h: 8, minW: 4, minH: 8 },
     optionsSchema: metricOptionsSchema,
 }

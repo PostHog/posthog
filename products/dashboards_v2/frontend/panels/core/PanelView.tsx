@@ -3,8 +3,8 @@ import { type ComponentType, Suspense, memo, useContext, useLayoutEffect } from 
 import { IconLineGraph, IconPuzzle, IconWarning, IconWrench } from '@posthog/icons'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, IconStack, IconStackItem, Skeleton } from '@posthog/quill'
 
+import { ErrorBoundary, PANEL_ERROR_TAG } from './ErrorBoundary'
 import type { PanelType } from './panelDefinition'
-import { PanelErrorBoundary } from './PanelErrorBoundary'
 import { PanelHostContext } from './panelHostContext'
 import { type SavedPanel } from './panelSchema'
 
@@ -113,8 +113,9 @@ export const PanelView = memo(function PanelView({
     const Loading: ComponentType<{ panel: SavedPanel }> = definition.Loading ?? PanelLoading
     // One panel that throws or suspends shows its own state, and the rest of the dashboard keeps working.
     return (
-        <PanelErrorBoundary
-            panel={panel}
+        <ErrorBoundary
+            resetKey={panel}
+            tag={PANEL_ERROR_TAG}
             fallback={
                 <PanelMessage
                     problem="error"
@@ -133,6 +134,6 @@ export const PanelView = memo(function PanelView({
             >
                 <definition.Component panel={panel} setConfig={setConfig} />
             </Suspense>
-        </PanelErrorBoundary>
+        </ErrorBoundary>
     )
 })
