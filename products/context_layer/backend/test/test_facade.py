@@ -39,9 +39,6 @@ class TestContextLayerFacade(BaseTest):
         assert mount.head_sha == config.head_sha
         assert mount.bundle.startswith(b"# v2 git bundle")
 
-    def test_get_sandbox_mount_is_none_without_wiki(self) -> None:
-        assert facade.get_sandbox_mount(self.organization.id) is None
-
     def test_get_sandbox_mount_is_none_when_storage_fails(self) -> None:
         store.initialize_repo(self.organization.id)
         with patch.object(
@@ -53,3 +50,6 @@ class TestContextLayerFacade(BaseTest):
         store.initialize_repo(self.organization.id)
         with patch.object(store, "BUNDLE_MAX_MOUNT_BYTES", 1):
             assert facade.get_sandbox_mount(self.organization.id) is None
+
+    def test_get_sandbox_mount_is_none_without_wiki(self) -> None:
+        assert facade.get_sandbox_mount(self.organization.id) is None
