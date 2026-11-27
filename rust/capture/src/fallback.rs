@@ -66,7 +66,6 @@ fn fallback_table(primary: &OutputTable, fallback_config: &FallbackOutputsConfig
     let target =
         |primary: &OutputTarget, topic: &Option<String>, producer: Option<ProducerName>| {
             OutputTarget {
-                name: primary.name,
                 topic: topic
                     .as_deref()
                     .filter(|topic| !topic.is_empty())
@@ -255,10 +254,10 @@ fn ensure_checks_cannot_create_topics(
             producer_configs
                 .get(&producer)
                 .is_some_and(|config| !config.allow_auto_create_topics),
-            "CAPTURE_OUTPUT_{}_FALLBACK_PRODUCER={} allows topic auto-creation, so the \
-             fallback topic check could create the topic it checks; set \
+            "fallback topic {:?} is checked through producer {}, which allows topic \
+             auto-creation, so the check could create it; set \
              KAFKA_{}_PRODUCER_ALLOW_AUTO_CREATE_TOPICS=false",
-            target.name,
+            target.topic,
             producer.as_str(),
             producer.as_str(),
         );
@@ -299,13 +298,9 @@ async fn check_target<P: KafkaProducer + 'static>(
         .check_analytics_family_topics(TOPIC_CHECK_TIMEOUT)
         .await;
     for output in table.analytics_family_targets() {
-        let output = output.name;
-        let ready = !failures.iter().any(|failure| failure.output == output);
-        gauge!(OUTPUT_TOPIC_READY, "target" => target.as_str(), "output" => output).set(if ready {
-            1.0
-        } else {
-            0.0
-        });
+        let ready = !failures.iter().any(|failure| failure.topic == output.topic);
+        gauge!(OUTPUT_TOPIC_READY, "target" => target.as_str(), "topic" => output.topic.to_string())
+            .set(if ready { 1.0 } else { 0.0 });
     }
     if failures.is_empty() {
         return Ok(());
@@ -316,7 +311,7 @@ async fn check_target<P: KafkaProducer + 'static>(
         target.as_str(),
         failures
             .iter()
-            .map(|f| format!("output {} topic {:?}: {}", f.output, f.topic, f.error))
+            .map(|f| format!("topic {:?}: {}", f.topic, f.error))
             .collect::<Vec<_>>()
             .join("; ")
     );
@@ -429,8 +424,8 @@ mod tests {
             .into_iter()
             .zip(fallback.analytics_family_targets())
         {
-            assert_eq!((s.name, &s.topic), (p.name, &p.topic));
-            assert_eq!(s.producer, ProducerName::Fallback, "{}", s.name);
+            assert_eq!(s.topic, p.topic);
+            assert_eq!(s.producer, ProducerName::Fallback, "{}", s.topic);
         }
         assert_eq!(
             fallback.session_replay_main.topic,
@@ -546,7 +541,7 @@ mod tests {
         if let Err(err) = result {
             let err = err.to_string();
             assert!(
-                err.contains("fallback") && err.contains("HEATMAPS"),
+                err.contains("fallback") && err.contains("\"heatmaps\""),
                 "{err}"
             );
         }
@@ -577,7 +572,7 @@ mod tests {
                 let output = key
                     .key()
                     .labels()
-                    .find(|label| label.key() == "output")
+                    .find(|label| label.key() == "topic")
                     .unwrap()
                     .value()
                     .to_string();
@@ -590,6 +585,6 @@ mod tests {
             .collect();
         not_ready.sort_by(|a, b| a.0.cmp(&b.0));
 
-        assert_eq!(not_ready, vec![("HEATMAPS".to_string(), 0.0)]);
+        assert_eq!(not_ready, vec![("heatmaps".to_string(), 0.0)]);
     }
 }

@@ -73,7 +73,9 @@ fn v0_event(distinct_id: &str) -> String {
 }
 
 #[tokio::test]
-#[should_panic(expected = "fallback target failed its topic check: output DLQ")]
+#[should_panic(
+    expected = "fallback target failed its topic check: topic \"events_plugin_ingestion_dlq\""
+)]
 async fn strict_refuses_boot_on_a_missing_idle_fallback_topic() {
     setup_tracing();
     let fallback = fallback_cluster(Some(&DEFAULT_CONFIG.outputs.dlq_topic));
