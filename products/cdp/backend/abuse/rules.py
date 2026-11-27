@@ -1221,7 +1221,7 @@ def is_flagged_host(host: str) -> bool:
 @frozen
 class RuleEvidence:
     rule: Rule
-    # "code", "masking", "input:<key>", or "mapping <n> input:<key>".
+    # "code", "masking", "input:<key>", or "mapping <n> input:<key>", with a long key cut.
     location: str
     # The host the rule matched, or None for a rule that matches the shape of the code.
     host: str | None
@@ -1280,6 +1280,11 @@ def _located_values(content: HogFunctionContent) -> Iterator[tuple[str, str | No
 _MAX_LOCATION_KEY_CHARS = 100
 
 
+def _location_key(key: str) -> str:
+    # The marker makes a cut key longer than any whole key, so a cut key never names another input.
+    return key if len(key) <= _MAX_LOCATION_KEY_CHARS else f"{key[:_MAX_LOCATION_KEY_CHARS]} [truncated]"
+
+
 def _located_inputs(content: HogFunctionContent) -> Iterator[tuple[str, str, JsonValue, JsonValue]]:
     sources: list[tuple[str, JsonValue, JsonValue]] = [("", content.inputs, content.inputs_schema)]
     for index, mapping in enumerate(content.mappings):
@@ -1288,7 +1293,7 @@ def _located_inputs(content: HogFunctionContent) -> Iterator[tuple[str, str, Jso
     for prefix, inputs, schema in sources:
         if isinstance(inputs, dict):
             for key, entry in inputs.items():
-                yield f"{prefix}input:{key[:_MAX_LOCATION_KEY_CHARS]}", key, entry, schema
+                yield f"{prefix}input:{_location_key(key)}", key, entry, schema
 
 
 def _located_code_rules(content: HogFunctionContent) -> Iterator[tuple[str, Rule]]:

@@ -295,8 +295,8 @@ class TestAbuseReview(AbuseClassificationTestCase):
                 "input_key",
                 {
                     "hog": "fetch(inputs.url)",
-                    "inputs_schema": [{"key": "k" * 150_000, "type": "string"}],
-                    "inputs": {"k" * 150_000: {"value": "http://localhost:8000/"}},
+                    "inputs_schema": [{"key": "k" * case_file.MAX_CASE_FILE_CHARS, "type": "string"}],
+                    "inputs": {"k" * case_file.MAX_CASE_FILE_CHARS: {"value": "http://localhost:8000/"}},
                     "mappings": [],
                     "masking": None,
                 },
