@@ -40,8 +40,9 @@ MAX_CASE_FILE_CHARS = 100_000
 _TRUNCATED_MARKER = " [truncated]"
 _HOSTNAME = re.compile(r"[a-z0-9_-]+(?:\.[a-z0-9_-]+)+", re.IGNORECASE)
 _REDACTED_HOST = "[secret]"
-# Secret tokens in hostnames are long random strings. Shorter values are common words or bytecode numbers, which the
-# function's owner could store to hide ordinary hosts.
+# A history host label is hidden when it equals a stored secret this long, the origin redactor's own threshold, or
+# holds a secret token this long. Shorter values are bytecode numbers or common words.
+_MIN_SECRET_LABEL_CHARS = 8
 _MIN_SECRET_TOKEN_CHARS = 12
 # What `content_of` and `_with_secret_inputs` read from another function of the organization.
 _RULE_FIELDS = (
@@ -322,8 +323,7 @@ def _url_secret_labels(values: list[str]) -> list[str]:
         except ValueError:
             continue
         if _HOSTNAME.fullmatch(host):
-            # A short label such as `google` is a common word, which an owner could store to hide other hosts.
-            labels.extend(label for label in host.split(".")[:-2] if len(label) >= _MIN_SECRET_TOKEN_CHARS)
+            labels.extend(host.split(".")[:-2])
     return labels
 
 
@@ -379,26 +379,28 @@ def _history_entry(row: ActivityLog, secrets: list[str]) -> HistoryEntry:
 
 
 def _redacted_hosts(hosts: tuple[str, ...], secrets: list[str]) -> tuple[str, ...]:
-    """Each host with the labels that hold a stored secret token hidden. The function's owner chooses the secret
-    values, so only token-length values count, and the last two labels and IP addresses always stay, or an owner
-    could store a common word to hide where earlier versions sent requests. A URL username is hidden whole."""
+    """Each host with its secret labels hidden. The function's owner chooses the secret values, so a stored value
+    could be a decoy that names a probe's target. A label that equals a secret, or holds a long secret token, is
+    hidden only left of the last two labels, so a decoy can never hide where earlier versions sent requests.
+    Addresses and hosts that a rule flags are never hidden, and a URL username is hidden whole."""
+    labels = {secret.lower() for secret in secrets if len(secret) >= _MIN_SECRET_LABEL_CHARS}
     tokens = {secret.lower() for secret in secrets if len(secret) >= _MIN_SECRET_TOKEN_CHARS}
-    return tuple(_redacted_host(host, tokens) for host in hosts)
+    return tuple(_redacted_host(host, labels, tokens) for host in hosts)
 
 
-def _redacted_host(host: str, tokens: set[str]) -> str:
-    labels = host.split(".")
-    if len(labels) == 1:
-        return _REDACTED_HOST if _holds_token(host, tokens) else host
-    if all(label.isdigit() for label in labels) or host.startswith("["):
+def _redacted_host(host: str, labels: set[str], tokens: set[str]) -> str:
+    if ":" in host or host.replace(".", "").isdigit() or rules.is_flagged_host(host):
         return host
-    shown = [_REDACTED_HOST if _holds_token(label, tokens) else label for label in labels[:-2]]
-    return ".".join([*shown, *labels[-2:]])
+    parts = host.split(".")
+    if len(parts) == 1:
+        return _REDACTED_HOST if _is_secret_label(host, labels, tokens) else host
+    shown = [_REDACTED_HOST if _is_secret_label(part, labels, tokens) else part for part in parts[:-2]]
+    return ".".join([*shown, *parts[-2:]])
 
 
-def _holds_token(text: str, tokens: set[str]) -> bool:
-    lowered = text.lower()
-    return any(token in lowered for token in tokens)
+def _is_secret_label(label: str, labels: set[str], tokens: set[str]) -> bool:
+    lowered = label.lower()
+    return lowered in labels or any(token in lowered for token in tokens)
 
 
 def _redacted_origins(origins: list[JsonValue], secrets: list[str]) -> tuple[str, ...]:

