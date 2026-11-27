@@ -92,24 +92,24 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/attachments/uploads/`
+export const getMessagingSendEmailCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/email/`
 }
 
 /**
- * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
- * @summary Prepare attachment uploads
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional email
  */
-export const messagingAttachmentsUploadsCreate = async (
+export const messagingSendEmailCreate = async (
     projectId: string,
-    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    sendEmailApi: SendEmailApi,
     options?: RequestInit
-): Promise<AttachmentUploadsResponseApi> => {
-    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
+): Promise<SendTransactionalEmailResponseApi> => {
+    return apiMutator<SendTransactionalEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(attachmentUploadsRequestApi),
+        body: JSON.stringify(sendEmailApi),
     })
 }
 
@@ -166,6 +166,27 @@ export const messagingEmailsStatusRetrieve = async (
     })
 }
 
+export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/attachments/uploads/`
+}
+
+/**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const messagingAttachmentsUploadsCreate = async (
+    projectId: string,
+    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    options?: RequestInit
+): Promise<AttachmentUploadsResponseApi> => {
+    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(attachmentUploadsRequestApi),
+    })
+}
+
 export const getMessagingPreferencesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/preferences/`
 }
@@ -184,27 +205,6 @@ export const messagingPreferencesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(setPreferencesApi),
-    })
-}
-
-export const getMessagingSendEmailCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/send/email/`
-}
-
-/**
- * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
- * @summary Send a transactional email
- */
-export const messagingSendEmailCreate = async (
-    projectId: string,
-    sendEmailApi: SendEmailApi,
-    options?: RequestInit
-): Promise<SendTransactionalEmailResponseApi> => {
-    return apiMutator<SendTransactionalEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sendEmailApi),
     })
 }
 

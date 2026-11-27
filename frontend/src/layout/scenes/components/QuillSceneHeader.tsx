@@ -7,6 +7,8 @@ export interface QuillSceneHeaderProps {
     icon?: ReactNode
     title: ReactNode
     actions?: ReactNode
+    /** The title holds no text that can truncate, so the row shrinks the trail in `back` before it narrows the title. */
+    rigidTitle?: boolean
     className?: string
 }
 
@@ -14,7 +16,14 @@ export interface QuillSceneHeaderProps {
  * The title bar under the Today layout, for both a scene and the sidebar pane beside it. One component with a fixed
  * height keeps the two bottom borders in one line across the window.
  */
-export function QuillSceneHeader({ back, icon, title, actions, className }: QuillSceneHeaderProps): JSX.Element {
+export function QuillSceneHeader({
+    back,
+    icon,
+    title,
+    actions,
+    rigidTitle,
+    className,
+}: QuillSceneHeaderProps): JSX.Element {
     return (
         <header
             data-quill
@@ -30,7 +39,14 @@ export function QuillSceneHeader({ back, icon, title, actions, className }: Quil
                     {icon}
                 </span>
             )}
-            <div className="flex min-w-0 flex-1 items-center gap-1 @max-xl/main-content:min-w-48">{title}</div>
+            <div
+                className={cn(
+                    'flex flex-1 items-center gap-1',
+                    rigidTitle ? 'min-w-min' : 'min-w-0 @max-xl/main-content:min-w-48'
+                )}
+            >
+                {title}
+            </div>
             {actions && (
                 <div className="ml-auto flex shrink-0 items-center gap-1 @max-xl/main-content:shrink @max-xl/main-content:flex-wrap @max-xl/main-content:justify-end">
                     {actions}

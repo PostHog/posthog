@@ -1407,7 +1407,7 @@ export function withDisplayName(
     }
 }
 
-function sumSeries(
+export function sumSeries(
     parts: (AppMetricsTimeSeriesResponse | null)[],
     displayName: string
 ): AppMetricsTimeSeriesResponse | null {
@@ -1427,6 +1427,25 @@ function sumSeries(
             },
         ],
     }
+}
+
+/** Sent minus bounced per bucket, for a sender with no delivery receipts. Each bounce cancels the latest send at or before
+ * it, and a bounce with no earlier send cancels the next one, so no bucket goes negative and the sum is the Email steps
+ * table's `max(0, sent - bounced)`. */
+export function estimateDeliveries(sent: number[], bounced: number[]): number[] {
+    const values = sent.map((count, index) => count - (bounced[index] ?? 0))
+    let debt = 0
+    for (let index = values.length - 1; index >= 0; index--) {
+        const net = values[index] - debt
+        values[index] = Math.max(0, net)
+        debt = Math.max(0, -net)
+    }
+    for (let index = 0; debt > 0 && index < values.length; index++) {
+        const taken = Math.min(values[index], debt)
+        values[index] -= taken
+        debt -= taken
+    }
+    return values
 }
 
 export function subtractSeries(

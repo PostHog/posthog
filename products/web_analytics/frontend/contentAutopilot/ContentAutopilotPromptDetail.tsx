@@ -1,12 +1,31 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import {
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    Heading,
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+    Text,
+} from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { pluralize } from 'lib/utils/strings'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
@@ -14,7 +33,7 @@ import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActi
 import { ContentAutopilotPromptAnswer } from './ContentAutopilotPromptAnswer'
 import { ContentAutopilotPromptArchiveBanner } from './ContentAutopilotPromptArchiveBanner'
 import { ContentAutopilotPromptChecks } from './ContentAutopilotPromptChecks'
-import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { type PromptReportTab, contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPromptDetailSkeleton } from './ContentAutopilotPromptDetailSkeleton'
 import { ContentAutopilotPromptEditModal } from './ContentAutopilotPromptEditModal'
 import { ContentAutopilotPromptOverview } from './ContentAutopilotPromptOverview'
@@ -24,6 +43,15 @@ import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { POSITION_DESCRIPTION, positionKpiCard, rateKpiCard } from './promptReport'
 import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
+
+const REPORT_TABS: { key: PromptReportTab; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'answers', label: 'Answers' },
+    { key: 'sources', label: 'Sources' },
+    { key: 'sentiment', label: 'Sentiment' },
+    { key: 'searches', label: 'Searches' },
+    { key: 'history', label: 'History' },
+]
 
 const TabSection = ({
     title,
@@ -35,9 +63,15 @@ const TabSection = ({
     children: React.ReactNode
 }): JSX.Element => (
     <section className="flex flex-col gap-3">
-        <div>
-            <h3 className="m-0 text-sm font-semibold">{title}</h3>
-            {description ? <p className="m-0 text-xs text-secondary">{description}</p> : null}
+        <div className="flex flex-col gap-1">
+            <Heading size="sm" render={<h3 className="m-0" />}>
+                {title}
+            </Heading>
+            {description ? (
+                <Text size="xs" variant="muted" className="m-0">
+                    {description}
+                </Text>
+            ) : null}
         </div>
         {children}
     </section>
@@ -83,7 +117,9 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                     backDataAttr="content-autopilot-prompt-back"
                     onBack={backToPrompts}
                 />
-                <p className="m-0">This prompt isn't in the project's prompt set anymore, or the link is wrong.</p>
+                <Text size="xs" className="m-0">
+                    This prompt isn't in the project's prompt set anymore, or the link is wrong.
+                </Text>
             </div>
         )
     }
@@ -109,66 +145,76 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     const actions =
         prompt && !prompt.archived_at ? (
             <>
-                <LemonButton
-                    size="small"
-                    type="secondary"
+                <Button
+                    variant="outline"
                     onClick={() => setPromptEditing(true)}
                     data-attr="content-autopilot-prompt-edit"
                 >
                     Edit
-                </LemonButton>
-                <LemonMenu
-                    items={[
-                        {
-                            label: 'Copy link to this prompt',
-                            onClick: () => void copyToClipboard(window.location.href, 'link to this prompt'),
-                        },
-                        {
-                            label: 'Archive',
-                            status: 'danger',
-                            onClick: () => setArchiveConfirming(true),
-                            disabledReason: archiveConfirming ? 'Confirm or cancel below' : undefined,
-                            'data-attr': 'content-autopilot-prompt-archive',
-                        },
-                    ]}
-                >
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconEllipsis />}
-                        aria-label="More actions"
-                        data-attr="content-autopilot-prompt-more"
-                    />
-                </LemonMenu>
+                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                aria-label="More actions"
+                                tooltip="More actions"
+                                data-attr="content-autopilot-prompt-more"
+                            />
+                        }
+                    >
+                        <IconEllipsis />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                            onClick={() => void copyToClipboard(window.location.href, 'link to this prompt')}
+                        >
+                            Copy link to this prompt
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setArchiveConfirming(true)}
+                            disabledReason={archiveConfirming ? 'Confirm or cancel below' : undefined}
+                            data-attr="content-autopilot-prompt-archive"
+                        >
+                            Archive
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </>
         ) : null
 
     return (
         <div className="flex flex-col gap-4" data-attr="content-autopilot-prompt-page">
             <ContentAutopilotPageHeader
-                title={prompt?.prompt ?? 'Loading prompt'}
+                title={prompt?.prompt ?? (detailError === 'failed' ? 'Prompt' : 'Loading prompt')}
                 backLabel="Prompts"
                 backDataAttr="content-autopilot-prompt-back"
                 onBack={backToPrompts}
                 actions={actions}
             />
             {detailError === 'failed' ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => openPromptDetail(promptId) }}>
+                <AiVisibilityBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: () => openPromptDetail(promptId) }}
+                >
                     Couldn't load this prompt. Try again, and if it keeps happening contact support.
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : !reportReady ? (
                 <ContentAutopilotPromptDetailSkeleton />
             ) : (
                 <div className="@container/prompt-report flex flex-col gap-4">
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                         {prompt.topic ? (
-                            <LemonTag>{prompt.topic}</LemonTag>
+                            <AiVisibilityTag>{prompt.topic}</AiVisibilityTag>
                         ) : (
-                            <LemonTag type="muted">No topic</LemonTag>
+                            <AiVisibilityTag type="muted">No topic</AiVisibilityTag>
                         )}
-                        <LemonTag type="muted">Version {prompt.current_version}</LemonTag>
+                        <AiVisibilityTag type="muted">Version {prompt.current_version}</AiVisibilityTag>
                         {prompt.archived_at ? (
-                            <LemonTag type="muted">Archived</LemonTag>
+                            <AiVisibilityTag type="muted">Archived</AiVisibilityTag>
                         ) : (
                             <ContentAutopilotPromptActiveSwitch
                                 promptId={prompt.id}
@@ -176,20 +222,26 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                 label="Active"
                             />
                         )}
-                        <span className="text-secondary">
+                        <Text size="xs" variant="muted" render={<span />}>
                             Last checked {lastCheckedAt ? <TZLabel time={lastCheckedAt} /> : 'never'}
-                        </span>
-                        <span className="text-secondary">{pluralize(stats.total_checks, 'check')} in total</span>
+                        </Text>
+                        <Text size="xs" variant="muted" render={<span />}>
+                            {pluralize(stats.total_checks, 'check')} in total
+                        </Text>
                     </div>
                     <ContentAutopilotPromptArchiveBanner />
 
                     {stats.engines.length === 0 ? (
-                        <p className="m-0 text-secondary">
-                            This prompt hasn't run yet.{' '}
-                            {prompt.active
-                                ? 'It runs in the next daily check.'
-                                : 'Turn it on to include it in the daily check.'}
-                        </p>
+                        <Empty data-attr="content-autopilot-prompt-no-checks">
+                            <EmptyHeader>
+                                <EmptyTitle>This prompt hasn't run yet</EmptyTitle>
+                                <EmptyDescription>
+                                    {prompt.active
+                                        ? 'It runs in the next daily check.'
+                                        : 'Turn it on to include it in the daily check.'}
+                                </EmptyDescription>
+                            </EmptyHeader>
+                        </Empty>
                     ) : (
                         <>
                             <ContentAutopilotStatStrip
@@ -218,104 +270,88 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                 />
                             </ContentAutopilotStatStrip>
 
-                            <LemonTabs
-                                activeKey={reportTab}
-                                onChange={setReportTab}
+                            <Tabs
+                                value={reportTab}
+                                onValueChange={(tab: PromptReportTab) => setReportTab(tab)}
                                 data-attr="content-autopilot-prompt-tabs"
-                                tabs={[
-                                    {
-                                        key: 'overview',
-                                        label: 'Overview',
-                                        content: (
-                                            <ContentAutopilotPromptOverview
-                                                stats={stats}
-                                                kpis={reportKpis}
-                                                chart={visibilityChart}
-                                                metric={visibilityMetric}
-                                                onMetricChange={setVisibilityMetric}
-                                                query={visibilityQuery}
-                                                consensus={consensusMatrix}
-                                                sentiment={sentimentSummary}
-                                                onOpenTab={setReportTab}
-                                            />
-                                        ),
-                                    },
-                                    {
-                                        key: 'answers',
-                                        label: 'Answers',
-                                        content: <ContentAutopilotPromptAnswer />,
-                                    },
-                                    {
-                                        key: 'sources',
-                                        label: 'Sources',
-                                        content: (
-                                            <div className="flex flex-col gap-6">
-                                                <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-2 gap-4">
-                                                    <ContentAutopilotPromptQueryTile
-                                                        title="Sites the engines cite for this prompt"
-                                                        query={sourcesQuery}
-                                                        uniqueKey={`aeo-prompt-sources-${promptId}`}
-                                                        context={promptSourcesContext}
-                                                        data-attr="content-autopilot-prompt-sources-tile"
-                                                    />
-                                                    <ContentAutopilotPromptQueryTile
-                                                        title="Pages the engines cite most"
-                                                        query={citationsQuery}
-                                                        uniqueKey={`aeo-prompt-citations-${promptId}`}
-                                                        context={promptCitationsContext}
-                                                        data-attr="content-autopilot-prompt-citations-tile"
-                                                    />
-                                                </div>
-                                            </div>
-                                        ),
-                                    },
-                                    {
-                                        key: 'sentiment',
-                                        label: 'Sentiment',
-                                        content: (
-                                            <TabSection
-                                                title="How the answers speak about you"
-                                                description="Scored on the sentences that name you, so praise of another tool doesn't count."
-                                            >
-                                                <ContentAutopilotPromptSentiment
-                                                    summary={sentimentSummary}
-                                                    query={sentimentQuery}
-                                                />
+                            >
+                                <div className="overflow-x-auto">
+                                    <TabsList variant="line">
+                                        {REPORT_TABS.map(({ key, label }) => (
+                                            <TabsTrigger key={key} value={key}>
+                                                {label}
+                                            </TabsTrigger>
+                                        ))}
+                                    </TabsList>
+                                </div>
+                                <TabsContent value="overview">
+                                    <ContentAutopilotPromptOverview
+                                        stats={stats}
+                                        kpis={reportKpis}
+                                        chart={visibilityChart}
+                                        metric={visibilityMetric}
+                                        onMetricChange={setVisibilityMetric}
+                                        query={visibilityQuery}
+                                        consensus={consensusMatrix}
+                                        sentiment={sentimentSummary}
+                                        onOpenTab={setReportTab}
+                                    />
+                                </TabsContent>
+                                <TabsContent value="answers">
+                                    <ContentAutopilotPromptAnswer />
+                                </TabsContent>
+                                <TabsContent value="sources">
+                                    <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-2 gap-4">
+                                        <ContentAutopilotPromptQueryTile
+                                            title="Sites the engines cite for this prompt"
+                                            query={sourcesQuery}
+                                            uniqueKey={`aeo-prompt-sources-${promptId}`}
+                                            context={promptSourcesContext}
+                                            data-attr="content-autopilot-prompt-sources-tile"
+                                        />
+                                        <ContentAutopilotPromptQueryTile
+                                            title="Pages the engines cite most"
+                                            query={citationsQuery}
+                                            uniqueKey={`aeo-prompt-citations-${promptId}`}
+                                            context={promptCitationsContext}
+                                            data-attr="content-autopilot-prompt-citations-tile"
+                                        />
+                                    </div>
+                                </TabsContent>
+                                <TabsContent value="sentiment">
+                                    <TabSection
+                                        title="How the answers speak about you"
+                                        description="Scored on the sentences that name you, so praise of another tool doesn't count."
+                                    >
+                                        <ContentAutopilotPromptSentiment
+                                            summary={sentimentSummary}
+                                            query={sentimentQuery}
+                                        />
+                                    </TabSection>
+                                </TabsContent>
+                                <TabsContent value="searches">
+                                    <ContentAutopilotPromptQueryTile
+                                        title="Searches the engines ran before answering"
+                                        query={searchesQuery}
+                                        uniqueKey={`aeo-prompt-searches-${promptId}`}
+                                        context={promptSearchesContext}
+                                        description="Engines that don't report their searches are left out."
+                                        data-attr="content-autopilot-prompt-searches-tile"
+                                    />
+                                </TabsContent>
+                                <TabsContent value="history">
+                                    <div className="flex flex-col gap-6">
+                                        {prompt.version_count > 1 ? (
+                                            <TabSection title="Versions">
+                                                <ContentAutopilotPromptVersions promptId={prompt.id} />
                                             </TabSection>
-                                        ),
-                                    },
-                                    {
-                                        key: 'searches',
-                                        label: 'Searches',
-                                        content: (
-                                            <ContentAutopilotPromptQueryTile
-                                                title="Searches the engines ran before answering"
-                                                query={searchesQuery}
-                                                uniqueKey={`aeo-prompt-searches-${promptId}`}
-                                                context={promptSearchesContext}
-                                                description="Engines that don't report their searches are left out."
-                                                data-attr="content-autopilot-prompt-searches-tile"
-                                            />
-                                        ),
-                                    },
-                                    {
-                                        key: 'history',
-                                        label: 'History',
-                                        content: (
-                                            <div className="flex flex-col gap-6">
-                                                {prompt.version_count > 1 ? (
-                                                    <TabSection title="Versions">
-                                                        <ContentAutopilotPromptVersions promptId={prompt.id} />
-                                                    </TabSection>
-                                                ) : null}
-                                                <TabSection title="All checks">
-                                                    <ContentAutopilotPromptChecks />
-                                                </TabSection>
-                                            </div>
-                                        ),
-                                    },
-                                ]}
-                            />
+                                        ) : null}
+                                        <TabSection title="All checks">
+                                            <ContentAutopilotPromptChecks />
+                                        </TabSection>
+                                    </div>
+                                </TabsContent>
+                            </Tabs>
                         </>
                     )}
                 </div>

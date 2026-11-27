@@ -135,6 +135,7 @@ function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRun
         started_at: '2026-07-22T01:00:00Z',
         completed_at: '2026-07-22T01:02:00Z',
         summary: '',
+        summary_lead: '',
         emitted_count: 0,
         emitted_finding_ids: [],
         emitted_report_ids: [],

@@ -10,7 +10,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { CohortHistoryBuildPhaseEnumApi, CohortRealtimeReadinessApi } from '../generated/api.schemas'
 import { RealtimeCohortsUsage } from './RealtimeCohortsUsage'
 import { RealtimePlanLimitsLink } from './RealtimePlanLimitsLink'
-import { dailyReasonSentence, unpreparableExplanation } from './realtimeReadiness'
+import { dailyReasonSentence, unpreparableExplanation, unpreparableReasonSentence } from './realtimeReadiness'
 
 // Partial, so the fallback below stays reachable for a phase this bundle predates.
 const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
@@ -35,11 +35,11 @@ function inFlightProps(
 const canRetry = (realtime: CohortRealtimeReadinessApi | null | undefined): boolean =>
     realtime?.state === 'needs_attention' && realtime.reason === null
 
-type RowContent = { label: JSX.Element; tooltip: JSX.Element }
+type RowContent = { label: JSX.Element; tooltip: JSX.Element; reason?: string | null }
 
 export type CohortRealtimeSwitchAction = 'turn_on' | 'turn_off'
 
-/** The label shown beside "Flag targeting:", and the sentence its ⓘ carries. */
+/** The label shown beside "Flag targeting:", the sentence its ⓘ carries, and the reason shown under the row. */
 function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
     switch (realtime.state) {
         case 'ready':
@@ -128,12 +128,14 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                             {`Realtime is off for this cohort, so feature flags can't target it. Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn realtime on.`}
                         </div>
                     ),
+                    reason: unpreparableReasonSentence(realtime),
                 }
             }
             if (realtime.reason) {
                 return {
                     label: <span className="text-secondary">Off</span>,
                     tooltip: <div>{unpreparableExplanation(realtime)}</div>,
+                    reason: unpreparableReasonSentence(realtime),
                 }
             }
             return {
@@ -145,15 +147,18 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                     </div>
                 ),
             }
-        case 'daily':
+        case 'daily': {
+            const reason = dailyReasonSentence(realtime)
             return {
                 label: <span className="text-secondary">Unavailable</span>,
                 tooltip: (
                     <div>
-                        {`Feature flags can't target this cohort. ${dailyReasonSentence(realtime) ?? "Its criteria are matched in the once-a-day calculation, which feature flags can't read."}`}
+                        {`Feature flags can't target this cohort. ${reason ?? "Its criteria are matched in the once-a-day calculation, which feature flags can't read."}`}
                     </div>
                 ),
+                reason,
             }
+        }
         case 'person_properties':
             return {
                 label: <span>Available</span>,
@@ -169,6 +174,10 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
             // Static cohorts, and any state this bundle predates: nothing to say.
             return null
     }
+}
+
+function RowReason({ sentence }: { sentence: string | null | undefined }): JSX.Element | null {
+    return sentence ? <div className="text-secondary max-w-prose">{sentence}</div> : null
 }
 
 /**
@@ -260,6 +269,7 @@ export function CohortRealtimeStatus({
                     </LemonButton>
                 )}
             </div>
+            <RowReason sentence={content.reason} />
             {switchAction !== null && <RealtimeCohortsUsage location="cohort_page" />}
             {percent !== null && (
                 <LemonProgress

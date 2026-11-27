@@ -1,9 +1,9 @@
-"""Property-type enum the HogQL engine can import without booting Django (no settings or app registry).
+"""The Django choices class behind `PropertyDefinition.property_type`.
 
-`django.db.models.TextChoices` is plain enum machinery — defining a subclass touches neither
-settings nor the app registry, so this module imports cleanly in a bare interpreter.
-products.event_definitions.backend.models.property_definition re-exports `PropertyType` for
-existing callers.
+Code outside the product should import `facade.enums.PropertyType`, which holds the same members
+without Django. This class stays a `models.TextChoices` because the frozen migration
+`posthog/migrations/0889_add_schema_models.py` passes it to `choices=` through
+products.event_definitions.backend.models.property_definition, which re-exports it.
 """
 
 from django.db import models

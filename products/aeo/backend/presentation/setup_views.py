@@ -9,16 +9,27 @@ from rest_framework.throttling import BaseThrottle
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.rate_limit import AEOSetupBurstRateThrottle, AEOSetupSustainedRateThrottle
 
-from products.aeo.backend.facade.api import get_setup, get_setup_context, start_setup
+from products.aeo.backend.facade.api import (
+    cancel_setup,
+    get_setup,
+    get_setup_context,
+    reset_setup,
+    start_setup,
+    stop_checks,
+)
 from products.aeo.backend.facade.contracts import (
     MAX_SETUP_WEBSITES,
     SETUP_ENOUGH_KEYWORDS,
     SETUP_ENOUGH_PROMPTS,
     SETUP_KEYWORD_COUNT,
     SETUP_PROMPT_COUNT,
+    SETUP_PROMPT_COUNT_MAX,
     SETUP_WEBSITE_DAYS,
+    EngineCheckCount,
+    OutOfAICreditsError,
     SetupAlreadyRunningError,
     SetupContext,
     SetupJob,
@@ -32,12 +43,14 @@ from products.aeo.backend.presentation.views import AEOEngineSettingSerializer, 
 
 SETUP_DESCRIPTION = (
     "Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the "
-    "organization. In order, it adds the site as the project's own brand, has PostHog suggest "
-    f"{SETUP_PROMPT_COUNT} prompts and saves them, and has PostHog suggest {SETUP_KEYWORD_COUNT} keywords and saves "
-    "them. With run_first_check the prompts are saved active and a first citation check run is queued with the "
-    "enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active "
-    "prompts on its schedule. Prompts that would pass the project's max_active_prompts are saved paused. Without "
-    "run_first_check, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, "
+    "organization. In order, it adds the site as the project's own brand; has PostHog suggest "
+    f"{SETUP_PROMPT_COUNT} prompts and saves them, with the competitors the model found saved as suggested "
+    "competitors for a person to confirm; queues the first citation check run when run_first_check is set; and has "
+    f"PostHog suggest {SETUP_KEYWORD_COUNT} keywords and saves them. With run_first_check the prompts are saved "
+    "active and the first run uses the enabled engines; each check is a paid call to every enabled engine, and each "
+    "engine keeps checking active prompts on its schedule. Prompts that would pass the project's max_active_prompts "
+    "are saved paused. Without run_first_check, new prompts are saved paused, so nothing is checked or spent until "
+    "they are turned on. A step the project already covers is skipped: an own brand exists, "
     f"{SETUP_ENOUGH_PROMPTS} or more unarchived prompts, {SETUP_ENOUGH_KEYWORDS} or more keywords, or any check "
     "already recorded. With engines, the chosen engines are turned on and every other one off before the "
     "job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few "
@@ -62,10 +75,25 @@ class AEOWebsiteCandidateSerializer(DataclassSerializer):
         }
 
 
+class AEOEngineCheckCountSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = EngineCheckCount
+        ref_name = "AEOEngineCheckCount"
+        extra_kwargs = {
+            "engine": {"help_text": "The engine."},
+            "checks": {"help_text": "Active prompts with at least one check on this engine."},
+        }
+
+
 class AEOSetupContextSerializer(DataclassSerializer):
     websites = AEOWebsiteCandidateSerializer(
         many=True,
         help_text=f"Up to {MAX_SETUP_WEBSITES} domains the project may be about, the most likely first.",
+    )
+    first_run_checks = AEOEngineCheckCountSerializer(
+        many=True,
+        help_text="Per engine, how many active prompts have a check. Against active_prompts, this is the progress of "
+        "a first run. Engines with no check yet are left out.",
     )
     engines = AEOEngineSettingSerializer(
         many=True,
@@ -90,14 +118,22 @@ class AEOSetupContextSerializer(DataclassSerializer):
             "ai_data_processing_approved": {
                 "help_text": "Whether the organization approved AI data processing. Setup needs it."
             },
+            "checks_running": {
+                "help_text": "Whether a check run is queued or running for the project. When it turns false after a "
+                "run, no more checks from that run will arrive."
+            },
             "first_run_available": {
                 "help_text": "Whether citation checks run for this project. When false, setup saves the brand, "
                 "prompts and keywords but cannot queue the first run."
             },
             "website_days": {"help_text": "The window, in days, that pageview hosts among the websites cover."},
             "prompt_target": {
-                "help_text": "How many prompts setup asks PostHog to suggest. One run makes about this many checks "
-                "per enabled engine."
+                "help_text": "How many prompts setup asks PostHog to suggest when prompt_count is left out. One run "
+                "makes about this many checks per enabled engine."
+            },
+            "prompt_count_max": {
+                "help_text": "The most prompts one setup can ask for in prompt_count: the suggestion cap, or less when "
+                "the project's max_active_prompts is lower."
             },
         }
 
@@ -153,6 +189,16 @@ class AEOSetupRequestSerializer(serializers.Serializer):
         "prompts are checked on each engine's schedule from then on.",
     )
 
+    prompt_count = serializers.IntegerField(
+        required=False,
+        default=SETUP_PROMPT_COUNT,
+        min_value=1,
+        max_value=SETUP_PROMPT_COUNT_MAX,
+        help_text="How many prompts setup asks PostHog to suggest and save. One run makes this many checks per "
+        "enabled engine, so it sets the cost of each run. Prompts past the project's max_active_prompts are saved "
+        "paused.",
+    )
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs.get("activate_paused_prompts") and not attrs.get("only_first_run"):
             raise serializers.ValidationError({"activate_paused_prompts": "Only valid together with only_first_run."})
@@ -175,14 +221,18 @@ class AEOSetupStepSerializer(DataclassSerializer):
         ref_name = "AEOSetupStep"
         extra_kwargs = {
             "step": {
-                "help_text": "brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued)."
+                "help_text": "brand (the own brand), prompts (suggested and saved), first_run (the first citation check run queued) or keywords (suggested and saved)."
             },
             "status": {
                 "help_text": "pending, running, done, skipped (the project already had it, or the first run was not requested or is not available) or failed."
             },
             "added": {"help_text": "How many brands, prompts or keywords the step added."},
+            "requested": {
+                "help_text": "How many prompts the prompts step asked for, so added can be shown against it. 0 on every other step and on a skipped prompts step."
+            },
             "detail": {
-                "help_text": "Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts."
+                "allow_blank": True,
+                "help_text": "Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or a note on a done prompts step: 'paused' when it saved its prompts turned off, 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts, or 'fewer' when it added fewer prompts than requested. Only one note is given, in that order, so compare added with requested to tell whether the step came up short.",
             },
         }
 
@@ -198,7 +248,7 @@ class AEOSetupJobSerializer(DataclassSerializer):
             "status": {
                 "help_text": "pending while PostHog works, then completed or failed. A failed keywords step does not fail the job."
             },
-            "error": {"help_text": "Why the job failed. Empty unless status is failed."},
+            "error": {"allow_blank": True, "help_text": "Why the job failed. Empty unless status is failed."},
         }
 
 
@@ -206,7 +256,7 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     scope_object_read_actions = ["context", "retrieve"]
     # Setup saves a brand, prompts and keywords and spends model credits, so it needs write access.
-    scope_object_write_actions = ["create"]
+    scope_object_write_actions = ["create", "stop_checks", "reset", "cancel"]
     pagination_class = None
     lookup_value_regex = r"[0-9a-f-]{36}"
 
@@ -233,6 +283,7 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={
             202: OpenApiResponse(response=AEOSetupJobSerializer),
             400: OpenApiResponse(description="The domain is not valid, or no chosen engine can run."),
+            402: OpenApiResponse(description="The organization has used its AI credits."),
             409: OpenApiResponse(
                 response=AEOSetupConflictSerializer, description="A setup job is already running for the project."
             ),
@@ -258,10 +309,13 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                     engines=tuple(data["engines"]) if "engines" in data else None,
                     only_first_run=data["only_first_run"],
                     activate_paused_prompts=data["activate_paused_prompts"],
+                    prompt_count=data["prompt_count"],
                 ),
             )
         except SetupRequestError as error:
             raise ValidationError(str(error))
+        except OutOfAICreditsError as error:
+            raise QuotaLimitExceeded(str(error))
         except SetupAlreadyRunningError as error:
             return Response(
                 AEOSetupConflictSerializer(
@@ -270,6 +324,71 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(AEOSetupJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
+    @validated_request(
+        operation_id="aeo_setup_stop_checks",
+        summary="Stop the AEO check run",
+        description=(
+            "Stops the project's check run, such as the first run that setup queued. Checks already in flight finish "
+            "and are kept; the rest are dropped, so they cost nothing. If setup has yet to queue its run, that run is "
+            "skipped. Prompts and engines stay on, so the next scheduled run checks them as usual."
+        ),
+        responses={204: OpenApiResponse(description="The stop was requested.")},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"])
+    def stop_checks(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        stop_checks(self.team_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @validated_request(
+        operation_id="aeo_setup_reset",
+        summary="Reset AEO setup",
+        description=(
+            "Undoes what setup saved so the project can be set up again, such as for another site: archives the "
+            "prompts that have answers, deletes the rest, removes every keyword, and turns the own site and the competitors suggested for it back into "
+            "cited domains. Checks already collected, confirmed competitors and engine settings stay. Run POST "
+            "aeo_setup/ afterwards to set up again."
+        ),
+        responses={
+            204: OpenApiResponse(description="Setup was reset."),
+            409: OpenApiResponse(
+                response=AEOSetupConflictSerializer, description="A setup job is running for the project."
+            ),
+        },
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"])
+    def reset(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        try:
+            reset_setup(self.team_id)
+        except SetupAlreadyRunningError as error:
+            return Response(
+                AEOSetupConflictSerializer(
+                    {"detail": "Setup is running for this project. Wait for it to finish.", "job_id": error.job_id}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @validated_request(
+        operation_id="aeo_setup_cancel",
+        summary="Cancel AEO setup",
+        description=(
+            "Cancels a pending setup job. It saves nothing more, and its first run is stopped, or skipped if it hasn't "
+            "started. What the job already saved stays; POST aeo_setup/reset/ removes it. A finished job is returned "
+            "unchanged."
+        ),
+        responses={200: OpenApiResponse(response=AEOSetupJobSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=True, methods=["post"])
+    def cancel(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        try:
+            job = cancel_setup(self.team_id, pk)
+        except SetupJobNotFoundError:
+            raise NotFound()
+        return Response(AEOSetupJobSerializer(job).data)
 
     @validated_request(
         operation_id="aeo_setup_retrieve",

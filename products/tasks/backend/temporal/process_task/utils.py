@@ -1744,7 +1744,6 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             revoke_private_gateway_token(token)
             raise
         return {
-            "LLM_GATEWAY_URL": "",
             "AI_GATEWAY_URL": gateway_url,
             "AI_GATEWAY_PRODUCTS": "signals_scout",
             "AI_GATEWAY_TOKEN": token,

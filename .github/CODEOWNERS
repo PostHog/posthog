@@ -68,6 +68,18 @@ products/mcp_store/backend/catalog.py @PostHog/team-context-and-mcp
 # entry. Removals are the mechanical result of a product sealing and are a rubber stamp.
 products/isolation_baseline.txt @PostHog/team-devex
 
+# Hoglint's policy decides which boundary findings block every PR and which products skip the
+# full Django suite. A loosening (a rule turned off, a new exception, a narrower watched set, a
+# changed pin) can let a boundary break or let a product skip tests it needs, and it reaches
+# every PR at once, so DevEx reviews it. The engine pin lives in pyproject.toml, which stays
+# open, but test_hoglint_map.py requires hoglint_map.py to pin the same version, so a pin change
+# reaches this gate through those two files. hoglint.ledger stays open: every PR records its own
+# findings there, and the hook already asks for a person on any ledger growth.
+/hoglint.toml @PostHog/team-devex
+/hoglint.exceptions.toml @PostHog/team-devex
+/tools/hoglint/ @PostHog/team-devex
+/.github/scripts/*hoglint*.py @PostHog/team-devex
+
 # Agent instructions and the PR description format apply to every PR in the repo. They have
 # changed back and forth many times, and each change undid an earlier lesson that the author
 # could not see, so DevEx reviews them with that history in mind. Nested AGENTS.md files stay

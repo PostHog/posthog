@@ -52,6 +52,9 @@ const workflowsCreateEmailTemplate = (): ToolBase<
         if (params.sensitive !== undefined) {
             body['sensitive'] = params.sensitive
         }
+        if (params.click_tracking_enabled !== undefined) {
+            body['click_tracking_enabled'] = params.click_tracking_enabled
+        }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
@@ -90,7 +93,7 @@ const workflowsGetEmailTemplate = (): ToolBase<
 
 const WorkflowsListEmailTemplatesSchema = () => {
     const MessagingTemplatesListQueryParams = orvalSchemas.MessagingTemplatesListQueryParams()
-    return MessagingTemplatesListQueryParams.extend({
+    return MessagingTemplatesListQueryParams.omit({ tags: true }).extend({
         basic: MessagingTemplatesListQueryParams.shape['basic'].default(true).optional(),
     })
 }
@@ -108,8 +111,10 @@ const workflowsListEmailTemplates = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
             query: {
                 basic: params.basic,
+                created_by: params.created_by,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
                 transactional: params.transactional,
             },
         })
@@ -249,6 +254,7 @@ const WorkflowsSendEmailSchema = () => {
         bcc: true,
         attachments: true,
         scheduled_at: true,
+        category: true,
     }).extend({
         template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
         subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
@@ -371,6 +377,7 @@ const WorkflowsSendEmailTemplateSchema = () => {
         tracking: true,
         scheduled_at: true,
         sensitive: true,
+        category: true,
         from: true,
     }).extend({
         template_id: MessagingSendEmailCreateBody.shape['template_id']
@@ -524,6 +531,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         }
         if (params.sensitive !== undefined) {
             body['sensitive'] = params.sensitive
+        }
+        if (params.click_tracking_enabled !== undefined) {
+            body['click_tracking_enabled'] = params.click_tracking_enabled
         }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',

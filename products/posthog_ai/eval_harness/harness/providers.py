@@ -227,7 +227,6 @@ class DockerProviderStrategy(SandboxProviderStrategy):
             "SANDBOX_API_URL": f"http://host.docker.internal:{DJANGO_LIVE_PORT}",
             "SANDBOX_AI_GATEWAY_URL": f"http://localhost:{AI_GATEWAY_PORT}",
             "SANDBOX_AI_GATEWAY_WORKER_URL": f"http://localhost:{AI_GATEWAY_PORT}",
-            "SANDBOX_LLM_GATEWAY_URL": f"http://host.docker.internal:{AI_GATEWAY_PORT}",
             "SANDBOX_MCP_URL": f"http://host.docker.internal:{MCP_PORT}/mcp",
         }
 
@@ -313,7 +312,6 @@ class ModalProviderStrategy(SandboxProviderStrategy):
             "SANDBOX_API_URL": self._tunnels.url_for("django"),
             "SANDBOX_AI_GATEWAY_URL": self._tunnels.url_for("gateway"),
             "SANDBOX_AI_GATEWAY_WORKER_URL": f"http://localhost:{AI_GATEWAY_PORT}",
-            "SANDBOX_LLM_GATEWAY_URL": self._tunnels.url_for("gateway"),
             "SANDBOX_MCP_URL": f"{self._tunnels.url_for('mcp')}/mcp",
         }
 

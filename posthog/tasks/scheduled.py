@@ -184,6 +184,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
+    capture_workflow_first_real_sends,
     check_ses_sender_health,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
@@ -382,6 +383,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="7", minute="15"),
         recompute_workflows_email_sending_tiers.s(),
         name="workflows email sending tier recomputation",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="7", minute="45"),
+        capture_workflow_first_real_sends.s(),
+        name="workflows first real send capture",
     )
 
     # Stale QUEUED task run cleanup - hourly

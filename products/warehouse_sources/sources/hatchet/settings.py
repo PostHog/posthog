@@ -183,6 +183,16 @@ HATCHET_ENDPOINTS: dict[str, HatchetEndpointConfig] = {
         incremental_fields=[],
         pagination="none",
     ),
+    # Rate limit keys of the tenant, with their limit, window, and current consumption. The values change
+    # all the time and there is no timestamp to filter on, so full refresh only. Paged by key so an offset
+    # can't shift when consumption changes between pages.
+    "rate_limits": HatchetEndpointConfig(
+        name="rate_limits",
+        path="/api/v1/tenants/{tenant}/rate-limits",
+        incremental_fields=[],
+        primary_keys=["key"],
+        extra_params={"orderByField": "key", "orderByDirection": "asc"},
+    ),
     # Log lines emitted by tasks. The endpoint has no offset param, so pages advance the `since` window.
     "logs": HatchetEndpointConfig(
         name="logs",

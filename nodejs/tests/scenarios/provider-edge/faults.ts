@@ -88,6 +88,7 @@ export type SesAnswer =
     | { kind: 'no-answer' }
     | { kind: 'stalled-body' }
     | { kind: 'ambiguous'; accepted: boolean }
+    | { kind: 'accepted-then-status'; answer: SesStatusAnswer }
     | { kind: 'hold-answer' }
 
 export type WebhookAnswer =
@@ -146,10 +147,10 @@ export function ruleOf(fault: CardFault): FaultRule {
     }
 }
 
-export const heldAnswerRule = (): FaultRule => ({
+export const heldAnswerRule = (share?: number): FaultRule => ({
     name: 'edge.accepted',
     answer: { kind: 'hold-answer' },
-    dose: { count: 1 },
+    dose: share === undefined ? { count: 1 } : { share },
 })
 
 type ActiveFault = {
@@ -194,7 +195,10 @@ const isPgAnswer = (answer: Answer): answer is PgAnswer =>
 const isSesAnswer = (answer: Answer): answer is SesAnswer => !isWebhookAnswer(answer) && !isPgAnswer(answer)
 
 const reachesSes = (answer: Answer): boolean =>
-    answer.kind === 'bounce' || answer.kind === 'hold-answer' || (answer.kind === 'ambiguous' && answer.accepted)
+    answer.kind === 'bounce' ||
+    answer.kind === 'hold-answer' ||
+    answer.kind === 'accepted-then-status' ||
+    (answer.kind === 'ambiguous' && answer.accepted)
 
 function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean {
     if (request.channel === 'webhook') {
@@ -208,7 +212,7 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
 
 function doseTakes(fault: ActiveFault, now: number, { unitId, pickKey }: Hit): boolean {
     const {
-        rule: { dose, pick },
+        rule: { answer, dose, pick },
         matched,
         applied,
     } = fault
@@ -218,6 +222,9 @@ function doseTakes(fault: ActiveFault, now: number, { unitId, pickKey }: Hit): b
     }
     if ('count' in dose) {
         return applied < dose.count
+    }
+    if (answer.kind === 'hold-answer' && (applied > 0 || unitId === undefined)) {
+        return false
     }
     if (pick !== undefined) {
         const attempt = fault.attempts.get(unitId ?? pickKey) ?? 0
