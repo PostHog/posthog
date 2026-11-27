@@ -15,11 +15,14 @@ from loginas import settings as la_settings
 from parameterized import parameterized
 
 from posthog.models import User
+from posthog.session.activity import session_public_id
 from posthog.session.middleware import SessionRiskMiddleware
 from posthog.session.models import Session
 from posthog.session.risk import Context, RiskFlags, RiskTier, _baseline_for_session, evaluate_session_risk
 
-IMPOSSIBLE_TRAVEL_CTX = Context(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="chrome|mac os x|pc")
+IMPOSSIBLE_TRAVEL_CTX = Context(
+    latitude=35.6, longitude=139.7, country_code="JP", ua_signature="chrome|mac os x|pc", ip="203.0.113.7"
+)
 # Network anomaly *and* device anomaly — the cross-axis pair that reaches HIGH.
 HIGH_RISK_CTX = Context(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="firefox|mac os x|pc")
 UA_CHANGE_CTX = Context(latitude=40.7, longitude=-74.0, country_code="US", ua_signature="firefox|mac os x|pc")
@@ -94,8 +97,9 @@ class TestEvaluateSessionRisk(BaseTest):
     @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, False))
-    def test_telemetry_event_carries_no_pii(self, _flags, mock_capture, _ctx):
+    def test_telemetry_event_attributes_the_client_without_leaking_the_session(self, _flags, mock_capture, _ctx):
         request = self._authed_request_with_baseline(self._make_user())
+        session_key = request.session.session_key
 
         evaluate_session_risk(request)
 
@@ -104,7 +108,10 @@ class TestEvaluateSessionRisk(BaseTest):
         props = mock_capture.call_args.kwargs["properties"]
         self.assertIn("signals", props)
         self.assertIn("tier", props)
-        for forbidden in ("ip", "session_key", "latitude", "longitude"):
+        self.assertEqual(props["$ip"], "203.0.113.7")
+        self.assertEqual(props["session_public_id"], str(session_public_id(session_key)))
+        self.assertNotIn(session_key, map(str, props.values()))
+        for forbidden in ("session_key", "latitude", "longitude"):
             self.assertNotIn(forbidden, props)
 
     @parameterized.expand(
