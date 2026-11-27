@@ -1,16 +1,18 @@
 import re
 import dataclasses
-from typing import TYPE_CHECKING, ClassVar, Protocol
+from typing import TYPE_CHECKING, ClassVar, Protocol, cast
 from urllib.parse import urlencode
 
 from django import forms
 from django.urls import reverse
 
 from posthog.admin.console.panels import Gate, Owner, Tone, check_danger, is_internal_path
-from posthog.admin.console.records import RECORD_TYPES
+from posthog.admin.console.records import RECORD_TYPES, RecordLink
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.db.models import Model
     from django.forms.boundfield import BoundField
     from django.http import HttpRequest, HttpResponse
@@ -427,6 +429,23 @@ class ToolOperation:
             raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
 
 
+@frozen
+class ToolPlace:
+    """The record a tool page sits under, and the pages between that record and this one, for the breadcrumb."""
+
+    record_type: str
+    record: "Model"
+    # For a page about something inside the record, for example one experiment of a team: the tool's list of them,
+    # then the thing itself.
+    steps: tuple[RecordLink, ...] = ()
+
+    @classmethod
+    def under(cls, record_type: str, pk: object, steps: tuple[RecordLink, ...] = ()) -> "ToolPlace | None":
+        """The place under the record with this primary key, or None when no such record exists."""
+        record = RECORD_TYPES[record_type].find(str(pk))
+        return cls(record_type=record_type, record=record, steps=steps) if record is not None else None
+
+
 class ConsoleTool:
     """A console page that is not about one record, for example a report across all teams.
 
@@ -446,15 +465,32 @@ class ConsoleTool:
     # same name, for example ?team=7, and its breadcrumb runs through that record.
     subject: ClassVar[str | None] = None
 
+    @staticmethod
+    def once_per_request[T](request: "HttpRequest", key: tuple[str, ...], load: "Callable[[], T]") -> T:
+        """What `load` returns, loaded once per request. The breadcrumb, page() and live() each ask for what a page
+        is about, so a page that reads it in `place` and in `page` pays for one lookup."""
+        loaded: dict[tuple[str, ...], object] = request.__dict__.setdefault("console_loaded", {})
+        if key not in loaded:
+            loaded[key] = load()
+        return cast(T, loaded[key])
+
     def subject_of(self, request: "HttpRequest") -> "Model | None":
         if self.subject is None:
             return None
-        # The breadcrumb, page() and live() each ask for the record, so one request looks it up once.
-        found: dict[tuple[str, str], Model | None] = request.__dict__.setdefault("console_subjects", {})
-        key = (self.subject, request.GET.get(self.subject, ""))
-        if key not in found:
-            found[key] = RECORD_TYPES[self.subject].find(key[1])
-        return found[key]
+        subject = self.subject
+        pk = request.GET.get(subject, "")
+        return self.once_per_request(request, ("subject", subject, pk), lambda: RECORD_TYPES[subject].find(pk))
+
+    def place(self, request: "HttpRequest") -> ToolPlace | None:
+        """Where this page sits, for its breadcrumb. A tool with a subject sits under that record.
+
+        Override it for a page about something inside a record, such as one experiment, to name the record from what
+        the page shows.
+        """
+        obj = self.subject_of(request)
+        if obj is None or self.subject is None:
+            return None
+        return ToolPlace(record_type=self.subject, record=obj)
 
     @classmethod
     def url_for(cls, obj: "Model") -> str:

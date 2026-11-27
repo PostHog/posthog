@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from types import FunctionType, SimpleNamespace
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -57,7 +57,7 @@ from posthog.admin.console.panels import (
     ReasonForm,
     Tone,
 )
-from posthog.admin.console.records import RECORD_TYPES
+from posthog.admin.console.records import RECORD_TYPES, RecordLink
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.related import RELATED_PREVIEW_SIZE, RelatedRecords
 from posthog.admin.console.results import (
@@ -89,6 +89,7 @@ from posthog.admin.console.tools import (
     Table,
     TableSelect,
     ToolOperation,
+    ToolPlace,
 )
 from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
@@ -717,10 +718,11 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
     @parameterized.expand([(moved.old_path, moved) for moved in console.moved() if isinstance(moved, MovedPage)])
     def test_an_old_page_url_lands_on_its_registered_tool(self, _name: str, moved: MovedPage) -> None:
         old_path, values = _sample_path(moved.old_path)
-
-        response = self._get(f"{old_path}?from=ticket")
-
         target = moved.url.format(**values)
+        overrides = "".join(f"&{name}=other" for name, _value in parse_qsl(urlsplit(target).query))
+
+        response = self._get(f"{old_path}?from=ticket{overrides}")
+
         assert response.status_code == 302
         assert response["Location"] == target + ("&" if "?" in target else "?") + "from=ticket"
         if target == CONSOLE_HOME:
@@ -1162,23 +1164,33 @@ class TestAdminConsoleViews(BaseTest):
         assert 'value="2026-10-22"' in content and "Preview" in content
         assert re.search(r'<input type="hidden" name="step" value="details"', content)
 
-    @parameterized.expand([("for_its_record", True), ("without_a_record", False)])
-    def test_a_tool_about_one_record_leads_back_through_that_record(self, _name: str, with_record: bool) -> None:
-        tool = type("TeamReport", (_Tool,), {"subject": "team", "page": lambda self, request: Page(blocks=())})()
-        url = tool.url_for(self.team) if with_record else f"/admin/console/tools/{tool.key}/"
+    @parameterized.expand([("for_its_record", "subject"), ("inside_its_record", "place"), ("without_a_record", None)])
+    def test_a_tool_about_one_record_leads_back_through_that_record(self, _name: str, scope: str | None) -> None:
+        step = RecordLink(label="Checkout test", href="/admin/console/tools/team-report/?item=1")
+        team_pk = self.team.pk
+        attributes: dict[str, object] = {"subject": "team", "page": lambda self, request: Page(blocks=())}
+        if scope == "place":
+            attributes = {
+                **attributes,
+                "subject": None,
+                "place": lambda self, request: ToolPlace.under("team", team_pk, (step,)),
+            }
+        tool = type("TeamReport", (_Tool,), attributes)()
+        url = tool.url_for(self.team) if scope == "subject" else f"/admin/console/tools/{tool.key}/"
 
         with patch.object(console, "get_tool", return_value=tool):
             response = self.client.get(url)
 
-        crumbs = [crumb.href for crumb in response.context["subject_crumbs"]]
-        if with_record:
-            assert crumbs == [
-                f"/admin/console/organizations/{self.organization.pk}/",
-                f"/admin/console/projects/{self.project.pk}/",
-                f"/admin/console/teams/{self.team.pk}/",
-            ]
-        else:
+        crumbs = [crumb.href for crumb in response.context["place_crumbs"]]
+        if scope is None:
             assert crumbs == [] and "/admin/console/tools/#tools-infrastructure" in response.content.decode()
+            return
+        assert crumbs == [
+            f"/admin/console/organizations/{self.organization.pk}/",
+            f"/admin/console/projects/{self.project.pk}/",
+            f"/admin/console/teams/{self.team.pk}/",
+            *([step.href] if scope == "place" else []),
+        ]
 
     def test_a_tool_looks_its_record_up_once_per_request(self) -> None:
         tool = type("TeamReport", (_Tool,), {"subject": "team"})()
