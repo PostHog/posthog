@@ -247,6 +247,28 @@ def test_non_2xx_api_responses_raise_for_status() -> None:
             client.request("GET", "apps/com.example/anomalies")
 
 
+def test_retries_a_429_on_a_post_request_before_succeeding() -> None:
+    # The adapter's own retry (`DEFAULT_RETRY`) only covers GET/HEAD/OPTIONS, so a 429 on the
+    # `:query` POST metric-set endpoint used to reach `raise_for_status()` on the first try. Only a
+    # POST proves the vendor-level retry added here, since a GET would already be retried by the
+    # adapter regardless of this fix.
+    with scripted_network(
+        [
+            TOKEN,
+            ScriptedResponse(status=429, body=b"RESOURCE_EXHAUSTED"),
+            ScriptedResponse(json={"rows": []}),
+        ]
+    ) as network:
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        assert client.request("POST", "apps/com.example.app/crashRateMetricSet:query", body={}) == {"rows": []}
+
+    assert [request.path for request in network.requests_log] == [
+        "/token",
+        "/v1beta1/apps/com.example.app/crashRateMetricSet:query",
+        "/v1beta1/apps/com.example.app/crashRateMetricSet:query",
+    ]
+
+
 def test_list_apps_follows_pagination() -> None:
     with scripted_network(
         [
