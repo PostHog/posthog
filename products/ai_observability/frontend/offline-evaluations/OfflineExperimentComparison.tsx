@@ -221,7 +221,14 @@ export function OfflineExperimentComparison({
                             No visible scorer version appears in every experiment. Each run’s scores are shown below.
                         </LemonBanner>
                     )}
-                    <LemonTable columns={columns} dataSource={rows} rowKey="id" firstColumnSticky size="small" />
+                    <LemonTable
+                        columns={columns}
+                        dataSource={rows}
+                        rowKey="id"
+                        rowClassName={(row) => (row.kind === 'experiment' ? '[&>td]:align-middle' : null)}
+                        firstColumnSticky
+                        size="small"
+                    />
                     {!scores.length && (
                         <LemonBanner type="info">
                             These experiments have no visible scores. Open an experiment to inspect its items.

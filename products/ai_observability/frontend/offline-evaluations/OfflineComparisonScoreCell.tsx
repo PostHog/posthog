@@ -48,7 +48,7 @@ export function OfflineComparisonScoreCell({
         const score = row.scores.get(experiment.id)
         return score ? (
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <OfflineExperimentScoreValue score={score} />
+                <OfflineExperimentScoreValue score={score} emphasized />
                 {experiment.id !== baselineId && (
                     <BaselineDifference difference={experimentScoreDifference(score, row.scores.get(baselineId))} />
                 )}

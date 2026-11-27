@@ -7,7 +7,13 @@ import type { ExperimentScoreApi } from '../generated/api.schemas'
 import { experimentScoreLabel } from './ExperimentScoreResult'
 import { explainMixedScorerVersions, formatItemScorerVersions } from './offlineExperimentPresentation'
 
-export function OfflineExperimentScoreValue({ score }: { score: ExperimentScoreApi }): JSX.Element {
+export function OfflineExperimentScoreValue({
+    score,
+    emphasized = false,
+}: {
+    score: ExperimentScoreApi
+    emphasized?: boolean
+}): JSX.Element {
     const label = experimentScoreLabel(score)
     const blockedInputs =
         score.status === 'mixed_versions' ? score.inputs.filter((input) => input.status === 'mixed_versions') : []
@@ -41,7 +47,11 @@ export function OfflineExperimentScoreValue({ score }: { score: ExperimentScoreA
                     <span
                         className={cn(
                             'break-words min-w-0',
-                            score.status === 'ok' && typeof score.value === 'number' && 'font-bold'
+                            score.status === 'ok' && typeof score.value === 'number' && 'font-bold',
+                            emphasized &&
+                                score.status === 'ok' &&
+                                score.value !== null &&
+                                'text-xl leading-tight font-bold'
                         )}
                     >
                         {label}
