@@ -1,6 +1,6 @@
 import './NotebookAppBuilder.scss'
 
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconPlus } from '@posthog/icons'
@@ -144,7 +144,11 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             >
                                 {preview ? 'Back to builder' : 'Preview'}
                             </LemonButton>
-                            {preview && <NotebookRunAllButton type="secondary" size="small" />}
+                            {preview && (
+                                <BindLogic logic={notebookLogic} props={{ shortId }}>
+                                    <NotebookRunAllButton type="secondary" size="small" />
+                                </BindLogic>
+                            )}
                             <LemonButton
                                 type="secondary"
                                 size="small"

@@ -255,7 +255,8 @@ export const DraftViewer: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('button', { name: 'Preview' }, { timeout: 60000 }))
-        expect(canvas.getByRole('button', { name: 'Run all' })).toBeEnabled()
+        const builder = within(canvasElement.querySelector('[data-attr="notebook-app-builder"]') as HTMLElement)
+        expect(await builder.findByRole('button', { name: /Run every SQL and Python cell/ })).toBeEnabled()
         await userEvent.click(await canvas.findByText('Data dependencies'))
         expect(canvas.getByText('reads weekly_growth')).toBeVisible()
         await userEvent.click(canvas.getByLabelText('Region', { exact: true }))
