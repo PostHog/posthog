@@ -16,7 +16,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from django.db import IntegrityError, connections, router, transaction
+from django.db import IntegrityError, router, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -414,32 +414,11 @@ def _same_requester(request: BroadcastRequest) -> Q | None:
     return match or None
 
 
-def _lock_requester_cards(request: BroadcastRequest, *, using: str) -> None:
-    """Serialize card posts of one requester until the transaction ends, so each post counts the ones before it.
-
-    A post saves its delivery as POSTED in a transaction that is still open, so a concurrent post for the same
-    person would not see it and both cards would show the same count. One lock per identity, taken in a fixed
-    order, also covers a person who asks once from Slack and once from GitHub.
-    """
-    identities = []
-    if request.requested_by_user_id is not None:
-        identities.append(f"user:{request.requested_by_user_id}")
-    if request.requester_slack_user_id:
-        identities.append(f"slack:{request.requester_slack_user_id}")
-    if request.requester_github_login:
-        identities.append(f"github:{request.requester_github_login.lower()}")
-    with connections[using].cursor() as cursor:
-        for identity in sorted(identities):
-            cursor.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                [f"stamphog-broadcast-cards:{request.team_id}:{identity}"],
-            )
-
-
 def requester_card_count(request: BroadcastRequest, *, at: datetime, using: str) -> int:
     """How many cards the person who made ``request`` caused in the window up to ``at``, its own card included.
 
-    Only posted cards count, because a request that stamphog approved asked nobody to look.
+    Only posted cards count, because a request that stamphog approved asked nobody to look. Two cards that
+    post at the same moment can show the same number, which is accepted for a label.
     """
     match = _same_requester(request)
     if match is None:
@@ -628,7 +607,6 @@ def _post_once(request: BroadcastRequest, card: BroadcastRequestCard, head_sha: 
         if delivery.thread_ts and delivery.channel_id != repo_config.broadcast_slack_channel_id:
             logger.info("stamphog_broadcast_request_thread_in_another_channel", broadcast_request_id=str(request.id))
             return
-        _lock_requester_cards(request, using=using)
         posted_at = timezone.now()
         card_count = requester_card_count(request, at=posted_at, using=using)
         card = dataclasses.replace(card, requester_card_count=card_count)
