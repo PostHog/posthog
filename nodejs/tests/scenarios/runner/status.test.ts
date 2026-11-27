@@ -379,6 +379,19 @@ describe('statusOf', () => {
             `the ramp hit a harness limit: the generator offered 0 of 600 units in the 2x step, under minOffered 0.9; no_loss was not judged: ${IN_FLIGHT}`,
         ],
         [
+            'a ramp that hit a harness limit and did not converge with no job left',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: [], tookMs: 120_000 },
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 0 of 600 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 0 of 600 units in the 2x step, under minOffered 0.9',
+        ],
+        [
             'a run that held but whose judge could not read the final state',
             {
                 convergence: {
