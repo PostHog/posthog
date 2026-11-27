@@ -433,18 +433,36 @@ def pull_requests_applying(repo: Repo, approvals: list[BaselineApproval]) -> set
     return {(pr_number, run_type) for pr_number, run_type in runs if pr_number is not None}
 
 
-def publish_after_approvals_close(repo: Repo, closed: list[BaselineApproval]) -> None:
-    """Publish again, once the caller's transaction commits, for the current runs that applied a closed approval.
+def _publish_after_close(repo: Repo, closed: list[BaselineApproval], finished_pull_requests: frozenset[int]) -> None:
+    made_over = baseline_approvals.open_approvals_made_over(closed)
+    # A run that applied an earlier approval of the same picture stayed fresh through the one that closed.
+    predecessors = baseline_approvals.same_picture_predecessors(closed) if closed else []
+    pull_requests = pull_requests_applying(repo, [*closed, *predecessors, *made_over])
+    pull_requests |= {(approval.pr_number, approval.run_type) for approval in made_over}
+    publish_for_pull_requests(
+        repo,
+        {(pr_number, run_type) for pr_number, run_type in pull_requests if pr_number not in finished_pull_requests},
+    )
+
+
+def publish_after_approvals_close(
+    repo: Repo, closed: list[BaselineApproval], finished_pull_requests: frozenset[int] = frozenset()
+) -> None:
+    """Publish again, once the caller's transaction commits, for the current runs that rest on a closed approval.
 
     A stack layer's approval can count through the open approval of the layer below it, so its passing
-    status rests on that approval staying open. Closing an approval without a ledger entry changes no
-    ledger hash, so nothing else publishes those runs again. The reads and posts run after the commit,
-    so none of them runs under the ledger lock.
+    status rests on that approval staying open. An open approval made over a closed approval's picture
+    rests on it too, also when its pull request's current run did not apply the closed approval. Closing
+    an approval without a ledger entry changes no ledger hash, so nothing else publishes those runs
+    again. The reads and posts run after the commit, so none of them runs under the ledger lock.
+
+    `finished_pull_requests` merged or closed with this change. Their heads gate nothing any more,
+    so they keep the status they have.
     """
     if not closed or not guards_stale_approvals(repo):
         return
     transaction.on_commit(
-        lambda: publish_for_pull_requests(repo, pull_requests_applying(repo, closed)), using=WRITER_DB, robust=True
+        lambda: _publish_after_close(repo, closed, finished_pull_requests), using=WRITER_DB, robust=True
     )
 
 

@@ -159,6 +159,15 @@ class FakeGit:
             state="open", merged=False, merge_commit_sha=None, base_ref=DEFAULT_BRANCH, head_sha=head_sha
         )
 
+    def close_pull_request(self, number: int) -> None:
+        self.pull_requests[number] = github_api.PullRequestState(
+            state="closed",
+            merged=False,
+            merge_commit_sha=None,
+            base_ref=DEFAULT_BRANCH,
+            head_sha=self.pull_requests[number].head_sha,
+        )
+
     def merge(self, number: int, sha: str, *, squash: bool = False, shown_as_merged: bool = True) -> str:
         head_sha = self.pull_requests[number].head_sha
         assert head_sha is not None

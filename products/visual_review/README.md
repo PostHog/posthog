@@ -321,6 +321,7 @@ Per snapshot, the ledger's hash wins when the render matches it.
 The approved hash is used only when the render does not match the ledger.
 An approval stops applying when the ledger's hash for its identifier is no longer the one the reviewer compared against.
 A stack layer approved over the picture of an open layer below it keeps applying while that layer's approval applies, so a lower layer that merges on its own does not stop the layers above it.
+A stack layer approved over the picture of a layer below it stops applying when that layer's approval closes without a ledger entry, unless the ledger holds the picture the reviewer compared against.
 The snapshot then shows as changed against the new baseline and needs a new approval.
 Two approvals from unrelated pull requests with different hashes for one identifier in one run are a conflict, and neither applies.
 
@@ -360,7 +361,10 @@ The approvals a run rests on are the ones finalized on it and the ones its basel
 The rule applies to pull request runs in `ledger` mode only, and the run page shows how many approvals are stale.
 A re-run on the same commit stays red. Update the branch from the default branch, and review the new run.
 Staleness is not stored: when the ledger learns of a merge, the other pull requests with an open approval of the same story publish their status again, so a revert turns them green again.
-When an approval closes without a ledger entry (superseded, voided, conflicted, abandoned), the pull requests whose current run applied it publish their status again, so a stack layer that counted through it turns red.
+When an approval closes without a ledger entry (superseded, voided, conflicted, abandoned), the pull requests whose current run applied it, or that hold an approval made over its picture, publish their status again, so a stack layer that counted through it turns red.
+The pull request that merged or closed keeps its status.
+The run stays green when the ledger holds the picture it ends with, or when the same pull request approved the same picture again.
+After an update, the layer's run shows the change against the ledger, and a new review turns it green.
 In `shadow` mode the verdict is the baseline file's, except for the ledger check below. `ledger` mode needs the gate on.
 
 Run creation and completion, finalizing, approving or tolerating a snapshot, a new quarantine, and "Recompute" all publish the status again.

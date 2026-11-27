@@ -264,6 +264,35 @@ FRONTEND_PICTURES = {frozenset(): "b0", frozenset({"F"}): "b1"}
 BACKEND_CHILD = Layer(name="C", pr_number=2, stacked_on="P", frontend=False)
 BACKEND_CHILD_PICTURES = {frozenset(): "b0", frozenset({"P"}): "b1"}
 
+# "close X" closes X without merging it, and the hourly check of open approvals abandons the approvals of X.
+CLOSE_SCENARIOS = (
+    Scenario(
+        key="stack_parent_closes_under_a_child_that_passes_on_its_picture",
+        layers=(PARENT, BACKEND_CHILD),
+        pictures=BACKEND_CHILD_PICTURES,
+        after={
+            "run P": (),
+            "approve P": ("run P",),
+            "run C": (),
+            "close P": ("approve P",),
+        },
+    ),
+    Scenario(
+        key="stack_parent_closes_under_a_child_approved_over_its_picture",
+        layers=(PARENT, CHILD),
+        pictures=STACK_PICTURES,
+        after={
+            "run P": (),
+            "approve P": ("run P",),
+            "run C": ("approve P",),
+            "approve C": ("run C",),
+            "close P": ("approve P",),
+            "push C": ("close P", "approve C"),
+            "approve C again": ("push C",),
+        },
+    ),
+)
+
 # CI as an actor. "ci X" is the workflow finishing its first attempt on the current head of X, and "rerun X" is a
 # re-run of it. "fail X" is a workflow whose build failed there, so neither a run nor a skip report arrives. "push X
 # <kind>" moves X to a new commit and starts no workflow yet: "backend" changes backend files only, "revert" takes
