@@ -66754,6 +66754,8 @@ export namespace Schemas {
          * @nullable
          */
       seconds_left: number | null;
+      /** True when the step completed without reading anything, because the key can't read it. `warnings` says why. */
+      skipped: boolean;
     }
 
     /**
@@ -124042,6 +124044,8 @@ export namespace Schemas {
       filter_fields: SourceFilterCatalogField[];
       /** Example expressions that are valid for this source. */
       starter_expressions: string[];
+      /** True when `inbox-source-filter-preview` can show this source's recent records. When false, a filter can still be saved, but the preview returns an error. */
+      preview_supported: boolean;
     }
 
     export interface SourceFilterCatalogList {

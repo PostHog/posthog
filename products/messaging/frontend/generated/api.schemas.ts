@@ -640,6 +640,8 @@ export interface ImportStepProgressApi {
      * @nullable
      */
     seconds_left: number | null
+    /** True when the step completed without reading anything, because the key can't read it. `warnings` says why. */
+    skipped: boolean
 }
 
 export interface ProviderImportRunApi {

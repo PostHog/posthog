@@ -158,6 +158,9 @@ class ImportStepProgressSerializer(serializers.Serializer):
         allow_null=True,
         help_text="While the step runs, an estimate of the seconds it needs to read the rest of `total`, from its pace so far. Null until the step has a pace and a total.",
     )
+    skipped = serializers.BooleanField(
+        help_text="True when the step completed without reading anything, because the key can't read it. `warnings` says why."
+    )
 
 
 class ProviderImportRunSerializer(serializers.Serializer):

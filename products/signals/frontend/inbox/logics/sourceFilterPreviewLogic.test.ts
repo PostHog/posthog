@@ -19,6 +19,7 @@ const catalog: SourceFilterCatalogApi = {
     catalog_version: 2,
     filter_fields: [{ name: 'assignee_id', type: 'string', description: 'Assignee.' }],
     starter_expressions: ['assignee_id IS NULL'],
+    preview_supported: true,
 }
 
 function sourceConfig(product: SignalSourceProduct, type: SignalSourceType): SignalSourceConfig {

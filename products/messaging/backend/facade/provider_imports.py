@@ -128,6 +128,7 @@ class ImportStepProgress:
     # how long the rest should take at its pace so far.
     total: int | None = None
     seconds_left: int | None = None
+    skipped: bool = False
 
 
 @frozen
@@ -303,6 +304,7 @@ def _step_progress(
         items_omitted=progress.get("items_omitted", 0) + len(stored_items) - len(items),
         total=total,
         seconds_left=seconds_left,
+        skipped=progress.get("skipped", False),
     )
 
 

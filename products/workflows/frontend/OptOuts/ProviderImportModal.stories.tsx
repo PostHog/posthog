@@ -300,6 +300,7 @@ ImportRunning.args = {
                 items_omitted: 0,
                 total: null,
                 seconds_left: null,
+                skipped: false,
             },
             {
                 key: 'suppressions',
@@ -315,6 +316,7 @@ ImportRunning.args = {
                 items_omitted: 0,
                 total: null,
                 seconds_left: null,
+                skipped: false,
             },
             {
                 key: 'opt_outs',
@@ -330,6 +332,7 @@ ImportRunning.args = {
                 items_omitted: 0,
                 total: null,
                 seconds_left: null,
+                skipped: false,
             },
         ]),
     ],
@@ -360,6 +363,7 @@ ImportStepFailed.args = {
                 items_omitted: 0,
                 total: null,
                 seconds_left: null,
+                skipped: false,
             },
             {
                 key: 'opt_outs',
@@ -375,6 +379,7 @@ ImportStepFailed.args = {
                 items_omitted: 0,
                 total: null,
                 seconds_left: null,
+                skipped: false,
             },
         ]),
     ],
@@ -456,6 +461,7 @@ ResendFinishedWithNotes.args = {
                     items_omitted: 0,
                     total: null,
                     seconds_left: null,
+                    skipped: false,
                 },
                 {
                     key: 'templates',
@@ -486,6 +492,7 @@ ResendFinishedWithNotes.args = {
                     items_omitted: 0,
                     total: null,
                     seconds_left: null,
+                    skipped: false,
                 },
             ]),
             provider: 'resend',
@@ -495,4 +502,52 @@ ResendFinishedWithNotes.args = {
 ResendFinishedWithNotes.parameters = {
     mockDate: '2026-04-13 10:30:00',
     testOptions: { waitForSelector: '[data-attr="resend-import-next-steps"]', snapshotBrowsers: [] },
+}
+
+export const ResendFinishedWithSkippedStep: StoryFn<StoryProps> = ResendTemplate.bind({})
+ResendFinishedWithSkippedStep.args = {
+    syncConfig: emptySyncConfig,
+    importRuns: [
+        {
+            ...importRun('completed', [
+                {
+                    key: 'suppressions',
+                    label: 'Suppression list',
+                    status: 'completed',
+                    processed: 3,
+                    imported: 3,
+                    warnings: [],
+                    last_error: null,
+                    counts: [],
+                    items: [],
+                    warnings_omitted: 0,
+                    items_omitted: 0,
+                    total: null,
+                    seconds_left: null,
+                    skipped: false,
+                },
+                {
+                    key: 'templates',
+                    label: 'Templates',
+                    status: 'completed',
+                    processed: 0,
+                    imported: 0,
+                    warnings: ["Skipped, because this key can't read templates. Give it access, then import again."],
+                    last_error: null,
+                    counts: [],
+                    items: [],
+                    warnings_omitted: 0,
+                    items_omitted: 0,
+                    total: null,
+                    seconds_left: null,
+                    skipped: true,
+                },
+            ]),
+            provider: 'resend',
+        },
+    ],
+}
+ResendFinishedWithSkippedStep.parameters = {
+    mockDate: '2026-04-13 10:30:00',
+    testOptions: { waitForSelector: '[data-attr="resend-import-run-progress"]', snapshotBrowsers: [] },
 }

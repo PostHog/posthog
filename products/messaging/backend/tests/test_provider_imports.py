@@ -326,6 +326,17 @@ class TestProviderImportRuns(BaseTest):
         assert properties["stage"] == expected_run_status
         assert properties.get("error_class") == error_class
         assert properties["counts"]["suppressions"] == {"imported": 3, "skipped": 2, "failed": 1}
+        assert properties["failed_steps"] == [
+            step for step, status in zip(run.steps, expected_step_statuses) if status != "completed"
+        ]
+        assert {key: value for key, value in properties.items() if key.startswith("suppressions_")} == {
+            "suppressions_status": expected_step_statuses[0],
+            "suppressions_processed": 6,
+            "suppressions_imported": 3,
+            "suppressions_skipped": 2,
+            "suppressions_failed": 1,
+            "suppressions_already_present": 2,
+        }
         assert report.call_args.kwargs["organization"] == self.organization
 
     @time_machine.travel("2026-03-02T12:00:00Z", tick=False)

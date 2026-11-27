@@ -6,7 +6,7 @@ import { type ContentPanel, type SavedPanel, type Dashboard, GRID, type Tile } f
 import type { ChartConfig } from '../panels/chart/chartSpec'
 import { type StatOptions, statSpec } from '../panels/chart/viz/stat/statSpec'
 
-// TODO(2026-11-25): Delete once the scene loads dashboards from the API.
+// TODO(2026-11-25): Delete once the board list can open saved boards.
 // It stands in for a saved dashboard and shows every panel and layout case.
 
 const chartOf = (title: string, query: PanelQuery, viz: ChartConfig['viz']): ContentPanel<ChartConfig> => ({

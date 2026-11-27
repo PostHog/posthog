@@ -67,6 +67,7 @@ const importRun = (status: ProviderImportRunApi['status']): ProviderImportRunApi
             items_omitted: 0,
             total: null,
             seconds_left: null,
+            skipped: false,
         },
     ],
     created_at: '2026-01-01T00:00:00Z',
