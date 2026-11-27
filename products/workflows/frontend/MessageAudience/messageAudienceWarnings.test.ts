@@ -22,7 +22,7 @@ import { DRAFT_SOURCE_PARAM, parseEmailDraftSource } from './aiEmailDraft'
 import { MessageAudience, MessageAudienceDestination, captureMessageAudienceClicked } from './messageAudience'
 import { ATTEMPT_PREFILL_PARAM, parseAttemptPrefill } from './messageAudienceAttempts'
 import { MessageAudienceWarning, loadMessageAudienceWarnings, openMessageAudience } from './messageAudienceWarnings'
-import { MessageDraft, draftMessage, parseMessageDraftPrefill } from './messageDrafts'
+import { MessageDraft, parseMessageDraftPrefill } from './messageDrafts'
 
 jest.mock('products/cohorts/frontend/generated/api', () => ({ cohortsRetrieve: jest.fn() }))
 jest.mock('products/integrations/frontend/generated/api', () => ({ integrationsList: jest.fn() }))
@@ -256,7 +256,10 @@ describe('loadMessageAudienceWarnings', () => {
         }
     })
 
-    it('reads the senders, the suspension and the test sender of the selected environment', async () => {
+    it.each<{ destination: MessageAudienceDestination; expected: MessageAudienceWarning[] }>([
+        { destination: 'workflow', expected: [TEST_SENDER_FOR_WORKFLOW] },
+        { destination: 'broadcast', expected: [SUSPENDED] },
+    ])('reads the checks for a $destination where it would be created', async ({ destination, expected }) => {
         const teamId = ApiConfig.getCurrentTeamId()
         try {
             ApiConfig.setCurrentTeamId(teamId + 1)
@@ -273,9 +276,15 @@ describe('loadMessageAudienceWarnings', () => {
                         : { count: 1, results: [verified], next: null }) as never
             )
 
-            expect(await loadMessageAudienceWarnings(audience, 'workflow', { offerTestSender: true })).toEqual([
-                TEST_SENDER_FOR_WORKFLOW,
-            ])
+            jest.mocked(cohortsRetrieve).mockResolvedValue({
+                name: 'Signups',
+                is_static: true,
+                is_calculating: false,
+            } as never)
+
+            expect(await loadMessageAudienceWarnings(audience, destination, { offerTestSender: true })).toEqual(
+                expected
+            )
         } finally {
             ApiConfig.setCurrentTeamId(teamId)
         }
@@ -346,7 +355,7 @@ describe('loadMessageAudienceWarnings', () => {
     it.each<{
         case: string
         extra: Partial<MessageAudience>
-        email: MessageDraft
+        email: MessageDraft | null
         draftSource: MessageAudience['draftSource'] | null
     }>([
         {
@@ -358,9 +367,9 @@ describe('loadMessageAudienceWarnings', () => {
             draftSource: null,
         },
         {
-            case: 'an email step for the draft of a cohort',
+            case: 'the draft source of a cohort',
             extra: { draftSource: { source: 'cohort', source_id: '7' } },
-            email: draftMessage({ kind: 'placeholder' }),
+            email: null,
             draftSource: { source: 'cohort', source_id: '7' },
         },
     ])(

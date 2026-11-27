@@ -26,7 +26,6 @@ import { canAdoptSandboxSender } from '../Channels/sandboxSender'
 import { urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
 import { messageAudienceAttempt, startMessageAudienceAttempt } from './messageAudienceAttempts'
-import { draftMessage } from './messageDrafts'
 
 // pinned: analytics property values of the warnings event
 export type MessageAudienceWarningKind =
@@ -90,13 +89,15 @@ export async function loadMessageAudienceWarnings(
     { offerTestSender = false }: { offerTestSender?: boolean } = {}
 ): Promise<MessageAudienceWarning[]> {
     const projectId = String(ApiConfig.getCurrentProjectId())
-    const teamId = String(ApiConfig.getCurrentTeamId())
+    const environmentId = destination === 'broadcast' ? projectId : String(ApiConfig.getCurrentTeamId())
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
-    const testSender = offerTestSender ? withinTimeout(workflowEmailSandboxStatus(teamId)) : Promise.resolve(null)
+    const testSender = offerTestSender
+        ? withinTimeout(workflowEmailSandboxStatus(environmentId))
+        : Promise.resolve(null)
     const [suspension, integrations, cohorts] = await Promise.all([
-        withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(teamId)),
-        withinTimeout(integrationsList(teamId, { kind: 'email' })),
+        withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(environmentId)),
+        withinTimeout(integrationsList(environmentId, { kind: 'email' })),
         Promise.all(
             cohortIds.map((id) =>
                 withinTimeout(cohortsRetrieve(projectId, id).then((cohort) => toAudienceCohort(id, cohort)))
@@ -143,7 +144,7 @@ export async function openMessageAudience(
                 urlForNewWorkflowWithTrigger(
                     { type: 'batch', filters: { properties: audience.properties } },
                     audience.source,
-                    audience.broadcastEmail ?? audience.workflowEmail ?? draftMessage({ kind: 'placeholder' }),
+                    audience.broadcastEmail ?? audience.workflowEmail,
                     audience.draftSource,
                     messageAudienceAttempt(audience.source, 'broadcast')
                 )
