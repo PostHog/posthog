@@ -1,7 +1,6 @@
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { HttpResponse } from 'msw'
 import posthog from 'posthog-js'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -21,7 +20,7 @@ const CALENDAR_API = '/api/projects/:team_id/workflow_advent_calendar'
 type Reply = number | 'network error'
 
 function replyWith(reply: Reply, body: unknown): Response | [number, unknown] {
-    return reply === 'network error' ? HttpResponse.error() : [reply, body]
+    return reply === 'network error' ? Response.error() : [reply, body]
 }
 
 const DAY_TWO_ANSWERED = {
@@ -299,7 +298,9 @@ describe('adventCalendarLogic', () => {
         logic.unmount()
         logic = adventCalendarLogic()
 
-        await expectLogic(logic, () => logic.mount()).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
 
         expect(logic.values.pollShares).toEqual(shares)
     })
