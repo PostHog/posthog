@@ -1,0 +1,538 @@
+{
+    "skills": {
+        "adding-warehouse-person-properties": {
+            "audience": "customer",
+            "feature_flag": "customer-analytics-csp"
+        },
+        "analyzing-ai-citations": {
+            "audience": "customer",
+            "feature_flag": "aeo-citation-tracking"
+        },
+        "analyzing-expensive-users": {
+            "audience": "customer"
+        },
+        "analyzing-experiment-session-replays": {
+            "audience": "customer"
+        },
+        "analyzing-funnel-correlation": {
+            "audience": "customer"
+        },
+        "analyzing-offline-evaluations": {
+            "audience": "customer"
+        },
+        "assessing-heatmaps": {
+            "audience": "customer"
+        },
+        "auditing-endpoints": {
+            "audience": "customer"
+        },
+        "auditing-experiments-flags": {
+            "audience": "customer"
+        },
+        "auditing-warehouse-source-health": {
+            "audience": "customer"
+        },
+        "auditing-warehouse-view-health": {
+            "audience": "customer"
+        },
+        "authoring-data-quality-checks": {
+            "audience": "customer"
+        },
+        "authoring-error-tracking-alerts": {
+            "audience": "customer"
+        },
+        "authoring-insight-alerts": {
+            "audience": "customer"
+        },
+        "authoring-log-alerts": {
+            "audience": "customer"
+        },
+        "authoring-scouts": {
+            "audience": "customer"
+        },
+        "building-a-dashboard": {
+            "audience": "customer"
+        },
+        "building-canvases": {
+            "audience": "customer",
+            "feature_flag": "today-rail-nav"
+        },
+        "building-html-canvases": {
+            "audience": "customer",
+            "feature_flag": "today-rail-nav"
+        },
+        "building-loops": {
+            "audience": "customer"
+        },
+        "building-notebook-apps": {
+            "audience": "customer",
+            "feature_flag": "notebook-app-builder"
+        },
+        "building-react-quill-canvases": {
+            "audience": "customer",
+            "feature_flag": "today-rail-nav"
+        },
+        "building-workflows": {
+            "audience": "customer"
+        },
+        "checking-member-access": {
+            "audience": "customer"
+        },
+        "choosing-trend-or-slope-view": {
+            "audience": "customer"
+        },
+        "cleaning-up-stale-feature-flags": {
+            "audience": "customer"
+        },
+        "composing-grid-canvases": {
+            "audience": "customer",
+            "feature_flag": "today-rail-nav"
+        },
+        "configuring-experiment-analytics": {
+            "audience": "customer"
+        },
+        "configuring-experiment-rollout": {
+            "audience": "customer"
+        },
+        "consuming-endpoints-from-client-code": {
+            "audience": "customer"
+        },
+        "copying-endpoints-across-projects": {
+            "audience": "customer"
+        },
+        "copying-flags-across-projects": {
+            "audience": "customer"
+        },
+        "creating-ai-subscription": {
+            "audience": "customer"
+        },
+        "creating-an-endpoint": {
+            "audience": "customer"
+        },
+        "creating-box-plot-insights": {
+            "audience": "customer"
+        },
+        "creating-experiments": {
+            "audience": "customer"
+        },
+        "creating-online-evaluations": {
+            "audience": "customer"
+        },
+        "creating-replay-vision-scanners": {
+            "audience": "customer"
+        },
+        "creating-surveys": {
+            "audience": "customer"
+        },
+        "debugging-failed-data-quality-checks": {
+            "audience": "customer"
+        },
+        "designing-email-templates": {
+            "audience": "customer"
+        },
+        "designing-replay-vision-scanners": {
+            "audience": "customer"
+        },
+        "diagnosing-ci-and-merge-bottlenecks": {
+            "audience": "customer",
+            "feature_flag": "engineering-analytics"
+        },
+        "diagnosing-endpoint-performance": {
+            "audience": "customer"
+        },
+        "diagnosing-experiment-health": {
+            "audience": "customer"
+        },
+        "diagnosing-failed-warehouse-syncs": {
+            "audience": "customer"
+        },
+        "diagnosing-missing-recordings": {
+            "audience": "customer"
+        },
+        "diagnosing-replay-capture-gaps": {
+            "audience": "customer"
+        },
+        "diagnosing-replay-rendering": {
+            "audience": "customer"
+        },
+        "diagnosing-sdk-health": {
+            "audience": "customer"
+        },
+        "diagnosing-stacktrace-symbolication": {
+            "audience": "customer"
+        },
+        "downloading-batch-export-files": {
+            "audience": "customer"
+        },
+        "exploring-ai-failures": {
+            "audience": "customer"
+        },
+        "exploring-apm-traces": {
+            "audience": "customer"
+        },
+        "exploring-autocapture-events": {
+            "audience": "customer"
+        },
+        "exploring-endpoint-execution-logs": {
+            "audience": "customer"
+        },
+        "exploring-live-traffic": {
+            "audience": "customer"
+        },
+        "exploring-llm-clusters": {
+            "audience": "customer"
+        },
+        "exploring-llm-costs": {
+            "audience": "customer"
+        },
+        "exploring-llm-evaluations": {
+            "audience": "customer"
+        },
+        "exploring-llm-traces": {
+            "audience": "customer"
+        },
+        "exploring-mcp-intent-clusters": {
+            "audience": "customer",
+            "feature_flag": "mcp-analytics-intent-routing"
+        },
+        "exploring-mcp-sessions": {
+            "audience": "customer"
+        },
+        "exploring-mcp-tool-quality": {
+            "audience": "customer"
+        },
+        "exploring-mcp-tool-usage": {
+            "audience": "customer"
+        },
+        "exploring-replay-vision-observations": {
+            "audience": "customer"
+        },
+        "exploring-scouts": {
+            "audience": "customer"
+        },
+        "filtering-bot-traffic": {
+            "audience": "customer"
+        },
+        "finding-deleted-feature-flags": {
+            "audience": "customer"
+        },
+        "finding-experiments": {
+            "audience": "customer"
+        },
+        "finding-replay-for-issue": {
+            "audience": "customer"
+        },
+        "finding-sessions-to-watch": {
+            "audience": "customer"
+        },
+        "formatting-insight-axes": {
+            "audience": "customer"
+        },
+        "grouping-noisy-errors": {
+            "audience": "customer"
+        },
+        "implementing-api-surveys": {
+            "audience": "customer"
+        },
+        "importing-push-tokens": {
+            "audience": "customer"
+        },
+        "inbox-exploration": {
+            "audience": "customer"
+        },
+        "installing-posthog-from-chat": {
+            "audience": "customer"
+        },
+        "installing-posthog-in-a-codebase": {
+            "audience": "customer"
+        },
+        "investigate-metric": {
+            "audience": "customer"
+        },
+        "investigating-ci-failures": {
+            "audience": "customer",
+            "feature_flag": "engineering-analytics"
+        },
+        "investigating-error-issue": {
+            "audience": "customer"
+        },
+        "investigating-logs": {
+            "audience": "customer"
+        },
+        "investigating-metric-anomalies": {
+            "audience": "customer",
+            "feature_flag": "metrics"
+        },
+        "investigating-replay": {
+            "audience": "customer"
+        },
+        "linking-errors-to-traces": {
+            "audience": "customer"
+        },
+        "managing-endpoint-versions": {
+            "audience": "customer"
+        },
+        "managing-experiment-lifecycle": {
+            "audience": "customer"
+        },
+        "managing-llm-prompts": {
+            "audience": "customer"
+        },
+        "managing-path-cleaning-rules": {
+            "audience": "customer"
+        },
+        "managing-reminders": {
+            "audience": "customer"
+        },
+        "managing-self-driving-spend": {
+            "audience": "customer"
+        },
+        "managing-streamlit-apps": {
+            "audience": "customer",
+            "feature_flag": "streamlit-apps"
+        },
+        "managing-subscriptions": {
+            "audience": "customer"
+        },
+        "measuring-email-performance": {
+            "audience": "customer"
+        },
+        "migrating-from-customer-io": {
+            "audience": "customer"
+        },
+        "migrating-from-email-providers": {
+            "audience": "customer"
+        },
+        "migrating-from-fivetran": {
+            "audience": "customer"
+        },
+        "modeling-activation-metrics": {
+            "audience": "customer"
+        },
+        "modeling-conversion-metrics": {
+            "audience": "customer"
+        },
+        "modeling-dimension-tables": {
+            "audience": "customer"
+        },
+        "modeling-product-usage-metrics": {
+            "audience": "customer"
+        },
+        "modeling-revenue-metrics": {
+            "audience": "customer"
+        },
+        "modeling-warehouse-foundations": {
+            "audience": "customer"
+        },
+        "prioritizing-my-inbox": {
+            "audience": "customer"
+        },
+        "querying-canvas-data": {
+            "audience": "customer",
+            "feature_flag": "today-rail-nav"
+        },
+        "querying-posthog-data": {
+            "audience": "customer"
+        },
+        "resolving-ingestion-warnings": {
+            "audience": "customer"
+        },
+        "review-hog-authoring": {
+            "audience": "customer",
+            "feature_flag": "review-hog"
+        },
+        "reviewing-warehouse-suggestions": {
+            "audience": "customer"
+        },
+        "scanning-experiments-with-replay-vision": {
+            "audience": "customer"
+        },
+        "sending-transactional-emails": {
+            "audience": "customer"
+        },
+        "setting-up-a-custom-rest-source": {
+            "audience": "customer"
+        },
+        "setting-up-a-data-warehouse-source": {
+            "audience": "customer"
+        },
+        "setting-up-ai-visibility": {
+            "audience": "customer",
+            "feature_flag": "aeo-citation-tracking"
+        },
+        "setting-up-an-email-domain": {
+            "audience": "customer"
+        },
+        "setting-up-data-catalog": {
+            "audience": "customer"
+        },
+        "setting-up-supabase-auth-emails": {
+            "audience": "customer"
+        },
+        "setting-up-warehouse-properties": {
+            "audience": "customer",
+            "feature_flag": "customer-analytics-csp"
+        },
+        "signals": {
+            "audience": "customer"
+        },
+        "signals-scout-ai-observability": {
+            "audience": "scout"
+        },
+        "signals-scout-anomaly-detection": {
+            "audience": "scout"
+        },
+        "signals-scout-apm": {
+            "audience": "scout"
+        },
+        "signals-scout-billing": {
+            "audience": "scout"
+        },
+        "signals-scout-conversations": {
+            "audience": "scout"
+        },
+        "signals-scout-csp-violations": {
+            "audience": "scout"
+        },
+        "signals-scout-customer-analytics": {
+            "audience": "scout"
+        },
+        "signals-scout-data-pipelines": {
+            "audience": "scout"
+        },
+        "signals-scout-data-warehouse": {
+            "audience": "scout"
+        },
+        "signals-scout-dreaming": {
+            "audience": "scout"
+        },
+        "signals-scout-error-tracking": {
+            "audience": "scout"
+        },
+        "signals-scout-experiments": {
+            "audience": "scout"
+        },
+        "signals-scout-feature-flags": {
+            "audience": "scout"
+        },
+        "signals-scout-first-report": {
+            "audience": "scout"
+        },
+        "signals-scout-general": {
+            "audience": "scout"
+        },
+        "signals-scout-health-checks": {
+            "audience": "scout"
+        },
+        "signals-scout-inbox-validation": {
+            "audience": "scout"
+        },
+        "signals-scout-insight-alerts": {
+            "audience": "scout"
+        },
+        "signals-scout-logs": {
+            "audience": "scout"
+        },
+        "signals-scout-mcp-tool-calls": {
+            "audience": "scout"
+        },
+        "signals-scout-observability-gaps": {
+            "audience": "scout"
+        },
+        "signals-scout-pr-follow-up": {
+            "audience": "scout"
+        },
+        "signals-scout-product-analytics": {
+            "audience": "scout"
+        },
+        "signals-scout-replay-vision": {
+            "audience": "scout"
+        },
+        "signals-scout-revenue-analytics": {
+            "audience": "scout"
+        },
+        "signals-scout-session-replay": {
+            "audience": "scout"
+        },
+        "signals-scout-skills-store": {
+            "audience": "scout"
+        },
+        "signals-scout-surveys": {
+            "audience": "scout"
+        },
+        "signals-scout-tasks": {
+            "audience": "scout"
+        },
+        "signals-scout-unused-features": {
+            "audience": "scout"
+        },
+        "signals-scout-web-analytics": {
+            "audience": "scout"
+        },
+        "signals-scout-web-vitals": {
+            "audience": "scout"
+        },
+        "signals-scout-workflows": {
+            "audience": "scout"
+        },
+        "skills-store": {
+            "audience": "customer"
+        },
+        "suggesting-data-imports": {
+            "audience": "customer"
+        },
+        "suppressing-noisy-errors": {
+            "audience": "customer"
+        },
+        "syncing-migrated-self-managed-tables": {
+            "audience": "customer"
+        },
+        "transcribing-slack-audio": {
+            "audience": "customer",
+            "consumers": [
+                "slack"
+            ]
+        },
+        "triaging-error-issues": {
+            "audience": "customer"
+        },
+        "triaging-visual-review-runs": {
+            "audience": "customer",
+            "feature_flag": "visual-review"
+        },
+        "tuning-incremental-sync-config": {
+            "audience": "customer"
+        },
+        "turning-engineering-analytics-into-insights": {
+            "audience": "customer",
+            "feature_flag": "engineering-analytics"
+        },
+        "understanding-billing-usage": {
+            "audience": "customer"
+        },
+        "validating-and-publishing-canvases": {
+            "audience": "customer",
+            "feature_flag": "today-rail-nav"
+        },
+        "working-with-autoresearch": {
+            "audience": "customer",
+            "feature_flag": "autoresearch"
+        },
+        "working-with-scouts": {
+            "audience": "customer"
+        },
+        "working-with-skills": {
+            "audience": "customer"
+        },
+        "working-with-task-comments": {
+            "audience": "customer"
+        },
+        "writing-simplified-technical-english": {
+            "audience": "customer"
+        },
+        "writing-streamlit-apps": {
+            "audience": "customer",
+            "feature_flag": "streamlit-apps"
+        }
+    }
+}

@@ -1,5 +1,7 @@
 ---
 name: measuring-email-performance
+metadata:
+  audience: customer
 description: "Reports how a PostHog workflow email performs, read-only over MCP: sends, deliveries, opens, clicks, bounces and spam complaints per email step, version comparisons, clicked links, product outcomes after the send, and one person's email history. Use when asked how an email, campaign, broadcast or workflow step is doing, for its open, click or bounce rate, whether a change or a newer version did better, which links get clicked, whether recipients converted or went on to use the product, or which emails a person got."
 ---
 

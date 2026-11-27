@@ -1,5 +1,7 @@
 ---
 name: context-layer-dreaming
+metadata:
+  audience: internal
 description: Synthesizes recent organizational activity into a durable context wiki. Use when running a nightly or incremental context-layer dream, or when updating sourced organizational context from completed work.
 ---
 

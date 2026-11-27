@@ -1,5 +1,7 @@
 ---
 name: building-workflows
+metadata:
+  audience: customer
 description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP. Author the action/edge graph so it runs and opens cleanly in the visual editor, then change drafts surgically with patch operations. Use when asked to build, set up, automate, change, fix, or debug a workflow, campaign, broadcast, drip sequence, or event-triggered automation in the workflows product, including first-time messaging setup (email channel, sending domain, frequency cap) before the first workflow.'
 ---
 

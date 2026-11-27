@@ -68,6 +68,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Validate skill sources without rendering (no Django needed)",
     )
     parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Rewrite the served-skills file from the skill headers before linting (use with --lint)",
+    )
+    parser.add_argument(
         "--init",
         action="store_true",
         help="Scaffold a new skill directory with SKILL.md boilerplate",
@@ -150,6 +155,8 @@ def main() -> None:
     if args.init:
         _run_init(builder, args, parser)
     elif args.lint:
+        if args.fix:
+            print(f"Wrote {builder.write_served_skills().relative_to(REPO_ROOT)}")
         if not builder.lint_all():
             sys.exit(1)
     elif args.sync:

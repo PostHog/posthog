@@ -4,6 +4,7 @@ disable-model-invocation: true
 description: >
   Checks business logic, edge cases, data transformations, and queries. Reports correctness issues only.
 metadata:
+  audience: internal
   owner_team: review_hog
   perspective: logic_correctness
 ---

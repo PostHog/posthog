@@ -1,5 +1,7 @@
 ---
 name: creating-online-evaluations
+metadata:
+  audience: customer
 description: >
   Author continuously-running online evaluations in PostHog AI observability, grounded in real failure
   modes you've identified. Use when the user wants evaluations that automatically score new generations or

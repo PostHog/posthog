@@ -1,5 +1,7 @@
 ---
 name: formatting-insight-axes
+metadata:
+  audience: customer
 description: >
   Pick the right y-axis unit when creating or updating an insight via
   `posthog:insight-create` or `posthog:insight-update` — both TrendsQuery

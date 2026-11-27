@@ -4,6 +4,7 @@ disable-model-invocation: true
 description: >
   Checks resource use, error recovery, and scaling. Reports performance and reliability issues only.
 metadata:
+  audience: internal
   owner_team: review_hog
   perspective: performance_reliability
 ---

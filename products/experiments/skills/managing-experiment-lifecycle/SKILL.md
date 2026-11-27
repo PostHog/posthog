@@ -1,5 +1,7 @@
 ---
 name: managing-experiment-lifecycle
+metadata:
+  audience: customer
 description: "Guides experiment state transitions: launching, pausing, resuming, freezing/unfreezing exposure, ending, shipping variants, archiving, resetting, duplicating, copying to another project, and migrating a legacy experiment to the new experiments engine. Covers preconditions, implications for variant assignment and analysis, and the decision framework for when to use each action.\nTRIGGER when: user asks to launch, pause, resume, end, ship, archive, reset, duplicate, or copy an experiment to another project, to freeze/unfreeze exposure (stop enrolling new users while metrics keep flowing, or reopen enrollment), or to migrate, convert, move or upgrade a legacy experiment to the new engine or the new metric format.\nDO NOT TRIGGER when: user is creating an experiment (use creating-experiments), configuring rollout (use configuring-experiment-rollout), or setting up metrics (use configuring-experiment-analytics)."
 ---
 

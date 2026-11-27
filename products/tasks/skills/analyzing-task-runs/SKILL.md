@@ -1,5 +1,7 @@
 ---
 name: analyzing-task-runs
+metadata:
+  audience: internal
 description: >-
   Split a completed PostHog task run into activity records — what the agent tried, whether it
   worked, what blocked it — and record each one through the report_activity tool. Use when a task

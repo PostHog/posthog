@@ -1,5 +1,7 @@
 ---
 name: exploring-apm-traces
+metadata:
+  audience: customer
 description: >
   Investigates distributed application performance using PostHog APM (OpenTelemetry span) data via MCP.
   Use when the user asks about service traces, slow HTTP/database spans, error spans, error-rate trends or

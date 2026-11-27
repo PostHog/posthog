@@ -1,5 +1,7 @@
 ---
 name: modeling-conversion-metrics
+metadata:
+  audience: customer
 description: >
   Build reusable conversion models — funnel/step conversion rates, drop-off, and time-to-convert — on either
   PostHog data-warehouse views (HogQL) or an external dbt project. Use when the user wants to model, define,

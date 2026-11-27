@@ -1,5 +1,7 @@
 ---
 name: debugging-failed-data-quality-checks
+metadata:
+  audience: customer
 description: >
   Finds out why a data quality check failed or errored, looks at the rows it matched, and recommends
   the fix. Also covers a materialized view refresh that the data quality gate did not publish. Use

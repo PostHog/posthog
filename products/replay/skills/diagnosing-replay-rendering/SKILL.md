@@ -1,5 +1,7 @@
 ---
 name: diagnosing-replay-rendering
+metadata:
+  audience: customer
 description: >
   Explains why a session recording plays back wrong by reading the recording's
   exported rrweb JSON (`*-ph-recording.json`) and its config events.

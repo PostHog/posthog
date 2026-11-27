@@ -1,5 +1,8 @@
 ---
 name: adding-warehouse-person-properties
+metadata:
+  audience: customer
+  feature_flag: customer-analytics-csp
 description: >
   Sync columns from a synced data warehouse table onto PostHog person or group properties, so warehouse data
   becomes usable anywhere person and group properties already work: feature flag targeting, cohorts, insight

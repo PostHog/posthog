@@ -1,5 +1,7 @@
 ---
 name: auditing-warehouse-source-health
+metadata:
+  audience: customer
 description: >
   Audit the health of a PostHog project's data warehouse sources and syncs — find every broken or degraded source
   connection, sync schema, and webhook channel. Use when the user asks "why are my imports failing?", "what's broken

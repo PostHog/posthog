@@ -1,5 +1,7 @@
 ---
 name: debugging-surveys
+metadata:
+  audience: internal
 description: >-
   Diagnose PostHog Surveys configuration and responses across all five SDKs
   (web/posthog-js, iOS, Android, Flutter, React Native). Use whenever a Surveys

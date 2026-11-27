@@ -1,5 +1,7 @@
 ---
 name: consuming-endpoints-from-client-code
+metadata:
+  audience: customer
 description: >
   Wire a PostHog endpoint into a client app or SDK. Covers fetching the OpenAPI spec, generating a
   typed client with openapi-generator or @hey-api/openapi-ts, sending the right auth header,

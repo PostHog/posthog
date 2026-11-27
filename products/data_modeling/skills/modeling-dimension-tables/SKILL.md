@@ -1,5 +1,7 @@
 ---
 name: modeling-dimension-tables
+metadata:
+  audience: customer
 description: >
   Build reusable dimension / lookup tables for a star schema — country/region, timezone, currency, date,
   plan/product, and other descriptive attributes — on either PostHog data-warehouse views (HogQL) or an

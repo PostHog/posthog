@@ -1,5 +1,8 @@
 ---
 name: querying-canvas-data
+metadata:
+  audience: customer
+  feature_flag: today-rail-nav
 description: >
   Get PostHog data into a canvas correctly: the host-injected `ph` SDK (loadInsight, query,
   capture, state, connectors, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes

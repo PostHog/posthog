@@ -1,5 +1,7 @@
 ---
 name: prioritizing-my-inbox
+metadata:
+  audience: customer
 description: >
   Give the current user a personal, ranked shortlist of the PostHog Inbox reports they are most
   likely to care about right now. Reads their stored personal ranking first, with one

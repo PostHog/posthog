@@ -1,5 +1,7 @@
 ---
 name: modeling-product-usage-metrics
+metadata:
+  audience: customer
 description: >
   Build reusable product-usage and engagement models — retention, stickiness, and lifecycle — on either
   PostHog data-warehouse views (HogQL) or an external dbt project. Use when the user wants to model, define,

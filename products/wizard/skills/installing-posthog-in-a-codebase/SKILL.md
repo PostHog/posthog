@@ -1,5 +1,7 @@
 ---
 name: installing-posthog-in-a-codebase
+metadata:
+  audience: customer
 description: >-
   Install and configure a PostHog SDK in a repository you can read and edit, following PostHog's docs for
   the framework. Use when a user working in their codebase asks to add, install, or set up PostHog, product

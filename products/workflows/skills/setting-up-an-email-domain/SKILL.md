@@ -1,5 +1,7 @@
 ---
 name: setting-up-an-email-domain
+metadata:
+  audience: customer
 description: 'Set up a custom sending domain for PostHog Workflows email end to end: create the email sender, get its DNS records, publish them through Domain Connect or your own DNS tools, and verify until the domain can send. Use when asked to set up, connect, verify, or fix an email sender or sending domain for workflows, broadcasts, or campaigns, or when DNS records for SPF, DKIM, DMARC, or MAIL FROM are missing.'
 ---
 

@@ -1,5 +1,7 @@
 ---
 name: exploring-llm-evaluations
+metadata:
+  audience: customer
 description: >
   Investigate AI observability evaluations — `hog` (deterministic code-based),
   `llm_judge` (LLM-prompt-based), and `sentiment` (user-message sentiment).

@@ -1,5 +1,7 @@
 ---
 name: migrating-from-customer-io
+metadata:
+  audience: customer
 description: 'Move Customer.io automations into PostHog as draft workflows. Read each automation with the Customer.io MCP or CLI, preview the import with workflows-import-customerio (dry_run), then import and walk the user through what needs their input. Use when asked to migrate, move, switch, copy or import from Customer.io (customer.io, CIO) to PostHog workflows, including "migrate everything to PostHog".'
 ---
 
