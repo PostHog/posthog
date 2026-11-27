@@ -33,6 +33,8 @@ from products.notebooks.backend.models import Notebook, NotebookAppEmbed, Notebo
 
 ISSUER = "posthog:notebook-app-embed"
 MAX_PROJECT_AUDIENCES = 100
+MAX_EMBED_SNAPSHOT_BYTES = 1024 * 1024
+EMBED_OUTPUT_VERSION = 1
 ISSUE_BUDGET = Budget(burst=10, per_hour=60)
 VERIFIED_VIEW_BUDGET = Budget(burst=300, per_hour=6000)
 
@@ -72,11 +74,16 @@ def require_capacity(key: str, budget: Budget) -> None:
         raise Throttled(wait=admission.retry_after)
 
 
+def tenant_digest(value: str) -> str:
+    return sha256(value.encode()).hexdigest()
+
+
 def embed_change(embed: NotebookAppEmbed, action: Literal["created", "changed", "deleted"]) -> Change:
     metadata = {
         "embed_id": str(embed.pk),
         "origin": embed.origin,
         "tenant_column": embed.tenant_column,
+        "tenant_sha256": tenant_digest(embed.tenant_value),
         "revision": embed.release.revision,
         "expires_at": embed.expires_at.isoformat(),
     }
@@ -97,7 +104,7 @@ def revoke_signed_embeds(
     )
     rows = list(
         matching.select_related("release")
-        .only("id", "origin", "tenant_column", "expires_at", "release__revision")
+        .only("id", "origin", "tenant_column", "tenant_value", "expires_at", "release__revision")
         .select_for_update(of=("self",))
     )
     if not rows:
@@ -113,6 +120,18 @@ def revoke_signed_embeds(
         changes=[embed_change(row, "deleted") for row in rows],
     )
     return True
+
+
+def embed_snapshot(release: NotebookAppRelease, tenant_column: str, tenant_value: str) -> list[dict]:
+    tabs = app_output_tabs(
+        release, tenant_column=tenant_column, tenant_value=tenant_value, byte_limit=MAX_EMBED_SNAPSHOT_BYTES
+    )
+    if not any("columns" in block for tab in tabs for block in tab.blocks):
+        raise ValidationError("Add a published SQL result with a tenant column and a visible data column.")
+    snapshot = [asdict(tab) for tab in tabs]
+    if len(json.dumps(snapshot).encode()) > MAX_EMBED_SNAPSHOT_BYTES:
+        raise ValidationError("Reduce the saved result size before creating an embed.")
+    return snapshot
 
 
 @transaction.atomic
@@ -151,12 +170,7 @@ def change_signed_embed(
         raise ValidationError("Publish the app before creating an embed.")
     if release.revision != revision:
         raise ValidationError({"revision": "Open the latest published release before creating an embed."})
-    tabs = app_output_tabs(release, tenant_column=tenant_column, tenant_value=tenant_value)
-    if not any("columns" in block for tab in tabs for block in tab.blocks):
-        raise ValidationError("Add a published SQL result with a tenant column and a visible data column.")
-    snapshot = [asdict(tab) for tab in tabs]
-    if len(json.dumps(snapshot).encode()) > 1024 * 1024:
-        raise ValidationError("Reduce the saved result size before creating an embed.")
+    snapshot = embed_snapshot(release, tenant_column, tenant_value)
     expires_at = timezone.now() + timedelta(hours=24)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"notebooks:embed-capacity:{team_id}"])
@@ -176,7 +190,7 @@ def change_signed_embed(
             "issued_by_id": actor.pk,
             "verification_key": private_key.public_key().public_bytes_raw(),
             "expires_at": expires_at,
-            "snapshot": snapshot,
+            "snapshot": {"version": EMBED_OUTPUT_VERSION, "tabs": snapshot},
         },
     )
     token = jwt.encode(
@@ -187,7 +201,7 @@ def change_signed_embed(
             "exp": expires_at,
             "project": team_id,
             "release": str(release.pk),
-            "tenant": sha256(tenant_value.encode()).hexdigest(),
+            "tenant": tenant_digest(tenant_value),
         },
         private_key,
         algorithm="EdDSA",
@@ -259,14 +273,22 @@ def redeem_signed_embed(team_id: int, embed_id: UUID, token: str) -> AppOutput |
     if (
         claims["project"] != team_id
         or claims["release"] != str(embed.release_id)
-        or claims["tenant"] not in (sha256(embed.tenant_value.encode()).hexdigest(), embed.tenant_value)
+        or claims["tenant"] not in (tenant_digest(embed.tenant_value), embed.tenant_value)
     ):
         return None
     require_capacity(f"notebooks:embed:verified:{embed_id}", VERIFIED_VIEW_BUDGET)
+    stored = embed.snapshot
+    if isinstance(stored, dict) and stored.get("version") == EMBED_OUTPUT_VERSION:
+        tabs = stored["tabs"]
+    else:
+        try:
+            tabs = embed_snapshot(embed.release, embed.tenant_column, embed.tenant_value)
+        except ValidationError:
+            return None
     return AppOutput(
         title=embed.release.layout.get("title") or embed.release.title,
         description=embed.release.layout.get("description"),
         revision=embed.release.revision,
         published_at=embed.release.published_at,
-        tabs=[AppOutputTab(**tab) for tab in embed.snapshot],
+        tabs=[AppOutputTab(**tab) for tab in tabs],
     )

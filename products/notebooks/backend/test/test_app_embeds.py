@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from hashlib import sha256
 from urllib.parse import urldefrag
 
 from posthog.test.base import APIBaseTest
@@ -10,7 +11,7 @@ from django.test import Client
 from django.utils import timezone
 
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, activity_log_event_properties
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget
 
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
@@ -113,6 +114,7 @@ class TestNotebookAppEmbeds(APIBaseTest):
             "embed_id": str(embed.pk),
             "origin": "https://portal.example.com",
             "tenant_column": "workspace_id",
+            "tenant_sha256": sha256(b"coast").hexdigest(),
             "revision": self.release.revision,
             "expires_at": embed.expires_at.isoformat(),
         }
@@ -140,9 +142,19 @@ class TestNotebookAppEmbeds(APIBaseTest):
             (self.user.pk, True, "changed", None, replaced),
             (self.user.pk, False, "deleted", replaced, None),
         ]
+        for record, action in zip(records, ("created", "changed", "deleted"), strict=True):
+            summary = activity_log_event_properties(record)
+            assert summary is not None
+            assert summary["id"] == str(record.pk)
+            assert summary["detail"] == {"changes": [{"field": "app_embed", "action": action}]}
+            assert "item_id" not in summary
         notebook_url = f"/api/projects/{self.team.pk}/notebooks/"
         self.assertContains(self.client.get(f"{notebook_url}{self.notebook.short_id}/activity/"), str(embed.pk))
-        self.assertNotContains(self.client.get(f"{notebook_url}activity/"), str(embed.pk))
+        team_feed = f"{notebook_url}activity/"
+        self.assertContains(self.client.get(team_feed), metadata["tenant_sha256"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        self.assertNotContains(self.client.get(team_feed), metadata["tenant_sha256"])
 
     def test_stale_release_cannot_be_shared_and_expired_audiences_release_capacity(self) -> None:
         stale = {**self.configuration("coast"), "revision": self.release.revision + 1}
@@ -171,6 +183,16 @@ class TestNotebookAppEmbeds(APIBaseTest):
         assert self.public.post(coast, {"token": coast_token}, HTTP_SEC_FETCH_DEST="document").status_code == 404
         assert self.public.get(coast.replace(f"/embed/{self.team.pk}/", "/embed/999999/")).status_code == 404
 
+    def test_older_snapshot_reopens_from_its_pinned_release_for_the_signed_tenant(self) -> None:
+        path, token = self.issue("coast")
+        NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).update(
+            snapshot=[{"title": "Old view", "blocks": [{"text": "Previous projection"}]}]
+        )
+        output = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
+        self.assertContains(output, "Tide pools")
+        self.assertNotContains(output, "Previous projection")
+        self.assertNotContains(output, "Orchard")
+
     def test_wrapped_table_only_embeds_published_columns_for_the_selected_tenant(self) -> None:
         run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
         query = {
@@ -195,6 +217,13 @@ class TestNotebookAppEmbeds(APIBaseTest):
         response = self.client.post(self.management, self.configuration("grove"), format="json")
         assert response.status_code == 400
         assert not NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).exists()
+
+    def test_issuing_an_oversized_audience_leaves_the_previous_code_active(self) -> None:
+        path, token = self.issue("coast")
+        with patch("products.notebooks.backend.app_embeds.MAX_EMBED_SNAPSHOT_BYTES", 15):
+            response = self.client.post(self.management, self.configuration("coast"), format="json")
+        assert response.status_code == 400
+        self.assertContains(self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe"), "Tide pools")
 
     def test_single_number_shares_only_the_first_matching_tenant_value(self) -> None:
         self.release.markdown = self.release.markdown.replace(

@@ -326,10 +326,14 @@ def shared_chart_display(props: dict[str, Any], result: dict[str, Any]) -> str |
 
 
 def app_output_tabs(
-    release: NotebookAppRelease, *, tenant_column: str | None = None, tenant_value: str | None = None
+    release: NotebookAppRelease,
+    *,
+    tenant_column: str | None = None,
+    tenant_value: str | None = None,
+    byte_limit: int | None = None,
 ) -> list[AppOutputTab]:
     sql_cells = displayed_native_sql_cells(release)
-    budget = SharedOutputBudget(byte_limit=MAX_RELEASE_RESULT_BYTES)
+    budget = SharedOutputBudget(byte_limit=MAX_RELEASE_RESULT_BYTES if byte_limit is None else byte_limit)
     budget.count([tab["title"] for tab in release.layout["tabs"]])
     tabs = {tab["id"]: {"title": tab["title"], "blocks": []} for tab in release.layout["tabs"]}
     for block in release.layout["blocks"]:
