@@ -640,12 +640,9 @@ def _on_playwright_thread[**P, R](
         context = contextvars.copy_context()
 
         def call() -> R:
-            return method(session, *args, **kwargs)
+            return context.run(method, session, *args, **kwargs)
 
-        def call_in_context() -> R:
-            return context.run(call)
-
-        return session._playwright_thread.submit(call_in_context).result()
+        return session._playwright_thread.submit(call).result()
 
     return run
 
