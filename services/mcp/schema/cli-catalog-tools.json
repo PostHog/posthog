@@ -47733,6 +47733,16 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "content_length",
+                    "key": "content_length",
+                    "csv": false
+                },
+                {
+                    "param": "content_offset",
+                    "key": "content_offset",
+                    "csv": false
+                },
+                {
                     "param": "version",
                     "key": "version",
                     "csv": false

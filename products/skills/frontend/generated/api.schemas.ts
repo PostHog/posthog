@@ -862,9 +862,16 @@ export interface LLMSkillFileRenameApi {
 export interface LLMSkillFileApi {
     /** @maxLength 500 */
     path: string
-    content: string
     /** @maxLength 100 */
     content_type?: string
+    /** Total length of the full file content in characters, independent of any content_offset/content_length paging. Compare against the length of the returned content to detect a truncated response. */
+    readonly content_total_length: number
+    /**
+     * When content_length paging stops before the end of the file, the character offset to request next (pass as content_offset). Null when the returned content reaches the end.
+     * @nullable
+     */
+    readonly content_next_offset: number | null
+    content: string
 }
 
 export interface LLMSkillPublishToCommunityApi {
@@ -1197,6 +1204,16 @@ export type LlmSkillsNameExportRetrieveParams = {
 }
 
 export type LlmSkillsNameFilesRetrieveParams = {
+    /**
+     * Maximum number of characters of the content to return starting at content_offset. Omit to return the whole file from the offset onwards. When the slice stops before the end, content_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    content_length?: number
+    /**
+     * Zero-based character offset to start the returned content from. Use with content_length to page through a large file that a client would otherwise truncate. Compare the returned content length against content_total_length to detect truncation, then re-fetch from content_next_offset. Defaults to 0 (start of file).
+     * @minimum 0
+     */
+    content_offset?: number
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
