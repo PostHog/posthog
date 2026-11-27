@@ -40,7 +40,7 @@ class SlackScoutChannelSerializer(serializers.Serializer):
 
 class SlackScoutChannelSourceSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Id of the Slack data warehouse source.")
-    label = serializers.CharField(
+    label = serializers.CharField(  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
         help_text=(
             "Name that tells the project's Slack sources apart: the source's table prefix, or the date it was "
             "connected when it has no prefix."
