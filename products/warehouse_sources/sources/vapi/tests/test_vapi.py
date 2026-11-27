@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -9,7 +10,7 @@ import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.sdk.internals import table_from_py_list
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
 from products.warehouse_sources.sources.vapi import vapi
 from products.warehouse_sources.sources.vapi._config import VapiSourceConfig
 from products.warehouse_sources.sources.vapi.settings import VAPI_VERSION_V1, VAPI_VERSION_V2
@@ -65,14 +66,57 @@ class TestAddedEndpoints:
         }
         assert result.saved_states == []
 
-    @parameterized.expand([("v1", VAPI_VERSION_V1), ("v2", VAPI_VERSION_V2)])
-    def test_structured_outputs_follow_page_metadata(self, _name: str, api_version: str) -> None:
+    def test_analytics_waits_for_vendor_cooldown(self) -> None:
+        retry_at: float | None = None
+        rows = [{"date": "2026-01-01", "callCount": 2}]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            nonlocal retry_at
+            assert request.method == "POST"
+            if retry_at is None:
+                retry_at = time.monotonic() + 60
+            if time.monotonic() < retry_at:
+                return ScriptedResponse(status=429, json={}, headers={"Retry-After": "60"})
+            return ScriptedResponse(json=[{"name": "daily_calls", "result": rows}])
+
+        result = SourceDriver(VapiSource(), VapiSourceConfig(api_key="test-key")).run("analytics", respond)
+
+        assert result.raised is None
+        assert [row for table in result.items for row in table.to_pylist()] == rows
+        assert result.paths == ["/analytics", "/analytics"]
+
+    def test_structured_outputs_follow_page_metadata(self) -> None:
+        schema = {
+            "type": "object",
+            "properties": {
+                "secretaryName": {"type": "string"},
+                "headers": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"password": {"type": "string"}, "apiKey": {"type": "string"}},
+                    },
+                },
+            },
+        }
         result = SourceDriver(VapiSource(), VapiSourceConfig(api_key="test-key")).run(
             "structured_outputs",
             [
                 ScriptedResponse(
                     json={
-                        "results": [{"id": "output-1", "name": "Category", "createdAt": "2026-01-01T00:00:00.000Z"}],
+                        "results": [
+                            {
+                                "id": "output-1",
+                                "name": "Category",
+                                "createdAt": "2026-01-01T00:00:00.000Z",
+                                "schema": schema,
+                                "model": {
+                                    "provider": "custom-llm",
+                                    "url": "https://example.com/model",
+                                    "headers": {"Authorization": "fake-token"},
+                                },
+                            }
+                        ],
                         "metadata": {"hasNextPage": True},
                     }
                 ),
@@ -83,7 +127,6 @@ class TestAddedEndpoints:
                     }
                 ),
             ],
-            api_version=api_version,
         )
 
         assert result.raised is None
@@ -92,6 +135,14 @@ class TestAddedEndpoints:
         assert result.params("page") == ["1", "2"]
         assert result.params("sortBy") == ["createdAt", "createdAt"]
         assert result.params("sortOrder") == ["ASC", "ASC"]
+        first_row = result.items[0].to_pylist()[0]
+        assert json.loads(first_row["schema"]) == schema
+        assert json.loads(first_row["model"]) == {
+            "provider": "custom-llm",
+            "url": "https://example.com/model",
+            "headers": "[REDACTED]",
+        }
+        assert "fake-token" not in str(first_row)
 
 
 class TestFormatDatetimeParam:
