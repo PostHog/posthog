@@ -35,6 +35,16 @@ export function suggestionMetaLine(config: ScoutSuggestionProposedConfigApi): st
     return config.emit ? cadence : `${cadence} · dry run, files nothing`
 }
 
+/** A canonical pick has no description, so a batch stored before `goal` existed falls back to the evidence. */
+export function suggestionGoal(item: Pick<ScoutSuggestionItemApi, 'goal' | 'description' | 'why_here'>): string {
+    const goal = item.goal?.trim() || item.description.trim()
+    if (goal) {
+        return goal
+    }
+    const evidence = item.why_here.trim()
+    return evidence.match(/^.+?[.!?](?=\s|$)/s)?.[0] ?? evidence
+}
+
 /** The scout a canonical pick would turn on, as it exists on the project. */
 export interface ExistingScoutForSuggestion {
     config: SignalScoutConfigApi
