@@ -330,19 +330,19 @@ describe('load', () => {
             'valves.0.dose.grace: role.terminate needs a grace; give one here or terminationGrace in profile synthetic',
         ],
         [
-            'a terminate whose grace is longer than a timer can wait',
+            'a terminate whose grace is longer than a stopped run waits for its release',
             {
                 ...card,
-                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '2147483648ms' } }],
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '301s' } }],
             },
             undefined,
-            'valves.0.dose.grace: at most 2147473647ms',
+            'valves.0.dose.grace: at most 5m, so a stopped run releases the role within its release window',
         ],
         [
-            'a profile whose termination grace is longer than a timer can wait',
+            'a profile whose termination grace is longer than a stopped run waits for its release',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate' }] },
-            { ...profile, terminationGrace: '2147483648ms' },
-            'terminationGrace: at most 2147473647ms',
+            { ...profile, terminationGrace: '301s' },
+            'terminationGrace: at most 5m, so a stopped run releases the role within its release window',
         ],
         [
             'a kill aimed at something that is not a role',

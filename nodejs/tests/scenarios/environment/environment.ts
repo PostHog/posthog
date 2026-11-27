@@ -111,8 +111,6 @@ export type Actuation = FaultHold & { journal?(): FailoverJournal & { exit?: Rol
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
 const TSX_LOADER = path.join(NODEJS_DIR, 'node_modules', 'tsx', 'dist', 'loader.mjs')
-// Under the tsx CLI a role would have a parent that sends its own SIGKILL when the role's event loop is too busy to
-// answer a SIGTERM within milliseconds, ending it before the grace a terminate gives it.
 export const ROLE_COMMAND = { command: process.execPath, args: ['--import', pathToFileURL(TSX_LOADER).href] }
 const EDGE_PORT = 4566
 const EDGE = { port: EDGE_PORT, owner: 'provider edge' }
