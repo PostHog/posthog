@@ -218,17 +218,13 @@ class TestLoadTrigger(BaseTest):
     def test_slowdowns_that_fail_still_count_against_the_cap(self) -> None:
         for name in ("a", "b", "c"):
             self._schema(name)
-        attempts: list = []
-
         with (
             patch(f"{_TRIGGER}.MAX_SCHEDULE_SLOWDOWNS_PER_RUN", 2),
-            patch(
-                f"{_TRIGGER}.reconcile_schedule", side_effect=lambda schema, **_: attempts.append(schema.name) or 1 / 0
-            ),
+            patch(f"{_TRIGGER}.reconcile_schedule", side_effect=RuntimeError("temporal down")) as reconcile,
         ):
             self._trigger_loads()
 
-        assert len(attempts) == 2
+        assert reconcile.call_count == 2
 
     def test_restores_are_never_held_back_by_the_cap_on_slowdowns(self) -> None:
         restored = self._schema("a_reset", config={"cdc_mode": "snapshot", **_SLOWED})
