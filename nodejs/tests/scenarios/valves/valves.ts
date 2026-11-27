@@ -166,8 +166,7 @@ export const destAmbiguous: ValveDefinition = {
     },
 }
 
-// warmReader lets a card fail over onto a reader that is already scaled up, as a reader serving reads in production is.
-const FailoverDose = z.object({ warmReader: z.literal(true).optional() }).strict()
+export const FailoverDose = z.object({ warmReader: z.literal(true).optional() }).strict()
 
 export const pgFailover: ValveDefinition = {
     name: 'pg.failover',
