@@ -911,9 +911,9 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
     ),
     (
         "team-ai-gateway",
-        "services/llm-gateway/tests",
+        "posthog/llm",
         [
-            ("TestProviderFailover", "test_anthropic_fallback_order", 1, 0),
+            ("TestGatewayClient", "test_builder_requires_gateway_config", 1, 0),
         ],
     ),
     (

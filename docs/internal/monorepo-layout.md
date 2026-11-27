@@ -23,7 +23,6 @@ products/              # Product-specific apps (see products/README.md for layou
     packages/          # Optional: libraries/CLIs this product owns
 
 services/              # Independent services NOT owned by any one product
-  llm-gateway/         # LLM proxy service
   mcp/                 # Model Context Protocol service
   oauth-proxy/         # OAuth proxy (Cloudflare Worker)
   stripe-app/          # Stripe integration app
