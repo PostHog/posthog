@@ -6,7 +6,6 @@ Built from Postgres only, bounded in size, and without secret input values.
 
 import re
 import json
-import ipaddress
 from collections import Counter
 from dataclasses import asdict, replace
 from datetime import datetime
@@ -41,8 +40,9 @@ MAX_CASE_FILE_CHARS = 100_000
 _TRUNCATED_MARKER = " [truncated]"
 _HOSTNAME = re.compile(r"[a-z0-9_-]+(?:\.[a-z0-9_-]+)+", re.IGNORECASE)
 _REDACTED_HOST = "[secret]"
-# A shorter secret, such as a port number, would hide ordinary hosts that merely contain it.
-_MIN_SECRET_IN_HOST_CHARS = 8
+# Secret tokens in hostnames are long random strings. Shorter values are common words or bytecode numbers, which the
+# function's owner could store to hide ordinary hosts.
+_MIN_SECRET_TOKEN_CHARS = 12
 # What `content_of` and `_with_secret_inputs` read from another function of the organization.
 _RULE_FIELDS = (
     "type",
@@ -322,7 +322,8 @@ def _url_secret_labels(values: list[str]) -> list[str]:
         except ValueError:
             continue
         if _HOSTNAME.fullmatch(host):
-            labels.extend(host.split(".")[:-2])
+            # A short label such as `google` is a common word, which an owner could store to hide other hosts.
+            labels.extend(label for label in host.split(".")[:-2] if len(label) >= _MIN_SECRET_TOKEN_CHARS)
     return labels
 
 
@@ -378,26 +379,26 @@ def _history_entry(row: ActivityLog, secrets: list[str]) -> HistoryEntry:
 
 
 def _redacted_hosts(hosts: tuple[str, ...], secrets: list[str]) -> tuple[str, ...]:
-    # The origin redactor reads a whole origin, so each host goes through it as one. It redacts only subdomain labels,
-    # and the hosts of code include URL usernames, so a host that is or holds a secret is hidden whole.
-    redacted = redact_secrets_in_origins([f"https://{host}" for host in hosts], secrets)
-    # Shorter strings include numbers from compiled bytecode, which would hide ordinary labels such as `1`.
-    known = {secret.lower() for secret in secrets if len(secret) >= 4}
-    return tuple(
-        _REDACTED_HOST if _holds_secret(host, known) else host
-        for host in (origin.removeprefix("https://") for origin in redacted)
-    )
+    """Each host with the labels that hold a stored secret token hidden. The function's owner chooses the secret
+    values, so only token-length values count, and the last two labels and IP addresses always stay, or an owner
+    could store a common word to hide where earlier versions sent requests. A URL username is hidden whole."""
+    tokens = {secret.lower() for secret in secrets if len(secret) >= _MIN_SECRET_TOKEN_CHARS}
+    return tuple(_redacted_host(host, tokens) for host in hosts)
 
 
-def _holds_secret(host: str, secrets: set[str]) -> bool:
-    if _is_address(host):
-        return False
-    lowered = host.lower()
-    return (
-        lowered in secrets
-        or any(label in secrets for label in lowered.split("."))
-        or any(len(secret) >= _MIN_SECRET_IN_HOST_CHARS and secret in lowered for secret in secrets)
-    )
+def _redacted_host(host: str, tokens: set[str]) -> str:
+    labels = host.split(".")
+    if len(labels) == 1:
+        return _REDACTED_HOST if _holds_token(host, tokens) else host
+    if all(label.isdigit() for label in labels) or host.startswith("["):
+        return host
+    shown = [_REDACTED_HOST if _holds_token(label, tokens) else label for label in labels[:-2]]
+    return ".".join([*shown, *labels[-2:]])
+
+
+def _holds_token(text: str, tokens: set[str]) -> bool:
+    lowered = text.lower()
+    return any(token in lowered for token in tokens)
 
 
 def _redacted_origins(origins: list[JsonValue], secrets: list[str]) -> tuple[str, ...]:
@@ -501,14 +502,6 @@ def _without_last_list_item(case_file: CaseFile) -> CaseFile | None:
     if case_file.history:
         return replace(case_file, history=case_file.history[1:], history_omitted=case_file.history_omitted + 1)
     return None
-
-
-def _is_address(host: str) -> bool:
-    try:
-        ipaddress.ip_address(host.strip("[]"))
-    except ValueError:
-        return False
-    return True
 
 
 def _origin_host(origin: str) -> str:

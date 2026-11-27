@@ -328,6 +328,30 @@ class TestAbuseReview(AbuseClassificationTestCase):
 
         assert secret_label not in serialized
 
+    @parameterized.expand(
+        [
+            ("substring", "internal"),
+            ("label", "google"),
+            ("url_label", "https://google.example.org/hook"),
+            ("whole_host", "metadata.google.internal"),
+        ]
+    )
+    def test_a_planted_secret_cannot_hide_a_host_from_history(self, _name: str, decoy: str) -> None:
+        destination = self.create_destination(
+            hog="return event",
+            inputs_schema=[{"key": "decoy", "type": "string", "label": "Decoy", "secret": True}],
+            inputs={"decoy": {"value": decoy}},
+            mappings=[],
+            masking=None,
+        )
+        self.log(
+            destination, "updated", changes=[{"field": "hog", "after": "fetch('http://metadata.google.internal/x')"}]
+        )
+
+        case = self.case_of(destination)
+
+        assert case["history"][-1]["hosts"] == ["metadata.google.internal"]
+
     def test_a_long_config_with_a_long_history_keeps_its_hosts(self) -> None:
         padding = " ".join(f"w{index}" for index in range(12_000))
         destination = self.create_destination(hog=f"fetch('http://169.254.169.254/latest');\n// {padding}")
