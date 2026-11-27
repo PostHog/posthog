@@ -1721,7 +1721,84 @@ export interface TransactionalEmailActivitySessionApi {
     started_after_send: boolean
 }
 
-export interface TransactionalEmailActivityApi {
+export interface TransactionalEmailClickSessionApi {
+    /** The session ID, the same one session recordings use. */
+    session_id: string
+    /** When the first page the link opened was viewed. */
+    landed_at: string
+    /** The URL of that page, with the email's run tag. */
+    landing_url: string
+    /** From the session's first event to its last, in seconds. */
+    duration_seconds: number
+    /** How many pages the session viewed. */
+    pageview_count: number
+    /**
+     * Such as `Desktop` or `Mobile`. Null when unknown.
+     * @nullable
+     */
+    device_type: string | null
+    /**
+     * The browser of the session. Null when unknown.
+     * @nullable
+     */
+    browser: string | null
+    /**
+     * The city the session came from. Null when unknown.
+     * @nullable
+     */
+    city: string | null
+}
+
+/**
+ * * `off_site` - The link goes outside the sending domain, so it carries no run tag
+ * * `link_tagging_off` - The project doesn't tag email links
+ * * `link_unknown` - No click event recorded the link
+ * * `not_found` - No visit with this send's run tag
+ */
+export type EmailClickNoSessionReasonEnumApi =
+    (typeof EmailClickNoSessionReasonEnumApi)[keyof typeof EmailClickNoSessionReasonEnumApi]
+
+export const EmailClickNoSessionReasonEnumApi = {
+    OffSite: 'off_site',
+    LinkTaggingOff: 'link_tagging_off',
+    LinkUnknown: 'link_unknown',
+    NotFound: 'not_found',
+} as const
+
+export interface TransactionalEmailClickApi {
+    /** When the recipient clicked. */
+    at: string
+    /**
+     * The link that was clicked. Only its origin for a sensitive email. Null when the project doesn't capture email engagement events, or the send named no distinct ID.
+     * @nullable
+     */
+    link_url: string | null
+    /**
+     * The `$workflows_email_link_clicked` event of this click. Null when there is none.
+     * @nullable
+     */
+    event_uuid: string | null
+    /** The session the click started in the product. Null when none was found. */
+    session: TransactionalEmailClickSessionApi | null
+    /** Why no session was found: `off_site` when the link goes outside the sending domain, `link_tagging_off` when the project doesn't tag email links, `link_unknown` when no click event recorded the link, and `not_found` when no page view carried this send's run tag. Null when a session was found.
+     *
+     * * `off_site` - The link goes outside the sending domain, so it carries no run tag
+     * * `link_tagging_off` - The project doesn't tag email links
+     * * `link_unknown` - No click event recorded the link
+     * * `not_found` - No visit with this send's run tag */
+    no_session_reason: EmailClickNoSessionReasonEnumApi | null
+}
+
+export interface TransactionalEmailOwnEventApi {
+    /** The event's UUID. */
+    uuid: string
+    /** Such as `$workflows_email_delivered` or `$workflows_email_link_clicked`. */
+    event: string
+    /** When it happened. */
+    timestamp: string
+}
+
+export interface TransactionalEmailSendActivityApi {
     /** The distinct ID the send named. Empty when it named none, and then there are no events. */
     distinct_id: string
     /** When the email went to the provider, or when it was queued if it was never sent. */
@@ -1736,6 +1813,10 @@ export interface TransactionalEmailActivityApi {
     has_more_after: boolean
     /** The sessions the returned events belong to, in the order they first appear. */
     sessions: TransactionalEmailActivitySessionApi[]
+    /** Each click on a link in the email, oldest first, with the session it started. */
+    clicks: TransactionalEmailClickApi[]
+    /** The events PostHog captured for this send, oldest first. Empty when the project doesn't capture email engagement events, or the send named no distinct ID. */
+    email_events: TransactionalEmailOwnEventApi[]
 }
 
 export interface TransactionalEmailConversionsApi {
@@ -1942,6 +2023,23 @@ export interface WorkflowEmailDetailApi {
     clicked: boolean
     /** The send, then deliveries, bounces, opens and clicks in the 7 days after it, oldest first. */
     timeline: TransactionalEmailLogEventApi[]
+}
+
+export interface TransactionalEmailActivityApi {
+    /** The distinct ID the send named. Empty when it named none, and then there are no events. */
+    distinct_id: string
+    /** When the email went to the provider, or when it was queued if it was never sent. */
+    sent_at: string
+    /** The person's events in the week before the send, oldest first. */
+    before: TransactionalEmailActivityEventApi[]
+    /** The person's events in the week after the send, oldest first. */
+    after: TransactionalEmailActivityEventApi[]
+    /** True when older events in the window were left out. */
+    has_more_before: boolean
+    /** True when later events in the window were left out. */
+    has_more_after: boolean
+    /** The sessions the returned events belong to, in the order they first appear. */
+    sessions: TransactionalEmailActivitySessionApi[]
 }
 
 export type MessagingEmailsStatusRetrieveParams = {

@@ -65,6 +65,7 @@ import type {
     TransactionalEmailLogStatsOverTimeRetrieveParams,
     TransactionalEmailLogStatsRetrieveParams,
     TransactionalEmailResultsApi,
+    TransactionalEmailSendActivityApi,
     TransactionalEmailStatsApi,
     TransactionalEmailStatsOverTimeApi,
     WebhookUrlApi,
@@ -1268,15 +1269,15 @@ export const getTransactionalEmailLogActivityRetrieveUrl = (projectId: string, i
 }
 
 /**
- * The recipient's events in the 7 days before and after one send, with the sessions they belong to.
+ * The recipient's events in the 7 days before and after one send, with the sessions they belong to, and each click on the email's links with the session it started.
  * @summary Get what a transactional email's recipient did around the send
  */
 export const transactionalEmailLogActivityRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<TransactionalEmailActivityApi> => {
-    return apiMutator<TransactionalEmailActivityApi>(getTransactionalEmailLogActivityRetrieveUrl(projectId, id), {
+): Promise<TransactionalEmailSendActivityApi> => {
+    return apiMutator<TransactionalEmailSendActivityApi>(getTransactionalEmailLogActivityRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
