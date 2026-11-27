@@ -1,17 +1,17 @@
 import { useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
-
-import { adventCalendarAccessLogic } from './adventCalendarAccessLogic'
 
 // pinned: the dismiss key is the localStorage key that keeps the banner closed. Renaming it shows the banner again.
 const DISMISS_KEY = 'workflows-advent-calendar-banner'
 
 export function AdventCalendarBanner(): JSX.Element | null {
-    const { calendarOn } = useValues(adventCalendarAccessLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!calendarOn) {
+    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]) {
         return null
     }
 
