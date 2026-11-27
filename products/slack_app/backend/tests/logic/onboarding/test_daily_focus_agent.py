@@ -59,24 +59,31 @@ def _turn_on_daily(integration: WorkspaceIntegration) -> None:
     )
 
 
-def _offer(n: int, author: str = "U_ANA") -> AgentSuggestion:
+def _offer(n: int, author: str = "U_ANA", resolved: bool = False) -> AgentSuggestion:
     return AgentSuggestion(
-        offer=f"Offer {n}. Want me to look?", request=f"Look into {n}.", source_permalink=LINK, source_author_id=author
+        offer=f"Offer {n}. Want me to look?",
+        request=f"Look into {n}.",
+        source_permalink=LINK,
+        source_author_id=author,
+        resolved=resolved,
     )
+
+
+def _item(text: str, channel_id: str = "C1", permalink: str | None = LINK, resolved: bool = False) -> AgentSummaryItem:
+    return AgentSummaryItem(text=text, channel_id=channel_id, permalink=permalink, resolved=resolved)
 
 
 def test_the_agent_answer_keeps_the_pipeline_limits() -> None:
     output = DailyFocusAgentOutput(
         intro="👀 A busy day.",
         summary=[
-            AgentSummaryItem(
-                text="<@U_ANA> rolled back the release", channel_id="C1", permalink="https://evil.example/x"
-            ),
-            AgentSummaryItem(text="a DM is not a channel", channel_id="D1", permalink=LINK),
-            AgentSummaryItem(text="  ", channel_id="C1"),
-            *(AgentSummaryItem(text=f"<@U_ANA> did {n}", channel_id="C1", permalink=LINK) for n in range(6)),
+            _item("<@U_ANA> rolled back the release", permalink="https://evil.example/x"),
+            _item("<@U_BEN> fixed the export, merged", resolved=True),
+            _item("a DM is not a channel", channel_id="D1"),
+            _item("  "),
+            *(_item(f"<@U_ANA> did {n}") for n in range(6)),
         ],
-        suggestions=[_offer(0, author=SLACK_USER_ID), *(_offer(n) for n in range(1, 6))],
+        suggestions=[_offer(0, author=SLACK_USER_ID), _offer(9, resolved=True), *(_offer(n) for n in range(1, 6))],
     )
 
     focus = to_work_focus(output, SLACK_USER_ID)
@@ -90,7 +97,7 @@ def test_the_agent_answer_keeps_the_pipeline_limits() -> None:
     ]
     # A link the model made up off Slack never renders as a link.
     assert focus.summary[0].permalink is None
-    # The person's own message is never a source, and at most three offers go out.
+    # Resolved work and the person's own message never become offers, and at most three go out.
     assert [suggestion.offer for suggestion in focus.suggestions] == [
         "Offer 1. Want me to look?",
         "Offer 2. Want me to look?",
