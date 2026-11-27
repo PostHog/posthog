@@ -3,34 +3,24 @@ from uuid import UUID
 
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action
 
-PIN_KEY_MESSAGE = "You can use a key you added or one a project admin added."
+PIN_KEY_MESSAGE = "You can use a key shared with the project or one you added."
 
 
-def _project_admins(team_id: int, user_ids: Iterable[int]) -> set[int]:
-    ids = list(dict.fromkeys(user_ids))
-    allowed = authorization.check(
-        [CheckRequest(resource=Resource.project(team_id), action=Action.EDIT, subject=Subject(user_id=i)) for i in ids]
-    )
-    return {user_id for user_id, ok in zip(ids, allowed) if ok}
+def is_project_admin(team_id: int, user_id: int) -> bool:
+    return authorization.check(resource=Resource.project(team_id), action=Action.EDIT, subject=Subject(user_id=user_id))
 
 
 def usable_provider_key_ids(team_id: int, keys: Iterable[LLMProviderKey], user_id: int | None) -> set[UUID]:
-    """Keys this person may pin to a judge or spend in the playground.
-
-    A key a project admin added is shared with the project. A member's key may bill their own provider
-    account, so only they and project admins use it. A key whose creator was deleted counts as shared.
-    """
+    """Keys this person may pin to a judge or spend in the playground: shared keys, their own, and every key
+    for a project admin."""
     keys = list(keys)
-    creators = {key.created_by_id for key in keys if key.created_by_id is not None and key.created_by_id != user_id}
-    if not creators:
+    usable = {key.id for key in keys if key.shared or (user_id is not None and key.created_by_id == user_id)}
+    if len(usable) < len(keys) and user_id is not None and is_project_admin(team_id, user_id):
         return {key.id for key in keys}
-    admins = _project_admins(team_id, [*creators, *([user_id] if user_id is not None else [])])
-    if user_id is not None and user_id in admins:
-        return {key.id for key in keys}
-    return {key.id for key in keys if key.created_by_id is None or key.created_by_id in admins | {user_id}}
+    return usable
 
 
 def can_use_provider_key(key: LLMProviderKey, user_id: int | None) -> bool:

@@ -1369,7 +1369,11 @@ class TestPinningAnotherPersonsKey(APIBaseTest):
             return _key(self.team, self.user)
         level = OrganizationMembership.Level.ADMIN if added_by == "admin" else OrganizationMembership.Level.MEMBER
         teammate = User.objects.create_and_join(self.organization, f"{added_by}@example.com", None, level=level)
-        return _key(self.team, teammate)
+        key = _key(self.team, teammate)
+        # The API shares the keys a project admin adds.
+        LLMProviderKey.objects.filter(id=key.id).update(shared=added_by == "admin")
+        key.refresh_from_db()
+        return key
 
     @parameterized.expand(
         [
@@ -1417,6 +1421,48 @@ class TestPinningAnotherPersonsKey(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         list_models.assert_not_called()
+
+    @parameterized.expand([("keeps_the_pinned_key", True, 200), ("switches_to_it", False, 400)])
+    def test_an_editor_keeps_but_cannot_newly_pin_another_members_key(
+        self, _name: str, already_pinned: bool, expected_status: int
+    ) -> None:
+        _make_member(self.organization_membership)
+        others_key = self._key_added_by("member")
+        pinned = others_key if already_pinned else _key(self.team, self.user)
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Judge",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=LLMModelConfiguration.objects.create(
+                team=self.team, provider="openai", model="gpt-5-mini", provider_key=pinned
+            ),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"model_configuration": {"provider": "openai", "model": "gpt-5", "provider_key_id": str(others_key.id)}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("member", False), ("admin", True)])
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_a_key_is_shared_when_a_project_admin_adds_it(self, level: str, shared: bool, mock_validate: Mock) -> None:
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        self.organization_membership.level = (
+            OrganizationMembership.Level.ADMIN if level == "admin" else OrganizationMembership.Level.MEMBER
+        )
+        self.organization_membership.save()
+
+        response = self.client.post(
+            _url(self.team, "provider_keys/"), {"provider": "openai", "name": "Key", "api_key": "sk-test-key-12345"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(LLMProviderKey.objects.get(id=response.json()["id"]).shared, shared)
 
     def test_deleting_a_key_cannot_move_its_judges_to_another_members_key(self) -> None:
         _make_member(self.organization_membership)

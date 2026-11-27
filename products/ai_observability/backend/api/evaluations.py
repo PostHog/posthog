@@ -67,7 +67,7 @@ from ..llm.providers.openrouter import is_non_chat_model
 from ..logic.evaluations.preview_outcomes import outcome_counts, preview_grader
 from ..logic.evaluations.preview_queries import generation_io_preview, load_generation_events
 from ..logic.evaluations.preview_units import session_quiet_period_seconds, trace_window_seconds
-from ..logic.provider_key_access import PIN_KEY_MESSAGE, can_use_provider_key
+from ..logic.provider_key_access import PIN_KEY_MESSAGE, can_use_provider_key, usable_provider_key_ids
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     MAX_CATEGORICAL_OPTIONS,
@@ -845,7 +845,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         keys = LLMProviderKey.objects.filter(team=team, state=LLMProviderKey.State.OK)
         if provider:
             keys = keys.filter(provider=provider)
-        if keys.exists():
+        if usable_provider_key_ids(team.id, keys, getattr(self.context["request"].user, "pk", None)):
             return (
                 "This project has a working AI provider API key, but this evaluation doesn't use one. "
                 "Set the evaluation's model to one from a working key, then enable it."

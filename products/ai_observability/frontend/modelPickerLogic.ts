@@ -78,7 +78,7 @@ function getByokModelNotice(
     if (providerModelGroups.some((group) => !group.disabledReason)) {
         return null
     }
-    return providerKeys.length === 0 ? { kind: 'no-keys' } : { kind: 'no-usable-keys' }
+    return providerKeys.some((key) => key.can_use !== false) ? { kind: 'no-usable-keys' } : { kind: 'no-keys' }
 }
 
 // Azure OpenAI and Claude on Microsoft Foundry need a deployment name, and Azure does not always list deployments.
@@ -424,7 +424,8 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
 
                 const failedKeyIds = new Set(failedByokProviderKeyIds)
                 const groups: ProviderModelGroup[] = []
-                for (const key of providerKeys) {
+                // A teammate's own key can't be picked, so it isn't listed, even as a broken key to fix.
+                for (const key of providerKeys.filter((candidate) => candidate.can_use !== false)) {
                     const models = byKeyId[key.id] ?? []
                     const customModelKey = allowsCustomModel(key) && isUsableProviderKey(key)
                     if (models.length > 0 || customModelKey) {

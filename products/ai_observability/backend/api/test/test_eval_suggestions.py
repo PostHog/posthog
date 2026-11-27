@@ -130,8 +130,9 @@ class TestEvalSuggestionsApi(APIBaseTest):
         values = {"team": self.team, **defaults, "run": self.suggestion_run, **fields}
         return EvalSuggestion.objects.for_team(values["team"].pk).create(kind=kind, **values)
 
-    def _judge_key(self, *, created_by: User | None = None) -> None:
+    def _judge_key(self, *, created_by: User | None = None, shared: bool = False) -> None:
         LLMProviderKey.objects.create(
+            shared=shared,
             team=self.team,
             provider="openai",
             name="Judge key",
@@ -418,8 +419,10 @@ class TestEvalSuggestionsApi(APIBaseTest):
             self._judge_key()
         elif key is not None:
             level = OrganizationMembership.Level.ADMIN if key == "admin" else OrganizationMembership.Level.MEMBER
+            # The API shares the keys a project admin adds.
             self._judge_key(
-                created_by=User.objects.create_and_join(self.organization, "other@posthog.com", None, level=level)
+                created_by=User.objects.create_and_join(self.organization, "other@posthog.com", None, level=level),
+                shared=key == "admin",
             )
         # One trace judge run reads a 40k-token transcript, at $0.10 per million input tokens.
         suggestion = self._suggestion(EvalSuggestionKind.NEW_LLM_JUDGE, draft=JUDGE_DRAFT, mean_input_tokens=40_000)

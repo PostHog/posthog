@@ -24,7 +24,9 @@ def judge_key(team_id: int, provider: str | None = None, user_id: int | None = N
     keys = [
         key
         for key in candidates.annotate(
-            judges=Count("model_configurations__evaluations", filter=Q(model_configurations__evaluations__deleted=False))
+            judges=Count(
+                "model_configurations__evaluations", filter=Q(model_configurations__evaluations__deleted=False)
+            )
         ).order_by("-judges", "-created_at")
         if not key.encrypted_config.get("azure_endpoint") and not key.encrypted_config.get("base_url")
     ]

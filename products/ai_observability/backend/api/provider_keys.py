@@ -553,7 +553,8 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         return throttles
 
     def perform_create(self, serializer):
-        instance = serializer.save()
+        # A key a project admin adds is the project's; a member's may be their own account.
+        instance = serializer.save(shared=TeamMemberStrictManagementPermission().has_permission(self.request, self))
         report_user_action(
             self.request.user,
             "llma provider key created",
@@ -725,11 +726,17 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     }
                 )
 
-        alternative_keys = LLMProviderKey.objects.filter(
-            team_id=self.team_id,
-            provider=instance.provider,
-            state=LLMProviderKey.State.OK,
-        ).exclude(id=instance.id)
+        alternative_keys: list[LLMProviderKey] = list(
+            LLMProviderKey.objects.filter(
+                team_id=self.team_id,
+                provider=instance.provider,
+                state=LLMProviderKey.State.OK,
+            ).exclude(id=instance.id)
+        )
+        # Deleting with a replacement pins it to every dependent judge, so only offer keys the caller may use.
+        if not is_service_auth(request):
+            usable = usable_provider_key_ids(self.team_id, alternative_keys, request.user.pk)
+            alternative_keys = [key for key in alternative_keys if key.id in usable]
 
         return Response(
             ProviderKeyDependentConfigsSerializer(
