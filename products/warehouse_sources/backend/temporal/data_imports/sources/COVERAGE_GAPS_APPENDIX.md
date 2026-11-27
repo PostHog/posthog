@@ -14419,16 +14419,18 @@ Diffed against: <https://docs.stripe.com/api/v2/money-management/outbound-paymen
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json>
 
-- [ ] `Invoice line items (GET /v1/invoices/{invoice}/lines)` — per-product, per-price revenue lines on each invoice; the invoice row alone cannot split revenue by product (high)
-- [ ] `Connected accounts (GET /v1/accounts)` — the account list for Connect platforms, to resolve the account IDs on charges, transfers and application fees (high)
+- [x] `Invoice line items (GET /v1/invoices/{invoice}/lines)` — per-product, per-price revenue lines on each invoice; the invoice row alone cannot split revenue by product (high)
+- [x] `Connected accounts (GET /v1/accounts)` — the account list for Connect platforms, to resolve the account IDs on charges, transfers and application fees (high)
 - [ ] `Checkout session line items (GET /v1/checkout/sessions/{session}/line_items)` — what was bought in each checkout, to join conversion to products (medium)
-- [ ] `Credit note line items (GET /v1/credit_notes/{credit_note}/lines)` — which invoice lines each credit note refunded or credited (medium)
+- [x] `Credit note line items (GET /v1/credit_notes/{credit_note}/lines)` — which invoice lines each credit note refunded or credited (medium)
 - [ ] `Billing meter event summaries (GET /v1/billing/meters/{id}/event_summaries)` — aggregated usage per customer and time window for usage-based billing; needs customer and time range params (medium)
 - [ ] `Billing alerts (GET /v1/billing/alerts)` — usage and credit alert thresholds set on meters (low)
 - [ ] `Tax codes (GET /v1/tax_codes)` — lookup that resolves the tax_code carried on products (low)
 - [ ] `Product features (GET /v1/products/{product}/features)` — join between products and entitlement features, which we sync separately (low)
 - [ ] `Payment records (GET /v1/payment_records)` — unified record of payments reported from any processor (low)
 - [ ] `Billing portal configurations (GET /v1/billing_portal/configurations)` — customer portal settings that explain self-serve cancellation and plan switching (low)
+
+Note (2026-11-27): Built `InvoiceLineItem` and `CreditNoteLineItem` from the lines the invoice and credit note listings already fetch, and exposed the existing `Account` resource as a default-off table. Skipped billing meter event summaries: every request needs a customer and a time range, so a table would fan out over every meter and every customer, and the metered quantities that were billed are already on the invoice line items.
 
 Note (2026-11-19): Diffed the public v1 spec3.json collection GETs (and one level of nesting) against the 46 synced tables, and also read the repo COVERAGE_GAPS.md. The v1 'lower priority' families (issuing, treasury, terminal, identity, financial_connections, climate, sigma, reporting, files, webhook_endpoints) were left out as niche. Line item routes are fan-outs under a parent and need per-parent paging. Did not re-report the v2 money-management lists.
 
