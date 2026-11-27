@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -12,7 +13,15 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun, NotebookRun
+from products.notebooks.backend.models import (
+    GeneratedWidget,
+    GeneratedWidgetVersion,
+    Notebook,
+    NotebookAppRelease,
+    NotebookNodeRun,
+    NotebookRun,
+    NotebookWidgetInstance,
+)
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
 
 LAYOUT = {
@@ -255,6 +264,7 @@ class TestNotebookAppLayout(APIBaseTest):
         notebook.save(update_fields=["content"])
         preview = self.client.post(url + "app_preview/", layout, format="json").json()
         assert preview["problems"] == [] and preview["results_as_of"]
+        assert preview["dependencies"][0]["node_id"] == "proof"
         assert self.client.patch(url, {"app_revision": 0, "app_published": layout}, format="json").status_code == 200
         release = self.client.get(url + "app_release/").json()
         assert release["results_as_of"] == preview["results_as_of"]
@@ -356,6 +366,42 @@ class TestNotebookAppLayout(APIBaseTest):
         assert response.status_code == 404
         notebook.refresh_from_db()
         assert notebook.app_draft is None
+
+    def test_widget_only_preview_includes_mapped_frame_and_its_dependency(self) -> None:
+        notebook = Notebook.objects.create(
+            team=self.team,
+            content=build_markdown_notebook_content(
+                '<PythonV2 nodeId="initial" code="a = 1" returnVariable="a" />\n\n'
+                '<PythonV2 nodeId="result" code="b = a" returnVariable="b" />\n\n'
+                '<Widget nodeId="chart" />'
+            ),
+        )
+        widget = GeneratedWidget.objects.for_team(self.team.pk).create(team=self.team, name="Chart", canvas_id=uuid4())
+        version = GeneratedWidgetVersion.objects.for_team(self.team.pk).create(
+            team=self.team,
+            widget=widget,
+            canvas_source_version_id=uuid4(),
+            title="Chart",
+            operation="initial",
+            input_contract=[{"slot": "values", "sourceName": "original"}],
+        )
+        NotebookWidgetInstance.objects.for_team(self.team.pk).create(
+            team=self.team,
+            notebook=notebook,
+            widget=widget,
+            node_id="chart",
+            pinned_version=version,
+            input_bindings={"values": {"source": "b"}},
+        )
+        layout = {**LAYOUT, "blocks": [{"id": "chart", "tab_id": "overview", "kind": "cell", "node_id": "chart"}]}
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/notebooks/{notebook.short_id}/app_preview/", layout, format="json"
+        )
+        assert response.status_code == 200
+        assert {item["dataframe"]: item["upstream"] for item in response.json()["dependencies"]} == {
+            "a": [],
+            "b": ["a"],
+        }
 
     @parameterized.expand(
         [

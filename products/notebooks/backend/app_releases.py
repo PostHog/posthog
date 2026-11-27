@@ -92,6 +92,8 @@ def review_release(team_id: int, notebook_id: UUID, blocks: list[AppBlockSource]
 
 
 def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSource]) -> AppReleaseReview:
+    from products.notebooks.backend.facade.contracts import AppCellDependencies
+
     sources = {
         block.node_id: block
         for block in iter_markdown_blocks(
@@ -100,7 +102,7 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
     }
     displayed = {block.node_id for block in blocks if block.kind == "cell" and block.display != "source"}
     if any(node_id in sources and sources[node_id].tag_name == "Widget" for node_id in displayed):
-        widget_sources = widget_source_slots(notebook.team_id, notebook.id, markdown, displayed)
+        widget_sources = widget_source_slots(notebook.team_id, notebook.id, markdown, displayed, native_only=False)
         blocks = [
             *blocks,
             *(
@@ -142,6 +144,14 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             completed.append(cell.last_run["finished_at"])
     return AppReleaseReview(
         problems=problems,
+        dependencies=[
+            AppCellDependencies(
+                node_id=cell.node_id,
+                dataframe=cell.dataframe_name or cell.node_id,
+                upstream=[states[node].dataframe_name or node for node in cell.depends_on if node in states],
+            )
+            for cell in sorted(states.values(), key=lambda item: (item.dataframe_name, item.node_id))
+        ],
         results_as_of=min(completed, default=None),
         has_previous=notebook.app_published is not None and releases_for(notebook)[1:2].exists(),
     )

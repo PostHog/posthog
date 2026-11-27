@@ -16,7 +16,11 @@ import {
 import { performQuery } from '~/queries/query'
 import { HogQLQuery, HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
-import { notebooksAppQueriesCreate, notebooksAppReleaseRetrieve } from '../generated/api'
+import {
+    notebooksAppDraftQueriesCreate,
+    notebooksAppQueriesCreate,
+    notebooksAppReleaseRetrieve,
+} from '../generated/api'
 import type { NotebookAppReleaseApi, NotebookAppViewerQueryApi } from '../generated/api.schemas'
 import { type PublishedRunResult, restorePublishedResults } from './notebookAppPublishedResults'
 import { parseWidgetQueryResponse } from './viewerWidgetFrames'
@@ -25,6 +29,7 @@ export interface ViewerProps {
     shortId: string
     project: string
     sessionId: string
+    draft?: NotebookAppReleaseApi
 }
 export interface ViewerOutput {
     query: string
@@ -223,6 +228,9 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
             null as NotebookAppReleaseApi | null,
             {
                 loadRelease: async () => {
+                    if (props.draft) {
+                        return props.draft
+                    }
                     const controller = new AbortController()
                     cache.disposables.add(() => () => controller.abort(), 'release', { pauseOnPageHidden: false })
                     return await notebooksAppReleaseRetrieve(props.project, props.shortId, {
@@ -261,12 +269,15 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
                     }
                     const options = { signal: controller.signal }
                     try {
-                        const plans = await notebooksAppQueriesCreate(
-                            props.project,
-                            props.shortId,
-                            { revision: release.revision, variables },
-                            options
-                        )
+                        const request = { revision: release.revision, variables }
+                        const plans = props.draft
+                            ? await notebooksAppDraftQueriesCreate(
+                                  props.project,
+                                  props.shortId,
+                                  { ...request, layout: release.layout },
+                                  options
+                              )
+                            : await notebooksAppQueriesCreate(props.project, props.shortId, request, options)
                         breakpoint()
                         const { outputs, queried } = await resolveViewerOutputs(
                             plans,
@@ -334,7 +345,10 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
     listeners(({ actions, props, values }) => ({
         loadReleaseSuccess: ({ release }) => {
             actions.restore(release)
-            posthog.capture('notebook app viewed', { short_id: props.shortId, revision: release.revision })
+            posthog.capture(props.draft ? 'notebook app draft previewed' : 'notebook app viewed', {
+                short_id: props.shortId,
+                revision: release.revision,
+            })
         },
         changeInput: () => {
             if (values.auto) {

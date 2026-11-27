@@ -61,6 +61,17 @@ let results = appBuilderDemoResults(appBuilderDemoVariables)
 let saved = structuredClone(notebook)
 let failNextQuery = false
 
+async function demoQueryPlans({ request }: { request: Request }): Promise<[number, unknown]> {
+    const { variables } = (await request.json()) as { variables: NotebookVariable[] }
+    return [
+        200,
+        appBuilderDemoCells.map((cell) => ({
+            node_id: cell.nodeId,
+            query: JSON.stringify({ nodeId: cell.nodeId, variables }),
+        })),
+    ]
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Notebooks/App builder',
@@ -152,18 +163,18 @@ const meta: Meta = {
             post: {
                 '/api/projects/:team_id/notebooks/app-builder-demo/app_preview': () => [
                     200,
-                    { has_previous: true, problems: [], results_as_of: '2026-10-18T09:00:00Z' },
+                    {
+                        has_previous: true,
+                        problems: [],
+                        results_as_of: '2026-10-18T09:00:00Z',
+                        dependencies: [
+                            { node_id: 'weekly-signups', dataframe: 'weekly_growth', upstream: [] },
+                            { node_id: 'total-signups', dataframe: 'total_signups', upstream: ['weekly_growth'] },
+                        ],
+                    },
                 ],
-                '/api/projects/:team_id/notebooks/app-builder-demo/app_queries': async ({ request }) => {
-                    const body = (await request.json()) as { variables: NotebookVariable[] }
-                    return [
-                        200,
-                        appBuilderDemoCells.map((cell) => ({
-                            node_id: cell.nodeId,
-                            query: JSON.stringify({ nodeId: cell.nodeId, variables: body.variables }),
-                        })),
-                    ]
-                },
+                '/api/projects/:team_id/notebooks/app-builder-demo/app_queries': demoQueryPlans,
+                '/api/projects/:team_id/notebooks/app-builder-demo/app_draft_queries': demoQueryPlans,
                 '/api/projects/:team_id/query/HogQLQuery': async ({ request }) => {
                     const body = (await request.json()) as { query: { query: string } }
                     if (!body.query.query.startsWith('{"nodeId":')) {
@@ -242,6 +253,23 @@ export const PublicationReview: Story = {
         const dialog = await within(document.body).findByRole('dialog')
         await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
         expect(saved.app_revision).toBe(1)
+    },
+}
+
+export const DraftViewer: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Preview' }, { timeout: 60000 }))
+        const builder = within(canvasElement.querySelector('[data-attr="notebook-app-builder"]') as HTMLElement)
+        expect(await builder.findByRole('button', { name: /Run every SQL and Python cell/ })).toBeEnabled()
+        await userEvent.click(await canvas.findByText('Data dependencies'))
+        expect(canvas.getByText('reads weekly_growth')).toBeVisible()
+        await userEvent.click(canvas.getByLabelText('Region', { exact: true }))
+        await userEvent.click(await within(document.body).findByText('Europe', { exact: true }))
+        await waitFor(() => expect(canvas.getByText(/Results updated/)).toBeVisible(), { timeout: 15000 })
+        await userEvent.click(canvas.getByRole('button', { name: 'Back to builder' }))
+        expect(canvas.getByLabelText('Region', { exact: true })).toHaveTextContent('All regions')
+        expect(saved.variables).toEqual(appBuilderDemoVariables)
     },
 }
 

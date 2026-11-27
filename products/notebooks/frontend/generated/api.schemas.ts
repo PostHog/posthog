@@ -974,17 +974,11 @@ export interface PatchedNotebookApi {
     _create_in_folder?: string
 }
 
-export interface NotebookAppReleaseReviewApi {
-    has_previous: boolean
-    problems: string[]
-    /** @nullable */
-    results_as_of: string | null
-}
-
-export interface NotebookAppViewerRequestApi {
+export interface NotebookAppDraftQueryRequestApi {
     /** @minimum 0 */
     revision: number
     variables: NotebookVariableApi[]
+    layout: NotebookAppLayoutApi
 }
 
 export interface NotebookAppWidgetSlotApi {
@@ -1003,6 +997,26 @@ export interface NotebookAppViewerQueryApi {
     query: string
     matches_defaults: boolean
     widget_slots?: NotebookAppWidgetSlotApi[]
+}
+
+export interface NotebookAppCellDependenciesApi {
+    node_id: string
+    dataframe: string
+    upstream: string[]
+}
+
+export interface NotebookAppReleaseReviewApi {
+    dependencies?: NotebookAppCellDependenciesApi[]
+    has_previous: boolean
+    problems: string[]
+    /** @nullable */
+    results_as_of: string | null
+}
+
+export interface NotebookAppViewerRequestApi {
+    /** @minimum 0 */
+    revision: number
+    variables: NotebookVariableApi[]
 }
 
 export interface NotebookAppReleaseApi {

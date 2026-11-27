@@ -20,17 +20,23 @@ import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
 import { viewerWidgetSession } from './viewerWidgetFrames'
 
-export default function PublishedNotebookApp({ shortId }: { shortId: string }): JSX.Element {
+export default function PublishedNotebookApp({
+    shortId,
+    draft,
+}: {
+    shortId: string
+    draft?: NotebookAppReleaseApi
+}): JSX.Element {
     const project = String(ApiConfig.getCurrentTeamId())
     const sessionId = useId()
-    const viewer = { project, shortId, sessionId }
+    const viewer = { project, shortId, sessionId, draft }
     const logic = notebookAppViewerLogic(viewer)
     const { release, releaseFailed: failed } = useValues(logic)
     const { loadRelease } = useActions(logic)
     if (failed) {
         return (
             <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadRelease }}>
-                Could not open the published app. Check that it is published and that you have access.
+                Could not open the app. Check that you have access and try again.
             </LemonBanner>
         )
     }
@@ -111,6 +117,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                             <PublishedNotebookQuery
                                 cell={cell}
                                 sessionId={sessionId}
+                                draft={!!viewer.draft}
                                 current={results?.outputs[cell.id]}
                                 pinned={publishedResults[cell.id]}
                                 chartInputFilters={chartInputFilters}

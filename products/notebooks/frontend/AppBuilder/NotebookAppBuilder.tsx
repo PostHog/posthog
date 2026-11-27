@@ -1,7 +1,7 @@
 import './NotebookAppBuilder.scss'
 
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
+import { type ComponentProps, useEffect } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTabs, Spinner } from '@posthog/lemon-ui'
@@ -23,6 +23,12 @@ import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { NotebookAppInspector } from './NotebookAppInspector'
 import { notebookAppLogic } from './notebookAppLogic'
 import { NotebookAppPalette } from './NotebookAppPalette'
+import { NotebookAppPublicationChecks } from './NotebookAppPublicationChecks'
+import PublishedNotebookApp from './PublishedNotebookApp'
+
+function DraftWorkspace({ visible, ...props }: ComponentProps<'fieldset'> & { visible: boolean }): JSX.Element | null {
+    return visible ? <fieldset {...props} /> : null
+}
 
 export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
@@ -37,6 +43,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
     const {
         layout,
         savedNotebook,
+        markdownEditorValue,
         savedNotebookLoading,
         error,
         preview,
@@ -78,7 +85,6 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
         loadApp,
         unpublishApp,
         checkRelease,
-        restoreRelease,
     } = useActions(logic)
     useEffect(() => {
         if (preview && !isRunning && !sourceSavingReason) {
@@ -136,11 +142,17 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             <LemonButton
                                 type="secondary"
                                 size="small"
+                                disabledReason={preview ? undefined : sourceSavingReason}
                                 onClick={() => setPreview(!preview)}
                                 data-attr="notebook-app-preview"
                             >
                                 {preview ? 'Back to builder' : 'Preview'}
                             </LemonButton>
+                            {preview && (
+                                <BindLogic logic={notebookLogic} props={{ shortId }}>
+                                    <NotebookRunAllButton type="secondary" size="small" />
+                                </BindLogic>
+                            )}
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -231,65 +243,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                     {error}
                 </LemonBanner>
             )}
-            {preview && (
-                <section className="border rounded p-3 mb-4" aria-label="Publication checks">
-                    <div className="flex flex-wrap gap-2 items-center justify-between">
-                        <strong>
-                            {releaseReviewLoading
-                                ? 'Checking sources…'
-                                : releaseReview?.problems.length
-                                  ? 'Resolve these issues before publishing'
-                                  : releaseReview
-                                    ? 'Ready to publish'
-                                    : 'Publication checks'}
-                        </strong>
-                        <div className="flex flex-wrap gap-2">
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                disabledReason={
-                                    sourceSavingReason ||
-                                    (releaseReviewLoading || isRunning ? 'A check or run is in progress.' : undefined)
-                                }
-                                onClick={() => checkRelease(layout)}
-                            >
-                                Check again
-                            </LemonButton>
-                            {releaseReview?.has_previous && (
-                                <LemonButton
-                                    size="small"
-                                    disabledReason={
-                                        savedNotebookLoading ? 'Wait for the app to finish saving.' : undefined
-                                    }
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: 'Restore the previous release?',
-                                            description:
-                                                'Viewers will see the preceding release. You can keep editing your current draft.',
-                                            primaryButton: { children: 'Restore release', onClick: restoreRelease },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }
-                                >
-                                    Restore previous release
-                                </LemonButton>
-                            )}
-                        </div>
-                    </div>
-                    {releaseReview?.problems.length ? (
-                        <ul className="my-2">
-                            {releaseReview.problems.map((problem, index) => (
-                                <li key={index}>{problem}</li>
-                            ))}
-                        </ul>
-                    ) : null}
-                    {releaseReview?.results_as_of && (
-                        <p className="text-secondary mb-0">
-                            Oldest displayed result ran {new Date(releaseReview.results_as_of).toLocaleString()}.
-                        </p>
-                    )}
-                </section>
-            )}
+            {preview && <NotebookAppPublicationChecks shortId={shortId} sourceSavingReason={sourceSavingReason} />}
             {isRunning && (
                 <LemonBanner type="info" className="mb-4">
                     {progressLabel || 'Updating notebook results…'}
@@ -313,7 +267,23 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                     AI updated this app. Your local changes have been kept.
                 </LemonBanner>
             )}
-            <fieldset disabled={savedNotebookLoading} className="border-0 p-0 m-0 min-w-0">
+            {preview && (
+                <PublishedNotebookApp
+                    key={JSON.stringify([notebook?.version ?? savedNotebook.version, layout])}
+                    shortId={shortId}
+                    draft={{
+                        revision: notebook?.version ?? savedNotebook.version ?? 0,
+                        title: savedNotebook.title || '',
+                        markdown: markdownEditorValue,
+                        variables,
+                        layout,
+                        published_at: null,
+                        results_as_of: null,
+                        has_previous: false,
+                    }}
+                />
+            )}
+            <DraftWorkspace visible={!preview} disabled={savedNotebookLoading} className="border-0 p-0 m-0 min-w-0">
                 <div className={editing ? 'NotebookAppBuilder__workspace' : ''}>
                     {editing && (
                         <NotebookAppPalette
@@ -328,9 +298,6 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                         <div className="mb-4">
                             <h1 className="mb-2">{layout.title || notebook?.title || 'Untitled app'}</h1>
                             {layout.description && <p className="text-secondary">{layout.description}</p>}
-                            {!editing && canEditNotebook && !isTemplate && (
-                                <NotebookRunAllButton type="secondary" size="small" />
-                            )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 mb-4">
                             <LemonTabs
@@ -412,7 +379,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                         />
                     )}
                 </div>
-            </fieldset>
+            </DraftWorkspace>
         </div>
     )
 }

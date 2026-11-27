@@ -29,10 +29,18 @@ class AppBlockSource:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AppCellDependencies:
+    node_id: str
+    dataframe: str
+    upstream: list[str]
+
+
+@dataclass(frozen=True, kw_only=True)
 class AppReleaseReview:
     has_previous: bool
     problems: list[str]
     results_as_of: datetime | None
+    dependencies: list[AppCellDependencies] = field(default_factory=list)
 
 
 @dataclass(frozen=True, kw_only=True)
