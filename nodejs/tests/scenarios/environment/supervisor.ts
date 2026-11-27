@@ -46,6 +46,7 @@ export type SupervisorOptions = {
     logDir: string
     graceMs: number
     restartBackoffMs: number
+    killedExitWithinMs?: number
 }
 
 export type Supervisor = {
@@ -58,6 +59,7 @@ export type Supervisor = {
 }
 
 export function createSupervisor(options: SupervisorOptions): Supervisor {
+    const killedExitWithinMs = options.killedExitWithinMs ?? KILLED_EXIT_WITHIN_MS
     const children = new Map<string, ChildProcess>()
     const restarts = new Set<NodeJS.Timeout>()
     const recorded: RoleExit[] = []
@@ -212,9 +214,9 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             return {
                 observed: () => Promise.resolve(true),
                 release: async () => {
-                    const waitMs = Date.parse(exit.signalledAt) + graceMs + KILLED_EXIT_WITHIN_MS - Date.now()
+                    const waitMs = Date.parse(exit.signalledAt) + graceMs + killedExitWithinMs - Date.now()
                     if (!(await Promise.race([exited.then(() => true), sleep(waitMs, false, { ref: false })]))) {
-                        throw new Error(`${nameOf(id)} did not exit ${KILLED_EXIT_WITHIN_MS / 1000}s after its grace`)
+                        throw new Error(`${nameOf(id)} did not exit ${killedExitWithinMs / 1000}s after its grace`)
                     }
                 },
                 journal: () => ({ exit: { ...exit } }),

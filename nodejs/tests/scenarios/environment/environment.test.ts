@@ -1382,6 +1382,42 @@ describe('scenario environment', () => {
             15_000
         )
 
+        it('fails the release of a role still running after its SIGKILL, and keeps its exit unfinished', async () => {
+            const logDir = mkdtempSync(path.join(tempRoot, 'logs-'))
+            const surviving = createSupervisor({
+                command: process.execPath,
+                args: ['-e', READY.replace('ON_SIGTERM', '() => {}')],
+                cwd: os.tmpdir(),
+                logDir,
+                graceMs: 1000,
+                restartBackoffMs: 60_000,
+                killedExitWithinMs: 200,
+            })
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+            const realSignal = processes.signal
+            const lostKill = jest
+                .spyOn(processes, 'signal')
+                .mockImplementation((target, sig) => (sig === 'SIGKILL' ? true : realSignal(target, sig)))
+            try {
+                await surviving.start([spec])
+                await waitForExpect(
+                    () => expect(readFileSync(path.join(logDir, `${nameOf(spec)}.log`), 'utf8')).toContain('ready'),
+                    5000,
+                    20
+                )
+
+                const termination = surviving.terminate(spec, 100)
+
+                await expect(termination.release()).rejects.toThrow(`${nameOf(spec)} did not exit 0.2s after its grace`)
+                expect(termination.journal()).toEqual({
+                    exit: { signalledAt: expect.any(String), killedAt: expect.any(String) },
+                })
+            } finally {
+                lostKill.mockRestore()
+                await surviving.stop()
+            }
+        }, 15_000)
+
         it('refuses to kill a role that something else killed before its exit was reported', async () => {
             const killedElsewhere = createSupervisor({
                 command: process.execPath,
