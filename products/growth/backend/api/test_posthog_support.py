@@ -39,6 +39,7 @@ DRAFT_BODY = {
 }
 
 
+@time_machine.travel("2026-11-02T12:00:00Z", tick=False)
 class TestPostHogSupportAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -128,6 +129,7 @@ TICKET_LIST = {
 }
 
 
+@time_machine.travel("2026-11-02T12:00:00Z", tick=False)
 @override_settings(POSTHOG_SUPPORT_WIDGET_HOST=WIDGET_HOST, POSTHOG_SUPPORT_WIDGET_TOKEN="widget-token")
 class TestPostHogSupportSend(APIBaseTest):
     def setUp(self) -> None:
@@ -266,9 +268,9 @@ class TestPostHogSupportSend(APIBaseTest):
             teammate_sent = teammate_client.post(f"{self.base}/drafts/{teammate_draft['id']}/send/")
 
         assert [sent.status_code, sent_again.status_code, teammate_sent.status_code] == [200, 200, 200]
-        ticket = Ticket.objects.get(id=sent.json()["ticket_id"])
-        ticket_again = Ticket.objects.get(id=sent_again.json()["ticket_id"])
-        teammate_ticket = Ticket.objects.get(id=teammate_sent.json()["ticket_id"])
+        ticket = Ticket.objects.get(team=self.team, id=sent.json()["ticket_id"])
+        ticket_again = Ticket.objects.get(team=self.team, id=sent_again.json()["ticket_id"])
+        teammate_ticket = Ticket.objects.get(team=self.team, id=teammate_sent.json()["ticket_id"])
         assert [sent.json()["ticket_number"], sent_again.json()["ticket_number"]] == [
             ticket.ticket_number,
             ticket_again.ticket_number,
@@ -354,9 +356,9 @@ class TestPostHogSupportSend(APIBaseTest):
                 "connection_refused",
                 {
                     "body": requests.ConnectionError(
-                        MaxRetryError(None, WIDGET_URL, NewConnectionError(None, "refused"))
+                        MaxRetryError(None, WIDGET_URL, NewConnectionError(None, "refused"))  # type: ignore[arg-type]
                     )
-                },  # type: ignore[arg-type]
+                },
                 424,
                 424,
                 2,
@@ -560,6 +562,7 @@ FREE = {"subscription_level": "free"}
 PAID = {"subscription_level": "paid"}
 
 
+@time_machine.travel("2026-11-02T12:00:00Z", tick=False)
 class TestCheckTicketPermission(SimpleTestCase):
     @parameterized.expand(
         [

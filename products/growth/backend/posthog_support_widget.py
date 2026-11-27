@@ -116,10 +116,14 @@ class PostHogSupportWidgetClient:
 
     def ticket_number(self, user: User, ticket_id: str) -> int | None:
         # The send answer has no ticket number. The ticket exists either way, so a failed lookup only costs the number.
+        params: dict[str, str | int] = {
+            "widget_session_id": _widget_session_id(user),
+            "limit": WIDGET_TICKETS_LOOKUP_LIMIT,
+        }
         try:
             response = requests.get(
                 f"{self._target.host}{WIDGET_TICKETS_PATH}",
-                params={"widget_session_id": _widget_session_id(user), "limit": WIDGET_TICKETS_LOOKUP_LIMIT},
+                params=params,
                 headers={"X-Conversations-Token": self._target.token, "Origin": settings.SITE_URL},
                 timeout=WIDGET_TICKET_LOOKUP_TIMEOUT_SECONDS,
                 # The query string holds the session id, which a redirect could hand to another host.
