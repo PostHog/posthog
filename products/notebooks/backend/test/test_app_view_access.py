@@ -1,9 +1,12 @@
+import json
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
@@ -192,19 +195,26 @@ class TestNotebookAppViewAccess(APIBaseTest):
         self.client.force_login(self.recipient)
         self.assertContains(self.client.get(partial_url), "Republish this app")
 
-    def test_single_number_exposes_one_displayed_value(self) -> None:
+    @parameterized.expand(
+        [
+            ([], "Oct 12", "222"),
+            ([{"column": "Signups"}], "222", "Oct 12"),
+        ]
+    )
+    def test_single_number_exposes_one_displayed_value(
+        self, columns: list[dict[str, str]], visible: str, hidden: str
+    ) -> None:
         run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
-        self.release.markdown = (
-            f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery={{{{"display":"BoldNumber"}}}} />'
-        )
+        chart = json.dumps({"display": "BoldNumber", "tableSettings": {"columns": columns}})
+        self.release.markdown = f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery={{{chart}}} />'
         self.release.sql_rows[run_id].append(["Oct 19", 91])
         self.release.save(update_fields=["markdown", "sql_rows"])
         url = self.grant()
         self.client.force_login(self.recipient)
         output = self.client.get(url)
-        self.assertContains(output, "Oct 12")
-        self.assertNotContains(output, "Oct 19")
-        self.assertNotContains(output, "222")
+        self.assertContains(output, f"<td>{visible}</td>", html=True)
+        for other in (hidden, "Oct 19", "91"):
+            self.assertNotContains(output, f"<td>{other}</td>", html=True)
 
     def test_grant_audits_are_scoped_to_the_notebook(self) -> None:
         self.grant()
