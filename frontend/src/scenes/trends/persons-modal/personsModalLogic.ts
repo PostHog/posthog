@@ -17,6 +17,7 @@ import { combineUrl, urlToAction } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { assignField, isGroupType, isSessionType } from 'lib/utils/guards'
+import { retryImport } from 'lib/utils/retryImport'
 import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import { sceneLogic } from 'scenes/sceneLogic'
 import type { SessionPlayerModalRecordingListEntry } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -54,7 +55,6 @@ import {
 import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 import { asDisplay } from 'products/persons/frontend/person-utils'
-import { captureFunnelDropOffAudienceChecked } from 'products/workflows/frontend/MessageAudience/funnelDropOffAudience'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { InsightQueryNode } from '../../../queries/schema/schema-general'
@@ -528,10 +528,14 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 actions.loadActorsQueryOptions(values.query)
             }
         },
-        loadActorsSuccess: ({ actorsResponse, payload }) => {
+        loadActorsSuccess: async ({ actorsResponse, payload }) => {
             const isOpeningRequest = !payload?.clear && payload?.offset === undefined
             if (isOpeningRequest && values.isModalOpen) {
-                captureFunnelDropOffAudienceChecked(values.query, actorsResponse?.results?.[0]?.people ?? [])
+                const query = values.query
+                const { captureFunnelDropOffAudienceChecked } = await retryImport(
+                    () => import('products/workflows/frontend/MessageAudience/funnelDropOffAudience')
+                )
+                captureFunnelDropOffAudienceChecked(query, actorsResponse?.results?.[0]?.people ?? [])
             }
         },
         updateActorsQuery: ({ query: q }) => {
