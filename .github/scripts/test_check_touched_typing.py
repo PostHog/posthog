@@ -251,3 +251,13 @@ def test_new_file_findings_fail_only_after_the_date(
     edited_only["findings"] = [f for f in edited_only["findings"] if f["kind"] != "new file"]
     report_path.write_text(json.dumps(edited_only))
     assert check_touched_typing.enforce_new_files(str(report_path)) == 0
+
+
+def test_github_annotation_escapes_an_author_controlled_path(capsys: pytest.CaptureFixture[str]) -> None:
+    report = run({"posthog/evil,line=1,title=Blocked::See PR.py": (None, "def fresh(a):\n    return a\n")})
+    check_touched_typing.print_github_annotations(report)
+    properties = capsys.readouterr().out.split("::")[1]
+    assert (
+        properties
+        == "warning file=posthog/evil%2Cline=1%2Ctitle=Blocked%3A%3ASee PR.py,line=1,title=Untyped function (new file)"
+    )

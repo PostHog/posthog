@@ -431,8 +431,8 @@ def source_reader(revision: str) -> Callable[[str], str | None]:
     return read
 
 
-def emit(text: str, stream: TextIO = sys.stdout) -> None:
-    stream.write(text + "\n")
+def emit(text: str, stream: TextIO | None = None) -> None:
+    (stream or sys.stdout).write(text + "\n")
 
 
 def describe(finding: Finding) -> str:
@@ -474,10 +474,21 @@ def print_commit_warning(report: Report) -> None:
     emit("The commit still goes through.\n", out)
 
 
+def escape_annotation_data(value: str) -> str:
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def escape_annotation_property(value: str) -> str:
+    # A path is author-controlled, so ":" and "," must not end the property list of the workflow command.
+    return escape_annotation_data(value).replace(":", "%3A").replace(",", "%2C")
+
+
 def print_github_annotations(report: Report) -> None:
     for finding in report.findings:
-        message = f"`{finding.name}` is missing {', '.join(finding.missing)}"
-        emit(f"::warning file={finding.path},line={finding.line},title=Untyped function ({finding.kind})::{message}")
+        path = escape_annotation_property(finding.path)
+        title = escape_annotation_property(f"Untyped function ({finding.kind})")
+        message = escape_annotation_data(f"`{finding.name}` is missing {', '.join(finding.missing)}")
+        emit(f"::warning file={path},line={finding.line},title={title}::{message}")
 
 
 def enforce_new_files(report_path: str) -> int:
