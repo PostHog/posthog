@@ -648,8 +648,6 @@ jobs:
                         - 'products/desktop/pnpm-lock.yaml'
                         - 'pyproject.toml'
                         - 'uv.lock'
-                        - 'services/llm-gateway/pyproject.toml'
-                        - 'services/llm-gateway/uv.lock'
                         - 'common/ingestion/acceptance_tests/requirements.txt'
                         - 'tools/infra-scripts/clitools/requirements.txt'
                         - 'tools/infra-scripts/clitools/constraints.txt'

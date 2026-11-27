@@ -83,7 +83,6 @@ jobs:
                         - 'products/**'
                         # the scan --excludes products/desktop (semgrep-desktop covers it)
                         - '!products/desktop/**'
-                        - 'services/llm-gateway/**'
                         - 'services/stripe-mock/**'
                         - 'tools/**'
                         - '.semgrep/rules/security/**'
@@ -225,7 +224,7 @@ jobs:
               env:
                   SHARD: ${{ matrix.shard }}
               run: |
-                  core='--include /bin --include /common --include /ee --include /posthog --include /services/llm-gateway --include /services/stripe-mock --include /tools'
+                  core='--include /bin --include /common --include /ee --include /posthog --include /services/stripe-mock --include /tools'
                   case "$SHARD" in
                       all) paths="$core --include /products" ;;
                       core) paths="$core" ;;
