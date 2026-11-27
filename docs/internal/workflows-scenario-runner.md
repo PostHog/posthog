@@ -991,11 +991,11 @@ A 4xx answer other than 429 stops at once and names the variable to check.
 | `SCENARIO_RUNS_PROJECT_TOKEN` | The project token, for capture                      |
 | `SCENARIO_RUNS_READ_KEY`      | A personal API key that can only query that project |
 
-With none set, the local runner writes no event and exits with the run's status. The cloud controller warns and exits with a scorecard write failure, and keeps the scorecard in the evidence bucket.
+The local runner skips publishing when all four variables are absent and exits with the run's status. If only some are set, it exits 2 before starting the run. If all four are set, it publishes and reads the event back. A capture or readback failure exits 3, unless an interruption after capture means the runner keeps the run's status.
+
+When publishing directly, the cloud controller attempts to save the scorecard to the evidence bucket and publish it to Scenario runs. If publishing and readback succeed, it returns the run's status. Otherwise it warns and exits 3, including when publishing credentials are missing.
 
 When a workflow takes responsibility for publishing, it sets `SCENARIO_PUBLISH_IN_WORKFLOW=1` on the cloud controller. The controller saves the scorecard to the evidence bucket and uses the run's verdict as its exit code. If saving fails, the controller exits with a scorecard write failure.
-All set: it writes and reads back, and exits 3 when either fails, unless the run was interrupted after the capture, which keeps the status's code.
-Some set: a configuration error, exit 2, before anything starts.
 
 #### Scorecard schema, version 1
 
