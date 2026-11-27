@@ -12,8 +12,10 @@ SPOOL_MEMORY_BYTES = 64 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 BATCH_ROWS = 5_000
 
-# Discovery loads every table once, so a catalog with more tables than this lists only the first ones.
-MAX_DISCOVERED_TABLES = 2_000
+# Discovery loads every table once, inside a web request, so a catalog with more tables than this lists only the
+# first ones. A sync loads its table by name and has no cap.
+MAX_DISCOVERED_TABLES = 1_000
+DISCOVERY_CONCURRENCY = 8
 MAX_NAMESPACE_DEPTH = 8
 
 # Vended credentials without an expiry are renewed after this many seconds.

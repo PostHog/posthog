@@ -2,8 +2,10 @@ import io
 import re
 import time
 import tempfile
+import contextvars
 import dataclasses
 from collections.abc import Callable, Iterator, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 from typing import IO, Any
 from urllib.parse import quote, urlsplit
@@ -24,6 +26,7 @@ from products.warehouse_sources.sources.r2_data_catalog.settings import (
     CREDENTIAL_REFRESH_MARGIN_SECONDS,
     DEFAULT_CATALOG_HOST,
     DEFAULT_CREDENTIAL_LIFETIME_SECONDS,
+    DISCOVERY_CONCURRENCY,
     DOWNLOAD_CHUNK_BYTES,
     INCREMENTAL_TYPES,
     MAX_DISCOVERED_TABLES,
@@ -157,9 +160,16 @@ class IcebergTable:
     def total_records(self) -> int | None:
         if self.snapshot is None:
             return 0
-        value = (self.snapshot.get("summary") or {}).get("total-records")
+        summary = self.snapshot.get("summary") or {}
         try:
-            return int(value) if value is not None else None
+            # Equality deletes can't be counted without reading them, so the count would only guess.
+            if int(summary.get("total-equality-deletes") or 0):
+                return None
+            records = summary.get("total-records")
+            if records is None:
+                return None
+            # total-records counts the rows in the data files, before position deletes remove any.
+            return max(int(records) - int(summary.get("total-position-deletes") or 0), 0)
         except (TypeError, ValueError):
             return None
 
@@ -364,6 +374,14 @@ class CatalogClient:
     def storage_credentials(self, identifier: TableIdentifier) -> StorageCredentials:
         response = self.load_table_response(identifier, vend_credentials=True)
         return parse_storage_credentials(response, self.properties, self.account_id)
+
+
+def load_tables(client: CatalogClient, identifiers: list[TableIdentifier]) -> list[IcebergTable]:
+    """Load the tables in order, a few at a time, so discovery of a large catalog fits in a web request."""
+    # Pool threads start with an empty context, so each load runs in a copy of the caller's context.
+    context = contextvars.copy_context()
+    with ThreadPoolExecutor(max_workers=DISCOVERY_CONCURRENCY, thread_name_prefix="r2-catalog") as pool:
+        return list(pool.map(lambda identifier: context.copy().run(client.load_table, identifier), identifiers))
 
 
 def resolve_table(client: CatalogClient, display_name: str) -> IcebergTable:

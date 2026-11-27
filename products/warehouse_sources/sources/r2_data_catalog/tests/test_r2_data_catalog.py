@@ -30,9 +30,11 @@ from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
     IcebergColumn,
     IncrementalFilter,
     R2DataCatalogResumeConfig,
+    TableIdentifier,
     align_to_schema,
     file_may_match,
     normalize_catalog_uri,
+    parse_table,
 )
 from products.warehouse_sources.sources.r2_data_catalog.source import R2DataCatalogSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
@@ -562,6 +564,24 @@ def test_get_schemas_lists_tables_across_namespace_pages(names: list[str] | None
     assert schema.row_count == 5
     assert [field["field"] for field in schema.incremental_fields] == ["id", "ts", "day"]
     assert schema.columns[1] == ("name", "string", True)
+
+
+@pytest.mark.parametrize(
+    ("summary", "expected"),
+    [
+        ({"total-records": "5"}, 5),
+        # Position deletes are counted apart from the data files and removed at read time.
+        ({"total-records": "5", "total-position-deletes": "2"}, 3),
+        ({"total-records": "5", "total-equality-deletes": "1"}, None),
+        ({}, None),
+    ],
+)
+def test_row_count_leaves_out_deleted_rows(summary: dict[str, str], expected: int | None) -> None:
+    metadata = {**FakeR2().metadata, "snapshots": [{"snapshot-id": 7, "summary": summary}]}
+
+    table = parse_table(TableIdentifier(namespace=("analytics",), name="events"), {"metadata": metadata})
+
+    assert table.total_records == expected
 
 
 @pytest.mark.parametrize(

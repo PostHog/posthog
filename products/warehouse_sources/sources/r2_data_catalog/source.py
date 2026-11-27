@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
     incremental_filter,
     incremental_type,
     iter_table_rows,
+    load_tables,
     resolve_table,
 )
 from products.warehouse_sources.sources.sdk import (
@@ -182,9 +183,7 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
         client = self._client(config)
         try:
             if names is None:
-                return [
-                    self._schema(client.load_table(identifier), with_counts) for identifier in client.list_all_tables()
-                ]
+                return [self._schema(table, with_counts) for table in load_tables(client, client.list_all_tables())]
             # Named tables load directly, so a table past the discovery cap is still found.
             schemas: list[SourceSchema] = []
             for name in dict.fromkeys(names):
