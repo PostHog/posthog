@@ -36,7 +36,6 @@ from .community_scout_config import validate_shareable_scout_config
 from .skill_services import (
     MAX_SKILL_BODY_BYTES,
     MAX_SKILL_FILE_BYTES,
-    MAX_SKILL_FILE_COUNT,
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
     bundled_skill_name_error,
@@ -54,6 +53,9 @@ MAX_SLUG_LENGTH = 64
 # Keep these aligned with PostHog/community-skills scripts/build_registry.py.
 MAX_COMMUNITY_FILE_BYTES = 256 * 1024
 MAX_COMMUNITY_SKILL_BYTES = 1024 * 1024
+# The catalog builder sets no file count. This is the limit the community skills docs publish, so it
+# does not follow MAX_SKILL_FILE_COUNT when the store limit changes.
+MAX_COMMUNITY_SKILL_FILE_COUNT = 200
 # GitHub caps one create-tree request at 7 MB, and commit_files_to_branch inlines every file's
 # content in that single request, so a skill above the cap can only ever fail with a 502. Measured
 # against the escaped form the request actually carries, and held under the cap for the frontmatter,
@@ -438,8 +440,10 @@ def _validate_entry_caps(*, body: str, files: list[dict[str, str]]) -> None:
         raise CommunitySkillPublishValidationError(
             f"The skill body must be under {MAX_SKILL_BODY_BYTES // 1_000_000} MB."
         )
-    if len(files) > MAX_SKILL_FILE_COUNT:
-        raise CommunitySkillPublishValidationError(f"A skill can publish at most {MAX_SKILL_FILE_COUNT} files.")
+    if len(files) > MAX_COMMUNITY_SKILL_FILE_COUNT:
+        raise CommunitySkillPublishValidationError(
+            f"A skill can publish at most {MAX_COMMUNITY_SKILL_FILE_COUNT} files."
+        )
     # The catalog reads SKILL.md with universal newlines, then strips its body and excludes frontmatter.
     total_bytes = len(body.replace("\r\n", "\n").replace("\r", "\n").strip().encode("utf-8"))
     for file in files:
