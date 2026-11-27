@@ -155751,6 +155751,15 @@ export namespace Schemas {
     scanner_id?: string;
     };
 
+    export type VisionRequestsListParams = {
+    /**
+     * Only requests made with this `reference`. Returns the newest 20 at most.
+     * @minLength 1
+     * @maxLength 200
+     */
+    reference: string;
+    };
+
     export type VisionScannersListParams = {
     /**
      * Filter to scanners created by the given user IDs (comma-separated).

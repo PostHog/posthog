@@ -56,6 +56,8 @@ from products.replay_vision.backend.temporal.types import ScannerResult
 
 logger = structlog.get_logger(__name__)
 
+MAX_LISTED_REQUESTS = 20
+
 
 class ObservationRequestStatus(models.TextChoices):
     RUNNING = "running", "Running"
@@ -185,6 +187,13 @@ class ObservationRequestSerializer(serializers.Serializer):
     sessions = ObservationRequestSessionSerializer(many=True, help_text="One entry per session, in request order.")
 
 
+class ListObservationRequestsQuerySerializer(serializers.Serializer):
+    reference = serializers.CharField(
+        max_length=200,
+        help_text=f"Only requests made with this `reference`. Returns the newest {MAX_LISTED_REQUESTS} at most.",
+    )
+
+
 def _distinct_id(request: Request) -> str:
     # Both a real user and the synthetic user a project secret API key authenticates as carry one.
     return str(getattr(request.user, "distinct_id", ""))
@@ -220,6 +229,7 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
     permission_classes = [ReplayVisionCloudOnly]
     psak_allowed_actions = ["create", "retrieve"]
     serializer_class = ObservationRequestSerializer
+    pagination_class = None
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = ReplayObservationRequest.objects.unscoped()
     http_method_names = ["get", "post", "head", "options"]
@@ -291,6 +301,18 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
             ).values_list("id", flat=True)
         )
         return [s for s in sessions if s.observation is None or s.observation.id in readable]
+
+    @extend_schema(
+        parameters=[ListObservationRequestsQuerySerializer],
+        responses={200: ObservationRequestSerializer(many=True)},
+        description="The requests made with one `reference`, newest first, so a caller can find them again by its "
+        "own id.",
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = ListObservationRequestsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        requests = self.get_queryset().filter(reference=query.validated_data["reference"])[:MAX_LISTED_REQUESTS]
+        return Response([self._render(observation_request) for observation_request in requests])
 
     @extend_schema(responses={200: ObservationRequestSerializer})
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:

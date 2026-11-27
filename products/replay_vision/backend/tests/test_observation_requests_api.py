@@ -190,6 +190,45 @@ class TestObservationRequestAPI(APIBaseTest):
 
         self.assertEqual((parent.status_code, response.status_code), (202, 400), response.json())
 
+    def _stored_request(
+        self, reference: str, minutes_ago: int, *, team: Team | None = None, scanner: ReplayScanner | None = None
+    ) -> str:
+        requests = ReplayObservationRequest.objects.for_team((team or self.team).id)
+        request = requests.create(
+            team=team or self.team,
+            scanner=scanner or self.scanner,
+            session_ids=["s1"],
+            start_outcomes=[{"session_id": "s1", "scan_outcome": "started"}],
+            source="user",
+            created_by=self.user,
+            reference=reference,
+        )
+        requests.filter(id=request.id).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
+        return str(request.id)
+
+    def test_lists_the_readable_requests_with_a_reference_newest_first(self) -> None:
+        newer = self._stored_request("email:welcome", 5)
+        older = self._stored_request("email:welcome", 10)
+        self._stored_request("email:receipt", 1)
+        self._stored_request("email:welcome", 1, team=Team.objects.create(organization=self.organization))
+        experiment = create_experiment(self.team, "restricted-flag")
+        hidden_scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="hidden",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            experiment_targeting={"experiment_id": experiment.id, "variant": "test"},
+        )
+        self._stored_request("email:welcome", 1, scanner=hidden_scanner)
+
+        with hide_experiment_from_access_filter(experiment.id):
+            response = self.client.get(self.url, {"reference": "email:welcome"})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([r["id"] for r in response.json()], [newer, older])
+        self.assertEqual(self.client.get(self.url).status_code, 400)
+
     def test_a_request_that_waits_for_the_session_to_end_starts_nothing_yet(self) -> None:
         response = self.client.post(
             self.url,
