@@ -26,7 +26,6 @@ export interface aiShellLogicValues {
     isCloudOrDev: boolean | undefined // preflightLogic
     preflight: PreflightStatus | null // preflightLogic
     effectivePhaiView: PhaiViewMode
-    aiMissingKeysReason: string
     isAiAvailable: boolean
     isMaxAvailable: boolean
     isPhaiSandboxFlagOn: boolean
@@ -63,7 +62,6 @@ export interface aiShellLogicMeta {
             isMaxAvailable: boolean,
             isTaskRunnerAvailable: boolean
         ) => boolean
-        aiMissingKeysReason: (effectivePhaiView: PhaiViewMode) => string
     }
 }
 
@@ -152,11 +150,6 @@ export const aiShellLogic = kea<aiShellLogicType>([
             (s) => [s.effectivePhaiView, s.isMaxAvailable, s.isTaskRunnerAvailable],
             (effectivePhaiView: PhaiViewMode, isMaxAvailable: boolean, isTaskRunnerAvailable: boolean): boolean =>
                 effectivePhaiView === 'new' ? isTaskRunnerAvailable : isMaxAvailable,
-        ],
-        aiMissingKeysReason: [
-            (s) => [s.effectivePhaiView],
-            (effectivePhaiView: PhaiViewMode): string =>
-                effectivePhaiView === 'new' ? TASK_RUNNER_MISSING_KEY_REASON : MAX_MISSING_KEYS_REASON,
         ],
     }),
     listeners({

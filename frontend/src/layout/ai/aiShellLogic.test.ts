@@ -7,7 +7,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import { MAX_MISSING_KEYS_REASON, TASK_RUNNER_MISSING_KEY_REASON, aiShellLogic } from './aiShellLogic'
+import { aiShellLogic } from './aiShellLogic'
 
 describe('aiShellLogic', () => {
     let logic: ReturnType<typeof aiShellLogic.build>
@@ -128,18 +128,6 @@ describe('aiShellLogic', () => {
             preflightLogic.actions.loadPreflightSuccess(preflight as any)
 
             await expectLogic(logic).toMatchValues({ isAiAvailable: expected })
-        })
-
-        it.each([
-            { view: 'new', expected: TASK_RUNNER_MISSING_KEY_REASON },
-            { view: 'legacy', expected: MAX_MISSING_KEYS_REASON },
-        ] as const)('names the keys the $view view needs in aiMissingKeysReason', async ({ view, expected }) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_SANDBOX_MODE], {
-                [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
-            })
-            logic.actions.setPhaiViewMode(view)
-
-            await expectLogic(logic).toMatchValues({ aiMissingKeysReason: expected })
         })
     })
 
