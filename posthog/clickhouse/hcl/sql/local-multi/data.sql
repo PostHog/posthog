@@ -70,7 +70,7 @@ CREATE TABLE posthog.ai_events (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('ai_events', 'posthog', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))));
+) ENGINE = Distributed('ai_events', 'posthog', 'sharded_ai_events', rand());
 CREATE TABLE posthog.billing_usage_records (
   schema_version UInt8,
   record_id String,

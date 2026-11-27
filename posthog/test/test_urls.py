@@ -23,6 +23,7 @@ from posthog.frontend_views import (
     region_host_from_current_instance,
 )
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.user import User, UserType
 from posthog.temporal.codec_server import decode_payloads
 from posthog.views import handler500, metrics_view
 
@@ -30,6 +31,16 @@ from products.ai_observability.backend.api.personal_spend import PersonalSpendEU
 
 
 class TestUrls(APIBaseTest):
+    @override_settings(AUTO_LOGIN=True)
+    def test_auto_login_skips_service_accounts(self) -> None:
+        self.client.logout()
+        User.objects.all().update(type=UserType.SERVICE_ACCOUNT)
+
+        response = self.client.get("/")
+
+        self.assertRedirects(response, "/login", fetch_redirect_response=False)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
 
@@ -123,6 +134,34 @@ class TestUrls(APIBaseTest):
 
         response = self.client.get(f"/login")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("app_route_redirect", "/project/1/settings", status.HTTP_302_FOUND, "noindex"),
+            ("admin_redirect", "/admin/", status.HTTP_302_FOUND, "noindex"),
+            ("invite_signup", f"/signup/{uuid.uuid4()}", status.HTTP_200_OK, "noindex"),
+            ("login", "/login?next=/project/1/settings", status.HTTP_200_OK, None),
+            ("signup", "/signup/", status.HTTP_200_OK, None),
+        ]
+    )
+    @override_settings(ADMIN_PORTAL_ENABLED=True)
+    def test_only_login_and_signup_are_indexable(self, _name, request_path, expected_status, expected_robots_tag):
+        self.client.logout()
+
+        response = self.client.get(request_path, follow=False)
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.headers.get("X-Robots-Tag"), expected_robots_tag)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_https_redirect_of_an_app_route_is_not_indexable(self):
+        self.client.logout()
+
+        response = self.client.get("/project/1/settings", follow=False)
+
+        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
+        self.assertEqual(response["Location"], "https://testserver/project/1/settings")
+        self.assertEqual(response.headers.get("X-Robots-Tag"), "noindex")
 
     @parameterized.expand(
         [
@@ -350,6 +389,16 @@ class TestAgentDiscoveryFiles(SimpleTestCase):
             assert body.startswith("# ")
             assert "](https://mcp.posthog.com/mcp)" in body
             assert "](https://us.example.com/settings/user-api-keys)" in body
+
+    @parameterized.expand([("no_slash", "/.well-known/security.txt"), ("trailing_slash", "/.well-known/security.txt/")])
+    def test_security_txt_redirects_to_the_posthog_com_copy(self, _name: str, request_path: str) -> None:
+        request = RequestFactory().get(request_path)
+        match = resolve(request.path)
+
+        response = match.func(request, *match.args, **match.kwargs)
+
+        assert response.status_code == 301
+        assert response["Location"] == "https://posthog.com/.well-known/security.txt"
 
 
 class TestConditionalRoutes(SimpleTestCase):

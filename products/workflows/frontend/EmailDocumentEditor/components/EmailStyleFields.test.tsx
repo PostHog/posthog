@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Editor, JSONContent } from '@tiptap/core'
 
+import { setSelectedSize } from '../emailCommands'
 import { buildEmailExtensions } from '../emailExtensions'
 import { EmailColumnsFields } from './EmailColumnsFields'
 import { EmailVisibilityFields } from './EmailVisibilityFields'
@@ -48,6 +49,33 @@ describe('email style fields', () => {
 
         fireEvent.click(screen.getByText('Number'))
         expect(editor!.state.doc.firstChild?.childCount).toBe(3)
+    })
+
+    it('keeps each imported line height in step when the selected size changes', () => {
+        const text = (lineHeight: string | null, fontSize: number | null): JSONContent => ({
+            type: 'text',
+            text: 'Big',
+            marks: [{ type: 'textStyle', attrs: { fontSize, lineHeight } }],
+        })
+        open({ type: 'paragraph', content: [text('21px', 14), text('200%', 14), text(null, 14)] })
+        editor!.commands.insertContentAt(editor!.state.doc.content.size, [
+            { type: 'heading', attrs: { level: 1 }, content: [text('40px', null)] },
+            { type: 'paragraph', attrs: { emailStyle: { fontSize: 20 } }, content: [text('30px', null)] },
+        ])
+        editor!.commands.selectAll()
+        setSelectedSize(editor!, 40)
+
+        const lineHeights = editor!
+            .getJSON()
+            .content!.flatMap((block) => block.content ?? [])
+            .map((node) => node.marks![0].attrs!)
+        expect(lineHeights.map(({ fontSize, lineHeight }) => [fontSize, lineHeight])).toEqual([
+            [40, '150%'],
+            [40, '200%'],
+            [40, null],
+            [40, '125%'],
+            [40, '150%'],
+        ])
     })
 
     it('shows the saved color again after text that is not a color', () => {

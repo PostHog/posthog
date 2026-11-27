@@ -112,7 +112,7 @@ jobs:
         # Merge-queue runs use Depot because GitHub-hosted runners queue for minutes at busy hours
         # and this job sits on the queue's required-check path. Other runs stay on free GitHub-hosted runners.
         runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
-        # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
+        # 7 not 5: the debounce step below sleeps up to 15s, so widen the budget to
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
         # would count as a pass.
         timeout-minutes: 7
@@ -198,6 +198,10 @@ jobs:
                         - 'packages/quill/**'
                         # The setup step builds the plugin transpiler from source
                         - 'common/plugin_transpiler/**'
+                        # Django reads the MCP tool catalogue for OAuth consent scopes
+                        - 'services/mcp/schema/**'
+                        # Tailwind scans these for classes, so they change the compiled frontend CSS
+                        - 'services/mcp/src/ui-apps/lib/**'
                         - 'bin/*'
                         - frontend/**/*
                         - package.json
@@ -313,6 +317,12 @@ jobs:
               # is never stale against itself). Single pushes just pay the short wait.
               # Trunk rarely re-pushes a merge-queue branch, and the concurrency group cancels the older run.
               #
+              # The window is short because a burst is rare: over 200 recent pull-request runs
+              # (100 branches), only 1% of pushes followed the previous push to the same branch
+              # within 60s; the 5th percentile gap is 222s and the median 993s. The old 60s
+              # window therefore bought that 1% of cases at 60s of wall clock on the lane of
+              # every other run, and this gate is 65s of the E2E lane before it does any work.
+              #
               # The window is measured from the run's created_at, not from when this step
               # got a runner. A burst push arrives within seconds of the push that started
               # this run, so a run that already spent its queue waiting has nothing left to
@@ -329,7 +339,7 @@ jobs:
                   RUN_ID: ${{ github.run_id }}
                   PR: ${{ github.event.pull_request.number }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  WINDOW_SECONDS: '60'
+                  WINDOW_SECONDS: '15'
               run: |
                   # Sets `tip` to the PR's current head so the caller can report it.
                   head_moved() {
@@ -470,14 +480,16 @@ jobs:
         # the same base, so they all select the same specs. workflow_dispatch and
         # push to master skip this job, leaving empty outputs so the playwright job
         # runs the FULL suite.
-        # `draft != true` also keeps the merge queue on the full suite: its
-        # trunk-merge/** PRs open as drafts, and that run is the gate for master, so
-        # a selection miss is caught there. The post-merge master run is full too.
+        # The merge queue always runs the full suite: its trunk-merge/** run is the
+        # gate for master, so a selection miss is caught there. The branch check holds
+        # that even if Trunk stops opening those PRs as drafts. The post-merge master
+        # run is full too.
         # Fail-open is FULL, never skip: over-selection would silently drop coverage.
         if: |
             needs.changes.outputs.shouldRun == 'true'
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft != true
+            && !startsWith(github.head_ref, 'trunk-merge/')
             && github.event.pull_request.head.repo.full_name == github.repository
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -1284,6 +1296,7 @@ jobs:
               env:
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  WRANGLER_SEND_METRICS: 'false'
               run: |
                   BRANCH="${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}"
                   # Cloudflare Pages rejects any single file over 25 MiB, which fails the whole

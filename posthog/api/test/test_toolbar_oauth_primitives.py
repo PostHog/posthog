@@ -623,7 +623,9 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
 
-    def _create_app_without_ceiling(self, scopes: list[str], optional_scopes: list[str]) -> OAuthApplication:
+    def _create_app_without_ceiling(
+        self, scopes: list[str], optional_scopes: list[str], is_first_party: bool = True
+    ) -> OAuthApplication:
         return OAuthApplication.objects.create(
             name=settings.TOOLBAR_OAUTH_APPLICATION_NAME,
             user=self.user,
@@ -632,7 +634,7 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris=f"{settings.SITE_URL}{CALLBACK_PATH}",
             algorithm="RS256",
-            is_first_party=True,
+            is_first_party=is_first_party,
             scopes=scopes,
             optional_scopes=optional_scopes,
         )
@@ -661,6 +663,21 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         return self._post_token(
             {"grant_type": "refresh_token", "client_id": application.client_id, "refresh_token": refresh_token.token}
         )
+
+    def _refresh_through_toolbar(self, application: OAuthApplication, refresh_token: OAuthRefreshToken):
+        def post_to_test_client(url: str, data: dict[str, str], timeout: int) -> requests.Response:
+            django_response = self._post_token(data)
+            response = requests.Response()
+            response.status_code = django_response.status_code
+            response._content = django_response.content
+            return response
+
+        with patch("posthog.api.oauth.toolbar_service.requests.post", side_effect=post_to_test_client):
+            return self.client.post(
+                "/api/user/toolbar_oauth_refresh/",
+                data=json.dumps({"refresh_token": refresh_token.token, "client_id": application.client_id}),
+                content_type="application/json",
+            )
 
     @parameterized.expand(
         [
@@ -745,6 +762,59 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert response.status_code == 400, response.content
         assert response.json()["error"] == "invalid_grant"
         assert not OAuthAccessToken.objects.filter(token="pha_toolbar_ceiling_access").exists()
+
+    @parameterized.expand(
+        [
+            (
+                f"{case}_{entry}",
+                token_scope,
+                is_first_party,
+                expected_app_scopes,
+                expected_status,
+                expected_scopes,
+                entry,
+            )
+            for case, token_scope, is_first_party, expected_app_scopes, expected_status, expected_scopes in [
+                ("wildcard_token_is_revoked", "*", True, TOOLBAR_RESOURCE_SCOPES, 400, None),
+                (
+                    "over_scoped_token_is_narrowed",
+                    "openid user:read user:write",
+                    True,
+                    TOOLBAR_RESOURCE_SCOPES,
+                    200,
+                    {"openid", "user:read"},
+                ),
+                (
+                    "look_alike_app_keeps_its_scopes",
+                    "openid user:read user:write",
+                    False,
+                    [],
+                    200,
+                    {"openid", "user:read", "user:write"},
+                ),
+            ]
+            for entry in ("toolbar_endpoint", "token_endpoint")
+        ]
+    )
+    def test_refresh_applies_the_toolbar_ceiling_without_a_launch(
+        self, _name, token_scope, is_first_party, expected_app_scopes, expected_status, expected_scopes, entry
+    ):
+        app = self._create_app_without_ceiling([], [], is_first_party=is_first_party)
+        refresh_token = self._create_token_pair(app, token_scope)
+
+        if entry == "toolbar_endpoint":
+            response = self._refresh_through_toolbar(app, refresh_token)
+        else:
+            response = self._refresh(app, refresh_token)
+
+        app.refresh_from_db()
+        assert app.scopes == expected_app_scopes
+        assert response.status_code == expected_status, response.content
+        if expected_scopes is None:
+            assert not OAuthAccessToken.objects.filter(application=app, scope="*").exists()
+        else:
+            refreshed = OAuthAccessToken.objects.get(token=response.json()["access_token"])
+            assert set(refreshed.scope.split()) == expected_scopes
 
     def test_wildcard_grant_cannot_be_exchanged_after_the_ceiling_is_synced(self):
         app = self._create_app_without_ceiling([], [])

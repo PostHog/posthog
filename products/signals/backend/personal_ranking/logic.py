@@ -500,7 +500,6 @@ def _client(
     service_tier: ServiceTier | None,
 ) -> OpenAI:
     client = build_openai_client(
-        "signals",
         ai_product=AI_PRODUCT,
         trace_id=trace_id_from_seed(f"{AI_PRODUCT}:{team.id}:{user.id}:{now.isoformat()}"),
         properties={

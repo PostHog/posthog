@@ -70,6 +70,8 @@ class ImportStepSpec:
     counts_as_events: bool = False
     # Hides the step, and refuses to start it, unless this flag is on for the team.
     feature_flag: str | None = None
+    # Added to the provider's `not_imported` while the flag hides the step.
+    hidden_note: str = ""
 
 
 @frozen
@@ -145,12 +147,13 @@ class SavedPage:
     imported: int
     # Problems with single records that do not fail the step.
     warnings: tuple[str, ...] = ()
-    # Added to the step's totals, by the keys in the step's `count_labels`.
+    # Added to the step's totals. The summary shows only the keys in the step's `count_labels`.
     counts: Mapping[str, int] = field(default_factory=dict)
     items: tuple[ImportItem, ...] = ()
     people_imports: tuple[PeopleImportPlan, ...] = ()
     # Fails the step after the page's own writes commit, and leaves the step's progress as it was.
     error: str | None = None
+    skipped: bool = False
 
 
 @frozen

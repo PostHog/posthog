@@ -74,6 +74,28 @@ class TestGetResource:
         assert not any(key.endswith("__gte") for key in _params(resource))
 
 
+class TestCloseSinglePageEndpoints:
+    @pytest.mark.parametrize(
+        ("endpoint", "path"),
+        [
+            ("Groups", "/api/v1/group/"),
+            ("Roles", "/api/v1/role/"),
+            ("CustomObjectTypes", "/api/v1/custom_object_type/"),
+        ],
+    )
+    def test_reads_one_page_without_offset_params(self, endpoint: str, path: str) -> None:
+        # These endpoints document no `_skip`/`_limit`, so the offset paginator must not page them.
+        result = SourceDriver(CloseSource(), CloseSourceConfig(api_key="test-key")).run(
+            endpoint, [ScriptedResponse(json={"data": [{"id": "row_1"}, {"id": "row_2"}], "has_more": True})]
+        )
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.params("_skip") == [None]
+        assert result.params("_limit") == [None]
+        assert result.rows == [{"id": "row_1"}, {"id": "row_2"}]
+
+
 class TestCloseSourcePartitioning:
     @pytest.mark.parametrize(
         ("endpoint", "expects_partition"),

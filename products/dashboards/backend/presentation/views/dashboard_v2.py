@@ -6,6 +6,7 @@ from django.conf import settings
 from django.http.response import HttpResponseBase
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_field
+from opentelemetry import trace
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.parsers import JSONParser
 
@@ -249,6 +250,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
             for item in request.validated_data["queries"]
         ]
+        server_traceparent = _server_traceparent()
         try:
             stream = query_batch_stream(
                 team=self.team,
@@ -257,7 +259,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 dashboard_id=dashboard_id,
                 client_query_id=f"dashboard-v2-batch-{dashboard_id if dashboard_id is not None else 'none'}",
                 asynchronous=settings.SERVER_GATEWAY_INTERFACE == "ASGI",
-                traceparent=_traceparent(request.headers.get("traceparent")),
+                traceparent=server_traceparent or _traceparent(request.headers.get("traceparent")),
                 result_format=ResultFormat(request.validated_data["format"]),
             )
         except QueryBatchBusy:
@@ -265,7 +267,12 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return streaming_response(
             stream,
             content_type="application/x-ndjson",
-            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+                # The ingress strips an inbound `traceparent`, so the browser learns the server's trace from this.
+                **({"traceresponse": server_traceparent} if server_traceparent else {}),
+            },
         )
 
 
@@ -277,6 +284,14 @@ def _language(value: str) -> QueryBatchLanguage:
 def _traceparent(header: str | None) -> str | None:
     # Only a well-formed header reaches the query tags, so a client cannot write arbitrary text into query_log.
     return header if header is not None and _TRACEPARENT.fullmatch(header) else None
+
+
+def _server_traceparent() -> str | None:
+    # https://www.w3.org/TR/trace-context-2/#traceresponse-header uses the traceparent format.
+    context = trace.get_current_span().get_span_context()
+    if not context.is_valid:
+        return None
+    return f"00-{context.trace_id:032x}-{context.span_id:016x}-{context.trace_flags:02x}"
 
 
 def _scoped_node(target: dict[str, Any]) -> object:

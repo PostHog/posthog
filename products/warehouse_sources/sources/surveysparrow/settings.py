@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, SortMode, frozen
 
 # SurveySparrow caps `limit` per endpoint: 100 on surveys/questions/tickets/channels/teams/ticket comments,
-# 200 on responses, 50 on contacts, contact_lists, users, reputation app platforms and reputation reviews.
+# ticket fields, reputation platforms and survey subjects, 200 on responses, 50 on contacts, contact_lists,
+# users, reputation app platforms and reputation reviews.
 # Each endpoint config carries its own maximum to minimise round trips without 400s.
 DEFAULT_PAGE_SIZE = 100
 
@@ -39,6 +40,8 @@ class FanoutParent:
     page_size: int
     # Column on the child rows that holds the parent id; part of the child's primary key.
     child_column: str
+    # Static filters on the parent listing, so children only fan out over parents that have them.
+    params: dict[str, str] = field(default_factory=dict)
 
 
 SURVEYS_PARENT = FanoutParent(name="surveys", path="/v3/surveys", page_size=100, child_column="survey_id")
@@ -46,6 +49,18 @@ TICKETS_PARENT = FanoutParent(name="tickets", path="/v3/tickets", page_size=100,
 APP_PLATFORMS_PARENT = FanoutParent(
     name="app_platforms", path="/v3/reputation/app_platforms", page_size=50, child_column="app_platform_id"
 )
+# Employee 360 subjects only exist on Employee360 surveys, so the parent listing filters on the type.
+EMPLOYEE_360_SURVEYS_PARENT = FanoutParent(
+    name="employee_360_surveys",
+    path="/v3/surveys",
+    page_size=100,
+    child_column="survey_id",
+    params={"survey_type": "Employee360"},
+)
+
+# "has_next_page": the body carries a `has_next_page` flag next to `data`.
+# "total_count": the body nests rows under `data.list` with a `data.count` total and no flag.
+PaginationStyle = Literal["has_next_page", "total_count"]
 
 
 @dataclass(frozen=False)
@@ -68,6 +83,8 @@ class SurveySparrowEndpointConfig:
     # Partition on a STABLE field (created_at / completed_time), never updated_at.
     partition_key: Optional[str] = None
     page_size: int = DEFAULT_PAGE_SIZE
+    pagination_style: PaginationStyle = "has_next_page"
+    data_selector: str = "data"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Static query params sent on every request (e.g. a server-side sort on the cursor field).
     extra_params: dict[str, str] = field(default_factory=dict)
@@ -177,6 +194,39 @@ SURVEYSPARROW_ENDPOINTS: dict[str, SurveySparrowEndpointConfig] = {
         partition_key="review_date",
         page_size=50,
         primary_keys=["app_platform_id", "id"],
+    ),
+    "ticket_fields": SurveySparrowEndpointConfig(
+        name="ticket_fields",
+        path="/v3/ticket_fields",
+        partition_key="created_at",
+        default_incremental_field="updated_at",
+        cutoff_param="updated_date.gte",
+        cutoff_includes_time=True,
+        incremental_fields=[UPDATED_AT_INCREMENTAL],
+        page_size=100,
+        # /v3/ticket_fields documents no sort param, so rows arrive in no known order (sort_mode=None).
+    ),
+    "survey_subjects": SurveySparrowEndpointConfig(
+        name="survey_subjects",
+        path="/v3/survey/subjects?survey_id={survey_id}",
+        parent=EMPLOYEE_360_SURVEYS_PARENT,
+        page_size=100,
+        pagination_style="total_count",
+        data_selector="data.list",
+        # A person can be a subject of several Employee 360 surveys.
+        primary_keys=["survey_id", "id"],
+    ),
+    # Lookup of the review sites (Google, Agoda, ...) that `reputation_app_platforms.platform_id` points at.
+    "reputation_platforms": SurveySparrowEndpointConfig(
+        name="reputation_platforms",
+        path="/v3/reputation/platforms",
+        page_size=100,
+    ),
+    "reputation_app_platforms": SurveySparrowEndpointConfig(
+        name="reputation_app_platforms",
+        path="/v3/reputation/app_platforms",
+        partition_key="created_at",
+        page_size=50,
     ),
 }
 

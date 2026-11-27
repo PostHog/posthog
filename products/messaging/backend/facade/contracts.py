@@ -19,6 +19,16 @@ class UnlayerRenderError(UnlayerError):
     pass
 
 
+@frozen
+class MessageTemplateListFilter:
+    """Which of a team's templates a list returns. Every set field narrows the list, and an empty one leaves it whole."""
+
+    transactional: bool | None = None
+    search: str = ""
+    created_by_id: int | None = None
+    tags: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class EmailTemplateSummary:
     id: UUID
@@ -88,6 +98,11 @@ class IdempotencyKeyInFlight(TransactionalEmailError):
 
 class IdempotencyKeyReused(TransactionalEmailError):
     code = "idempotency_key_reused"
+
+
+class CategoryNotFound(TransactionalEmailError):
+    code = "category_not_found"
+    attr = "category"
 
 
 class SendingSuspended(TransactionalEmailError):
@@ -241,6 +256,13 @@ class EmailTracking:
 
 
 @frozen
+class EmailCategory:
+    id: UUID
+    type: str
+    archived: bool = False
+
+
+@frozen
 class CodeEmail:
     key: str
     subject: str
@@ -254,6 +276,7 @@ class CodeEmail:
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
     reply_headers: ReplyHeaders | None = None
+    category: EmailCategory | None = None
 
 
 class DeliveryUnavailable(Exception):
@@ -440,6 +463,12 @@ class TransactionalEmailLogEvent:
 
 
 @frozen
+class TransactionalEmailTracking:
+    opens: bool
+    clicks: bool
+
+
+@frozen
 class TransactionalEmailLogDetail:
     entry: TransactionalEmailLogEntry
     timeline: list[TransactionalEmailLogEvent]
@@ -450,6 +479,7 @@ class TransactionalEmailLogDetail:
     action_id: str
     # True when the template keeps no rendered body.
     sensitive: bool
+    tracking: TransactionalEmailTracking
 
 
 class EmailStatsInterval(LabeledStrEnum):
@@ -522,9 +552,12 @@ class TransactionalEmailImpact:
     clicked: int
     not_clicked: int
     untracked: int
+    clicks_untracked: int
     window_days: int
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None
+    sessions: int | None
+    link_tagging_enabled: bool
 
 
 class CodeEmailSourceOrigin(LabeledStrEnum):

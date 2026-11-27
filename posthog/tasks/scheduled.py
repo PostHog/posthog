@@ -27,6 +27,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
+from posthog.tasks.proxy import reconcile_managed_proxies
 from posthog.tasks.quota_migration import schedule_quota_redis_comparison
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
@@ -120,6 +121,7 @@ from products.feature_flags.backend.tasks import (
     compute_feature_flag_metrics,
     drain_flag_definitions_rebuild_requests,
     feature_flags_local_eval_canary_task,
+    maintain_flag_definitions_v2_cache_entries,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
     report_django_local_evaluation_usage_task,
@@ -182,6 +184,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
+    capture_workflow_first_real_sends,
     check_ses_sender_health,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
@@ -382,6 +385,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="workflows email sending tier recomputation",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="7", minute="45"),
+        capture_workflow_first_real_sends.s(),
+        name="workflows first real send capture",
+    )
+
     # Stale QUEUED task run cleanup - hourly
     add_periodic_task_with_expiry(
         sender,
@@ -559,6 +569,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="50"),
         verify_and_fix_flag_definitions_cache_task.s(),
         name="verify and fix flag definitions cache",
+        expires_seconds=60 * 60,
+    )
+
+    # Flag definitions v2 cache upkeep - hourly at minute 5
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="5"),
+        maintain_flag_definitions_v2_cache_entries.s(),
+        name="maintain flag definitions v2 cache entries",
         expires_seconds=60 * 60,
     )
 
@@ -1155,6 +1174,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         sync_sandbox_sender_tenant_state.s(),
         name="workflows sandbox sender tenant state",
+    )
+
+    # Activation hooks can miss broker delivery, so reconcile retained proxies independently.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="17"),
+        reconcile_managed_proxies.s(),
+        name="managed proxy activation reconciliation",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :13
