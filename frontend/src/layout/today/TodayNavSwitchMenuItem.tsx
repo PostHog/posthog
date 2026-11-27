@@ -52,7 +52,7 @@ export function TodayNavSwitchMenuItem(): JSX.Element {
             </Tooltip>
             {getAppContext()?.preflight?.is_debug && (
                 <DropdownMenuItem
-                    description="Local development only. Clears the saved tour and card state, then reloads the page."
+                    description="Local development only. Clears the saved tour state, then reloads the page."
                     onClick={resetDesignTour}
                     data-attr="more-menu-reset-design-tour"
                 >
