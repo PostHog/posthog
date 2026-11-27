@@ -1,22 +1,47 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonTable } from '@posthog/lemon-ui'
+import { IconSearch } from '@posthog/icons'
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+    Checkbox,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    InputGroupText,
+    Text,
+} from '@posthog/quill'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
 
 import type { AEOCompetitorCandidateApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
+import { AiVisibilityTable } from './AiVisibilityTable'
 
 const PAGE_SIZE = 5
-// A narrow card has no room for the counts next to both actions.
-const COUNT_COLUMN_CLASS = 'hidden @lg/competitor-review:table-cell'
+// A narrow card has no room for the counts next to the brand.
+const COUNT_COLUMN_CLASS = 'hidden @lg/ai-visibility-table:table-cell'
 
-/** The setup step after the first checks: confirm which of the brands the answers name are competitors. */
+/** On First results, the brands the answers named, to pick competitors from. Leaving the step saves the picks. */
 export const AiVisibilityCompetitorReview = (): JSX.Element | null => {
-    const { reviewShown, candidates, updatingIds, decisions } = useValues(aiVisibilityCompetitorReviewLogic)
-    const { reviewCandidate, finishReview } = useActions(aiVisibilityCompetitorReviewLogic)
+    const { reviewShown, reviewFailed, visibleCandidates, search, selectedIds, confirming } = useValues(
+        aiVisibilityCompetitorReviewLogic
+    )
+    const { toggleCandidate, setSearch, loadReview } = useActions(aiVisibilityCompetitorReviewLogic)
+
+    if (reviewFailed) {
+        // The suggestions stay saved as suggested, so leaving the step without them loses nothing.
+        return (
+            <AiVisibilityBanner type="error" action={{ children: 'Try again', onClick: loadReview }}>
+                Your suggested competitors didn't load. You can also review them later in settings.
+            </AiVisibilityBanner>
+        )
+    }
 
     // The step is optional, so it takes no space until the project is known to need it.
     if (!reviewShown) {
@@ -24,94 +49,85 @@ export const AiVisibilityCompetitorReview = (): JSX.Element | null => {
     }
 
     return (
-        <LemonCard
-            hoverEffect={false}
-            className="@container/competitor-review p-4"
-            data-attr="ai-visibility-competitor-review"
-        >
-            <h3 className="m-0">Confirm your competitors</h3>
-            <p className="m-0 mt-1 mb-4 text-secondary">
-                {candidates.length > 0
-                    ? 'Answers to your non-branded prompts named and cited these brands in the last 7 days. Confirm the ones you compete with, and Rankings compares you against them by name.'
-                    : 'No more suggestions. You can label other brands in settings.'}
-            </p>
-            {candidates.length > 0 ? (
-                <div className="overflow-x-auto">
-                    <LemonTable<AEOCompetitorCandidateApi>
-                        size="small"
-                        dataSource={candidates}
-                        rowKey="brand_id"
-                        pagination={{ pageSize: PAGE_SIZE }}
-                        columns={[
-                            {
-                                title: 'Brand',
-                                key: 'name',
-                                render: (_, candidate) => (
-                                    <div className="flex flex-col">
-                                        <span className="font-semibold">{candidate.name}</span>
-                                        <span className="text-xs text-muted">{candidate.domain}</span>
-                                    </div>
-                                ),
-                            },
-                            {
-                                title: 'Named in',
-                                key: 'answers_naming',
-                                className: COUNT_COLUMN_CLASS,
-                                align: 'right',
-                                tooltip: 'Answers to non-branded prompts that name the brand.',
-                                render: (_, candidate) => humanFriendlyNumber(candidate.answers_naming),
-                            },
-                            {
-                                title: 'Cited in',
-                                key: 'answers_citing',
-                                className: COUNT_COLUMN_CLASS,
-                                align: 'right',
-                                tooltip: "Answers to non-branded prompts that cite a page on the brand's site.",
-                                render: (_, candidate) => humanFriendlyNumber(candidate.answers_citing),
-                            },
-                            {
-                                key: 'actions',
-                                render: (_, candidate) => {
-                                    const saving = updatingIds.includes(candidate.brand_id)
-                                    return (
-                                        <div className="flex justify-end gap-2 whitespace-nowrap">
-                                            <LemonButton
-                                                size="small"
-                                                onClick={() => reviewCandidate(candidate.brand_id, 'rejected')}
-                                                disabledReason={saving ? 'Saving…' : undefined}
-                                                data-attr="ai-visibility-competitor-review-reject"
-                                            >
-                                                Ignore
-                                            </LemonButton>
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                onClick={() => reviewCandidate(candidate.brand_id, 'confirmed')}
-                                                loading={saving}
-                                                data-attr="ai-visibility-competitor-review-confirm"
-                                            >
-                                                Competitor
-                                            </LemonButton>
-                                        </div>
-                                    )
-                                },
-                            },
-                        ]}
+        <Card size="sm" className="min-w-0" data-attr="ai-visibility-competitor-review">
+            <CardHeader>
+                <CardTitle role="heading" aria-level={3}>
+                    Your competitors
+                </CardTitle>
+                <CardDescription>
+                    Answers to your non-branded prompts named these brands. Select the ones you compete with, and
+                    Rankings compares you against them by name. Your likely competitors are already selected. You can
+                    change them later in settings.
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+                <InputGroup size="sm" className="w-72 max-w-full">
+                    <InputGroupAddon align="inline-start">
+                        <InputGroupText>
+                            <IconSearch />
+                        </InputGroupText>
+                    </InputGroupAddon>
+                    <InputGroupInput
+                        type="search"
+                        aria-label="Find a brand"
+                        placeholder="Find a brand"
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        data-attr="ai-visibility-competitor-review-search"
                     />
-                </div>
-            ) : null}
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs text-secondary" data-attr="ai-visibility-competitor-review-count">
-                    {pluralize(decisions.confirmed, 'competitor')} confirmed
-                </span>
-                <LemonButton
-                    type={decisions.confirmed > 0 ? 'primary' : 'secondary'}
-                    onClick={finishReview}
-                    data-attr="ai-visibility-competitor-review-finish"
-                >
-                    {decisions.confirmed > 0 || candidates.length === 0 ? 'Done' : 'Skip for now'}
-                </LemonButton>
-            </div>
-        </LemonCard>
+                </InputGroup>
+                <AiVisibilityTable<AEOCompetitorCandidateApi>
+                    size="small"
+                    dataSource={visibleCandidates}
+                    emptyState={`No brand matches "${search}".`}
+                    rowKey="brand_id"
+                    pagination={{ pageSize: PAGE_SIZE }}
+                    columns={[
+                        {
+                            key: 'select',
+                            width: 0,
+                            render: (_, candidate) => (
+                                <Checkbox
+                                    checked={selectedIds.includes(candidate.brand_id)}
+                                    onCheckedChange={(checked) => toggleCandidate(candidate.brand_id, checked)}
+                                    disabledReason={confirming ? 'Saving…' : undefined}
+                                    aria-label={`${candidate.name} is a competitor`}
+                                    data-attr="ai-visibility-competitor-review-select"
+                                />
+                            ),
+                        },
+                        {
+                            title: 'Brand',
+                            key: 'name',
+                            className: 'w-full max-w-0',
+                            render: (_, candidate) => (
+                                <div className="flex min-w-0 flex-col">
+                                    <span className="truncate font-semibold">{candidate.name}</span>
+                                    <Text size="xs" variant="muted" render={<span className="m-0 truncate" />}>
+                                        {candidate.domain}
+                                    </Text>
+                                </div>
+                            ),
+                        },
+                        {
+                            title: 'Named in',
+                            key: 'answers_naming',
+                            className: COUNT_COLUMN_CLASS,
+                            align: 'right',
+                            tooltip: 'Answers to non-branded prompts that name the brand.',
+                            render: (_, candidate) => humanFriendlyNumber(candidate.answers_naming),
+                        },
+                        {
+                            title: 'Cited in',
+                            key: 'answers_citing',
+                            className: COUNT_COLUMN_CLASS,
+                            align: 'right',
+                            tooltip: "Answers to non-branded prompts that cite a page on the brand's site.",
+                            render: (_, candidate) => humanFriendlyNumber(candidate.answers_citing),
+                        },
+                    ]}
+                />
+            </CardContent>
+        </Card>
     )
 }

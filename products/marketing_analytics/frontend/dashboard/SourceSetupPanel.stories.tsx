@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { expect, userEvent } from 'storybook/test'
+import { expect } from 'storybook/test'
 
 import { SearchConsoleSource } from './SearchConsoleSource'
 import { SourceSetupPanel } from './SourceSetupPanel'
@@ -16,6 +16,8 @@ const meta: Meta<typeof SourceSetupPanel> = {
     title: 'Scenes-App/Marketing Analytics/Source setup panel',
     component: SourceSetupPanel,
     parameters: { layout: 'padded', mockDate: '2026-10-07', testOptions: { waitForLoadersToDisappear: false } },
+    // The expanded groups persist in localStorage, so without this a story inherits what an earlier run left open.
+    beforeEach: () => localStorage.removeItem('products.marketingAnalytics.sourceConnectionGroups.setup.expansion'),
     decorators: [
         mswDecorator({
             get: {
@@ -175,10 +177,8 @@ export const GroupedConnectionErrors: Story = {
             'href',
             expect.stringContaining('managed-example-google-one')
         )
-        const tiktokHeader = canvas.getByRole('button', { name: /TikTok Ads/ })
-        await userEvent.click(tiktokHeader)
-        expect(await canvas.findByText('Example video')).toBeVisible()
-        tiktokHeader.blur()
+        expect(canvas.getByRole('button', { name: /TikTok Ads/ })).toHaveAttribute('aria-expanded', 'true')
+        expect(canvas.getByText('Example video')).toBeVisible()
     },
 }
 

@@ -1,5 +1,6 @@
 import api, { type CountedPaginatedResponse } from 'lib/api'
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -20,6 +21,7 @@ export const destinationsSetupLogic = createSetupDetectionLogic({
     revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
+        const batchExportsEnabled = preflightLogic.findMounted()?.values.preflight?.batch_exports_enabled !== false
         const [hogFunctions, pluginDestinations, batchExports] = await Promise.all([
             hogFunctionsList(projectId, {
                 type: ['destination', 'site_destination', 'internal_destination'],
@@ -31,7 +33,7 @@ export const destinationsSetupLogic = createSetupDetectionLogic({
             api.get<CountedPaginatedResponse<unknown>>(
                 `api/projects/${projectId}/pipeline_destination_configs/?limit=1`
             ),
-            api.batchExports.list({ limit: 1 }),
+            batchExportsEnabled ? api.batchExports.list({ limit: 1 }) : Promise.resolve({ count: 0 }),
         ])
         const total = hogFunctions.count + (pluginDestinations.count ?? 0) + (batchExports.count ?? 0)
         return total > 0 ? 'has-data' : 'needs-setup'

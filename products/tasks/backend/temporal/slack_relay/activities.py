@@ -355,3 +355,6 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         handler.offer_reply_suggestions(text)
     if answer_delivered and input.offer_feature_tip:
         handler.offer_feature_tip()
+    # After the replies, because a rate-limited removal waits for Slack's Retry-After first.
+    if answer_delivered and input.reaction_emoji is None:
+        handler.clear_working_reaction()

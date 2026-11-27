@@ -50,6 +50,7 @@ import {
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { plainTextFromHtml } from './helpers/email-text'
+import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import {
@@ -102,6 +103,7 @@ const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
 const SES_HEADER_VALUE_MAX_LENGTH = 870
+const UNSUBSCRIBE_URL_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
 
 // References ends with the parent's ID (RFC 5322 section 3.6.4). One that would pass SES's header limit keeps the
 // thread root and the newest IDs, as RFC 5537 section 3.4.4 does.
@@ -274,6 +276,16 @@ function sesNamedSenderAsUnverified(refusal: SesSendOutcomeOf<'refused'>, sender
         refusal.message.includes('not verified') &&
         addressesIn(refusal.message).includes(senderEmail.toLowerCase())
     )
+}
+
+function sentStatusReason(
+    invocation: CyclotronJobInvocationHogFunction,
+    trackingEnabled: boolean
+): 'untracked' | 'clicks_untracked' | undefined {
+    if (!trackingEnabled) {
+        return 'untracked'
+    }
+    return isClickTrackingEnabled(invocation) ? undefined : 'clicks_untracked'
 }
 
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
@@ -743,6 +755,11 @@ export class EmailService {
             return null
         }
         const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        // The stored config skips schema checks, so any value other than true or absent counts as an opt-out.
+        const runLinkTag: unknown = invocation.hogFunction.metadata?.run_link_tag_enabled
+        if (runLinkTag !== undefined && runLinkTag !== true) {
+            return untagged
+        }
         try {
             const enabled = await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
             return enabled ? { ...untagged, runId: invocation.id } : untagged
@@ -1099,7 +1116,7 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? (trackingEnabled ? undefined : 'untracked') : failureReason,
+                    reason: success ? sentStatusReason(invocation, trackingEnabled) : failureReason,
                     sendingDomain,
                     messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
@@ -1275,7 +1292,7 @@ export class EmailService {
                 )
             }
             // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
-            const deliverableParams = {
+            const deliverableParams = this.withUnsubscribeLink(invocation, {
                 ...params,
                 to:
                     suppression.promotedTo ??
@@ -1284,7 +1301,7 @@ export class EmailService {
                         : params.to),
                 cc: suppression.cc,
                 bcc: suppression.bcc,
-            }
+            })
 
             return {
                 kind: 'proceed',
@@ -1828,6 +1845,32 @@ export class EmailService {
             deadline ? { email: sendEmailParams, files, deadline } : { email: sendEmailParams }
         )
         return messageIdOrSendError(outcome, from.email)
+    }
+
+    private withUnsubscribeLink(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): CyclotronInvocationQueueParametersEmailType {
+        if (invocation.state?.send?.category?.type !== 'marketing' || !params.to?.email) {
+            return params
+        }
+        const url = this.recipientTokensService.generatePreferencesUrl(
+            { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+            preferencesTokenSourceForInvocation(invocation)
+        )
+        const expandedBytes = (body: string | undefined, link: string): number =>
+            (body?.match(UNSUBSCRIBE_URL_PLACEHOLDER) ?? []).reduce(
+                (total, placeholder) => total + Buffer.byteLength(link) - placeholder.length,
+                Buffer.byteLength(body ?? '')
+            )
+        if (exceedsLargestSend(expandedBytes(params.html, escapeHtml(url)) + expandedBytes(params.text, url))) {
+            throw new MessageTooLargeError()
+        }
+        return {
+            ...params,
+            html: params.html.replace(UNSUBSCRIBE_URL_PLACEHOLDER, () => escapeHtml(url)),
+            text: params.text?.replace(UNSUBSCRIBE_URL_PLACEHOLDER, () => url),
+        }
     }
 
     private generateUnsubscribeHeaders(

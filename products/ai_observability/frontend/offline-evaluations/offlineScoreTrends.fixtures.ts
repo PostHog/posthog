@@ -9,6 +9,8 @@ export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
     kind: 'numeric',
     archived: false,
     current_version: 2,
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     input_scorers: [],
@@ -25,6 +27,8 @@ export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
 }
 
 export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     id: OFFLINE_STORY_DEFINITION.current_version_id!,
@@ -37,7 +41,10 @@ export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
     created_by_project_key_id: null,
 }
 
-export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2): OfflineHistoryPointApi {
+export function makeOfflineHistoryPoint(
+    index: number,
+    mean: number | null = 4.2
+): OfflineHistoryPointApi & { summary: NonNullable<OfflineHistoryPointApi['summary']> } {
     return {
         experiment: {
             tags: [],

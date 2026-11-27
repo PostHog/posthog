@@ -45,7 +45,7 @@ from products.experiments.backend.health.skips import (
     not_checked,
 )
 from products.experiments.backend.hogql_queries.error_handling import ERROR_TYPE_MESSAGES
-from products.experiments.backend.recalculation import RECALCULATION_WINDOW_TOO_LONG_MESSAGE
+from products.experiments.backend.recalculation.admission import RECALCULATION_WINDOW_TOO_LONG_MESSAGE
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
 from products.experiments.stats.shared.statistics import StatisticError
 

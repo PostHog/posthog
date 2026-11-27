@@ -36,6 +36,7 @@ from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.oauth_provenance import is_id_jag_origin_request
 from posthog.organization_caching import get_cached_organization_membership
 from posthog.project_creation_limits import PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE, member_can_create_projects
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
@@ -1023,6 +1024,12 @@ def scopes_missing_after_legacy_fallback(
     return missing_scopes
 
 
+ID_JAG_CANNOT_WRITE_TASKS = (
+    "ID-JAG tokens can't start or change tasks, because a task run gets wider access than the token and outlives it. "
+    "Sign in to PostHog with OAuth to work with tasks."
+)
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -1092,6 +1099,17 @@ class APIScopePermission(ScopeBasePermission):
         if isinstance(authenticator, OAuthAccessTokenAuthentication) and not self._sandbox_tool_policy_allows(
             request, view, authenticator.access_token, required_scopes
         ):
+            return False
+
+        # A task run gets its own credential, with wider scopes and a longer life than the token that started it.
+        # An ID-JAG token lives only as long as the identity provider allows, so it must not start or drive a run,
+        # directly or through a PostHog connection.
+        if (
+            "task:write" in required_scopes
+            and not getattr(view, "id_jag_may_write_tasks", False)
+            and is_id_jag_origin_request(request)
+        ):
+            self.message = ID_JAG_CANNOT_WRITE_TASKS
             return False
 
         # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets

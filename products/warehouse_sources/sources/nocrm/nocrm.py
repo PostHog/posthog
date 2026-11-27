@@ -8,6 +8,7 @@ from urllib3.util.retry import Retry
 from products.warehouse_sources.sources.nocrm.settings import NOCRM_ENDPOINTS, PAGE_SIZE, NoCRMEndpointConfig
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
+    Endpoint,
     OffsetPaginator,
     Resource,
     RESTAPIConfig,
@@ -188,6 +189,12 @@ def _fanout_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
+    child_endpoint_extra: Endpoint = {"paginator": _paginator(config)}
+    if config.data_selector:
+        child_endpoint_extra["data_selector"] = config.data_selector
+        # A missing key must fail loudly: a full refresh of zero rows would empty the table.
+        child_endpoint_extra["data_selector_required"] = True
+
     def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state:
             resumable_source_manager.save_state(NoCRMResumeConfig(fanout_state=state))
@@ -204,7 +211,7 @@ def _fanout_source(
             job_id=job_id,
             db_incremental_field_last_value=None,
             parent_endpoint_extra={"paginator": _paginator(parent_config)},
-            child_endpoint_extra={"paginator": _paginator(config)},
+            child_endpoint_extra=child_endpoint_extra,
             # The offset paginator sends `limit` itself, and the unpaginated children take none.
             page_size_param=None,
             resume_hook=save_fanout_checkpoint,

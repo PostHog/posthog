@@ -19,7 +19,7 @@ It plays one session at a time, with no event timeline and no search.
 3. The quote splits each day into `--shards-per-day` shards by session ID hash, and stores one list per shard under `session_recording_exports/session_ids/<quote_id>/<day>/<shard>.txt`.
    The workflow runs at most `--max-parallel-shards` shards at once, oldest day first, so the sessions closest to expiry go first.
    Shards fetch from a recording-api pool that only exports use (`RECORDING_API_EXPORT_URL`), so an export never slows playback.
-   The pool scales on the `replay_export_shards` gauge, and a run waits up to 3 minutes for the pods its shards need before the first shard starts.
+   The pool scales on the `replay_export_shards` gauge, and a run waits up to 5 minutes for the pods its shards need before the first shard starts.
 4. Each shard reads its list, looks the sessions up in `session_replay_events`, fetches every block from recording-api (decrypted, still snappy-compressed) and writes the session file.
    A shard checkpoints through its heartbeat every 500 sessions, so a retry resumes there.
    Only a 404 from recording-api marks a session `missing`. Any other recording-api error fails the shard, and Temporal retries it from the checkpoint.
@@ -34,6 +34,30 @@ Temporal refuses a second start while it runs or after it completes, and allows 
 
 Sessions deleted between the quote and the run drop out and show as `deleted_before_run` in the summary.
 Sessions that expire during the run get the `expired` status.
+
+## Throughput
+
+The session replay workers set the pace of an export, not the export pool.
+A worker runs its activities on one Python event loop, so it tops out near one core however many shards it holds.
+The export pool's pods stay well under one core each.
+
+In a test with 32 parallel shards and 86 GB, each shard moved 4 to 5.5 MB a second, about 120 MB a second in total.
+That test ran on 4 to 5 worker pods, so each held 6 to 8 shards and ran near one core.
+The quote's estimated duration assumes 5 MB a second per shard (`SHARD_BYTES_PER_SECOND`) and leaves out the pool's cold start of about 4 minutes.
+
+What each setting does:
+
+- `--max-parallel-shards` caps how many shards run at once. The start reads it, not the quote, so it can differ from the quote's estimate.
+- The workers add a pod for every 4 running shards, on the same `replay_export_shards` gauge as the export pool, and a pod takes at most `MAX_CONCURRENT_ACTIVITIES` activities. More parallel shards therefore get more worker pods, up to the workers' `maxPods`.
+- The export pool has at most 64 pods, two per shard. Above 32 parallel shards, shards share pods, and the run waits for 64 at most.
+- `--shards-per-day` sets shard size, since shards from several days run at once. Raise it for a day over 100,000 sessions per shard, or so a big day does not end on a few long shards while the other slots sit idle. It is a quote option.
+
+To get the most out of a large export:
+
+1. Quote with enough `--shards-per-day` that the run's last shards are short.
+2. Start with `--max-parallel-shards` up to the export pool's maximum. Only 32 has been measured.
+3. Watch worker CPU in the `temporal-worker-session-replay` namespace and the block fetch latency of the main recording-api. Workers near one core each mean they hold too many shards for their CPU.
+4. Going past 64 parallel shards needs a larger export pool `maxPods` in the charts first.
 
 ## Bucket layout
 

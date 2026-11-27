@@ -83,6 +83,8 @@ export interface supportSettingsLogicValues {
     aiEnabledChannels: TicketChannel[]
     aiReplyCustomized: boolean
     aiReplyModes: Record<string, Record<string, 'bot_reply' | 'private_note'>>
+    aiRerunModeLoading: boolean
+    aiRerunUntilTeamReply: boolean
     aiResolutionChannels: TicketChannel[]
     aiSuggestionsEnabled: boolean
     aiSuggestionsLoading: boolean
@@ -513,6 +515,9 @@ export interface supportSettingsLogicActions {
         mode: 'bot_reply' | 'private_note'
         ticketType: string
     }
+    setAiRerunUntilTeamReply: (enabled: boolean) => {
+        enabled: boolean
+    }
     setAiResolutionChannels: (channels: TicketChannel[]) => {
         channels: TicketChannel[]
     }
@@ -667,6 +672,7 @@ export interface supportSettingsLogicMeta {
         githubSelectedRepos: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiSuggestionsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiDiagnosticsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        aiRerunUntilTeamReply: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiContextAccountPropertyIds: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiEnabledChannels: (
             currentTeam: TeamPublicType | TeamType | null,
@@ -811,6 +817,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
+        setAiRerunUntilTeamReply: (enabled: boolean) => ({ enabled }),
         setAiResolutionChannels: (channels: TicketChannel[]) => ({ channels }),
         setAiReplyMode: (channel: string, ticketType: string, mode: 'private_note' | 'bot_reply') => ({
             channel,
@@ -1042,6 +1049,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiDiagnosticsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
+        aiRerunModeLoading: [
+            false,
+            {
+                setAiRerunUntilTeamReply: () => true,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -1372,6 +1387,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
+        ],
+        aiRerunUntilTeamReply: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                currentTeam?.conversations_settings?.ai_rerun_mode === 'until_team_reply',
         ],
         aiContextAccountPropertyIds: [
             (s) => [s.currentTeam],
@@ -1892,6 +1912,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ai_diagnostics_enabled: enabled,
+                },
+            })
+        },
+        setAiRerunUntilTeamReply: ({ enabled }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_rerun_mode: enabled ? 'until_team_reply' : 'first_message',
                 },
             })
         },

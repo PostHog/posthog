@@ -22,6 +22,8 @@ class KalshiEndpointConfig:
     paginated: bool = True
     # Candlesticks are fetched per batch of markets, so rows arrive in no global time order.
     market_fan_out: bool = False
+    # Order books are fetched for each batch of open markets.
+    orderbook_fan_out: bool = False
     # The weather index and its calibrations are served one city at a time, with no listing endpoint for the cities.
     city_fan_out: bool = False
     # Portfolio endpoints read the account's own data and need a signed API key.
@@ -166,6 +168,25 @@ KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
         supports_incremental=True,
         newest_first=True,
         page_size=1000,
+    ),
+    # Every scheduled and past fee change of each series. The endpoint returns the whole list in one
+    # response and only includes past changes when asked.
+    "series_fee_changes": KalshiEndpointConfig(
+        name="series_fee_changes",
+        path="/series/fee_changes",
+        data_key="series_fee_change_arr",
+        primary_keys=["id"],
+        paginated=False,
+        extra_params={"show_historical": "true"},
+    ),
+    # One row per price level of the current order book of every open non-combo market. The book
+    # is a live snapshot with no history, so this is a full refresh.
+    "market_orderbooks": KalshiEndpointConfig(
+        name="market_orderbooks",
+        path="/markets/orderbooks",
+        data_key="orderbooks",
+        primary_keys=["market_ticker", "side", "price_dollars"],
+        orderbook_fan_out=True,
     ),
     # Daily candlesticks for every live non-combo market, fetched in batches of tickers.
     "market_candlesticks": KalshiEndpointConfig(
