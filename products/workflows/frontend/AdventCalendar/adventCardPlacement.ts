@@ -6,6 +6,7 @@ export interface AdventCardPlacement {
     isLeftward: boolean
     left: number
     width: number
+    faceInset: number
 }
 
 export function adventCardPlacement(
@@ -21,5 +22,6 @@ export function adventCardPlacement(
     const width = Math.min(ADVENT_CARD_WIDTH, isLeftward ? roomLeft : roomRight, stageWidth - 2 * ADVENT_CARD_EDGE_GAP)
     const anchored = isLeftward ? face.left + face.size + ADVENT_CARD_INSET - width : face.left - ADVENT_CARD_INSET
     const left = Math.min(Math.max(anchored, ADVENT_CARD_EDGE_GAP), stageWidth - ADVENT_CARD_EDGE_GAP - width)
-    return { isLeftward, left, width }
+    const faceInset = isLeftward ? left + width - (face.left + face.size) : face.left - left
+    return { isLeftward, left, width, faceInset }
 }

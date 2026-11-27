@@ -25,12 +25,20 @@ describe('adventCardPlacement', () => {
         [0, 520],
         [1, 520],
         [2, 520],
-    ])('keeps the card inside the stage for any door position, row %s on a %spx stage', (row, stageWidth) => {
-        for (let left = 0; left <= stageWidth - FACE_SIZE; left += 4) {
-            const card = adventCardPlacement({ left, size: FACE_SIZE }, stageWidth, row)
+    ])(
+        'keeps the card inside the stage and its copy of the door on the door, row %s on a %spx stage',
+        (row, stageWidth) => {
+            for (let left = 0; left <= stageWidth - FACE_SIZE; left += 4) {
+                const card = adventCardPlacement({ left, size: FACE_SIZE }, stageWidth, row)
 
-            expect(card.left).toBeGreaterThanOrEqual(ADVENT_CARD_EDGE_GAP)
-            expect(card.left + card.width).toBeLessThanOrEqual(stageWidth - ADVENT_CARD_EDGE_GAP)
+                const faceCopyLeft = card.isLeftward
+                    ? card.left + card.width - card.faceInset - FACE_SIZE
+                    : card.left + card.faceInset
+
+                expect(card.left).toBeGreaterThanOrEqual(ADVENT_CARD_EDGE_GAP)
+                expect(card.left + card.width).toBeLessThanOrEqual(stageWidth - ADVENT_CARD_EDGE_GAP)
+                expect(faceCopyLeft).toBe(left)
+            }
         }
-    })
+    )
 })
