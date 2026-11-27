@@ -1,6 +1,7 @@
 from collections.abc import Callable, Sequence
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
 from posthog.dataclasses import frozen
 
@@ -147,6 +148,16 @@ def error_message(columns: TraceColumns) -> ast.Expr:
     # there, and HogQL prints it as a read of the typed property where events store typed properties.
     message = ast.Call(name="JSONExtractString", args=[columns.properties, _constant("$ai_error_normalized")])
     return ast.Call(name="nullIf", args=[message, _constant("")])
+
+
+def tool_names(columns: TraceColumns, property_name: str) -> ast.Expr:
+    """The tool names a comma-separated property lists, in their order, each trimmed, without empty parts."""
+    # Decoded like `error_message`, so a name with a quote or a backslash reads as it was sent in both events layouts.
+    names = ast.Call(name="JSONExtractString", args=[columns.properties, _constant(property_name)])
+    return parse_expr(
+        "arrayFilter(x -> x != '', arrayMap(x -> trim(x), splitByChar(',', ifNull({names}, ''))))",
+        placeholders={"names": names},
+    )
 
 
 def trace_cost(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:

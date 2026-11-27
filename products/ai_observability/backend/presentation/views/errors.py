@@ -62,7 +62,7 @@ class ErrorListQuerySerializer(ErrorSearchQuerySerializer):
     limit = page_limit_field(
         "errors", default=DIAGNOSTICS_PAGE_DEFAULT_LIMIT, maximum=diagnostics.DIAGNOSTICS_PAGE_MAX_LIMIT
     )
-    offset = page_offset_field("errors")
+    offset = page_offset_field("errors", maximum=diagnostics.DIAGNOSTICS_PAGE_MAX_OFFSET)
 
 
 class ErrorViewSet(DiagnosticsViewSet):

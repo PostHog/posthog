@@ -22,6 +22,7 @@ from ..logic.diagnostics.error_groups import (
     ErrorView as ErrorView,
     first_seen_in_range,
 )
+from ..logic.diagnostics.group_page_queries import MAX_SORTED_GROUPS
 from ..logic.diagnostics.trends import change_label, error_change_tone, paired_with_range
 from ..logic.traces.lookback import has_no_lookback, seen_before
 from ..logic.traces.trace_metrics import bucket_size_for, bucket_starts, has_too_many_buckets, zoned_selection
@@ -43,6 +44,7 @@ from .diagnostics_contracts import (
 )
 
 DIAGNOSTICS_PAGE_MAX_LIMIT: Final = 100
+DIAGNOSTICS_PAGE_MAX_OFFSET: Final = MAX_SORTED_GROUPS - DIAGNOSTICS_PAGE_MAX_LIMIT
 # The errors list asks when each error of a page was first seen, so one request takes a page of keys.
 ERROR_FIRST_SEEN_MAX_KEYS: Final = DIAGNOSTICS_PAGE_MAX_LIMIT
 

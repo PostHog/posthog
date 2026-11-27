@@ -242,6 +242,7 @@ class TestErrorViews(APIBaseTest):
             ("limit too large", "list", {"limit": 101}),
             ("limit too small", "list", {"limit": 0}),
             ("negative offset", "list", {"offset": -1}),
+            ("offset past the sorted errors", "list", {"offset": diagnostics.DIAGNOSTICS_PAGE_MAX_OFFSET + 1}),
             ("unknown view", "list", {"view": "errors"}),
             ("unknown order", "list", {"order": "newest"}),
             ("unparsable filters", "list", {"properties": "{"}),

@@ -8,7 +8,10 @@ describe('rawSearchParam', () => {
         ['error_search', '{"code": 429}'],
         ['tool_search', 'true'],
         ['person_search', '[1, 2]'],
-    ])('keeps the search param %s as typed: %s', (name, typed) => {
+        ['error', '{"code": 429}'],
+        ['tool', '["search", "fetch"]'],
+        ['failed_tool', '{"name": "fetch"}'],
+    ])('keeps the typed text param %s as typed: %s', (name, typed) => {
         const search = `?${name}=${encodeURIComponent(typed)}`
 
         expect(withRawParams(combineUrl(`/list${search}`).searchParams, search)[name]).toEqual(typed)
