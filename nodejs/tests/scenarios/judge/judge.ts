@@ -14,7 +14,7 @@ export type IntakeAnswer = (
     | { accepted: true }
     | { accepted: false; transportError: string }
     | { accepted: false; status: number; outcome?: string }
-) & { retries?: number }
+) & { retries?: number; unconfirmedAttempt?: true }
 
 export type FollowUpAnswer = IntakeAnswer | { notSent: string }
 
