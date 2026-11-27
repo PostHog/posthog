@@ -690,7 +690,11 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                             .then(
                                 (open) =>
                                     settle(
-                                        adventOpenedOnItsDay(day, new Date(open.opened_at), open.utc_offset_minutes)
+                                        adventOpenedOnItsDay(
+                                            day,
+                                            new Date(open.opened_at),
+                                            open.utc_offset_minutes ?? utcOffsetMinutes
+                                        )
                                     ),
                                 () => settle(false)
                             )
