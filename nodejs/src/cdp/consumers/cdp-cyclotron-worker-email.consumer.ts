@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { canSendEmail } from '~/cdp/services/hogflows/hogflow-utils'
 import { logger } from '~/common/utils/logger'
-import { PluginsServerConfig, Team } from '~/types'
+import { PluginsServerConfig } from '~/types'
 
 import { CONSUMER_STOP_DEADLINE_MS, reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -85,9 +85,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         const withFiles = invocations.filter(
             (invocation) => !invocation.cancelRequestedAt && filesOf(invocation) !== null
         )
-        const { hogFlows, teams } = withFiles.length
-            ? await this.lookupsWithHeartbeat(invocations, withFiles)
-            : { hogFlows: {}, teams: null }
+        const hogFlows = withFiles.length ? await this.workflowsWithHeartbeat(invocations, withFiles) : {}
         withFiles.forEach((invocation) => this.workflowAtAdmission.set(invocation, hogFlows[invocation.functionId]))
         for (const invocation of invocations) {
             const files = filesOf(invocation)
@@ -96,7 +94,6 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 exceedsLargestSend(declaredFileBytes(files)) ||
                 invocation.cancelRequestedAt ||
                 hogFlows[invocation.functionId]?.status !== 'active' ||
-                this.organizationAdmission.skips(teams?.[String(invocation.teamId)] ?? null) ||
                 !sendStepAhead(invocation, hogFlows[invocation.functionId])
             ) {
                 plain.push(invocation)
@@ -136,21 +133,15 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         }
     }
 
-    private async lookupsWithHeartbeat(
+    private async workflowsWithHeartbeat(
         batch: CyclotronJobInvocation[],
         withFiles: CyclotronJobInvocation[]
-    ): Promise<{ hogFlows: Record<string, HogFlow | null>; teams: Record<string, Team | null> | null }> {
+    ): Promise<Record<string, HogFlow | null>> {
         const stopHeartbeat = this.startPeriodicHeartbeat(batch)
         try {
-            const [hogFlows, teams] = await Promise.all([
-                this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss([
-                    ...new Set(withFiles.map((invocation) => invocation.functionId)),
-                ]),
-                this.organizationAdmission.mode === 'enforce'
-                    ? this.organizationAdmission.teamsOf(withFiles.map((invocation) => invocation.teamId))
-                    : null,
+            return await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss([
+                ...new Set(withFiles.map((invocation) => invocation.functionId)),
             ])
-            return { hogFlows, teams }
         } finally {
             stopHeartbeat()
         }

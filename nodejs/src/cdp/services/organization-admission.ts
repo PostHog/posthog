@@ -33,10 +33,6 @@ export class OrganizationAdmission {
         private teamManager: Pick<TeamManager, 'getTeams'>
     ) {}
 
-    public skips(team: Pick<Team, 'organization_active'> | null): boolean {
-        return this.mode === 'enforce' && team?.organization_active === false
-    }
-
     public admits(team: Pick<Team, 'organization_active'> | null, stage: AdmissionStage): boolean {
         if (this.mode === 'off' || team?.organization_active !== false) {
             return true

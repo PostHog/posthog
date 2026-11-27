@@ -217,13 +217,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
-        const ended = await this.recordTerminalFailuresAndDequeue(deactivatedInvocations)
-        ended.forEach(({ invocation }) =>
-            this.invocationResultsService.emailStatusService.queueUnavailableRun(
-                invocation,
-                ORGANIZATION_DEACTIVATED_FAILURE.errorKind
+        if (deactivatedInvocations.length) {
+            const ended = await this.recordTerminalFailures(deactivatedInvocations)
+            ended.forEach(({ invocation }) =>
+                this.invocationResultsService.emailStatusService.queueUnavailableRun(
+                    invocation,
+                    ORGANIZATION_DEACTIVATED_FAILURE.errorKind
+                )
             )
-        )
+            await this.cyclotronJobQueue.dequeueInvocations(ended.map(({ invocation }) => invocation))
+        }
 
         const loadedInvocations = loadedOrSkipped.filter((item) => item !== undefined)
         return { loadedInvocations, canceledResults }

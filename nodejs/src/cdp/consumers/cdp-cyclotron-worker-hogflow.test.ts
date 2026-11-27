@@ -896,6 +896,27 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             }
         )
 
+        it('closes the email status of a written failed run when its dequeue fails', async () => {
+            await setOrganizationActive(false)
+            const worker = workerIn('enforce')
+            jest.spyOn(jobQueue, 'dequeueInvocations').mockImplementation((invocations) =>
+                invocations.length ? Promise.reject(new Error('dequeue failed')) : Promise.resolve()
+            )
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_A_1', properties: {} } as any,
+            })
+
+            await expect(worker.processBatch([invocation])).rejects.toThrow('dequeue failed')
+            await worker['invocationResultsService'].flush()
+
+            expect(
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                    .map((x) => x.value)
+                    .filter((row) => row.message_id === invocation.id)
+            ).toEqual([expect.objectContaining({ status: 'failed', reason: 'organization_deactivated' })])
+        })
+
         it('runs the next invocation once the organization is active again', async () => {
             const worker = workerIn('enforce')
             await setOrganizationActive(false)

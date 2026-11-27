@@ -211,10 +211,7 @@ export class CdpCyclotronWorker<
         return loadedInvocations
     }
 
-    protected async recordTerminalFailuresAndDequeue(failedInvocations: TerminalFailure[]): Promise<TerminalFailure[]> {
-        if (!failedInvocations.length) {
-            return []
-        }
+    protected async recordTerminalFailures(failedInvocations: TerminalFailure[]): Promise<TerminalFailure[]> {
         const recorded = await Promise.all(
             failedInvocations.map(({ invocation, errorKind, error }) =>
                 this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(invocation, {
@@ -223,11 +220,15 @@ export class CdpCyclotronWorker<
                 })
             )
         )
-        const dequeueable = failedInvocations.filter(
-            (_, i) => recorded[i] || !this.config.HOG_INVOCATION_RESULTS_ENABLED
-        )
+        return failedInvocations.filter((_, i) => recorded[i] || !this.config.HOG_INVOCATION_RESULTS_ENABLED)
+    }
+
+    protected async recordTerminalFailuresAndDequeue(failedInvocations: TerminalFailure[]): Promise<void> {
+        if (!failedInvocations.length) {
+            return
+        }
+        const dequeueable = await this.recordTerminalFailures(failedInvocations)
         await this.cyclotronJobQueue.dequeueInvocations(dequeueable.map((x) => x.invocation))
-        return dequeueable
     }
 
     public async processBatch(
