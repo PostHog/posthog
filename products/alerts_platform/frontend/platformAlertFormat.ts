@@ -30,6 +30,7 @@ interface SourceKind {
     iconType: FileSystemIconType
     // The source product's own page for the alert, or null when the configuration cannot reach it.
     alertUrl: (configuration: PlatformAlertConfigurationApi) => string | null
+    readOnly?: boolean
 }
 
 function legacyAlertUrl(url: (legacyConfigurationId: string) => string): SourceKind['alertUrl'] {
@@ -45,7 +46,9 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
     [PlatformAlertConfigurationSourceKindEnumApi.Insight]: {
         label: 'Insight',
         iconType: 'product_analytics',
-        alertUrl: legacyAlertUrl(urls.alert),
+        readOnly: true,
+        // An insight alert with no source row keeps the configuration's id as its own.
+        alertUrl: ({ id, legacy_configuration_id }) => urls.alert(legacy_configuration_id ?? id),
     },
     // A warehouse alert has no page of its own, so it links to the page that lists what it watches.
     [PlatformAlertConfigurationSourceKindEnumApi.WarehouseSource]: {
@@ -241,15 +244,14 @@ export function listRowFiringSince(row: PlatformAlertListRow): string | null {
 }
 
 export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
-    return configuration.owner === PlatformAlertOwnerEnumApi.Platform
+    return (
+        configuration.owner === PlatformAlertOwnerEnumApi.Platform && !SOURCE_KINDS[configuration.source_kind].readOnly
+    )
 }
 
-// The API refuses a group snooze on a source-owned alert (409) and on an ungrouped one (400).
+// The API refuses a group snooze on a source-owned or insight alert (409) and on an ungrouped one (400).
 export function canSnoozeGroups(configuration: PlatformAlertConfigurationApi): boolean {
-    return (
-        configuration.owner === PlatformAlertOwnerEnumApi.Platform &&
-        configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels
-    )
+    return canChangeFromList(configuration) && configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels
 }
 
 export function groupSnoozeLockedByAlert(configuration: PlatformAlertConfigurationApi, now: Date): boolean {
