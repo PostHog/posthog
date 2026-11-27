@@ -42,7 +42,6 @@ from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_enrollment_census_schedule,
     create_experiment_scheduled_recalculation_schedules,
 )
-from products.experiments.backend.temporal.timeseries.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from products.experiments.backend.temporal.timeseries.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
@@ -66,7 +65,6 @@ __all__ = [
     "TIMESERIES_ACTIVITIES",
     "TIMESERIES_WORKFLOWS",
     "WORKFLOWS",
-    "ExperimentTimeseriesRecalculationWorkflowInputs",
     "ExperimentsRecalculationMetricsInterceptor",
     "create_experiment_precompute_canary_schedule",
     "create_experiment_precompute_enrollment_census_schedule",

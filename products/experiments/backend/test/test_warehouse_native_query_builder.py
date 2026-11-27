@@ -99,10 +99,13 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
             multiple_variant_handling=multiple_variant_handling,
         ).build()
 
-    def _run(self, statement: str) -> dict[str, tuple[float, ...]]:
+    def _rows(self, statement: str) -> list[tuple]:
         """Runs the BigQuery statement in DuckDB, which sqlglot translates it for."""
-        rows = self.warehouse.execute(sqlglot.transpile(statement, read="bigquery", write="duckdb")[0]).fetchall()
-        return {row[0]: tuple(float(value) for value in row[1:]) for row in rows}
+        return self.warehouse.execute(sqlglot.transpile(statement, read="bigquery", write="duckdb")[0]).fetchall()
+
+    def _run(self, statement: str) -> dict[str, tuple[float, ...]]:
+        """The stats per variant. The last column counts the entities with rows and is read by its own test."""
+        return {row[0]: tuple(float(value) for value in row[1:-1]) for row in self._rows(statement)}
 
     @parameterized.expand(
         [
@@ -191,6 +194,73 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
         rows = self.warehouse.execute(sqlglot.transpile(statement, read="bigquery", write="duckdb")[0]).fetchall()
 
         assert [(str(day), variant, int(count)) for day, variant, count in rows] == expected
+
+    @parameterized.expand(
+        [
+            ("sum of a column", _sum_of_amount(), {"control": 1, "test": 2, "$multiple": 1}),
+            # Entity 3 bought two days after its first exposure, outside a one day window: no row of it counted.
+            (
+                "conversion window",
+                _sum_of_amount(conversion_window=1, conversion_window_unit=FunnelConversionWindowTimeUnit.DAY),
+                {"control": 1, "test": 2, "$multiple": 0},
+            ),
+        ]
+    )
+    def test_counts_the_exposed_entities_whose_rows_counted(
+        self, _name: str, metric: ExperimentMeanMetric, expected: dict[str, int]
+    ) -> None:
+        rows = self._rows(self._build(metric))
+
+        assert {row[0]: int(row[-1]) for row in rows} == expected
+
+    def test_a_blank_id_is_left_out_like_a_null_one(self) -> None:
+        # A LEFT JOIN with a COALESCE in the customer's query gives '' instead of NULL, and '' IS NOT NULL. A padded
+        # column gives spaces. BigQuery's TRIM strips every kind of whitespace, DuckDB's only spaces, so the test
+        # uses spaces.
+        self.warehouse.execute("CREATE TABLE exposure_text (entity_id VARCHAR, variant VARCHAR, timestamp TIMESTAMP)")
+        self.warehouse.executemany(
+            "INSERT INTO exposure_text VALUES (?, ?, ?)",
+            [
+                ("", "control", "2026-01-02 00:00:00"),
+                ("  ", "test", "2026-01-03 00:00:00"),
+                ("9", "test", "2026-01-04 00:00:00"),
+            ],
+        )
+        builder = WarehouseNativeQueryBuilder(
+            exposure=ExperimentWarehouseNativeExposureConfig(
+                connection_id="connection", query="SELECT * FROM exposure_text", unit=UNIT
+            ),
+            variants=("control", "test"),
+            date_from=datetime(2026, 1, 1, tzinfo=UTC),
+            date_to=datetime(2026, 2, 1, tzinfo=UTC),
+            multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
+        )
+
+        exposures = self._rows(builder.build_exposures("UTC"))
+        left_out = self._rows(builder.build_exposure_rows_left_out())
+
+        assert [(variant, int(count)) for _, variant, count in exposures] == [("test", 1)]
+        assert {(reason, value, int(count)) for reason, value, count in left_out} == {("empty_id", None, 2)}
+
+    def test_exposure_rows_left_out_by_reason(self) -> None:
+        statement = WarehouseNativeQueryBuilder(
+            exposure=ExperimentWarehouseNativeExposureConfig(
+                connection_id="connection", query="SELECT * FROM exposure_log", unit=UNIT
+            ),
+            variants=("control", "test"),
+            date_from=datetime(2026, 1, 1, tzinfo=UTC),
+            date_to=datetime(2026, 2, 1, tzinfo=UTC),
+            multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
+        ).build_exposure_rows_left_out()
+
+        rows = self._rows(statement)
+
+        # The fixture has one row with no id and one for the holdout variant. Its row from before the experiment
+        # is outside the window, which bounds the scan.
+        assert {(reason, value, int(count)) for reason, value, count in rows} == {
+            ("empty_id", None, 1),
+            ("unknown_variant", "holdout", 1),
+        }
 
     def test_ratio_metric_totals_per_variant(self) -> None:
         metric = ExperimentRatioMetric(

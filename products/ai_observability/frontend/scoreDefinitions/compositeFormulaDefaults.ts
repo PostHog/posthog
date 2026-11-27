@@ -36,6 +36,13 @@ function buildDefaultExpression(draft: ScoreDefinitionDraft): string | null {
     if (!draft.inputs.length) {
         return ''
     }
+    if (draft.scope === 'experiment') {
+        if (draft.kind !== 'numeric') {
+            return null
+        }
+        const names = draft.inputs.map((input) => input.alias)
+        return names.length === 1 ? names[0] : `${sumExpression(names)} / ${names.length}`
+    }
     if (draft.kind === 'numeric') {
         const terms = draft.inputs.map((input) => {
             if (input.kind === 'numeric') {
@@ -83,6 +90,13 @@ export function updateScorerDraft(
     value: ScoreDefinitionDraft[keyof ScoreDefinitionDraft]
 ): ScoreDefinitionDraft {
     const next = { ...draft, [field]: value }
+    if (field === 'scope' && next.scope !== draft.scope) {
+        next.calculation = next.scope === 'experiment' ? 'composite' : 'reported'
+        next.kind = next.scope === 'experiment' ? 'numeric' : 'boolean'
+        next.inputs = []
+        next.expression = ''
+        next.expressionIsCustom = false
+    }
     if (field === 'expression') {
         next.expressionIsCustom = true
     }

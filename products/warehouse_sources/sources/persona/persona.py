@@ -252,17 +252,21 @@ def _child_list_rows(
     parent_id = parent["id"]
     rows: list[dict[str, Any]] = []
     after: str | None = None
+    path = child_list.path.format(parent_id=parent_id)
     while True:
-        params: dict[str, Any] = {f"filter[{child_list.parent_filter}]": parent_id, "page[size]": PAGE_SIZE}
+        params: dict[str, Any] = {}
+        if child_list.parent_filter is not None:
+            params[f"filter[{child_list.parent_filter}]"] = parent_id
+        params["page[size]"] = PAGE_SIZE
         if after is not None:
             params["page[after]"] = after
-        url = _build_url(f"{PERSONA_BASE_URL}{child_list.path}", params)
+        url = _build_url(f"{PERSONA_BASE_URL}{path}", params)
         try:
             data = _fetch_page(session, url, headers, logger)
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code == 404:
                 # The parent can be deleted between the list page and this call.
-                logger.warning(f"Persona: {child_list.path} for {parent_id} returned 404, skipping")
+                logger.warning(f"Persona: {path} for {parent_id} returned 404, skipping")
                 return rows
             raise
 
@@ -272,7 +276,8 @@ def _child_list_rows(
             row[child_list.parent_key] = parent_id
             rows.append(row)
 
-        if not items or not data.get("links", {}).get("next"):
+        # Report history sends `"links": null` on its last page.
+        if not items or not (data.get("links") or {}).get("next"):
             return rows
         after = items[-1]["id"]
 

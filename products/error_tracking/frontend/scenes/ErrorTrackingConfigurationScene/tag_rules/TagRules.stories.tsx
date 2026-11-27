@@ -15,6 +15,7 @@ const RULES: ErrorTrackingTagRule[] = [
         key: 'rule_0193a3f000007000800000000001',
         label: 'Checkout',
         description: 'Errors raised on the checkout pages.',
+        color: 'teal',
         filters: {
             type: FilterLogicalOperator.And,
             values: [
@@ -36,6 +37,7 @@ const RULES: ErrorTrackingTagRule[] = [
         key: 'rule_0193a3f000007000800000000002',
         label: 'Unhandled errors in old Safari and Firefox versions that customers still report',
         description: '',
+        color: null,
         filters: {
             type: FilterLogicalOperator.Or,
             values: [
@@ -63,6 +65,7 @@ const RULES: ErrorTrackingTagRule[] = [
         key: 'rule_0193a3f000007000800000000003',
         label: 'Large orders',
         description: 'Errors on orders above 1,000.',
+        color: 'orange',
         filters: {
             type: FilterLogicalOperator.And,
             values: [

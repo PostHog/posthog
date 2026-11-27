@@ -2,6 +2,13 @@ version: 1
 owners: []
 rules:
     - match:
+          - '/tag_management.py'
+          - '/tag_management_access.py'
+          - '/test/test_tag_management.py'
+          - '/api/tag_definition.py'
+          - '/api/test/test_tag_definition.py'
+      owners: team-platform-features
+    - match:
           - '/admin/console/member_email_migration.py'
           - '/admin/console/organization_sign_in_panels.py'
           - '/admin/test_organization_sign_in_panels.py'
@@ -32,6 +39,8 @@ rules:
       owners: team-billing
     - match: '/heatmaps/'
       owners: team-analytics
+    - match: ['/helpers/ai_signup_attribution.py', '/helpers/tests/test_ai_signup_attribution.py']
+      owners: team-growth
     - match: '/hogql/'
       owners: team-data-tools
     - match:
@@ -93,8 +102,10 @@ rules:
     - match:
           - '/quota_redis.py'
           - '/quota_migration.py'
+          - '/quota_spine_comparison.py'
           - '/test/test_quota_migration.py'
           - '/test/test_quota_redis.py'
+          - '/test/test_quota_spine_comparison.py'
           - '/usage_ingestion/test_*.py'
       owners: team-billing
     - match:

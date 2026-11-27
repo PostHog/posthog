@@ -17,6 +17,8 @@ MENTION_ENDPOINTS: dict[str, MentionEndpointConfig] = {
     # Tag ids are documented as unique identifiers, but uniqueness scope (alert vs account) is not
     # stated, so the parent alert id stays in the composite key.
     "alert_tags": MentionEndpointConfig(name="alert_tags", primary_keys=["alert_id", "id"]),
+    # Share ids are documented without a uniqueness scope, so the parent alert id stays in the key.
+    "alert_shares": MentionEndpointConfig(name="alert_shares", primary_keys=["alert_id", "id"]),
     # Mentions fan out per alert and each row natively carries `alert_id`; the composite key keeps
     # the same content matched by two alerts as two distinct rows.
     "mentions": MentionEndpointConfig(name="mentions", primary_keys=["alert_id", "id"]),

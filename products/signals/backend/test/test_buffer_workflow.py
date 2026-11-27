@@ -201,6 +201,7 @@ async def test_safety_failure_requeues_only_failed_signals(mixed_batch: bool):
 
 
 @pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize("batch_size,include_healthy,expires", [(1, False, False), (20, True, False), (20, True, True)])
 async def test_provider_usage_limit_preserves_signals_until_recovery_or_expiry(
     batch_size: int, include_healthy: bool, expires: bool

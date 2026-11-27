@@ -9,19 +9,17 @@ import html
 import time
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, wait
-from http.client import HTTPException
 from typing import Any
 from urllib.parse import urlsplit
 
-import requests
 import structlog
-from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from posthog.models import Team, User
 from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL, ObjectStorageUnavailable, UploadedMedia, sniff_image
 
 from products.workflows.backend.facade.contracts import ImageBudget, ImportNote, RehostedWorkflow
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel
+from products.workflows.backend.services.remote_images import fetch_image
 
 logger = structlog.get_logger(__name__)
 
@@ -38,7 +36,6 @@ _ASSET_URL = re.compile(
 _ASSET_HOST_SUFFIX = ".customeriomail.com"
 _LINK_ATTRIBUTE = re.compile(r"href\s*=\s*[\"']?$", re.IGNORECASE)
 _MAX_BYTES = 4 * 1024 * 1024
-_TIMEOUT_SECONDS = 10
 _DOWNLOAD_THREADS = 4
 
 
@@ -176,31 +173,10 @@ def _download(url: str, deadline: float) -> bytes | None:
         or parts.port is not None
     ):
         return None
-    try:
-        with requests.get(
-            source,
-            timeout=_TIMEOUT_SECONDS,
-            allow_redirects=False,
-            stream=True,
-            headers={"Accept-Encoding": "identity"},
-        ) as response:
-            if response.status_code != 200:
-                logger.info("workflows.import.image_download_failed", status=response.status_code)
-                return None
-            # `read1` returns what one socket read gives, so a host that sends a byte at a time can't hold the
-            # thread past the deadline. A buffered read waits until it has the whole chunk.
-            read = getattr(getattr(response.raw, "_fp", None), "read1", None) or response.raw.read
-            content = b""
-            while chunk := read(16 * 1024):
-                content += chunk
-                if len(content) > _MAX_BYTES or time.monotonic() > deadline:
-                    logger.info("workflows.import.image_download_failed", reason="too_large_or_slow")
-                    return None
-            return content
-    # The raw read raises socket and HTTP errors itself, outside what requests wraps.
-    except (requests.RequestException, OSError, HTTPException, Urllib3HTTPError) as error:
-        logger.info("workflows.import.image_download_failed", error=type(error).__name__)
-        return None
+    fetched = fetch_image(source, deadline=deadline, max_bytes=_MAX_BYTES)
+    if fetched.content is None:
+        logger.info("workflows.import.image_download_failed", status=fetched.status, reason=fetched.failure)
+    return fetched.content
 
 
 def _asset_urls(body: str) -> list[str]:

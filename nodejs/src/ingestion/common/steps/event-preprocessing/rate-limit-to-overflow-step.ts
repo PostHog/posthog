@@ -83,7 +83,7 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
 
         return inputs.map((input, index) => {
             if (keysToRedirect.has(perInputKeys[index])) {
-                return redirect('rate_limit_exceeded', OVERFLOW_OUTPUT, preservePartitionLocality)
+                return redirect('rate_limit_exceeded', OVERFLOW_OUTPUT, { preserveKey: preservePartitionLocality })
             }
             return ok(input)
         })

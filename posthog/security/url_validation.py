@@ -203,6 +203,19 @@ def canonicalize_host(host: str) -> str:
 _canonicalize_host = canonicalize_host
 
 
+def browser_host(url: str) -> str | None:
+    """The canonical host a browser contacts for this URL, or None when it has none.
+
+    Browsers drop userinfo and the port, percent-decode the host and apply IDNA mapping, so
+    "https://x@EXAMPLE%2Ecom:443" and "https://example。com" reach the same server as "https://example.com".
+    """
+    try:
+        hostname = urlparse.urlparse(url).hostname
+    except ValueError:
+        return None
+    return canonicalize_host(urlparse.unquote(hostname)) if hostname else None
+
+
 def _host_shape_error(host: str) -> str | None:
     """Reason to reject a host on its form alone, or None when the form is usable.
 

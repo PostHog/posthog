@@ -1,4 +1,7 @@
+import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
@@ -10,6 +13,23 @@ from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandS
 from products.aeo.backend.facts import write_facts
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
 from products.aeo.backend.stored_results import bump_data_version_on_commit
+
+from ee.billing.quota_limiting import (
+    QuotaLimitingCaches,
+    QuotaResource,
+    add_limited_team_tokens,
+    remove_limited_team_tokens,
+)
+
+
+@contextmanager
+def ai_credits_used_up(team: Team) -> Iterator[None]:
+    cache = QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    add_limited_team_tokens(QuotaResource.AI_CREDITS, {team.api_token: int(time.time()) + 3600}, cache)
+    try:
+        yield
+    finally:
+        remove_limited_team_tokens(QuotaResource.AI_CREDITS, [team.api_token], cache)
 
 
 def create_own_brand(team: Team, domain: str) -> None:

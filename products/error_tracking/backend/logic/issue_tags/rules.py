@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 from typing import Any
 
 from django.db import connection, transaction
@@ -40,6 +41,15 @@ class IssueTagRuleLimitError(Exception):
     pass
 
 
+class Unchanged(Enum):
+    """The default of an update argument whose None is a value, so an omitted argument keeps the stored value."""
+
+    UNCHANGED = "unchanged"
+
+
+UNCHANGED = Unchanged.UNCHANGED
+
+
 @frozen
 class _CompiledRuleFilters:
     filters: dict
@@ -64,7 +74,14 @@ def get_issue_tag_rule(team_id: int, rule_id: str, user: User) -> ErrorTrackingI
 
 
 def create_issue_tag_rule(
-    team_id: int, user: User, *, label: str, description: str, filters: dict, order_key: int = 0
+    team_id: int,
+    user: User,
+    *,
+    label: str,
+    description: str,
+    filters: dict,
+    order_key: int = 0,
+    color: str | None = None,
 ) -> ErrorTrackingIssueTagRule:
     require_issue_tags(team_id)
     compiled = _normalize_and_compile(team_id, filters)
@@ -86,6 +103,7 @@ def create_issue_tag_rule(
             team_id=canonical_team_id,
             label=label,
             description=description,
+            color=color,
             filters=compiled.filters,
             bytecode=compiled.bytecode,
             order_key=order_key,
@@ -100,6 +118,7 @@ def update_issue_tag_rule(
     label: str | None = None,
     description: str | None = None,
     filters: dict | None = None,
+    color: str | None | Unchanged = UNCHANGED,
 ) -> ErrorTrackingIssueTagRule | None:
     """Apply the given fields. Return None when the team has no such rule that `user` can see.
 
@@ -135,6 +154,8 @@ def update_issue_tag_rule(
             rule.label = label
         if description is not None:
             rule.description = description
+        if color is not UNCHANGED:
+            rule.color = color
         rule.save()
     return rule
 
