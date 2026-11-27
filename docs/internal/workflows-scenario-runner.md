@@ -274,6 +274,7 @@ Each card is drawn from a failure class on the delivery path.
 | `cyclotron-failover-under-load`    | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` at 15 minutes for 30 minutes, in a 75-minute drive                                                                                                                           | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | A Cyclotron writer failover under load                        |
 | `cyclotron-scale`                  | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x and 5x, then hold 10x for 30 minutes, with the bars `writer_cpu_under` 70% and `pickup_p99_under` 5 seconds                                                           | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | Cyclotron falling behind at 10x load                          |
 | `cyclotron-breaking-point`         | `event_email`, `event_webhook`, `transactional_email` | none; 80 teams, and the rates ramp through 10x, 20x, 40x, 80x, 160x, 240x and 320x for 2 minutes each and stop only at a hard failure, with the same bars as `cyclotron-scale`                            | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0), `resident_backlog_intact` | The load at which Cyclotron first breaks                      |
+| `cyclotron-autovacuum-soak`        | `event_email`, `event_webhook`, `transactional_email` | none; it holds 10x for 80 minutes on the profile's autovacuum settings, with the same bars as `cyclotron-scale`, and measures how `cyclotron_jobs` bloats and how autovacuum keeps up                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0), `resident_backlog_intact` | Autovacuum falling behind a long 10x load                     |
 
 `chaos-under-load` runs event email, event webhooks and transactional email at steady profile rates against the provider edge. It gives ambiguous provider responses, refused enqueues, lost commit replies and an email worker kill separate windows. Each run judges `no_loss` from the edge's delivery records and measures `counter_drift`. The pair compares the whole-run verdicts. The `faults.json` evidence shows which valves fired and the targets observed in each window. To run the pair locally, use `pnpm --dir nodejs exec tsx tests/scenarios/main.ts run chaos-under-load --pair`.
 
@@ -628,6 +629,8 @@ A profile has a `name`, per-traffic-kind rates under `traffic`, and role environ
 Settings whose name starts with `KAFKA_PRODUCER_` configure the runner's load producer, which sends the generator's events to Kafka.
 Every role gets every setting too, but no CDP role reads that prefix: the roles build their producers from `KAFKA_CDP_PRODUCER_*` and the per-producer config maps.
 A scorecard records the profile's name and hash, never its numbers.
+`postgres.autovacuum` names autovacuum and vacuum settings, and `maintenance_work_mem`, with the values the card expects on the Cyclotron database. The runner applies none of them.
+`autovacuum_settings_differ` compares them with the values the vacuum probe read, in any unit PostgreSQL accepts. `count` is the number that differ, and each differing setting gets its own key.
 
 ### Runner
 
