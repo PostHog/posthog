@@ -1711,7 +1711,9 @@ class TestAddActionStats:
             pytest.param([b"abc", b"\xe9t\xe9"], "abc", "\ua000", id="latin_1_max_invalid_at_its_first_byte"),
             pytest.param([b"\x80abc"], "", "\u0080", id="max_starts_with_a_continuation_byte"),
             pytest.param([b"\xc3("], "", "\u0100", id="max_starts_with_a_cut_two_byte_character"),
+            pytest.param([b"\xdf("], "", "\u0800", id="max_below_the_three_byte_range"),
             pytest.param([b"\xef\xff"], "", "\U00010000", id="max_starts_with_a_cut_three_byte_character"),
+            pytest.param([b"\xf0("], "", "\U00040000", id="max_starts_with_a_cut_four_byte_character"),
             pytest.param([b"\xf4ter"], "", "\U0010ffff", id="latin_1_max_at_the_highest_lead_byte"),
             pytest.param([b"\xf4\x8f\xbf"], "", "\U0010ffff", id="cut_max_code_point"),
             pytest.param(
