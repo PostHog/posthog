@@ -47,13 +47,11 @@ def date_offset(
 def date_moved_by_whole_days(
     node: ast.Expr, *, resolve_type: Callable[[ast.Expr], ast.ConstantType | None]
 ) -> ast.DateType | None:
-    if not isinstance(node, ast.ArithmeticOperation) or node.op not in (
-        ast.ArithmeticOperationOp.Add,
-        ast.ArithmeticOperationOp.Sub,
-    ):
+    operands = _sum_or_difference(node)
+    if operands is None:
         return None
-    date, interval = node.left, node.right
-    if node.op == ast.ArithmeticOperationOp.Add and _is_whole_day_interval(date):
+    date, interval, subtract = operands
+    if not subtract and _is_whole_day_interval(date):
         date, interval = interval, date
     date_type = resolve_type(date)
     if not isinstance(date_type, ast.DateType) or not _is_whole_day_interval(interval):
@@ -62,6 +60,17 @@ def date_moved_by_whole_days(
     return ast.DateType(
         nullable=date_type.nullable or any(amount_type and amount_type.nullable for amount_type in amount_types)
     )
+
+
+def _sum_or_difference(node: ast.Expr) -> tuple[ast.Expr, ast.Expr, bool] | None:
+    if isinstance(node, ast.ArithmeticOperation) and node.op in (
+        ast.ArithmeticOperationOp.Add,
+        ast.ArithmeticOperationOp.Sub,
+    ):
+        return node.left, node.right, node.op == ast.ArithmeticOperationOp.Sub
+    if isinstance(node, ast.Call) and node.name.lower() in {"plus", "minus"} and len(node.args) == 2:
+        return node.args[0], node.args[1], node.name.lower() == "minus"
+    return None
 
 
 def _is_whole_day_interval(node: ast.Expr) -> TypeGuard[ast.Call]:

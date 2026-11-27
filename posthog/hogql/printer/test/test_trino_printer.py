@@ -606,6 +606,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
             'date_add(\'day\', CAST("users"."id" AS BIGINT), (CAST("users"."created_at" AS DATE) - ',
         ),
         ("INTERVAL 1 MONTH + toDate(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), ("),
+        ("minus(toDate(created_at), INTERVAL 27 DAY) + id", 'date_add(\'day\', CAST("users"."id" AS BIGINT), '),
         (
             "minOrDefaultIf(toDate(created_at) + toIntervalDay(toNullable(id)), id > 1)",
             'FILTER (WHERE (("users"."id" > 1))), NULL)',
