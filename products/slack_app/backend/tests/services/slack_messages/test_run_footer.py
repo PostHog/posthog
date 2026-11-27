@@ -164,8 +164,9 @@ class TestLoadRunFooter(SimpleTestCase):
         [
             ("posthog_credits_add_billed_compute", {}, Decimal("0.25"), Decimal("1.25")),
             ("posthog_credits_without_billed_compute", {}, Decimal(0), Decimal("1.00")),
-            ("own_plan_shows_only_billed_compute", OWN_PLAN_STATE, Decimal("0.25"), Decimal("0.25")),
-            ("own_plan_without_billed_compute_shows_no_cost", OWN_PLAN_STATE, Decimal(0), None),
+            # A thread can switch plans between runs, so an own-plan run shows no cost rather than a
+            # compute-only figure that hides earlier model spend.
+            ("own_plan_shows_no_cost", OWN_PLAN_STATE, Decimal("0.25"), None),
         ]
     )
     @patch("products.tasks.backend.facade.billing.get_task_compute_cost")

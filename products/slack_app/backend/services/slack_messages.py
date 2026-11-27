@@ -847,35 +847,32 @@ def load_run_footer(
             plan=plan,
             chart_links=bool((run.state or {}).get("slack_chart_links")),
             progress_message_ts=(run.state or {}).get(SLACK_PROGRESS_MESSAGE_TS_KEY),
-            thread_cost_usd=_thread_cost(run, own_plan=plan is not None) if include_thread_cost else None,
+            # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing. A
+            # thread can switch plans between runs, so a compute-only figure here would mislead too.
+            thread_cost_usd=_thread_cost(run) if include_thread_cost and plan is None else None,
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
 
 
-def _thread_cost(run: "TaskRunDTO", *, own_plan: bool) -> Decimal | None:
-    """What PostHog credits paid for the thread's task so far, or `None` when unknown or nothing.
+def _thread_cost(run: "TaskRunDTO") -> Decimal | None:
+    """What PostHog credits paid for the thread's task so far, or `None` when unknown.
 
     Reads the same model spend that PostHog Desktop shows. It sums the task's `$ai_generation`
     events, which arrive with a short delay and are cached for a minute, so the newest requests
     can be missing here. A later reply's total then includes them.
 
     The sandbox compute counts only when a credits meter bills it, which for a Slack task means that
-    AI_CREDITS_COMPUTE_BILLED_ORIGINS lists `slack`. A run on someone's own plan does not pay for
-    models with PostHog credits, so only that compute counts, and a run with no billed compute shows
-    no cost at all. That path does not query the model spend that it would discard.
+    AI_CREDITS_COMPUTE_BILLED_ORIGINS lists `slack`.
     """
     from products.tasks.backend.facade.billing import get_task_compute_cost, get_task_token_cost  # noqa: PLC0415
 
+    if run.task_created_at is None:
+        return None
     try:
-        compute_cost = get_task_compute_cost(team_id=run.team_id, task_id=run.task_id).cost_usd
-        if own_plan:
-            return compute_cost or None
-        if run.task_created_at is None:
-            return None
         token_cost = get_task_token_cost(team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at)
-        return token_cost + compute_cost
+        return token_cost + get_task_compute_cost(team_id=run.team_id, task_id=run.task_id).cost_usd
     except Exception:
         # Its own guard, like `_project_name`: a failed lookup costs the reader one segment.
         logger.warning("slack_app_thread_cost_load_failed", task_id=str(run.task_id), exc_info=True)
