@@ -963,7 +963,11 @@ describe('valves', () => {
                             boundaryHeld()
                             return Promise.resolve(edge.hold(action.rule))
                         }
-                        if (action.kind !== 'kill' || action.role !== EMAIL_WORKER || !running) {
+                        if (
+                            (action.kind !== 'kill' && action.kind !== 'terminate') ||
+                            action.role !== EMAIL_WORKER ||
+                            !running
+                        ) {
                             return Promise.reject(new Error(`${EMAIL_WORKER} is not running`))
                         }
                         sentWhenKilled.push(edge.sent.length)
@@ -1095,24 +1099,38 @@ describe('valves', () => {
             })
         })
 
-        it('kills nothing and answers the held send when SES took it with less than its hold left in the drive', async () => {
+        it.each<[string, Partial<ValveEntry>, number, string, number[], string]>([
+            [
+                'kills nothing and answers the held send when SES took it with less than its hold left in the drive',
+                { for: '1m' },
+                30_000,
+                'sent',
+                [],
+                'never applied: edge_accepted on ses came with less than 1m left in the drive',
+            ],
+            [
+                'leaves a terminate unobserved when the run released it before its hold ended',
+                { for: '1m', valve: 'role.terminate', dose: { grace: '20s' } },
+                120_000,
+                'AbortError',
+                [1],
+                'released before its 1m hold ended',
+            ],
+        ])('%s', async (_story, entry, endsInMs, answered, sentWhenKilled, error) => {
             const valves = createValves({ pollMs: 5 })
             const stack = withWorker(true)
 
-            await valves.start([{ ...killAfterAccept, for: '1m' }], { ...stack.context, endsAt: Date.now() + 30_000 })
+            await valves.start([{ ...killAfterAccept, ...entry }], { ...stack.context, endsAt: Date.now() + endsInMs })
             await stack.held
-            const answered = await send(stack.worker)
+            const outcome = await send(stack.worker)
             await valves.releaseAll()
 
             expect({
-                answered,
+                answered: outcome,
                 sentWhenKilled: stack.sentWhenKilled,
                 error: valves.timeline()[0].error,
-            }).toEqual({
-                answered: 'sent',
-                sentWhenKilled: [],
-                error: 'never applied: edge_accepted on ses came with less than 1m left in the drive',
-            })
+                observed: valves.timeline()[0].observedAt !== undefined,
+            }).toEqual({ answered, sentWhenKilled, error, observed: false })
         })
 
         it.each<[string, string, boolean]>([
