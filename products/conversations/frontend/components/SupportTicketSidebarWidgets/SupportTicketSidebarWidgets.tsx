@@ -7,7 +7,7 @@ import { AIPanel } from '../../scenes/ticket/AIPanel'
 import { ExceptionsPanel } from '../../scenes/ticket/ExceptionsPanel'
 import { PreviousTicketsPanel } from '../../scenes/ticket/PreviousTicketsPanel'
 import { RecentEventsPanel } from '../../scenes/ticket/RecentEventsPanel'
-import { RelatedGroupsPanel } from '../../scenes/ticket/RelatedGroupsPanel'
+import { RelatedGroupsPanel, relatedGroupsPersonUuid } from '../../scenes/ticket/RelatedGroupsPanel'
 import { SessionRecordingPanel } from '../../scenes/ticket/SessionRecordingPanel'
 import { StaffActionsPanel } from '../../scenes/ticket/StaffActionsPanel'
 import { supportTicketSceneLogic } from '../../scenes/ticket/supportTicketSceneLogic'
@@ -26,12 +26,14 @@ export function SupportTicketSidebarWidgets({ ticketId }: { ticketId: string }):
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
     const isWidgetTicket = ticket?.channel_source === 'widget'
 
+    const personUuid = relatedGroupsPersonUuid(ticket, person?.uuid)
+
     const slots: TicketSidebarWidgetSlots = {
         related_groups: {
             content:
-                person?.uuid || ticket?.organization_id ? (
+                personUuid || ticket?.organization_id ? (
                     <RelatedGroupsPanel
-                        personUuid={person?.uuid}
+                        personUuid={personUuid}
                         organizationId={ticket?.organization_id}
                         organizationIdSource={ticket?.organization_id_source}
                     />
