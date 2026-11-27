@@ -21,9 +21,9 @@ function give(overshootPx: number, bothWays: boolean): number {
 }
 
 /**
- * Shows that a tile being resized has reached its minimum size, or cannot change height at all. An overlay over the tile is outlined, and while the
- * pointer keeps pushing past the edge, it gives way a little toward the pointer, like a rubber band. The overlay is
- * drawn over the tile, so the tile and the layout never move.
+ * Shows that a tile being resized has reached its minimum size, or cannot change height at all. An overlay over the
+ * tile is outlined, and while the pointer keeps pushing past the edge, it gives way a little toward the pointer, like
+ * a rubber band. The overlay is drawn over the tile, so the tile and the layout never move.
  */
 export function showResizeFeedback(tile: HTMLElement, item: LayoutItem, handle: string, event: Event): void {
     const atMinWidth = item.w <= (item.minW ?? 1)

@@ -29,8 +29,7 @@ import { TileContextMenu, hasTileMenu } from './TileContextMenu'
 import { isPartShown } from './tileParts'
 
 export const INTERACTIVE_ONLY_CLASS = 'dash-ContentTile--interactive-only'
-/** An image has no hover, so it leaves the description icon out and shows the description under the title instead. */
-/** On a description's text that only an image or a printed page shows, in place of the icon. */
+/** On a description's text that only an image or a printed page shows, because neither has a hover to open the icon. */
 export const DESCRIPTION_IMAGE_ONLY_CLASS = 'dash-ContentTile__description--image-only'
 export const DESCRIPTION_ICON_CLASS = 'dash-ContentTile__description-icon'
 

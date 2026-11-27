@@ -190,6 +190,19 @@ describe('dashboardEdits', () => {
         expect(findTile(view(later), 'group')!.place.h).toEqual(expected)
     })
 
+    it.each([
+        { name: 'an open section a row for a description below its title', mode: 'below', collapsed: false, rows: 12 },
+        { name: 'a closed section a row for a description below its title', mode: 'below', collapsed: true, rows: 4 },
+        { name: 'no row for a description in an icon', mode: 'icon', collapsed: true, rows: 3 },
+    ] as const)('gives $name', ({ mode, collapsed, rows }) => {
+        const saved = section('group', 0, 0, 24, [text('inside', 0, 0, 24, 8)])
+        const panel = { ...saved.panel, collapsed, description: 'What it groups', appearance: { description: mode } }
+
+        const board = dashboard([{ ...saved, panel } as Tile])
+
+        expect(findTile(board, 'group')!.place.h).toEqual(rows)
+    })
+
     it('scales the tiles in a section made narrower, nested sections included, keeping each at its minimum width', () => {
         const board = dashboard([
             section('s', 0, 0, 24, [
