@@ -449,6 +449,13 @@ class SourceConfigResponse(SourceConfig):
             " the source has no CDC."
         ),
     )
+    supportsXmin: bool = Field(
+        default=False,
+        description=(
+            "Whether the source can sync tables with xmin replication. Each table still needs a"
+            " primary key and a physical `xmin` column, which the schema API checks per table."
+        ),
+    )
     tables: list[SourceDocumentedTable] | None = Field(
         default=None,
         description=(

@@ -1828,7 +1828,7 @@ class TestExperimentService(APIBaseTest):
             experiment,
             {
                 "name": "Same Key OK",
-                "get_feature_flag_key": experiment.feature_flag.key,
+                "feature_flag_key": experiment.feature_flag.key,
             },
         )
 
@@ -1856,7 +1856,7 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(
                 experiment,
                 {
-                    "get_feature_flag_key": "different-key",
+                    "feature_flag_key": "different-key",
                 },
             )
 
