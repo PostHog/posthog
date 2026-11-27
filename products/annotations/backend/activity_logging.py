@@ -12,6 +12,7 @@ from posthog.event_usage import report_user_action
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
+from products.annotations.backend.facade.enums import AnnotationScope
 from products.annotations.backend.models.annotation import Annotation
 
 
@@ -47,6 +48,16 @@ def handle_annotation_change(
         recording_id=after_update.recording_id,
     )
 
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    name = after_update.content
+    # The activity log is readable by the whole project, so the text of a personal annotation stays out of it.
+    if AnnotationScope.USER in (after_update.scope, getattr(before_update, "scope", None)):
+        changes = [
+            dataclasses.replace(change, before=None, after=None) if change.field == "content" else change
+            for change in changes
+        ]
+        name = None
+
     log_activity(
         organization_id=after_update.organization_id or after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -56,8 +67,8 @@ def handle_annotation_change(
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.content,
+            changes=changes,
+            name=name,
             context=context,
         ),
     )

@@ -2069,7 +2069,7 @@
             "type": "object"
         },
         "AnnotationScope": {
-            "enum": ["dashboard_item", "dashboard", "project", "organization"],
+            "enum": ["dashboard_item", "dashboard", "project", "organization", "user"],
             "type": "string"
         },
         "AnyAssistantGeneratedQuery": {

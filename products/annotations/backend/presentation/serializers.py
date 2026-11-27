@@ -206,8 +206,9 @@ class AnnotationSerializer(serializers.Serializer):
         choices=AnnotationScope.choices,
         required=False,
         help_text=(
-            "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. "
-            "`recording` is deprecated and rejected."
+            "Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `user`. "
+            "`user` makes the annotation personal: only the user who created it sees it, on every chart in the "
+            "project. Only the creator can set `user`. `recording` is deprecated and rejected."
         ),
     )
     emoji = serializers.CharField(

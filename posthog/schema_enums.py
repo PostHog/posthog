@@ -199,6 +199,7 @@ class AnnotationScope(StrEnum):
     DASHBOARD = "dashboard"
     PROJECT = "project"
     ORGANIZATION = "organization"
+    USER = "user"
 
 
 class AppleSearchAdsDefaultSources(StrEnum):

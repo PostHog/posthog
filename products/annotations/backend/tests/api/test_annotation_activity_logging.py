@@ -32,6 +32,15 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(update_log)
         self.assertIsNotNone(update_log.detail)
 
+    def test_personal_annotation_text_stays_out_of_the_activity_log(self):
+        annotation = self.create_annotation("Private note", scope="user")
+        self.update_annotation(annotation["id"], {"content": "Still private"})
+
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]))
+
+        assert sorted(log.activity for log in logs) == ["created", "updated"]
+        assert "Private" not in str([log.detail for log in logs])
+
     def test_annotation_project_scope_context(self):
         """Test annotation with project scope includes correct context."""
         annotation = self.create_annotation(content="Project annotation", scope=AnnotationScope.PROJECT.value)

@@ -23,7 +23,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
-import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
+import { AnnotationScope, AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 
 import { annotationModalLogic, annotationScopeToName } from 'products/annotations/frontend/logics/annotationModalLogic'
 
@@ -499,8 +499,10 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
 
     const isSystemAnnotation = annotation.id === -1 || annotation.id === -2
     const heading = `${annotation.date_marker?.format('MMM DD, YYYY h:mm A')} (${shortTimeZone(timezone)}) – ${
-        annotationScopeToName[annotation.scope]
-    }-level`
+        annotation.scope === AnnotationScope.User
+            ? annotationScopeToName[annotation.scope]
+            : `${annotationScopeToName[annotation.scope]}-level`
+    }`
     const author =
         annotation.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : (annotation.created_by ?? undefined)
     const authorName = fullName(author)

@@ -3098,6 +3098,7 @@ export enum AnnotationScope {
     Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
+    User = 'user',
 }
 
 export interface RawAnnotationType {

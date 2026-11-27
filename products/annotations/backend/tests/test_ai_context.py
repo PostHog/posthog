@@ -49,6 +49,7 @@ class TestAnnotationContext(APIBaseTest):
         self._make_annotation("rolled out new home page", in_window)
         self._make_annotation("org-wide release", in_window, scope=AnnotationScope.ORGANIZATION)
         self._make_annotation("ancient", out_of_window)
+        self._make_annotation("personal note", in_window, scope=AnnotationScope.USER)
 
         result = get_annotations_for_ai_context(
             self.team,

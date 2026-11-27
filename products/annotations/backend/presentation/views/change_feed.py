@@ -77,6 +77,7 @@ class ChangeFeedViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team_id,
             organization_id=self.team.organization_id,
             user_is_staff=cast(User, request.user).is_staff,
+            viewer_id=request.user.id if isinstance(request.user, User) else None,
             window=ChangeWindow(start=query["date_from"], end=query["date_to"]),
             visibility=visibility,
             limit=query["limit"],

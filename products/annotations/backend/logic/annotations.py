@@ -29,6 +29,16 @@ from products.product_analytics.backend.facade.models import Insight
 _PARENT_FIELDS = ("id", "team_id", "created_by_id", "deleted")
 
 
+def personal_visibility(viewer_id: int | None) -> Q:
+    """Annotations other than the personal ones of someone who is not the viewer.
+
+    A caller without a user sees no personal annotations at all.
+    """
+    if viewer_id is None:
+        return ~Q(scope=AnnotationScope.USER)
+    return ~Q(scope=AnnotationScope.USER) | Q(created_by_id=viewer_id)
+
+
 def _with_relations() -> QuerySet[Annotation]:
     return Annotation.objects.select_related("dashboard_item").select_related("dashboard").select_related("created_by")
 
@@ -40,9 +50,13 @@ def _visible(
     organization_id: UUID,
     filters: AnnotationFilters,
     include_deleted: bool,
+    viewer_id: int | None,
     access: AnnotationAccess | None = None,
 ) -> QuerySet[Annotation]:
-    """The annotations a team can see: its own, and the organization-scoped ones of its organization."""
+    """The annotations a team can see: its own, and the organization-scoped ones of its organization.
+
+    Personal annotations are seen only by the user who created them.
+    """
     if not include_deleted:
         queryset = queryset.filter(deleted=False)
     # An annotation scoped to a soft-deleted insight or dashboard is hidden, so it cannot be edited or
@@ -64,7 +78,7 @@ def _visible(
         queryset = queryset.filter(Q(hidden_in_user_interface=False) | Q(hidden_in_user_interface__isnull=True))
     queryset = queryset.filter(
         Q(scope=AnnotationScope.ORGANIZATION, organization_id=organization_id) | Q(team_id=team_id)
-    )
+    ).filter(personal_visibility(viewer_id))
     if access is not None:
         if access.only_allowed:
             queryset = queryset.filter(Q(id__in=access.allowed_ids) | Q(created_by_id=access.viewer_id))
@@ -81,6 +95,7 @@ def list_annotations(
     organization_id: UUID,
     filters: AnnotationFilters,
     page: PageRequest,
+    viewer_id: int | None,
     access: AnnotationAccess | None = None,
 ) -> Page[Annotation]:
     # `date_marker` alone is not a total order, so limit-offset pages could repeat or drop rows.
@@ -91,6 +106,7 @@ def list_annotations(
         organization_id=organization_id,
         filters=filters,
         include_deleted=False,
+        viewer_id=viewer_id,
         access=access,
     )
     return select_page(queryset, page)
@@ -103,6 +119,7 @@ def get_annotation(
     annotation_id: int,
     filters: AnnotationFilters,
     include_deleted: bool,
+    viewer_id: int | None,
 ) -> Annotation:
     queryset = _visible(
         _with_relations(),
@@ -110,6 +127,7 @@ def get_annotation(
         organization_id=organization_id,
         filters=filters,
         include_deleted=include_deleted,
+        viewer_id=viewer_id,
     )
     try:
         return queryset.get(pk=annotation_id)
@@ -163,8 +181,24 @@ def _parent_after_write(
     return parent
 
 
-def _check_write(*, team_id: int, current: Annotation | None, write: AnnotationWrite) -> dict[str, Any]:
-    """Apply the parent rules to a write, and return the model fields it sets."""
+def _check_write(
+    *,
+    team_id: int,
+    current: Annotation | None,
+    write: AnnotationWrite,
+    created_by_id: int | None,
+    viewer_id: int | None,
+) -> dict[str, Any]:
+    """Apply the parent and scope rules to a write, and return the model fields it sets."""
+    # Making someone else's annotation personal would hide it from everyone but its creator, and a
+    # personal annotation without a creator would be hidden from everyone.
+    if (
+        "scope" in write.fields_set
+        and write.scope == AnnotationScope.USER
+        and (created_by_id is None or created_by_id != viewer_id)
+    ):
+        raise AnnotationWriteRejectedError("scope", "Only the creator of an annotation can make it personal.")
+
     dashboard = _parent_after_write(
         write=write,
         field="dashboard_id",
@@ -228,14 +262,22 @@ def _check_write(*, team_id: int, current: Annotation | None, write: AnnotationW
 def create_annotation(
     *, team_id: int, organization_id: UUID, created_by_id: int | None, write: AnnotationWrite
 ) -> Annotation:
-    changes = _check_write(team_id=team_id, current=None, write=write)
+    changes = _check_write(
+        team_id=team_id, current=None, write=write, created_by_id=created_by_id, viewer_id=created_by_id
+    )
     return Annotation.objects.create(
         organization_id=organization_id, team_id=team_id, created_by_id=created_by_id, **changes
     )
 
 
 def update_annotation(
-    *, team_id: int, organization_id: UUID, annotation_id: int, write: AnnotationWrite, include_deleted: bool
+    *,
+    team_id: int,
+    organization_id: UUID,
+    annotation_id: int,
+    write: AnnotationWrite,
+    include_deleted: bool,
+    viewer_id: int | None,
 ) -> Annotation:
     annotation = get_annotation(
         team_id=team_id,
@@ -243,8 +285,15 @@ def update_annotation(
         annotation_id=annotation_id,
         filters=AnnotationFilters(),
         include_deleted=include_deleted,
+        viewer_id=viewer_id,
     )
-    changes = _check_write(team_id=team_id, current=annotation, write=write)
+    changes = _check_write(
+        team_id=team_id,
+        current=annotation,
+        write=write,
+        created_by_id=annotation.created_by_id,
+        viewer_id=viewer_id,
+    )
     # The project the write comes from takes the annotation over, so an organization-scoped one that is
     # narrowed to a project stays visible in the project it was edited from.
     annotation.team_id = team_id
@@ -272,8 +321,9 @@ def list_dated_annotations(
 ) -> list[tuple[Annotation, datetime]]:
     """Non-empty annotations the team can see, marked in the window, newest first.
 
-    Every scope counts, unlike the AI context of one insight or dashboard. An annotation without a
-    date marker is placed at its creation time.
+    Every shared scope counts, unlike the AI context of one insight or dashboard. Personal annotations
+    are left out, because the result is shown to the whole team. An annotation without a date marker
+    is placed at its creation time.
     """
     annotations = (
         Annotation.objects.filter(
@@ -282,6 +332,7 @@ def list_dated_annotations(
             content__isnull=False,
         )
         .exclude(content="")
+        .exclude(scope=AnnotationScope.USER)
         .annotate(effective_date=Coalesce(F("date_marker"), F("created_at")))
         .filter(effective_date__gte=start, effective_date__lte=end)
         .order_by("-effective_date")[:limit]

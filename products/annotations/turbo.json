@@ -10,7 +10,8 @@
                 "backend/migrations/**",
                 "backend/scopes.py",
                 "backend/apps.py",
-                "backend/activity_logging.py"
+                "backend/activity_logging.py",
+                "backend/logic/hogql.py"
             ],
             "outputs": [],
             "cache": true

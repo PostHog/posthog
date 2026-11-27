@@ -78,16 +78,23 @@ def list_annotations(
     organization_id: UUID,
     filters: contracts.AnnotationFilters,
     page: PageRequest,
+    viewer_id: int | None = None,
     access: contracts.AnnotationAccess | None = None,
 ) -> Page[contracts.Annotation]:
     """One page of the live annotations the team can see, newest `date_marker` first.
 
     The team sees its own annotations and the organization-scoped ones of its organization. An
-    annotation scoped to a soft-deleted insight or dashboard is left out. `access` narrows the page
-    and its count to what the viewer's access control rules allow.
+    annotation scoped to a soft-deleted insight or dashboard is left out. Personal annotations are
+    kept only when `viewer_id` created them. `access` narrows the page and its count to what the
+    viewer's access control rules allow.
     """
     return annotations.list_annotations(
-        team_id=team_id, organization_id=organization_id, filters=filters, page=page, access=access
+        team_id=team_id,
+        organization_id=organization_id,
+        filters=filters,
+        page=page,
+        viewer_id=viewer_id,
+        access=access,
     ).map(_to_annotation)
 
 
@@ -98,10 +105,12 @@ def get_annotation(
     annotation_id: int,
     filters: contracts.AnnotationFilters | None = None,
     include_deleted: bool = False,
+    viewer_id: int | None = None,
 ) -> contracts.Annotation:
     """One annotation the team can see. Raises `AnnotationNotFoundError` when there is none.
 
-    A soft-deleted annotation is found only with `include_deleted`, which is how one is restored.
+    A soft-deleted annotation is found only with `include_deleted`, which is how one is restored. A
+    personal annotation is found only when `viewer_id` created it.
     """
     return _to_annotation(
         annotations.get_annotation(
@@ -110,6 +119,7 @@ def get_annotation(
             annotation_id=annotation_id,
             filters=filters or contracts.AnnotationFilters(),
             include_deleted=include_deleted,
+            viewer_id=viewer_id,
         )
     )
 
@@ -130,7 +140,7 @@ def create_annotation(
     """Create an annotation in the team. Raises `AnnotationWriteRejectedError` when the write breaks a rule.
 
     A new insight or dashboard pointer must name a parent of the team that is not soft-deleted, and
-    an insight or a dashboard scope needs the matching parent.
+    an insight or a dashboard scope needs the matching parent, and a personal scope needs a creator.
     """
     annotation = annotations.create_annotation(
         team_id=team_id, organization_id=organization_id, created_by_id=created_by_id, write=write
@@ -145,12 +155,13 @@ def update_annotation(
     annotation_id: int,
     write: contracts.AnnotationWrite,
     include_deleted: bool = False,
+    viewer_id: int | None = None,
 ) -> contracts.Annotation:
     """Change the fields the write names. The annotation moves to `team_id`, the project it is edited from.
 
-    Raises `AnnotationNotFoundError` when the team cannot see the annotation, and
-    `AnnotationWriteRejectedError` when the write breaks a rule. Pass `include_deleted` to restore a
-    soft-deleted annotation.
+    Raises `AnnotationNotFoundError` when `viewer_id` in the team cannot see the annotation, and
+    `AnnotationWriteRejectedError` when the write breaks a rule, such as making someone else's
+    annotation personal. Pass `include_deleted` to restore a soft-deleted annotation.
     """
     annotation = annotations.update_annotation(
         team_id=team_id,
@@ -158,6 +169,7 @@ def update_annotation(
         annotation_id=annotation_id,
         write=write,
         include_deleted=include_deleted,
+        viewer_id=viewer_id,
     )
     return _to_annotation(annotation)
 
@@ -187,7 +199,7 @@ def list_dated_annotations(
 ) -> list[contracts.DatedAnnotation]:
     """Non-empty, live annotations the team can see, marked between `start` and `end`, newest first.
 
-    Every scope counts. An annotation without a date marker is placed at its creation time.
+    Every scope but the personal one counts. An annotation without a date marker is placed at its creation time.
     """
     return [
         contracts.DatedAnnotation(
@@ -235,15 +247,20 @@ def list_changes(
     team_id: int,
     organization_id: UUID,
     user_is_staff: bool,
+    viewer_id: int | None,
     window: contracts.ChangeWindow,
     visibility: dict[enums.ChangeKind, contracts.KindVisibility],
     limit: int,
 ) -> contracts.ChangeFeed:
-    """Recent production changes the caller may see, newest first. A kind missing from `visibility` is left out."""
+    """Recent production changes the caller may see, newest first. A kind missing from `visibility` is left out.
+
+    Personal annotations are kept only when `viewer_id` created them.
+    """
     return change_feed.list_changes(
         team_id=team_id,
         organization_id=organization_id,
         user_is_staff=user_is_staff,
+        viewer_id=viewer_id,
         window=window,
         visibility=visibility,
         limit=limit,
