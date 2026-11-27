@@ -4,7 +4,7 @@ import type {
     SignalScoutConfigApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { suggestionMetaLine, suggestionToCreateValues } from './scoutSuggestions'
+import { suggestionGoal, suggestionMetaLine, suggestionToCreateValues } from './scoutSuggestions'
 
 describe('scoutSuggestions', () => {
     describe('suggestionMetaLine', () => {
@@ -20,6 +20,29 @@ describe('scoutSuggestions', () => {
             ],
         ])('describes %j as %s', (config, expected) => {
             expect(suggestionMetaLine(config as ScoutSuggestionProposedConfigApi)).toBe(expected)
+        })
+    })
+
+    describe('suggestionGoal', () => {
+        const evidence = 'Checkout recorded 3.5% more errors this week. Nothing watches it.'
+        it.each([
+            [
+                'the goal',
+                { goal: ' Checks checkout errors daily. ', description: 'Watches checkout.' },
+                'Checks checkout errors daily.',
+            ],
+            [
+                'the description when the goal is blank',
+                { goal: '  ', description: 'Watches checkout.' },
+                'Watches checkout.',
+            ],
+            [
+                'the first sentence of the evidence when a stored batch has neither',
+                { description: '' },
+                'Checkout recorded 3.5% more errors this week.',
+            ],
+        ])('reads %s', (_case, fields, expected) => {
+            expect(suggestionGoal({ why_here: evidence, ...fields })).toBe(expected)
         })
     })
 

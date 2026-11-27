@@ -42,7 +42,7 @@ from products.stamphog.backend.facade import (
     api as facade_api,
     contracts,
 )
-from products.stamphog.backend.facade.enums import ReviewRequestRefusal, ReviewTrigger
+from products.stamphog.backend.facade.enums import BroadcastRequestSource, ReviewRequestRefusal, ReviewTrigger
 
 from ..facade import review_requests
 from ..facade.github import (
@@ -91,7 +91,16 @@ REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
 # pull requests with no reviewer at all, so both directions take manager. A fork label replaces a
 # team's review request on fork pull requests, so it decides who gets asked too.
 # The clean-review switch starts reviews outside review_mode, so it decides when reviews run as well.
-MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode", "routing_fork_labels", "review_on_clean_external_review")
+# Broadcast requests send pull requests to a Slack channel for people to review, so they decide who gets asked too.
+MANAGER_FIELDS = (
+    *REVIEW_POLICY_FIELDS,
+    "routing_mode",
+    "routing_fork_labels",
+    "review_on_clean_external_review",
+    "broadcast_enabled",
+    "broadcast_slack_channel_id",
+    "broadcast_slack_channel_name",
+)
 
 # How far back the owner list looks when the caller names no window.
 ROUTING_OWNERS_WINDOW = timedelta(days=90)
@@ -252,7 +261,8 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             return
         if level == "manager":
             raise PermissionDenied(
-                "Only a manager of code review auto-approval can turn reviews off, change when they run, or change reviewer requests. "
+                "Only a manager of code review auto-approval can turn reviews off, change when they run, or change "
+                "who gets asked to review. "
                 "Ask an organization admin for manager access."
             )
         raise PermissionDenied(
@@ -597,6 +607,7 @@ _REFUSAL_STATUS = {
     ReviewRequestRefusal.NOT_FOUND: 404,
     ReviewRequestRefusal.NOT_REVIEWABLE: 409,
     ReviewRequestRefusal.GITHUB_UNAVAILABLE: 503,
+    ReviewRequestRefusal.BROADCAST_OFF: 409,
 }
 
 
@@ -652,6 +663,9 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                 user_id=request.user.pk,
                 repository=serializer.validated_data["repository"],
                 pr_number=serializer.validated_data["pr_number"],
+                allow_broadcast=serializer.validated_data["allow_broadcast"],
+                note=serializer.validated_data["note"],
+                requested_via=BroadcastRequestSource.API,
             )
         except contracts.ReviewRequestRefusedError as error:
             raise ReviewRequestRefused(error)

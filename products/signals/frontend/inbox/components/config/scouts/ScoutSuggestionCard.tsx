@@ -1,18 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
-import { IconSparkles, IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconEllipsis, IconSparkles, IconX } from '@posthog/icons'
+import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { cn } from 'lib/utils/css-classes'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type { ScoutSuggestionItemApi } from 'products/signals/frontend/generated/api.schemas'
 
-import type { ScoutSuggestionSurface } from '../../../inboxAnalytics'
+import { captureScoutSuggestionDisclosureOpened, type ScoutSuggestionSurface } from '../../../inboxAnalytics'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
-import { suggestionMetaLine } from '../../../utils/scoutSuggestions'
+import { suggestionGoal, suggestionMetaLine } from '../../../utils/scoutSuggestions'
 import { useScoutCreateDisabledReason } from './ScoutCreateModalHost'
 
 export interface ScoutSuggestionCardProps {
@@ -21,9 +20,8 @@ export interface ScoutSuggestionCardProps {
 }
 
 /**
- * The row carries the motivation only, because the create form already
- * holds the draft, the schedule and the output setting, and is where editing happens. Pressing the
- * title opens that form, so a person reads the offer before anything is written.
+ * The row carries the goal and one action. The create form already holds the draft, the schedule and
+ * the output setting, so pressing the title or Review opens it before anything is written.
  */
 export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps): JSX.Element {
     const { busySuggestionIds } = useValues(scoutSuggestionsLogic)
@@ -34,22 +32,19 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
     const creationDisabledReason = useScoutCreateDisabledReason()
     const bodyDisabled = isBusy || (item.kind !== 'canonical' && creationDisabledReason !== null)
 
-    const [expanded, setExpanded] = useState(false)
-    const [overflowing, setOverflowing] = useState(false)
-    const motivationRef = useRef<HTMLDivElement>(null)
+    const [motivationOpen, setMotivationOpen] = useState(false)
     const motivationId = `scout-suggestion-motivation-${item.id}`
 
-    useLayoutEffect(() => {
-        const element = motivationRef.current
-        if (expanded || !element) {
-            return
+    const toggleMotivation = (): void => {
+        if (!motivationOpen) {
+            captureScoutSuggestionDisclosureOpened({
+                disclosure: 'why_this',
+                surface,
+                suggestion: { id: item.id, kind: item.kind, skillName: item.skill_name },
+            })
         }
-        const checkOverflow = (): void => setOverflowing(element.scrollHeight > element.clientHeight + 1)
-        checkOverflow()
-        const observer = new ResizeObserver(checkOverflow)
-        observer.observe(element)
-        return () => observer.disconnect()
-    }, [item.why_here, expanded])
+        setMotivationOpen(!motivationOpen)
+    }
 
     return (
         <div
@@ -65,39 +60,36 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
                     disabled={bodyDisabled}
                     onClick={() => openCreateFromSuggestion(item, surface, 'card')}
                     className={cn(
-                        'flex max-w-full flex-col items-start gap-1 text-left',
+                        'max-w-full text-left text-sm font-semibold leading-snug break-words',
                         !bodyDisabled && 'cursor-pointer'
                     )}
-                    // A name built from the children would also read every tag, for a press that only opens
-                    // the form.
+                    // The visible text is only the title, so the name also says what the press does.
                     aria-label={`${reviewActionLabel(item)}: ${item.title}`}
                     data-attr="scout-suggestion-body"
                 >
-                    <div className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="min-w-0 truncate text-sm font-semibold leading-snug">{item.title}</span>
-                        <SuggestionTags item={item} />
-                    </div>
+                    {item.title}
                 </button>
-                {/* Outside the row button, because the motivation can cite reports as links and a link
-                    inside a button is not valid HTML. */}
-                <div ref={motivationRef} id={motivationId} className={cn('max-w-full', !expanded && 'line-clamp-2')}>
+                {/* The goal and the evidence render outside the row button, because both can hold links and
+                    a link inside a button is not valid HTML. */}
+                <LemonMarkdown className="max-w-full text-xs leading-snug text-secondary" disableImages>
+                    {suggestionGoal(item)}
+                </LemonMarkdown>
+                <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-tertiary">
+                    <span>{suggestionMetaLine(item.proposed_config)}</span>
+                    <span aria-hidden>·</span>
+                    <Link
+                        onClick={toggleMotivation}
+                        aria-expanded={motivationOpen}
+                        aria-controls={motivationId}
+                        data-attr="scout-suggestion-motivation-toggle"
+                    >
+                        {motivationOpen ? 'Hide reason' : 'Why this?'}
+                    </Link>
+                </div>
+                <div id={motivationId} hidden={!motivationOpen} className="max-w-full border-l-2 border-primary pl-2">
                     <LemonMarkdown className="text-xs leading-snug text-secondary" disableImages>
                         {item.why_here}
                     </LemonMarkdown>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-2 text-[11px]">
-                    <span className="text-tertiary">{suggestionMetaLine(item.proposed_config)}</span>
-                    {/* Outside the row button, so keyboard and touch users can read the full motivation. */}
-                    {(overflowing || expanded) && (
-                        <Link
-                            onClick={() => setExpanded(!expanded)}
-                            aria-expanded={expanded}
-                            aria-controls={motivationId}
-                            data-attr="scout-suggestion-motivation-toggle"
-                        >
-                            {expanded ? 'Show less' : 'Show more'}
-                        </Link>
-                    )}
                 </div>
             </div>
             <SuggestionActions item={item} surface={surface} isBusy={isBusy} />
@@ -105,34 +97,12 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
     )
 }
 
-/** What pressing the row does, carried by both the action button and the row body itself. */
+/** What pressing the row does, carried by both the Review button and the row title itself. */
 function reviewActionLabel(item: ScoutSuggestionItemApi): string {
     return item.kind === 'canonical' ? 'Review scout' : 'Review draft'
 }
 
-/** What kind of offer the row makes, and how sure the producer was. */
-function SuggestionTags({ item }: { item: ScoutSuggestionItemApi }): JSX.Element {
-    const isCanonical = item.kind === 'canonical'
-    return (
-        <div className="flex flex-wrap items-center gap-1.5">
-            <LemonTag type={isCanonical ? 'completion' : 'option'} size="small">
-                {isCanonical ? 'Turn on' : 'New draft'}
-            </LemonTag>
-            {item.gap && (
-                <Tooltip title="Nothing in your current fleet covers this.">
-                    <LemonTag type="highlight" size="small">
-                        Gap
-                    </LemonTag>
-                </Tooltip>
-            )}
-            <LemonTag type="muted" size="small">
-                {capitalizeFirstLetter(item.confidence)} confidence
-            </LemonTag>
-        </div>
-    )
-}
-
-/** The row's primary action, which depends on its kind, the chat that refines it, and dismiss. */
+/** Review, plus a menu that holds the chat that refines the pick and the dismiss. */
 function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps & { isBusy: boolean }): JSX.Element {
     const { scoutChatDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
     const { refineSuggestionWithAi, openCreateFromSuggestion, dismissSuggestion } = useActions(scoutSuggestionsLogic)
@@ -148,39 +118,46 @@ function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps &
     const isCanonical = item.kind === 'canonical'
 
     return (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
             <LemonButton
                 type="secondary"
                 size="xsmall"
                 loading={isBusy}
                 disabledReason={isCanonical ? undefined : (creationDisabledReason ?? undefined)}
                 onClick={() => openCreateFromSuggestion(item, surface)}
-                className={surface === 'onboarding' ? undefined : 'min-w-24 justify-center'}
+                className="min-w-20 justify-center"
+                aria-label={reviewActionLabel(item)}
                 data-attr={isCanonical ? 'scout-suggestion-turn-on' : 'scout-suggestion-create'}
             >
-                {reviewActionLabel(item)}
+                Review
             </LemonButton>
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                icon={<IconSparkles />}
-                disabledReason={chatDisabledReason}
-                onClick={() => refineSuggestionWithAi(item, surface)}
-                data-attr="scout-suggestion-refine"
+            <LemonMenu
+                placement="bottom-end"
+                items={[
+                    {
+                        label: 'Refine with AI',
+                        icon: <IconSparkles />,
+                        disabledReason: chatDisabledReason,
+                        onClick: () => refineSuggestionWithAi(item, surface),
+                        'data-attr': 'scout-suggestion-refine',
+                    },
+                    surface !== 'onboarding' && {
+                        label: 'Not interested',
+                        icon: <IconX />,
+                        tooltip: "This won't be suggested again.",
+                        disabledReason: isBusy ? 'Working on this suggestion' : undefined,
+                        onClick: () => dismissSuggestion(item, surface),
+                        'data-attr': 'scout-suggestion-dismiss',
+                    },
+                ]}
             >
-                Refine with AI
-            </LemonButton>
-            {surface !== 'onboarding' && (
                 <LemonButton
                     size="xsmall"
-                    icon={<IconX />}
-                    tooltip="Dismiss. This won't be suggested again."
-                    disabledReason={isBusy ? 'Working on this suggestion' : undefined}
-                    onClick={() => dismissSuggestion(item, surface)}
-                    aria-label={`Dismiss ${item.title}`}
-                    data-attr="scout-suggestion-dismiss"
+                    icon={<IconEllipsis />}
+                    aria-label={`More options for ${item.title}`}
+                    data-attr="scout-suggestion-more"
                 />
-            )}
+            </LemonMenu>
         </div>
     )
 }
