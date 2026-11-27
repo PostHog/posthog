@@ -36,7 +36,7 @@ from products.tasks.backend.facade.model_override import MODEL_OVERRIDE_CLASSIFI
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
-# A snapshot of `available_model_choices()` rather than a live call: the gateway's list
+# A snapshot of `available_model_choices()` rather than a live call: the catalog
 # moves when a model ships or is retired, and scores that move with it can't be compared
 # across runs. Refresh deliberately, and expect the baseline to step when you do.
 #

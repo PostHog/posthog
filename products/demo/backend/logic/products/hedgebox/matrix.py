@@ -213,8 +213,10 @@ class HedgeboxMatrix(Matrix):
     bias_warning_experiment_flip_time: dt.datetime
     extended_end: dt.datetime
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, require_external_fixtures: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
+        self.require_external_fixtures = require_external_fixtures
+        self.seed_timeseries: Callable[[int, str, dt.date], None] | None = None
         elapsed = self.now - self.start
 
         # Legacy experiment (complete) - runs from 30% to 60% of simulation
@@ -1793,7 +1795,7 @@ class HedgeboxMatrix(Matrix):
 
         # Seed timeseries for the first metric so the day-by-day view has data out of the box.
         # Skipped in tests: one ClickHouse query per experiment day is too slow for CI seeding.
-        if settings.TEST:
+        if settings.TEST and not self.require_external_fixtures:
             return
         timeseries_metric = metrics[0]
         recalculation = ExperimentTimeseriesRecalculation.objects.create(
@@ -1808,8 +1810,20 @@ class HedgeboxMatrix(Matrix):
             # so without this bound the backfill runs one ClickHouse query per day between the
             # simulated clock and the real today — empty results, and slow enough to hang demo
             # generation when the clock is pinned to the past.
-            backfill_experiment_timeseries(str(recalculation.id), backfill_until=self.now.date())
+            if self.seed_timeseries is None:
+                backfill_experiment_timeseries(str(recalculation.id), backfill_until=self.now.date())
+            else:
+                self.seed_timeseries(team.id, str(recalculation.id), self.now.date())
+            if self.require_external_fixtures:
+                recalculation.refresh_from_db(fields=["status", "last_successful_date"])
+                if (
+                    recalculation.status != recalculation.Status.COMPLETED
+                    or recalculation.last_successful_date != self.now.date()
+                ):
+                    raise RuntimeError(f"Incomplete demo experiment timeseries for team {team.pk}")
         except Exception as e:
+            if self.require_external_fixtures:
+                raise
             # Timeseries are nice-to-have; never fail demo generation over them
             capture_exception(e)
 
@@ -2158,9 +2172,8 @@ class HedgeboxMatrix(Matrix):
 
     _DEMO_EXTENDED_PROPERTIES_TABLE = "extended_properties"
 
-    @staticmethod
-    def _demo_data_warehouse_storage_ready() -> bool:
-        if settings.TEST or not settings.OBJECT_STORAGE_ENABLED:
+    def _demo_data_warehouse_storage_ready(self) -> bool:
+        if (settings.TEST and not self.require_external_fixtures) or not settings.OBJECT_STORAGE_ENABLED:
             return False
         if (
             not settings.OBJECT_STORAGE_ACCESS_KEY_ID
@@ -2219,6 +2232,8 @@ class HedgeboxMatrix(Matrix):
                     team, user, credential, table_spec.name, table_spec.columns, source_team_id
                 )
             except Exception as err:
+                if self.require_external_fixtures:
+                    raise
                 capture_exception(err)
 
         try:
@@ -2232,6 +2247,8 @@ class HedgeboxMatrix(Matrix):
             )
             self._upsert_demo_extended_person_properties_join(team, self._DEMO_EXTENDED_PROPERTIES_TABLE)
         except Exception as err:
+            if self.require_external_fixtures:
+                raise
             capture_exception(err)
 
     def _demo_data_warehouse_table_specs(self) -> tuple[DemoDataWarehouseTableSpec, ...]:

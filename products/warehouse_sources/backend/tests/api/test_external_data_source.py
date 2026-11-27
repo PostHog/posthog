@@ -4020,6 +4020,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_table_mode": "consolidated",
                     "incremental_sync_blocked": None,
                     "webhook_not_registered": False,
+                    "webhook_issue": None,
                     "enabled_columns": None,
                     "masked_columns": None,
                     "row_filters": None,
@@ -4173,7 +4174,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
         assert failing.manual_run_requested is True
-        assert healthy.sync_type_config == {}
+        assert healthy.manual_run_requested is False
+        assert "failure_streak" not in healthy.sync_type_config
+        assert (failing.manual_sync_pending, healthy.manual_sync_pending) == (True, True)
 
     @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_schemas: Mock) -> None:

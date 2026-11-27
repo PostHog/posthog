@@ -97,6 +97,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "db": True,
             "initiated": True,
             "cloud": False,
+            "batch_exports_enabled": True,
             "is_test": True,
             "data_warehouse_integrations": {"hubspot": {"client_id": ""}, "salesforce": {"client_id": ""}},
             "demo": False,
@@ -137,6 +138,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "webmcp_available": False,
             "cimd_verification_token_issuer_url": "",
+            "experiment_exposure_event_cutoff": None,
             "is_test": True,
             **options,
         }

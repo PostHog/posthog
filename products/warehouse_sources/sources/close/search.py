@@ -1,4 +1,7 @@
-"""Close Advanced Filtering (`POST /data/search/`) walker for Leads and Contacts.
+"""Close Advanced Filtering (`POST /data/search/`) walker.
+
+Used for Leads and Contacts, and for SequenceSubscriptions and CustomObjects, whose list endpoints
+need a parent id.
 
 `GET /lead/` and `GET /contact/` accept no filter beyond `_skip`/`_limit`/`_fields`, and Close
 caps `_skip` per resource, so on a large org those two tables stop syncing partway through with

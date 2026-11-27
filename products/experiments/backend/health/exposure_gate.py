@@ -394,7 +394,7 @@ class _ExposureGate:
         # The exposures of a warehouse-native experiment live in the customer's warehouse. No event of this project
         # describes them, so every answer is unknown, and a query would only fail and report to error tracking.
         self._warehouse_native = warehouse_native_exposure_config(experiment.exposure_criteria) is not None
-        self._default_exposure_event = resolve_default_exposure_event(experiment.team, start_date)
+        self._default_exposure_event = resolve_default_exposure_event(start_date)
         self._filter_settings = _settings_the_filters_compile_with(experiment)
         # One cache read for all windows of the walk and the counts, so a flag with many changes costs one round trip.
         self._prefetched_keys = (
@@ -519,8 +519,9 @@ class _ExposureGate:
 
     def _key(self, prefix: str, *window_inputs: object) -> str:
         experiment = self._experiment
-        # Every input of the query. The resolved exposure event is one, because the exposure event rollout
-        # can move an experiment to another event.
+        # Every input of the query. The resolved exposure event is one, because a change of the
+        # EXPERIMENT_EXPOSURE_EVENT_CUTOFF setting can move an experiment to another event without a
+        # change to its start date.
         inputs = json.dumps(
             [
                 self._start_date.isoformat(),

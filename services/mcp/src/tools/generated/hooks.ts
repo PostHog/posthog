@@ -12,13 +12,14 @@ import hooks8 from '@/tools/featureFlags/createFeatureFlagHooks'
 import hooks9 from '@/tools/featureFlags/updateFeatureFlagHooks'
 import hooks10 from '@/tools/groups/findGroupHooks'
 import hooks11 from '@/tools/logs/groupByRedactionHooks'
-import hooks12 from '@/tools/logs/redactCredentialsHooks'
-import hooks13 from '@/tools/replay/sessionRecordingGetHooks'
-import hooks14 from '@/tools/signals/inboxMySettingsHooks'
+import hooks12 from '@/tools/logs/queryLogsHooks'
+import hooks13 from '@/tools/logs/redactCredentialsHooks'
+import hooks14 from '@/tools/replay/sessionRecordingGetHooks'
+import hooks15 from '@/tools/signals/inboxMySettingsHooks'
 import type { ToolHooks } from '@/tools/tool-hooks'
-import hooks15 from '@/tools/workflows/broadcastLinkHooks'
-import hooks16 from '@/tools/workflows/dataSuggestionCreateHooks'
-import hooks17 from '@/tools/workflows/testSenderNoteHooks'
+import hooks16 from '@/tools/workflows/broadcastLinkHooks'
+import hooks17 from '@/tools/workflows/dataSuggestionCreateHooks'
+import hooks18 from '@/tools/workflows/testSenderNoteHooks'
 
 export const GENERATED_TOOL_HOOKS: Record<string, ToolHooks<any>> = {
     'dataWarehouse/viewGetHooks': hooks0,
@@ -33,10 +34,11 @@ export const GENERATED_TOOL_HOOKS: Record<string, ToolHooks<any>> = {
     'featureFlags/updateFeatureFlagHooks': hooks9,
     'groups/findGroupHooks': hooks10,
     'logs/groupByRedactionHooks': hooks11,
-    'logs/redactCredentialsHooks': hooks12,
-    'replay/sessionRecordingGetHooks': hooks13,
-    'signals/inboxMySettingsHooks': hooks14,
-    'workflows/broadcastLinkHooks': hooks15,
-    'workflows/dataSuggestionCreateHooks': hooks16,
-    'workflows/testSenderNoteHooks': hooks17,
+    'logs/queryLogsHooks': hooks12,
+    'logs/redactCredentialsHooks': hooks13,
+    'replay/sessionRecordingGetHooks': hooks14,
+    'signals/inboxMySettingsHooks': hooks15,
+    'workflows/broadcastLinkHooks': hooks16,
+    'workflows/dataSuggestionCreateHooks': hooks17,
+    'workflows/testSenderNoteHooks': hooks18,
 }

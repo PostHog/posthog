@@ -24,6 +24,7 @@ from typing import Any, Literal
 from products.feature_flags.backend.facade.config import require_v1_config
 
 CohortRestrictionBlocker = Literal["group_aggregation", "holdout", "super_groups", "no_groups"]
+type PayloadValue = str | int | float | bool | None | list[PayloadValue] | dict[str, PayloadValue]
 
 # Flag-level settings the flags service evaluates before, or instead of, the release conditions.
 # A holdout returns `holdout-<id>` to its share, legacy super groups short-circuit the same way,
@@ -228,6 +229,12 @@ def without_payloads(current_filters: Mapping[str, Any] | None) -> dict:
     """Every key but ``payloads``, for a reader of who gets which value. Stored payloads can be ciphertext."""
     require_v1_config(current_filters)
     return {key: value for key, value in (current_filters or {}).items() if key != "payloads"}
+
+
+def stored_payloads(current_filters: Mapping[str, Any] | None) -> Mapping[str, PayloadValue]:
+    """The ``payloads`` as stored, keyed by the value each one is served with. Stored payloads can be ciphertext."""
+    require_v1_config(current_filters)
+    return (current_filters or {}).get("payloads") or {}
 
 
 def set_holdout(current_filters: dict, *, holdout_id: int | None, exclusion_percentage: float | None) -> dict:

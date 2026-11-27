@@ -16,6 +16,7 @@ from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
     DateRange,
     GenericCachedQueryResponse,
+    MarketingAnalyticsRecommendationsConversionSource,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsSource,
     MarketingAnalyticsTableQueryResponse,
@@ -466,6 +467,42 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "account",
                 [],
             ),
+            (
+                "spend_on_hidden_searches",
+                None,
+                BOTH_SPLITS,
+                "alpha",
+                200.0,
+                "target_cpa",
+                ["hidden_search_spend"],
+                SIGNUP,
+                2000000000,
+            ),
+            (
+                "search_terms_synced_less_recently",
+                None,
+                BOTH_SPLITS,
+                "alpha",
+                200.0,
+                "target_cpa",
+                [],
+                SIGNUP,
+                2000000000,
+                "2026-01-20",
+            ),
+            (
+                "another_campaign_serves_after_search_stops",
+                None,
+                BOTH_SPLITS,
+                "alpha",
+                200.0,
+                "target_cpa",
+                ["hidden_search_spend"],
+                SIGNUP,
+                2000000000,
+                "2026-01-15",
+                "2026-01-20",
+            ),
         ]
     )
     def test_counts_only_the_selected_conversion_actions(
@@ -478,6 +515,9 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         benchmark_source: str,
         gaps: list[str],
         signup: str = SIGNUP,
+        campaign_cost_micros: int = 1000000000,
+        campaign_day: str = "2026-01-15",
+        other_campaign_day: str | None = None,
     ) -> None:
         campaigns = self._table(
             "campaign",
@@ -500,7 +540,8 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "metrics_cost_micros": "Int64",
                 "metrics_conversions": "Float64",
             },
-            "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
+            f"campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,{campaign_day},{campaign_cost_micros},10\n"
+            + (f"2,{other_campaign_day},1000000,0\n" if other_campaign_day else ""),
         )
         term_columns = {
             "search_term_view_search_term": "String",
@@ -573,6 +614,62 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert wasted[0].cpa.benchmarkSource == benchmark_source
         assert [gap.kind for gap in response.dataGaps or []] == gaps
 
+    @parameterized.expand(
+        [
+            ("stats_table_missing", None),
+            ("stats_only_for_campaigns_without_search_terms", "2,2026-01-15,1000000,0\n"),
+        ]
+    )
+    def test_search_terms_without_campaign_stats_do_not_fail_the_response(
+        self, _name: str, stats_rows: str | None
+    ) -> None:
+        stats = (
+            self._table(
+                "campaign_stats",
+                {
+                    "campaign_id": "Int64",
+                    "segments_date": "Nullable(Date)",
+                    "metrics_cost_micros": "Int64",
+                    "metrics_conversions": "Float64",
+                },
+                "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n" + stats_rows,
+            )
+            if stats_rows
+            else "missing_stats"
+        )
+        term_columns = {
+            "search_term_view_search_term": "String",
+            "campaign_id": "Int64",
+            "segments_date": "Date",
+            "metrics_clicks": "Int64",
+            "metrics_impressions": "Int64",
+            "metrics_cost_micros": "Int64",
+            "metrics_conversions": "Float64",
+            "search_term_view_status": "String",
+        }
+        terms = self._table(
+            "search_term_stats",
+            term_columns,
+            ",".join(term_columns) + "\nalpha,1,2026-01-15,10,100,500000000,0,NONE\n",
+        )
+        source = MarketingAnalyticsRecommendationsSource(
+            sourceType="GoogleAds",
+            campaignTable="missing_campaign",
+            campaignStatsTable=stats,
+            searchTermTable=terms,
+        )
+
+        response = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"), sources=[source]
+            ),
+            team=self.team,
+            user=self.user,
+        ).calculate()
+
+        assert response.results == []
+        assert response.dataGaps in (None, [])
+
     def _google_ads_source(self, campaigns: str, stats: str) -> MarketingAnalyticsRecommendationsSource:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -630,10 +727,20 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
     @parameterized.expand(
         [
-            ("google_ads_conversions_without_a_marked_goal", False, "user signed up", None, (), None, [], []),
-            ("marked_goal_replaces_google_ads_conversions", True, "user signed up", None, (), None, ["Broad"], []),
+            ("google_ads_conversions_without_a_marked_goal", False, "user signed up", None, (), None, [], [], None),
+            (
+                "marked_goal_replaces_google_ads_conversions",
+                True,
+                "user signed up",
+                None,
+                (),
+                None,
+                ["Broad"],
+                [],
+                ["Sign ups"],
+            ),
             # Summed, four $500 sign ups would count as 2,000 conversions.
-            ("summed_goal_counts_conversions", True, "user signed up", "sum", (), None, ["Broad"], []),
+            ("summed_goal_counts_conversions", True, "user signed up", "sum", (), None, ["Broad"], [], ["Sign ups"]),
             (
                 "unmatched_utm_campaign_keeps_campaigns_without_conversions_unjudged",
                 True,
@@ -643,6 +750,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 None,
                 [],
                 ["posthog_campaigns_unmatched"],
+                ["Sign ups"],
             ),
             (
                 "not_ready_falls_back",
@@ -653,8 +761,19 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "not_ready",
                 [],
                 ["posthog_conversions_not_ready"],
+                None,
             ),
-            ("failed_query_falls_back", True, "user signed up", None, (), "error", [], ["posthog_conversions_failed"]),
+            (
+                "failed_query_falls_back",
+                True,
+                "user signed up",
+                None,
+                (),
+                "error",
+                [],
+                ["posthog_conversions_failed"],
+                None,
+            ),
             (
                 "truncated_table_falls_back",
                 True,
@@ -664,8 +783,9 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "truncated",
                 [],
                 ["posthog_conversions_failed"],
+                None,
             ),
-            ("unusable_goal_falls_back", True, None, None, (), None, [], ["posthog_conversion_goals_unusable"]),
+            ("unusable_goal_falls_back", True, None, None, (), None, [], ["posthog_conversion_goals_unusable"], None),
             (
                 "partly_unusable_goals_count_the_others",
                 True,
@@ -675,6 +795,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 None,
                 ["Broad"],
                 ["posthog_conversion_goals_unusable"],
+                ["Sign ups"],
                 True,
             ),
         ]
@@ -689,6 +810,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         table: str | None,
         reviewed: list[str],
         gaps: list[str],
+        counted_goals: list[str] | None,
         unusable_second_goal: bool = False,
     ) -> None:
         goal = {
@@ -756,6 +878,9 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert not any("Ignore previous instructions" in gap.message for gap in response.dataGaps or [])
         assert all(rec.cpa is not None and rec.cpa.bestCampaign == 250 for rec in review)
         assert [gap.kind for gap in response.dataGaps or []] == gaps
+        assert response.conversionSource == MarketingAnalyticsRecommendationsConversionSource(
+            kind="google_ads" if counted_goals is None else "posthog", goalNames=counted_goals or []
+        )
         refreshed = datetime(2026, 1, 30, tzinfo=UTC)
         cached = CachedMarketingAnalyticsRecommendationsQueryResponse(
             **response.model_dump(),
@@ -1091,21 +1216,19 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
 class TestAdJson(SimpleTestCase):
     @parameterized.expand(
         [
-            ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}, ()),
-            ("topic_is_not_text", {"topic": 123, "evidences": []}, None),
-            ("evidences_is_a_number", {"topic": "TRADEMARKS", "evidences": 5}, ()),
-            ("texts_is_a_string", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": "AB"}}]}, ()),
-            (
-                "texts_are_not_text",
-                {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]},
-                ("Acme",),
-            ),
+            ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}),
+            ("topic_is_not_text", {"topic": 123, "evidences": []}),
+            ("evidences_is_a_number", {"topic": "TRADEMARKS", "evidences": 5}),
+            ("texts_is_a_string", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": "AB"}}]}),
+            ("texts_are_not_text", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]}),
         ]
     )
-    def test_skips_unexpected_shapes(self, _name: str, entry: dict[str, object], texts: tuple[str, ...] | None) -> None:
-        topics = _policy_topics(json.dumps([json.dumps(entry)]))
+    def test_skips_policy_topics_that_do_not_validate(self, _name: str, entry: dict[str, object]) -> None:
+        valid = {"topic": "DESTINATION_NOT_WORKING", "type": "PROHIBITED"}
 
-        assert topics == (() if texts is None else (PolicyTopic(topic="TRADEMARKS", type="", texts=texts),))
+        assert _policy_topics(json.dumps([json.dumps(entry), json.dumps(valid)])) == (
+            PolicyTopic(topic="DESTINATION_NOT_WORKING", type="PROHIBITED"),
+        )
 
     def test_asset_texts_skip_non_text(self) -> None:
         assert _asset_texts(json.dumps([json.dumps({"text": 123}), json.dumps({"text": "Acme"})])) == ("Acme",)

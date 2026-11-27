@@ -135,15 +135,18 @@ _INVALID_TOKEN_BODY = {"error": {"code": "forbidden", "message": "Not authorized
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            (200, True),
+            ("clean", "token"),
+            ("trailing_newline", "token\n"),
+            ("surrounding_spaces", "  token  "),
+            ("tabs_and_crlf", "\ttoken\r\n"),
         ]
     )
-    def test_status_mapping(self, status: int, expected_ok: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
-            ok, error = validate_credentials("token")
+    def test_valid_token_is_accepted_and_sent_without_whitespace(self, _name: str, token: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=200, json={}))) as network:
+            ok, error = validate_credentials(token)
 
-        assert ok is expected_ok, f"status={status}"
-        assert (error is None) is expected_ok, f"status={status}"
+        assert ok is True
+        assert error is None
         assert network.requests_log[0].path == "/v2/user"
         assert network.requests_log[0].headers["authorization"] == "Bearer token"
 
@@ -168,13 +171,13 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("bad_request", 400, {}, "token", vercel._VERCEL_INVALID_TOKEN_ERROR),
-            ("not_found", 404, {}, "token", vercel._VERCEL_INVALID_TOKEN_ERROR),
             # The shape Vercel sends back for a made-up or revoked token on /v2/user.
             ("forbidden_invalid_token", 403, _INVALID_TOKEN_BODY, "token", vercel._VERCEL_INVALID_TOKEN_ERROR),
             ("personal_token", 403, _INVALID_TOKEN_BODY, "vcp_abc123", vercel._VERCEL_INVALID_TOKEN_ERROR),
             ("ai_gateway_key", 403, _INVALID_TOKEN_BODY, "vck_abc123", vercel._VERCEL_AI_GATEWAY_KEY_ERROR),
             ("ai_gateway_key_bad_request", 400, {}, "vck_abc123", vercel._VERCEL_AI_GATEWAY_KEY_ERROR),
             ("ai_gateway_key_not_found", 404, {}, "vck_abc123", vercel._VERCEL_AI_GATEWAY_KEY_ERROR),
+            ("padded_ai_gateway_key", 403, _INVALID_TOKEN_BODY, " vck_abc123\n", vercel._VERCEL_AI_GATEWAY_KEY_ERROR),
             ("prefix_not_at_start", 403, _INVALID_TOKEN_BODY, "abcvck_123", vercel._VERCEL_INVALID_TOKEN_ERROR),
         ]
     )
@@ -199,6 +202,14 @@ class TestValidateCredentials:
     def test_forbidden_without_invalid_token_flag_points_at_token_scope(self, _name: str, body: Any) -> None:
         with scripted_network(always(ScriptedResponse(status=403, json=body))):
             ok, error = validate_credentials("token")
+
+        assert ok is False
+        assert error == vercel._VERCEL_TOKEN_SCOPE_ERROR
+
+    @parameterized.expand([("plain", "token"), ("personal_token", "vcp_abc123"), ("padded", " token\n")])
+    def test_not_found_points_at_token_scope_not_revocation(self, _name: str, token: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=404, json={}))):
+            ok, error = validate_credentials(token)
 
         assert ok is False
         assert error == vercel._VERCEL_TOKEN_SCOPE_ERROR

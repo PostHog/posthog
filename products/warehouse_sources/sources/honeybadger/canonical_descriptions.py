@@ -237,6 +237,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "email": "Email address of the user.",
         },
     },
+    "status_pages": {
+        "description": "A public status page that shows the state of selected uptime sites and check-ins of a Honeybadger account.",
+        "docs_url": "https://docs.honeybadger.io/api/status-pages/#get-all-status-pages",
+        "columns": {
+            "id": "Unique identifier for the status page.",
+            "account_id": "Identifier of the account that owns the status page.",
+            "account_name": "Name of the account that owns the status page.",
+            "name": "Name of the status page.",
+            "domain": "Custom domain of the status page, if one is set.",
+            "url": "Address where the status page is served.",
+            "created_at": "When the status page was created.",
+            "domain_verified_at": "When the custom domain passed its DNS verification check, if it did.",
+            "sites": "Uptime sites shown on the page, each with its site ID, display name, current state and last check time.",
+            "check_ins": "Check-ins shown on the page, each with its check-in ID, display name, current state and last report time.",
+        },
+    },
     "team_members": {
         "description": "A member of a Honeybadger team. Teams control which users can access which projects.",
         "docs_url": "https://docs.honeybadger.io/api/teams/#get-a-list-of-team-members-or-team-member-details",

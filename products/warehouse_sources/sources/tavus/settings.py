@@ -21,6 +21,8 @@ class TavusEndpointConfig:
     # False for list endpoints that return every row in one response, with no page/limit params.
     paginated: bool = True
     params: dict[str, Any] = field(default_factory=dict)
+    data_selector: str = "data"
+    data_selector_required: bool = True
     fanout: Optional[DependentEndpointConfig] = None
     # Read by the shared fan-out helper; every Tavus endpoint is full refresh.
     incremental_fields: list[Any] = field(default_factory=list)
@@ -57,6 +59,37 @@ TAVUS_ENDPOINTS: dict[str, TavusEndpointConfig] = {
             resolve_field="conversation_id",
             include_from_parent=["conversation_id"],
             parent_field_renames={"conversation_id": "conversation_id"},
+        ),
+    ),
+    # Unlike the other list envelopes, /deployments returns its rows under `deployments`. The default
+    # sort is newest first, so ascending keeps page boundaries stable when a deployment is added mid-sync.
+    "deployments": TavusEndpointConfig(
+        name="deployments",
+        path="/deployments",
+        primary_keys=["deployment_id"],
+        params={"sort": "asc"},
+        data_selector="deployments",
+    ),
+    "objectives": TavusEndpointConfig(name="objectives", path="/objectives", primary_keys=["objectives_id"]),
+    "documents": TavusEndpointConfig(name="documents", path="/documents", primary_keys=["document_id"]),
+    # The Tavus skill registry. It takes no page/limit params.
+    "skills": TavusEndpointConfig(name="skills", path="/skills", primary_keys=["skill_id"], paginated=False),
+    # Unpaginated per PAL. `data` is an object keyed by skill_id, so `data.*` yields one row per
+    # attached skill. A PAL with no skills returns `{"data": {}}`, which matches nothing, so the
+    # selector cannot be required.
+    "pal_skills": TavusEndpointConfig(
+        name="pal_skills",
+        path="/pals/{pal_id}/skills",
+        primary_keys=["pal_id", "skill_id"],
+        paginated=False,
+        data_selector="data.*",
+        data_selector_required=False,
+        fanout=DependentEndpointConfig(
+            parent_name="pals",
+            resolve_param="pal_id",
+            resolve_field="pal_id",
+            include_from_parent=["pal_id"],
+            parent_field_renames={"pal_id": "pal_id"},
         ),
     ),
 }

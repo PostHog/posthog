@@ -57,24 +57,10 @@ export function renumber(rules: PathCleaningRule[]): StoredPathCleaningRule[] {
     return rules.map((rule, index) => ({ ...rule, order: index }))
 }
 
-function assertValidRegex(regex: string): void {
-    // The backend compiles these as re2; JS RegExp is only a best-effort typo check to fail
-    // fast on obviously-broken patterns (e.g. unbalanced parens). Strip a leading re2 inline
-    // flag group like `(?i)` first — it's valid re2 (and documented for path cleaning) but
-    // throws in JS. Patterns valid in re2 but not JS still save fine; the backend is the
-    // authority and rejects genuinely invalid ones on write.
-    const withoutLeadingInlineFlags = regex.replace(/^\(\?[imsUx]+\)/, '')
-    try {
-        new RegExp(withoutLeadingInlineFlags)
-    } catch (error) {
-        throw new Error(`Invalid regex "${regex}": ${(error as Error).message}`)
-    }
-}
-
 /**
  * Apply the ordered operations to a copy of the current rules, returning the new list and a
  * human-readable change log. Throws with an actionable message on any invalid operation
- * (unknown target alias, bad regex, non-permutation reorder) so nothing is half-applied.
+ * (unknown or ambiguous target alias, non-permutation reorder) so nothing is half-applied.
  */
 export function applyOperations(
     current: PathCleaningRule[],
@@ -109,13 +95,11 @@ export function applyOperations(
     for (const op of operations) {
         switch (op.action) {
             case 'append': {
-                assertValidRegex(op.regex)
                 rules.push({ alias: op.alias, regex: op.regex })
                 changes.push(`Appended "${op.alias}" (${op.regex}) — runs last`)
                 break
             }
             case 'insert': {
-                assertValidRegex(op.regex)
                 const index = Math.min(op.index, rules.length)
                 rules.splice(index, 0, { alias: op.alias, regex: op.regex })
                 changes.push(`Inserted "${op.alias}" (${op.regex}) at position ${index}`)
@@ -123,9 +107,6 @@ export function applyOperations(
             }
             case 'replace': {
                 const index = resolveSingle(op.target_alias, 'replace')
-                if (op.regex !== undefined) {
-                    assertValidRegex(op.regex)
-                }
                 const previous = rules[index]!
                 const next = { alias: op.alias ?? previous.alias, regex: op.regex ?? previous.regex }
                 rules[index] = next
@@ -177,96 +158,55 @@ export function applyOperations(
     return { rules, changes }
 }
 
-/**
- * Compile a re2 pattern into a JS RegExp for the approximate preview. Translates a leading
- * re2 inline-flag group (e.g. `(?i)`) into JS flags so patterns accepted by the tool don't
- * silently drop out of the preview. Returns null for patterns JS can't represent.
- */
-function compileForPreview(regex: string): RegExp | null {
-    const match = regex.match(/^\(\?([imsUx]+)\)/)
-    const inlineFlags = match ? match[1]! : ''
-    const pattern = match ? regex.slice(match[0].length) : regex
-    // Map the re2 flags JS supports; ignore U/x (no JS equivalent, and rare in path cleaning).
-    let flags = 'g'
-    if (inlineFlags.includes('i')) {
-        flags += 'i'
-    }
-    if (inlineFlags.includes('m')) {
-        flags += 'm'
-    }
-    if (inlineFlags.includes('s')) {
-        flags += 's'
-    }
-    try {
-        return new RegExp(pattern, flags)
-    } catch {
-        // A rule using re2-only syntax may not compile under JS RegExp — skip it in the
-        // approximate preview rather than failing the whole call.
-        return null
-    }
+type PreviewQuery = { query: string; values: Record<string, string | string[]> }
+
+/** Mirrors `apply_path_cleaning`: one `replaceRegexpAll` per rule, in array order, each feeding the next. */
+function cleanedPathExpression(rules: PathCleaningRule[], prefix: string, values: PreviewQuery['values']): string {
+    return rules.reduce((expression, rule, index) => {
+        values[`${prefix}_regex_${index}`] = rule.regex
+        values[`${prefix}_alias_${index}`] = rule.alias
+        return `replaceRegexpAll(${expression}, {${prefix}_regex_${index}}, {${prefix}_alias_${index}})`
+    }, 'path')
 }
 
-/**
- * Expand an alias against one regex match, so the preview substitutes capture groups the same way
- * the real query does. The alias is re2 replacement syntax: `\0` is the whole match, `\1` to `\9`
- * are capture groups, `\\` is a literal backslash, and everything else is literal.
- *
- * Expanding against the match here, rather than translating to a `$1`-style replacement string,
- * keeps three re2 rules JavaScript would otherwise break: `$` stays literal, `\10` is group 1
- * followed by `0` rather than group 10, and an unfilled group substitutes as empty.
- */
-export function expandAlias(alias: string, groups: (string | undefined)[]): string {
-    let out = ''
-    for (let i = 0; i < alias.length; i++) {
-        const char = alias[i]
-        if (char !== '\\') {
-            out += char
-            continue
-        }
-        const next = alias[i + 1]
-        if (next === '\\') {
-            out += '\\'
-            i++
-        } else if (next !== undefined && next >= '0' && next <= '9') {
-            out += groups[Number(next)] ?? ''
-            i++
-        } else {
-            out += '\\'
-        }
-    }
-    return out
-}
-
-/** Chain a path through every rule in order, mirroring ClickHouse `replaceRegexpAll` per rule. */
-function applyChain(path: string, rules: PathCleaningRule[]): string {
-    let out = path
-    for (const rule of rules) {
-        const re = compileForPreview(rule.regex)
-        if (re === null) {
-            continue
-        }
-        out = out.replace(re, (match: string, ...rest: unknown[]): string => {
-            // Replacer arguments run (match, p1…pN, offset, whole string, named groups?). A group
-            // the pattern didn't fill arrives as undefined, so the first number is the offset and
-            // marks where the capture values stop.
-            const offsetIndex = rest.findIndex((arg) => typeof arg === 'number')
-            const captures = (offsetIndex === -1 ? [] : rest.slice(0, offsetIndex)) as (string | undefined)[]
-            return expandAlias(rule.alias, [match, ...captures])
-        })
-    }
-    return out
-}
-
-function buildSamplePreview(
+function buildSamplePreviewQuery(
     before: PathCleaningRule[],
     after: PathCleaningRule[],
     samplePaths: string[]
-): SamplePreview[] {
-    return samplePaths.map((path) => ({
-        path,
-        before: applyChain(path, before),
-        after: applyChain(path, after),
-    }))
+): PreviewQuery {
+    const values: PreviewQuery['values'] = { sample_paths: samplePaths }
+    const beforeExpression = cleanedPathExpression(before, 'before', values)
+    const afterExpression = cleanedPathExpression(after, 'after', values)
+    return {
+        query: `SELECT arrayMap(path -> ${beforeExpression}, {sample_paths}), arrayMap(path -> ${afterExpression}, {sample_paths})`,
+        values,
+    }
+}
+
+async function buildSamplePreview(
+    context: Context,
+    projectId: string,
+    before: PathCleaningRule[],
+    after: PathCleaningRule[],
+    samplePaths: string[]
+): Promise<SamplePreview[]> {
+    const result = await context.api.insights({ projectId }).query({
+        query: { kind: 'HogQLQuery', ...buildSamplePreviewQuery(before, after, samplePaths) },
+    })
+    if (!result.success) {
+        throw wrapError(
+            `The sample_paths preview failed to run (${result.error.message}). Check that every regex is valid re2, or retry without sample_paths.`,
+            result.error
+        )
+    }
+    const [cleanedBefore, cleanedAfter] = ((result.data.results as unknown[][] | undefined)?.[0] ?? []) as [
+        string[]?,
+        string[]?,
+    ]
+    if (cleanedBefore?.length !== samplePaths.length || cleanedAfter?.length !== samplePaths.length) {
+        throw new Error('The sample_paths preview returned an unexpected result. Retry without sample_paths.')
+    }
+    return samplePaths.map((path, index) => ({ path, before: cleanedBefore[index]!, after: cleanedAfter[index]! }))
 }
 
 export const updatePathCleaningHandler: ToolBase<typeof schema, Result>['handler'] = async (
@@ -292,7 +232,7 @@ export const updatePathCleaningHandler: ToolBase<typeof schema, Result>['handler
     const resultingRules = renumber(rules)
 
     const samplePreview = params.sample_paths?.length
-        ? buildSamplePreview(currentRules, rules, params.sample_paths)
+        ? await buildSamplePreview(context, projectId, currentRules, rules, params.sample_paths)
         : undefined
 
     const settingsUrl = `${context.api.getProjectBaseUrl(projectId)}/settings/project#path-cleaning`

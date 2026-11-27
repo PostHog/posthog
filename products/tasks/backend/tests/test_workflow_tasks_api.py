@@ -699,7 +699,12 @@ class TestWorkflowTasksAPI(APIBaseTest):
         resume.assert_not_called()
 
     def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
-        response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
+        response = self._post(
+            {
+                "output_fields": {"verdict": "string", "score": "number", "tags": "json"},
+                "output_field_descriptions": {"score": "1 (urgent) to 4 (low)", "tags": "Product areas, as a list"},
+            }
+        )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
@@ -707,12 +712,19 @@ class TestWorkflowTasksAPI(APIBaseTest):
             "type": "object",
             "properties": {
                 "verdict": {"type": "string", "maxLength": RESULT_STRING_CAP},
-                "score": {"type": "number"},
+                "score": {"type": "number", "description": "1 (urgent) to 4 (low)"},
+                "tags": {
+                    "type": ["object", "array"],
+                    "additionalProperties": True,
+                    "description": "Product areas, as a list",
+                },
             },
-            "required": ["verdict", "score"],
+            "required": ["verdict", "score", "tags"],
         }
         prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
-        assert "verdict (string), score (number)" in prompt
+        assert (
+            "verdict (string); score (number): 1 (urgent) to 4 (low); tags (json): Product areas, as a list" in prompt
+        )
         assert f"Keep each text field within {RESULT_STRING_CAP} characters" in prompt
 
     def test_rejects_output_fields_the_step_result_cannot_carry(self) -> None:

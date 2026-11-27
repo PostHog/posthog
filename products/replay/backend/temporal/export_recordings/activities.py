@@ -3,6 +3,7 @@ import re
 import gzip
 import json
 import bisect
+import socket
 import asyncio
 import hashlib
 import tempfile
@@ -18,6 +19,7 @@ from django.conf import settings
 
 import structlog
 from botocore.exceptions import ClientError
+from prometheus_client import Gauge
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -35,6 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.integration.aws import AWS_ROLE_ARN_RE, validate_aws_role_arn
 from posthog.models.integration.common import IntegrationError
+from posthog.security.oob_domains import matched_oob_domain
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.storage import object_storage
@@ -54,6 +57,7 @@ from products.replay.backend.temporal.export_recordings.types import (
     CheckDestinationInput,
     DayViewportsInput,
     ExportDestination,
+    ExportPoolInput,
     ExportShardInput,
     ExportTotals,
     SessionStatus,
@@ -66,6 +70,11 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+EXPORT_SHARDS = Gauge(
+    "replay_export_shards",
+    "Recording export shards running or about to start. The export recording-api pool scales on it.",
+)
+
 FILE_MAGIC = b"PHREC1\n"
 FILE_VERSION = "2026-11-raw"
 FILE_EXTENSION = "phrec"
@@ -74,7 +83,16 @@ SESSION_CONCURRENCY = 16
 BLOCK_CONCURRENCY = 8
 BLOCK_FETCH_ATTEMPTS = 3
 BLOCK_RETRY_DELAY_SECONDS = 1.0
-RECORDING_API_CONNECTIONS = SESSION_CONCURRENCY * BLOCK_CONCURRENCY
+SHARD_BLOCK_FETCHES = 16
+# Closing a connection this often moves the shard's traffic onto pods the pool just added.
+RECYCLE_CONNECTION_EVERY = 200
+# Matches the export pool's scaling target, so a run waits for the pods its shards will get.
+EXPORT_POOL_PODS_PER_SHARD = 2
+# Matches the export pool's maxPods, since a run cannot wait for more pods than the pool can have.
+EXPORT_POOL_MAX_PODS = 64
+# Longer than a cold pool takes to start, new nodes included.
+EXPORT_POOL_WAIT_SECONDS = 5 * 60
+EXPORT_POOL_POLL_SECONDS = 5
 # S3 needs at least 5 MiB for every multipart part except the last.
 UPLOAD_PART_BYTES = 8 * 1024 * 1024
 SESSIONS_PER_CHECKPOINT = 500
@@ -678,10 +696,15 @@ class SessionUpload:
         self.parts.append({"ETag": etag, "PartNumber": part_number})
 
 
-async def fetch_block(client: RecordingApiClient, block: Block, session: SessionRow, team_id: int) -> bytes:
-    fetch = functools.partial(
-        client.fetch_block, block.key, block.start_byte, block.end_byte, session.session_id, team_id, decompress=False
-    )
+async def fetch_block(
+    client: RecordingApiClient, fetches: asyncio.Semaphore, block: Block, session: SessionRow, team_id: int
+) -> bytes:
+    async def fetch() -> bytes:
+        async with fetches:
+            return await client.fetch_block(
+                block.key, block.start_byte, block.end_byte, session.session_id, team_id, decompress=False
+            )
+
     for attempt in range(1, BLOCK_FETCH_ATTEMPTS):
         try:
             return await fetch()
@@ -723,7 +746,7 @@ def block_size(block: Block) -> int:
 
 
 async def fetch_blocks_in_order(
-    client: RecordingApiClient, session: SessionRow, team_id: int, budget: ByteBudget
+    client: RecordingApiClient, fetches: asyncio.Semaphore, session: SessionRow, team_id: int, budget: ByteBudget
 ) -> AsyncGenerator[bytes]:
     """Yield the session's blocks in order, with up to BLOCK_CONCURRENCY fetches in flight within the byte budget.
 
@@ -743,7 +766,7 @@ async def fetch_blocks_in_order(
                 held = 0
             if not pending:
                 await budget.take(size)
-            pending.append((asyncio.create_task(fetch_block(client, block, session, team_id)), size))
+            pending.append((asyncio.create_task(fetch_block(client, fetches, block, session, team_id)), size))
         while pending:
             task, held = pending.popleft()
             yield await task
@@ -758,6 +781,7 @@ async def fetch_blocks_in_order(
 
 async def export_session(
     recordings: RecordingApiClient,
+    fetches: asyncio.Semaphore,
     bucket: CustomerBucket,
     budget: ByteBudget,
     input: ExportShardInput,
@@ -797,7 +821,9 @@ async def export_session(
                 }
             )
         )
-        async with contextlib.aclosing(fetch_blocks_in_order(recordings, session, input.team_id, budget)) as blocks:
+        async with contextlib.aclosing(
+            fetch_blocks_in_order(recordings, fetches, session, input.team_id, budget)
+        ) as blocks:
             async for data in blocks:
                 await upload.write(frame_block(data))
         await upload.finish()
@@ -830,6 +856,8 @@ async def check_destination(input: CheckDestinationInput) -> None:
     """Fails the run before any shard starts when the customer's role is unsafe or cannot write to the bucket."""
     if not settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN:
         raise ApplicationError("RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN is not set on this worker", non_retryable=True)
+    if not settings.RECORDING_API_EXPORT_URL:
+        raise ApplicationError("RECORDING_API_EXPORT_URL is not set on this worker", non_retryable=True)
     team = await Team.objects.aget(id=input.team_id)
     try:
         # Refuses a role that another organization could make us assume, because it lacks the external ID condition.
@@ -879,8 +907,44 @@ async def _probe[T](call: Awaitable[T], permission: str) -> T:
         raise ApplicationError(message, non_retryable=True) from e
 
 
+async def ready_export_pods(host: str) -> int:
+    if matched_oob_domain(host):
+        raise ApplicationError("RECORDING_API_EXPORT_PODS_HOST is on a refused domain", non_retryable=True)
+    try:
+        addresses = await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        # A headless Service with no ready pods has no records.
+        return 0
+    return len({address[4][0] for address in addresses})
+
+
+@activity.defn
+async def wait_for_export_pool(input: ExportPoolInput) -> None:
+    """Hold the run's shards in the pool's scaling metric until their pods are ready, so the first shards do not hit a cold pool."""
+    host = settings.RECORDING_API_EXPORT_PODS_HOST
+    if not host:
+        return
+    wanted = min(input.shards * EXPORT_POOL_PODS_PER_SHARD, EXPORT_POOL_MAX_PODS)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + EXPORT_POOL_WAIT_SECONDS
+    EXPORT_SHARDS.inc(input.shards)
+    try:
+        while (ready := await ready_export_pods(host)) < wanted and loop.time() < deadline:
+            activity.heartbeat(ready)
+            await asyncio.sleep(EXPORT_POOL_POLL_SECONDS)
+    finally:
+        EXPORT_SHARDS.dec(input.shards)
+    # A short pool only slows the export, so the run goes ahead on whatever is ready.
+    logger.info("export_recordings.export_pool_ready", run_id=input.run_id, ready_pods=ready, wanted_pods=wanted)
+
+
 @activity.defn
 async def export_shard(input: ExportShardInput) -> ExportTotals:
+    with EXPORT_SHARDS.track_inprogress():
+        return await _export_shard(input)
+
+
+async def _export_shard(input: ExportShardInput) -> ExportTotals:
     tag_queries(product=Product.REPLAY, feature=Feature.MANAGEMENT_COMMAND, team_id=input.team_id)
     log = logger.bind(team_id=input.team_id, run_id=input.run_id, day=input.day, shard=input.shard)
 
@@ -910,17 +974,24 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
         page = load_page(listed, checkpoint.last_session_id)
         try:
             async with (
-                recording_api_client(connection_limit=RECORDING_API_CONNECTIONS) as recordings,
+                recording_api_client(
+                    connection_limit=SHARD_BLOCK_FETCHES,
+                    base_url=settings.RECORDING_API_EXPORT_URL,
+                    recycle_connection_every=RECYCLE_CONNECTION_EVERY,
+                ) as recordings,
                 customer_bucket(input.team_id, input.destination, input.run_id) as bucket,
             ):
                 semaphore = asyncio.Semaphore(SESSION_CONCURRENCY)
                 budget = ByteBudget(SHARD_BLOCK_BUFFER_BYTES)
+                fetches = asyncio.Semaphore(SHARD_BLOCK_FETCHES)
 
                 async def export_one(
                     session: SessionRow, viewports: list[dict[str, Any]], person: dict | None
                 ) -> ManifestLine:
                     async with semaphore:
-                        return await export_session(recordings, bucket, budget, input, session, viewports, person)
+                        return await export_session(
+                            recordings, fetches, bucket, budget, input, session, viewports, person
+                        )
 
                 prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
                 while True:

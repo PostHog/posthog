@@ -29,12 +29,14 @@ from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
 from products.aeo.backend import catalog
 from products.aeo.backend.brand import brand_names
+from products.aeo.backend.engines import AICreditsExhausted
 from products.aeo.backend.facade.contracts import (
     KEYWORD_MAX_LENGTH,
     KEYWORD_SUGGESTION_SEARCH_CHECKS,
     KEYWORD_SUGGESTION_SEARCH_DAYS,
     MAX_KEYWORDS_PER_TEAM,
     MAX_SUGGESTED_KEYWORDS,
+    OUT_OF_AI_CREDITS_MESSAGE,
     BrandKind,
     BrandStatus,
     KeywordSuggestion,
@@ -272,6 +274,9 @@ def generate_keyword_suggestions(
             max_tokens=BASE_KEYWORD_TOKENS + TOKENS_PER_KEYWORD * count,
             max_searches=MAX_KEYWORD_SEARCHES,
         )
+    except AICreditsExhausted as error:
+        logger.info("aeo_keyword_suggestions_out_of_credits", team_id=team_id, trace_id=trace_id)
+        raise KeywordSuggestionError(OUT_OF_AI_CREDITS_MESSAGE) from error
     except (requests.RequestException, ValueError) as error:
         logger.warning("aeo_keyword_suggestions_failed", team_id=team_id, trace_id=trace_id, error=type(error).__name__)
         raise KeywordSuggestionError(FAILED_ERROR) from error

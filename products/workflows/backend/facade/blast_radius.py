@@ -1,4 +1,4 @@
-"""Batch audience sizing and paging, for the audience preview and the Node batch resolver."""
+"""Batch audience sizing for the audience preview, and account audience paging for the Node batch resolver."""
 
 from products.workflows.backend.services.account_audience import is_account_audience, parse_account_audience_filters
 from products.workflows.backend.services.batch_audience import (
@@ -10,7 +10,6 @@ from products.workflows.backend.services.blast_radius import (
     get_account_audience_ids_page,
     get_account_audience_size,
     get_account_group_type_name,
-    get_audience_person_page,
     get_audience_size,
 )
 
@@ -20,7 +19,6 @@ __all__ = [
     "get_account_audience_ids_page",
     "get_account_audience_size",
     "get_account_group_type_name",
-    "get_audience_person_page",
     "get_audience_size",
     "is_account_audience",
     "parse_account_audience_filters",

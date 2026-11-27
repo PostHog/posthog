@@ -361,4 +361,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "salesforceCmsId": "ID of the copy of the landing page in Salesforce CMS, if it was copied.",
         },
     },
+    "tags": {
+        "description": "A keyword or phrase used to sort, organize and report on Account Engagement records.",
+        "docs_url": f"{_DOCS_BASE}/tag-v5.html",
+        "columns": {
+            **_shared("tags"),
+            "objectCount": "Number of records tagged with the tag.",
+        },
+    },
+    "tagged_objects": {
+        "description": "A link between a tag and one tagged record, with the time the tag was applied.",
+        "docs_url": f"{_DOCS_BASE}/tagged-object-v5.html",
+        "columns": {
+            **_shared("tagged_objects"),
+            "createdAt": "Timestamp of when the tag was added to the record.",
+            "createdById": "ID of the user who added the tag to the record.",
+            "tagId": "ID of the tag.",
+            "objectType": "Type of the tagged record, such as prospect, campaign or landing-page.",
+            "objectId": "ID of the tagged record.",
+            "objectName": "Name of the tagged record.",
+        },
+    },
+    "engagement_studio_programs": {
+        "description": "An Engagement Studio program that nurtures prospects through automated steps.",
+        "docs_url": f"{_DOCS_BASE}/engagement-studio-program-v5.html",
+        "columns": {
+            **_shared("engagement_studio_programs"),
+            "description": "Description of the program.",
+            "status": "Status of the program, such as draft, running, paused or scheduled.",
+            "recipientListIds": "IDs of the lists whose prospects enter the program.",
+            "suppressionListIds": "IDs of the lists whose prospects are kept out of the program.",
+            "scheduleCreatedById": "ID of the user who created the program's schedule.",
+        },
+    },
+    "dynamic_contents": {
+        "description": "A dynamic content block that shows different content based on a prospect field.",
+        "docs_url": f"{_DOCS_BASE}/dynamic-content-v5.html",
+        "columns": {
+            **_shared("dynamic_contents"),
+            "basedOn": "Kind of field the content is based on: default, custom, grade or score.",
+            "basedOnProspectApiFieldId": "Name of the prospect field the content is mapped to.",
+            "trackerDomainId": "ID of the tracker domain associated with the dynamic content.",
+            "embedCode": "Code to embed the dynamic content in a web page.",
+            "embedUrl": "URL to embed the dynamic content.",
+            "tagReplacementLanguage": "Merge language of the dynamic content: pml, hml or undetermined.",
+        },
+    },
 }

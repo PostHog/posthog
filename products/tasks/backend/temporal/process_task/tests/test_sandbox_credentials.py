@@ -345,7 +345,10 @@ class TestReplaceSandboxCredentials:
 class TestGitHubSandboxCredential:
     @pytest.fixture(autouse=True)
     def _github_task(self):
-        with patch(f"{MODULE}._is_gitlab_task", return_value=False):
+        with (
+            patch(f"{MODULE}._is_gitlab_task", return_value=False),
+            patch(f"{MODULE}._run_requires_scoped_git", return_value=False),
+        ):
             yield
 
     def test_resolves_and_applies_token_and_reports_interval(self):
@@ -564,7 +567,10 @@ MODULE = "products.tasks.backend.temporal.process_task.sandbox_credentials"
 class TestSharedUserIntegrationRefresh:
     @pytest.fixture(autouse=True)
     def _github_task(self):
-        with patch(f"{MODULE}._is_gitlab_task", return_value=False):
+        with (
+            patch(f"{MODULE}._is_gitlab_task", return_value=False),
+            patch(f"{MODULE}._run_requires_scoped_git", return_value=False),
+        ):
             yield
 
     def _as_user_integration_run(self, stack):
@@ -684,6 +690,11 @@ class TestSharedUserIntegrationRefresh:
 
 
 class TestApplyTokenLocked:
+    @pytest.fixture(autouse=True)
+    def unrestricted_run(self):
+        with patch(f"{MODULE}._run_requires_scoped_git", return_value=False):
+            yield
+
     def _lock(self, stack, *, acquired, gitlab_task=False):
         lock = MagicMock()
         lock.acquire.return_value = acquired

@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from posthog.models.integration import Integration
 
 from products.slack_app.backend import feature_flags
@@ -88,3 +90,32 @@ def test_byos_gate_follows_the_plan_rollout(
     # must match the tasks rollout for that plan exactly.
     with patch("posthoganalytics.feature_enabled", return_value=plan_rollout_on):
         assert feature_flags.is_slack_app_byos_enabled(workspace_integration, distinct_id, adapter=adapter) is expected
+
+
+@pytest.mark.parametrize(
+    ("flag_result", "expected"),
+    [(True, True), (False, False), (None, True), (RuntimeError("flags unavailable"), True)],
+    ids=["on", "off", "not evaluated", "error"],
+)
+def test_chatgpt_apps_gate_counts_a_failed_evaluation_as_on(
+    workspace_integration: Integration, flag_result: object, expected: bool
+) -> None:
+    # Off keeps the plan's apps in Slack runs, so a flag outage must not turn the owner's setting off.
+    kwargs = {"side_effect": flag_result} if isinstance(flag_result, Exception) else {"return_value": flag_result}
+    with patch("posthoganalytics.feature_enabled", **kwargs):
+        assert feature_flags.is_slack_app_chatgpt_apps_setting_enabled(workspace_integration, "user-1") is expected
+
+
+@pytest.mark.parametrize(
+    ("flag_result", "expected"),
+    [(True, True), (False, False), (None, True), (RuntimeError("flags unavailable"), True)],
+    ids=["on", "off", "not evaluated", "error"],
+)
+def test_web_settings_enforcement_counts_a_failed_evaluation_as_on(
+    workspace_integration: Integration, flag_result: object, expected: bool
+) -> None:
+    # The gate keeps an admin's restriction, such as the shared channels switch, so a flag outage must not lift it.
+    cache.clear()
+    kwargs = {"side_effect": flag_result} if isinstance(flag_result, Exception) else {"return_value": flag_result}
+    with patch("posthoganalytics.feature_enabled", **kwargs):
+        assert feature_flags.is_slack_app_web_settings_enforced(workspace_integration) is expected

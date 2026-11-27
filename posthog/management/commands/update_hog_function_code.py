@@ -1,3 +1,4 @@
+import re
 import time
 from typing import NotRequired, TypedDict, cast
 
@@ -24,6 +25,10 @@ class _ReplaceOption(TypedDict):
     # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
     # purpose), this pins the run to the intended cohort.
     only_if_contains: NotRequired[str]
+    function_type: NotRequired[str]
+    # The variable the replacements rename. A function is updated only when every replacement matches and no use of
+    # the old name is left, so hand-edited code never ends up reading a variable that no longer exists.
+    renamed_variable: NotRequired[str]
 
 
 class Command(BaseCommand):
@@ -164,6 +169,30 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Stripe sends one `v1` per signing secret and fields such as `secret=`, which the old parser misread.
+            # Warehouse Stripe sources need no rewrite because they run the template's bytecode.
+            "stripe-signature-header-parsing": {
+                "template_id": "template-source-stripe-webhook",
+                "function_type": "source_webhook",
+                "renamed_variable": "v1Signature",
+                "replacements": [
+                    {"from_string": "let v1Signature := null", "to_string": "let v1Signatures := []"},
+                    {"from_string": "if (trimmed like 't=%') {", "to_string": "if (startsWith(trimmed, 't=')) {"},
+                    {"from_string": "if (trimmed like 'v1=%') {", "to_string": "if (startsWith(trimmed, 'v1=')) {"},
+                    {
+                        "from_string": "v1Signature := v1Parts[2]",
+                        "to_string": "v1Signatures := arrayPushBack(v1Signatures, v1Parts[2])",
+                    },
+                    {
+                        "from_string": "if (empty(timestamp) or empty(v1Signature)) {",
+                        "to_string": "if (empty(timestamp) or empty(v1Signatures)) {",
+                    },
+                    {
+                        "from_string": "if (computedSignature != v1Signature) {",
+                        "to_string": "if (not has(v1Signatures, computedSignature)) {",
+                    },
+                ],
+            },
             # Existing Microsoft Ads destinations hash email and phone in a form Microsoft cannot match, and do
             # not send the required dataProvider. One replacement covers both checks, so it cannot half-apply.
             "microsoft-ads-capi-normalization": {
@@ -249,11 +278,14 @@ if (not empty(inputs.phone)) {
         replaceOption = replaceOptions[replace_key]
 
         queryset = HogFunction.objects.filter(
-            type="destination", deleted=False, template_id=replaceOption["template_id"]
+            type=replaceOption.get("function_type", "destination"),
+            deleted=False,
+            template_id=replaceOption["template_id"],
         )
 
         updated_count = 0
         failed: list[tuple[str, int, bool, str]] = []
+        needs_manual_update: list[tuple[str, int, bool]] = []
         total_found = queryset.count()
         paginator = Paginator(queryset.order_by("id"), 1000)
 
@@ -285,9 +317,19 @@ if (not empty(inputs.phone)) {
                 if new_hog == destination.hog:
                     continue
 
+                renamed_variable = replaceOption.get("renamed_variable")
+                if renamed_variable and (
+                    not all(
+                        replacement["from_string"] in destination.hog for replacement in replaceOption["replacements"]
+                    )
+                    or re.search(rf"\b{renamed_variable}\b", new_hog)
+                ):
+                    needs_manual_update.append((str(destination.id), destination.team_id, destination.enabled))
+                    continue
+
                 # A single destination with uncompilable (e.g. hand-edited) hog must not abort the whole run.
                 try:
-                    # The queryset filters on type="destination", so the type is set.
+                    # The queryset filters on type, so the type is set.
                     new_bytecode = compile_hog(new_hog, cast(str, destination.type))
                 except Exception as e:
                     failed.append((str(destination.id), destination.team_id, destination.enabled, str(e)))
@@ -306,6 +348,15 @@ if (not empty(inputs.phone)) {
                 f"Update completed in {duration:.2f}s. Found: {total_found}, Updated: {updated_count}, Failed: {len(failed)}"
             )
         )
+
+        if needs_manual_update:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"{len(needs_manual_update)} function(s) were edited by hand and need a manual update:"
+                )
+            )
+            for fn_id, team_id, enabled in needs_manual_update:
+                self.stdout.write(f"  id={fn_id} team={team_id} enabled={enabled}")
 
         if failed:
             self.stdout.write(self.style.WARNING(f"{len(failed)} destination(s) failed to compile and were skipped:"))

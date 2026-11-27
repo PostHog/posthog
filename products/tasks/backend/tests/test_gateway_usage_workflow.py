@@ -267,7 +267,11 @@ class TestScoutSpendSettlement(BaseTest):
         self.assertFalse(spend.accounting_failed)
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
-            new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=50)),
+            new=AsyncMock(
+                return_value=GatewayRequestCost(
+                    model="example", provider="example", cost_microusd=50, standard_cost_microusd=50
+                )
+            ),
         ):
             assert (
                 inspect.unwrap(reconcile_gateway_usage)(GatewayUsageInput(run_id=str(run.id), team_id=self.team.id))

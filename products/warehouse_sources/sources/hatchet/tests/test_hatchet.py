@@ -83,6 +83,17 @@ def _row(row_id: str) -> dict[str, Any]:
     return {"metadata": {"id": row_id, "createdAt": "2026-06-01T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z"}}
 
 
+def _rate_limit(key: str) -> dict[str, Any]:
+    return {
+        "key": key,
+        "tenantId": "tenant-1",
+        "limitValue": 10,
+        "value": 4,
+        "window": "1 minute",
+        "lastRefill": "2026-06-01T00:00:00Z",
+    }
+
+
 def _log(created_at: str, message: str) -> dict[str, Any]:
     return {
         "createdAt": created_at,
@@ -135,11 +146,18 @@ class TestGetRows:
         token = _make_token({"sub": "tenant-1", "server_url": host})
         return SourceDriver(HatchetSource(), HatchetSourceConfig(api_token=token, host=None, tenant_id=None))
 
-    def test_pagination_walks_offsets_until_num_pages_reached(self):
-        full_page = [_row(f"p1-{i}") for i in range(100)]
-        second_page = [_row(f"p2-{i}") for i in range(100)]
+    @pytest.mark.parametrize(
+        "endpoint,make_row,primary_key,static_params",
+        [
+            ("workflow_runs", _row, "id", {"only_tasks": "false"}),
+            ("rate_limits", _rate_limit, "key", {"orderByField": "key", "orderByDirection": "asc"}),
+        ],
+    )
+    def test_pagination_walks_offsets_until_num_pages_reached(self, endpoint, make_row, primary_key, static_params):
+        full_page = [make_row(f"p1-{i}") for i in range(100)]
+        second_page = [make_row(f"p2-{i}") for i in range(100)]
         result = self._driver().run(
-            "workflow_runs",
+            endpoint,
             [
                 ScriptedResponse(json={"rows": full_page, "pagination": {"current_page": 1, "num_pages": 2}}),
                 ScriptedResponse(json={"rows": second_page, "pagination": {"current_page": 2, "num_pages": 2}}),
@@ -147,9 +165,12 @@ class TestGetRows:
         )
 
         assert result.raised is None
-        assert len(_collect(result.items)) == 200
+        rows = _collect(result.items)
+        assert len({row[primary_key] for row in rows}) == 200
         # Second request advances the offset by the page size.
         assert result.params("offset") == ["0", "100"]
+        for name, value in static_params.items():
+            assert result.params(name) == [value, value]
 
     def test_resume_starts_from_saved_offset_and_pins_since(self):
         result = self._driver().run(

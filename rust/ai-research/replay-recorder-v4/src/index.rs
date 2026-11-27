@@ -110,6 +110,8 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         touch_moves,
         url_fingerprints,
         window_ids,
+        json_ld_events,
+        json_ld_root_types,
         surfacing,
     } = *stats;
     let mut map = serializer.serialize_map(None)?;
@@ -130,7 +132,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         max_written_event_bytes
     );
     columns!(|v: &bool| *v => cold_start, node_cap_reached, moments_truncated, touch_input);
-    columns!(|v: &Vec<String>| v.clone() => url_fingerprints, window_ids);
+    columns!(|v: &Vec<String>| v.clone() => url_fingerprints, window_ids, json_ld_root_types);
     columns!(|v: &DistinctSketch| v.entries() => image_ref_sketch);
     columns!(|v: &Option<u32>| v.map(int32) => viewport_width, viewport_height);
     columns!(
@@ -165,7 +167,8 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         network_failures,
         images_extracted,
         images_inline,
-        image_urls
+        image_urls,
+        json_ld_events
     );
     map.serialize_entry("host", host)?;
     map.serialize_entry("unread_reason", unread_reason)?;
@@ -582,6 +585,8 @@ mod tests {
         ("surfacing_form_field_ids", "LIST<INT64>", true),
         ("unread_reason", "UTF8", true),
         ("image_ref_sketch", "LIST<INT32>", true),
+        ("json_ld_events", "INT32", true),
+        ("json_ld_root_types", "LIST<UTF8>", true),
     ];
 
     const IMAGE_COLUMNS: &[(&str, &str, bool)] = &[
