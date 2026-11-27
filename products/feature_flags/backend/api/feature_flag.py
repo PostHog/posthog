@@ -22,6 +22,7 @@ from django.http.request import RawPostDataException
 import grpc
 import requests
 import structlog
+import posthoganalytics
 from cryptography.fernet import InvalidToken
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -318,13 +319,13 @@ def _mirror_stored_fields(source: FeatureFlag, target: FeatureFlag) -> None:
 
 
 def _launch_side(flag: FeatureFlag) -> FlagLaunchSide:
-    return FlagLaunchSide(
-        active=flag.active,
-        deleted=flag.deleted,
-        archived=flag.archived,
-        filters=copy.deepcopy(flag.filters),
-        evaluation_runtime=flag.evaluation_runtime,
-    )
+    states = {name: getattr(flag, name) for name in ("active", "deleted", "archived", "evaluation_runtime")}
+    return FlagLaunchSide(**states, filters=copy.deepcopy(flag.filters))
+
+
+def _send_launch_check(team: Team, properties: dict[str, Any]) -> None:
+    with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
+        report_team_action(team, "feature flag launch checked", properties)
 
 
 def _carry_loaded_state(source: FeatureFlag, target: FeatureFlag) -> None:
@@ -2919,33 +2920,16 @@ class FeatureFlagSerializer(
 
         return instance
 
-    def _launch_snapshot(self, flag: FeatureFlag) -> FlagLaunchSide | None:
-        if self._v2_write:
-            return None
-        try:
-            return _launch_side(flag)
-        except Exception as error:
-            capture_exception(error)
-            return None
-
     def _register_launch_check(self, before: FlagLaunchSide | None, flag: FeatureFlag, request: Any) -> None:
-        if before is None:
-            return
         try:
-            launch = check_launch(before, _launch_side(flag))
-            if launch is None:
-                return
-            properties = {
-                "qualified": launch.qualified,
-                "reason": launch.reason,
-                "release_path": launch.release_path,
-                "source": get_event_source(request),
-                "was_impersonated": is_impersonated(request),
-            }
-            transaction.on_commit(
-                functools.partial(report_team_action, flag.team, "feature flag launch checked", properties),
-                robust=True,
-            )
+            launch = before and check_launch(before, _launch_side(flag))
+            if launch:
+                properties = {
+                    **asdict(launch),
+                    "source": get_event_source(request),
+                    "was_impersonated": is_impersonated(request),
+                }
+                transaction.on_commit(functools.partial(_send_launch_check, flag.team, properties), robust=True)
         except Exception as error:
             capture_exception(error)
 
@@ -3052,7 +3036,7 @@ class FeatureFlagSerializer(
                 # (setting deleted=False) can acquire the lock.
                 locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
                 locked_version = locked_instance.version or 0
-                launch_before = self._launch_snapshot(locked_instance)
+                launch_before = None if self._v2_write else _launch_side(locked_instance)
 
                 # V1 cleanup must not strip unknown keys from a v2 document before validation.
                 if not self._v2_write:

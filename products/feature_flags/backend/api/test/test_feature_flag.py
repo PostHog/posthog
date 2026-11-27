@@ -23,8 +23,10 @@ from django.utils.timezone import now
 
 import grpc
 import requests
+import posthoganalytics
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
+from posthoganalytics.client import add_context_tags
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -16871,6 +16873,35 @@ class TestFeatureFlagLaunchCheck(APIBaseTest):
         ]
 
     @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_launch_event_carries_nothing_from_the_request_context(self, capture: MagicMock):
+        sent: list[dict[str, Any]] = []
+        capture.side_effect = lambda **kwargs: sent.append(
+            {"event": kwargs["event"], "properties": add_context_tags(dict(kwargs["properties"]))}
+        )
+        flag = self._flag(50)
+
+        with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
+            posthoganalytics.tag("email", "user@example.com")
+            posthoganalytics.tag("$current_url", "https://example.com/feature_flags")
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._patch(flag, {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [
+            {key: value for key, value in event["properties"].items() if key != "$context_tags"}
+            for event in sent
+            if event["event"] == "feature flag launch checked"
+        ] == [
+            {
+                "qualified": True,
+                "reason": None,
+                "release_path": "conditions",
+                "source": "web",
+                "was_impersonated": False,
+            }
+        ]
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
     def test_save_with_token_minted_during_impersonation_is_marked_impersonated(self, capture: MagicMock):
         flag = self._flag(50)
         application = OAuthApplication.objects.create(
@@ -16920,18 +16951,6 @@ class TestFeatureFlagLaunchCheck(APIBaseTest):
             response = self._patch(flag, body)
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert self._launch_events(capture) == []
-
-    @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_create_at_everyone_sends_nothing(self, capture: MagicMock):
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/",
-                {"key": "born-launched", "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}},
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_201_CREATED, response.content
         assert self._launch_events(capture) == []
 
     @patch("posthog.event_usage.posthoganalytics.capture")

@@ -13,6 +13,8 @@ from products.feature_flags.backend.launch_check import (
 )
 
 EMAIL = [{"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"}]
+EMAIL_SET = [{"key": "email", "type": "person", "operator": "is_set", "value": "is_set"}]
+EMAIL_NOT_SET = [{"key": "email", "type": "person", "operator": "is_not_set", "value": "is_not_set"}]
 SPLIT_50_50 = [{"key": "a", "rollout_percentage": 50}, {"key": "b", "rollout_percentage": 50}]
 SPLIT_ALL_A = [{"key": "a", "rollout_percentage": 100}, {"key": "b", "rollout_percentage": 0}]
 SPLIT_60_40 = [{"key": "a", "rollout_percentage": 60}, {"key": "b", "rollout_percentage": 40}]
@@ -75,10 +77,16 @@ class TestCheckLaunch(TestCase):
             ),
             ("zero_rollout_to_full", _flag(_condition(0)), _flag(_condition(None)), _qualified(ReleasePath.CONDITIONS)),
             (
-                "property_condition_with_everyone_on_top",
+                "property_condition_at_full_is_not_read_as_staged",
                 _flag(_condition(100, EMAIL)),
                 _flag(_condition(100), _condition(100, EMAIL)),
-                _qualified(ReleasePath.CONDITIONS),
+                _not_qualified(LaunchReason.NOT_STAGED_BEFORE, ReleasePath.CONDITIONS),
+            ),
+            (
+                "complementary_property_conditions_replaced_by_everyone",
+                _flag(_condition(100, EMAIL_SET), _condition(100, EMAIL_NOT_SET)),
+                _flag(_condition(100)),
+                _not_qualified(LaunchReason.NOT_STAGED_BEFORE, ReleasePath.CONDITIONS),
             ),
             (
                 "disabled_partial_flag_enabled_at_full",
@@ -283,13 +291,17 @@ class TestCheckLaunch(TestCase):
                 _flag(_condition(100), variants=SPLIT_50_50),
                 _flag(_condition(100), variants=SPLIT_60_40),
             ),
+            (
+                "saved_as_config_version_2",
+                _flag(_condition(50)),
+                _flag(_condition(100), extra={"version": 2}),
+            ),
+            (
+                "stored_as_config_version_2",
+                _flag(_condition(50), extra={"version": 2}),
+                _flag(_condition(100)),
+            ),
         ]
     )
     def test_save_that_does_not_newly_reach_everyone(self, _name: str, before: FlagLaunchSide, after: FlagLaunchSide):
         self.assertIsNone(check_launch(before, after))
-
-    def test_config_version_2_is_not_read(self):
-        version_2 = FlagLaunchSide(
-            active=True, deleted=False, archived=False, filters={"version": 2}, evaluation_runtime="all"
-        )
-        self.assertIsNone(check_launch(_flag(_condition(50)), version_2))
