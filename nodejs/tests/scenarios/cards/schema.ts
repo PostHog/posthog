@@ -233,7 +233,13 @@ export const Profile = z
         host: Host.optional(),
         alerts: AlertsProfile.optional(),
         postgres: z
-            .object({ autovacuum: z.record(VacuumSettingName, z.string()) })
+            .object({
+                autovacuum: z
+                    .record(VacuumSettingName, z.string())
+                    .refine((settings) => Object.keys(settings).length > 0, {
+                        message: 'name at least one autovacuum setting, or leave postgres out',
+                    }),
+            })
             .strict()
             .optional(),
     })

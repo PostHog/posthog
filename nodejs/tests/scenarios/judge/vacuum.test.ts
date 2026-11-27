@@ -109,11 +109,22 @@ describe('soak measurements', () => {
             { key: 'index_cyclotron_jobs_pkey', value: 2, incomplete: true },
             { key: 'index_idx_cyclotron_jobs_dequeue', value: 2, incomplete: true },
         ])
+        const noLiveRows = { value: null, censored: true, unmeasured: 'no live rows at an end of the drive' }
         expect(
             measured('bloat_growth', {
                 vacuum: [read(10, { liveTuples: 0 }), read(900, { liveTuples: 500 }), read(1790, { liveTuples: 0 })],
             })
-        ).toEqual([])
+        ).toEqual(
+            ['heap', 'toast', 'indexes', 'index_cyclotron_jobs_pkey', 'index_idx_cyclotron_jobs_dequeue'].map(
+                (key) => ({ key, ...noLiveRows })
+            )
+        )
+        expect(
+            measured('index_bytes_per_row', { vacuum: [read(10, { liveTuples: 0 }), read(1790, { liveTuples: 500 })] })
+        ).toEqual([
+            { key: 'start', value: null, censored: true, unmeasured: 'no live rows at the start of the drive' },
+            { key: 'end', value: 100 },
+        ])
     })
 
     it('counts the autovacuum runs of the drive and times those a sample saw running', () => {
@@ -259,18 +270,54 @@ describe('soak measurements', () => {
             { key: 'hogflow_t0', value: 1 },
             { key: 'hogflow_t600', value: 10 },
         ])
+
     })
 
-    it('names each autovacuum setting that differs from the profile, and each relation with storage options', () => {
+    it('names each autovacuum setting that differs from the profile in any spelling, and each relation with storage options apart from them', () => {
         const vacuumSettings = {
-            settings: { autovacuum: 'on', autovacuum_naptime: '1min', autovacuum_vacuum_scale_factor: '0.2' },
+            settings: {
+                autovacuum: 'on',
+                autovacuum_naptime: '1min',
+                autovacuum_vacuum_cost_delay: '2ms',
+                autovacuum_work_mem: '-1',
+                autovacuum_vacuum_scale_factor: '0.2',
+            },
+            types: {
+                autovacuum: { unit: null, vartype: 'bool' },
+                autovacuum_naptime: { unit: 's', vartype: 'integer' },
+                autovacuum_vacuum_cost_delay: { unit: 'ms', vartype: 'real' },
+                autovacuum_work_mem: { unit: 'kB', vartype: 'integer' },
+                autovacuum_vacuum_scale_factor: { unit: null, vartype: 'real' },
+            },
             storage: { cyclotron_jobs: null, cyclotron_jobs_pkey: ['fillfactor=80'] },
         }
-        const autovacuumProfile = { autovacuum: 'on', autovacuum_naptime: '5s' }
+        const autovacuumProfile = {
+            autovacuum: 'true',
+            autovacuum_naptime: '60',
+            autovacuum_vacuum_cost_delay: '2',
+            autovacuum_work_mem: '-1',
+            autovacuum_vacuum_scale_factor: '0.1',
+        }
 
         expect(measured('autovacuum_settings_differ', { vacuumSettings, autovacuumProfile })).toEqual([
-            { key: 'count', value: 2 },
+            { key: 'count', value: 1 },
+            { key: 'autovacuum_vacuum_scale_factor', value: 1 },
+            { key: 'storage_cyclotron_jobs_pkey', value: 1 },
+        ])
+        expect(
+            measured('autovacuum_settings_differ', {
+                vacuumSettings,
+                autovacuumProfile: { autovacuum_naptime: '5s', autovacuum_nap_time: '1min' },
+            })
+        ).toEqual([
+            { key: 'count', value: 1, incomplete: true },
             { key: 'autovacuum_naptime', value: 1 },
+            {
+                key: 'autovacuum_nap_time',
+                value: null,
+                censored: true,
+                unmeasured: 'PostgreSQL has no setting autovacuum_nap_time',
+            },
             { key: 'storage_cyclotron_jobs_pkey', value: 1 },
         ])
         expect(measured('autovacuum_settings_differ', { vacuumSettings })).toEqual([

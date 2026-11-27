@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
 import { VACUUM_PROBE_EVERY_MS } from '../probe/vacuum-cadence'
-import type { VacuumRead, VacuumSample } from '../probe/vacuum-probe'
+import type { SettingType, VacuumRead, VacuumSample } from '../probe/vacuum-probe'
 import { WORKER_OF, p99Of, pickupsBetween } from './bars'
 import type { MeasureEvidence, MeasurementDefinition } from './measurements'
 
@@ -147,6 +147,44 @@ const atEndpoints = (evidence: MeasureEvidence, measure: (reads: Read[]) => Meas
     }))
 }
 
+const UNIT_SCALE: Record<string, number> = {
+    B: 1,
+    kB: 1024,
+    MB: 1024 ** 2,
+    GB: 1024 ** 3,
+    TB: 1024 ** 4,
+    us: 0.001,
+    ms: 1,
+    s: 1000,
+    min: 60_000,
+    h: 3_600_000,
+    d: 86_400_000,
+}
+
+const scaleOf = (unit: string): number | undefined => {
+    const [, count, name] = /^(\d*)([a-zA-Z]+)$/.exec(unit) ?? []
+    return name in UNIT_SCALE ? (count ? Number(count) : 1) * UNIT_SCALE[name] : undefined
+}
+
+// PostgreSQL takes one value in many spellings: 60s and 1min, 5 in a setting whose unit is s, true and on.
+function settingValueOf(value: string, { unit, vartype }: SettingType): string {
+    const text = value.trim()
+    if (vartype === 'bool') {
+        const lower = text.toLowerCase()
+        return ['on', 'true', 'yes', '1'].includes(lower)
+            ? 'on'
+            : ['off', 'false', 'no', '0'].includes(lower)
+              ? 'off'
+              : text
+    }
+    const [, number, suffix] = /^(-?\d+(?:\.\d+)?)\s*([a-zA-Z]*)$/.exec(text) ?? []
+    if (number === undefined || (vartype !== 'integer' && vartype !== 'real')) {
+        return text
+    }
+    const scale = suffix ? scaleOf(suffix) : unit ? scaleOf(unit) : 1
+    return scale === undefined ? text : String(Number(number) * scale)
+}
+
 const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
 
 const growthOf = (start: number | undefined, end: number | undefined): Measured[] =>
@@ -282,15 +320,24 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                 unmeasured(`the autovacuum settings were not read${vacuumSettings ? `: ${vacuumSettings.error}` : ''}`),
             ]
         }
-        const differ = [
-            ...Object.entries(autovacuumProfile)
-                .filter(([name, value]) => vacuumSettings.settings[name] !== value)
-                .map(([name]) => name),
-            ...Object.entries(vacuumSettings.storage)
-                .filter(([, options]) => options !== null)
-                .map(([relation]) => `storage_${relation}`),
-        ].sort()
-        return [{ key: 'count', value: differ.length }, ...differ.map((key) => ({ key, value: 1 }))]
+        const { settings, types, storage } = vacuumSettings
+        const typeOf = (name: string): SettingType => types[name] ?? { unit: null, vartype: 'string' }
+        const named = Object.keys(autovacuumProfile).sort()
+        const unread = named.filter((name) => !(name in settings))
+        const differ = named.filter(
+            (name) =>
+                name in settings &&
+                settingValueOf(settings[name], typeOf(name)) !== settingValueOf(autovacuumProfile[name], typeOf(name))
+        )
+        return [
+            { key: 'count', value: differ.length, ...(unread.length > 0 && { incomplete: true as const }) },
+            ...differ.map((key) => ({ key, value: 1 })),
+            ...unread.map((key) => ({ key, ...unmeasured(`PostgreSQL has no setting ${key}`) })),
+            ...Object.entries(storage)
+                .flatMap(([relation, options]) => (options === null ? [] : [{ relation, options }]))
+                .sort((a, b) => a.relation.localeCompare(b.relation))
+                .map(({ relation, options }) => ({ key: `storage_${relation}`, value: options.length })),
+        ]
     }),
     seriesMeasure('writer_cpu_percent', '%', (evidence, params) => {
         const { writerCpu } = evidence

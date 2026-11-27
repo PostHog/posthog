@@ -172,6 +172,12 @@ describe('load', () => {
             'measure: dead_tuple_share is listed more than once, and its keys would overwrite each other; list it once',
         ],
         [
+            'a profile that names an empty map of autovacuum settings',
+            card,
+            { ...profile, postgres: { autovacuum: {} } },
+            'profile.postgres.autovacuum: name at least one autovacuum setting, or leave postgres out',
+        ],
+        [
             'an unknown bar',
             { ...card, bars: [{ name: 'writer_iops_under' }] },
             undefined,
