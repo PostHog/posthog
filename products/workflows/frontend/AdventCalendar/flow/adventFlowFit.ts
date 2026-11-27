@@ -1,7 +1,12 @@
-import { ADVENT_FLOW_PHONE_WIDTH, AdventFlowLayout, AdventFlowOrientation } from './adventFlowLayout'
+import {
+    ADVENT_FLOW_PHONE_WIDTH,
+    ADVENT_FLOW_ROWS_SIZE,
+    AdventFlowLayout,
+    AdventFlowOrientation,
+} from './adventFlowLayout'
 
-// Below this width the rows would zoom out past 0.8, which shrinks the 12 px captions to under 10 px.
-const COLUMN_BELOW = 960
+// Rows zoomed out past 0.8 shrink the 12 px captions to under 10 px, on a narrow stage or on a short one.
+const MIN_ROWS_ZOOM = 0.8
 const MAX_COLUMN_ZOOM = 1.25
 
 export interface AdventFlowFit {
@@ -10,8 +15,9 @@ export interface AdventFlowFit {
     content: { width: number; height: number }
 }
 
-export function adventFlowOrientation(stage: { width: number }): AdventFlowOrientation {
-    return stage.width < COLUMN_BELOW ? 'column' : 'rows'
+export function adventFlowOrientation(stage: { width: number; height: number }): AdventFlowOrientation {
+    const zoom = Math.min(stage.width / ADVENT_FLOW_ROWS_SIZE.width, stage.height / ADVENT_FLOW_ROWS_SIZE.height)
+    return zoom < MIN_ROWS_ZOOM ? 'column' : 'rows'
 }
 
 export function adventFlowFit(stage: { width: number; height: number }, layout: AdventFlowLayout): AdventFlowFit {

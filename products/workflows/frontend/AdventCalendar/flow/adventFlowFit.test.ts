@@ -17,6 +17,7 @@ describe('adventFlowFit', () => {
         ['a narrow desktop stage', 950, 700, 'column', 88],
         ['the narrowest desktop stage with rows', 960, 800, 'rows', 56],
         ['a laptop', 1024, 768, 'rows', 60],
+        ['a short desktop stage', 1440, 620, 'column', 88],
         ['a wide desktop', 1440, 900, 'rows', 76],
     ])('fits the doors on %s (%s × %s) into %s at %s px', (_, width, height, orientation, doorSize) => {
         const stage = { width, height }
