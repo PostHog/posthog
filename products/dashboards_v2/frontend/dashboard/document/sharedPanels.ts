@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { sharedPanelSchema } from './dashboardSchema'
+import { sharedPanelSchema } from '../../panels/core/panelSchema'
 import { type Dashboard, type DashboardDocument, type Tile, isGridTab, isSectionPanel } from './dashboardTypes'
 
 type DocumentGridTab = Extract<DashboardDocument['tabs'][number], { tiles: unknown }>
@@ -23,8 +23,11 @@ function loadTiles(tiles: DocumentTile[], panels: Record<string, SharedPanel>): 
             return [{ ...tile, panel }]
         }
         const shared = Object.hasOwn(panels, panel.ref) ? panels[panel.ref] : undefined
-        // `validateDashboard` reports a reference to a missing panel. Loading leaves the tile out.
-        return shared ? [{ ...tile, panel: { ...shared, ...panel } }] : []
+        // `validateDashboard` reports a reference to a missing panel, or to a shared section, whose tiles nothing bounds.
+        // Loading leaves the tile out.
+        return shared && !('tiles' in shared) && shared.type !== 'section'
+            ? [{ ...tile, panel: { ...shared, ...panel } }]
+            : []
     })
 }
 

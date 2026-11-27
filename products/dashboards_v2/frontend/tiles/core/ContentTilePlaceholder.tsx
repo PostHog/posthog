@@ -2,9 +2,9 @@ import clsx from 'clsx'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@posthog/quill'
 
-import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
+import { type SavedPanel } from '../../panels/core/panelSchema'
 import { PanelLoading } from '../../panels/core/PanelView'
 import { isPartShown } from './tileParts'
 

@@ -1,5 +1,6 @@
 import { dropIntoGrid, stackTiles } from '../../grid/layout/gridTiles'
-import { type Dashboard, type SizeOf, type Tile, type PanelSize, gridTabs, isSection } from '../document/dashboardTypes'
+import { type SizeOf, type PanelSize } from '../../panels/core/panelSpec'
+import { type Dashboard, type Tile, gridTabs, isSection } from '../document/dashboardTypes'
 import { findTile } from '../document/tileTree'
 import { applyEdit, settleDashboard, withFolds, withoutTiles } from './dashboardEdits'
 

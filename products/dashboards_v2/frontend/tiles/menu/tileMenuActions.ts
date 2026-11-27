@@ -2,10 +2,11 @@ import posthog from 'posthog-js'
 
 import { downloadImageAction } from '../../dashboard/actions/dashboardImage'
 import { type DashboardState, useDashboard } from '../../dashboard/core/dashboardContext'
-import { type SavedPanel, type SectionPanel, gridTabs, panelRef } from '../../dashboard/document/dashboardTypes'
+import { type SectionPanel, gridTabs, panelRef } from '../../dashboard/document/dashboardTypes'
 import { everyTile } from '../../dashboard/document/tileTree'
 import type { DashboardEdit } from '../../dashboard/edits/dashboardEdits'
 import type { MenuAction } from '../../menu/menuAction'
+import { type SavedPanel } from '../../panels/core/panelSchema'
 import { findPanel } from '../../panels/core/panelSpec'
 import { backgroundColorAction, showAction } from './appearanceActions'
 
