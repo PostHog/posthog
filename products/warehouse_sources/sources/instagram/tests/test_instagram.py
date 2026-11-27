@@ -409,6 +409,39 @@ class TestInstagramEdges:
         assert isinstance(result.raised, error_type)
         assert "/v23.0/3" not in result.paths
 
+    @pytest.mark.parametrize(
+        "failing_ids,raises",
+        [
+            ({"1", "3", "5"}, False),
+            ({"1", "2"}, False),
+            ({"2", "3", "4"}, True),
+            ({"1", "2", "3", "4", "5"}, True),
+        ],
+        ids=["scattered", "two_in_a_row", "three_in_a_row", "every_post"],
+    )
+    def test_a_media_page_meta_refuses_fails_the_sync_when_posts_keep_failing_with_a_retryable_error(
+        self, failing_ids: set[str], raises: bool
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == f"/v23.0/{ACCOUNT_ID}/media":
+                if request.param("fields") == MEDIA_PAGE_SAFE_FIELDS:
+                    return ScriptedResponse(json=_page([{"id": str(n)} for n in range(1, 6)]))
+                return ScriptedResponse(status=400, json={"error": {"code": 9005, "message": "not found"}})
+            media_id = request.path.rsplit("/", 1)[1]
+            if media_id in failing_ids:
+                return ScriptedResponse(status=429, json={"error": {"code": 4, "message": "throttled"}})
+            return ScriptedResponse(json={"id": media_id, "owner": {"id": "owner"}})
+
+        result = _drive("media", respond)
+
+        if raises:
+            assert isinstance(result.raised, InstagramRetryableError)
+            assert result.rows == []
+        else:
+            assert result.raised is None
+            assert [row["id"] for row in result.rows] == ["1", "2", "3", "4", "5"]
+            assert {row["id"] for row in result.rows if "owner" not in row} == failing_ids
+
     def test_media_stops_when_the_cursor_is_missing_even_though_next_is_present(self) -> None:
         result = _drive("media", [ScriptedResponse(json={"data": [{"id": "1"}], "paging": {"next": "https://x/next"}})])
 
