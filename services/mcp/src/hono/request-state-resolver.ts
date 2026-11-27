@@ -456,7 +456,7 @@ export class RequestStateResolver {
             guidanceFlagPayloads: Object.fromEntries(
                 GUIDANCE_RULE_FLAGS.filter((flag) => flag in payloads).map((flag) => [flag, payloads[flag]])
             ),
-            reportFlagExposure: reportExposure,
+            reportFlagExposure: _apiKey?.is_impersonated || props.suppressAnalytics ? undefined : reportExposure,
             interviewRecruitmentConfig,
             intentPrompt,
             interviewRecruitmentUnavailableReason,

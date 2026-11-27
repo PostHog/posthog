@@ -1,4 +1,4 @@
-import { type FlagReader, placementState } from './messagingPlacements'
+import { type FlagReader, PLACEMENTS, placementState } from './messagingPlacements'
 
 const DEFAULT_COPY = {
     label: 'Email the people in this cohort',
@@ -42,7 +42,7 @@ describe('placementState', () => {
         {
             name: 'this variant without a payload shows the default copy',
             flags: flagReader({ 'xpm-mcp-placement': 'after_cohorts_create' }),
-            expected: { active: true, copy: DEFAULT_COPY },
+            expected: { active: true, placement: PLACEMENTS[0], copy: DEFAULT_COPY },
         },
         {
             name: 'this variant with a valid payload shows its copy',
@@ -50,7 +50,7 @@ describe('placementState', () => {
                 { 'xpm-mcp-placement': 'after_cohorts_create' },
                 { 'xpm-mcp-placement': { label: 'Send this cohort an email' } }
             ),
-            expected: { active: true, copy: { label: 'Send this cohort an email' } },
+            expected: { active: true, placement: PLACEMENTS[0], copy: { label: 'Send this cohort an email' } },
         },
         {
             name: 'this variant with an invalid payload falls back to the default copy',
@@ -58,7 +58,15 @@ describe('placementState', () => {
                 { 'xpm-mcp-placement': 'after_cohorts_create' },
                 { 'xpm-mcp-placement': { label: '', description: 'An empty label' } }
             ),
-            expected: { active: true, copy: DEFAULT_COPY },
+            expected: { active: true, placement: PLACEMENTS[0], copy: DEFAULT_COPY },
+        },
+        {
+            name: 'this variant with a blank label falls back to the default copy',
+            flags: flagReader(
+                { 'xpm-mcp-placement': 'after_cohorts_create' },
+                { 'xpm-mcp-placement': { label: '  ' } }
+            ),
+            expected: { active: true, placement: PLACEMENTS[0], copy: DEFAULT_COPY },
         },
         {
             name: 'this variant with a payload that is not an object falls back to the default copy',
@@ -66,9 +74,9 @@ describe('placementState', () => {
                 { 'xpm-mcp-placement': 'after_cohorts_create' },
                 { 'xpm-mcp-placement': 'Email this cohort' }
             ),
-            expected: { active: true, copy: DEFAULT_COPY },
+            expected: { active: true, placement: PLACEMENTS[0], copy: DEFAULT_COPY },
         },
     ])('$name', ({ flags, expected }) => {
-        expect(placementState('mcp.after_cohorts_create', flags)).toMatchObject(expected)
+        expect(placementState('mcp.after_cohorts_create', flags)).toEqual(expected)
     })
 })

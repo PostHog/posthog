@@ -3,7 +3,7 @@ import { z } from 'zod'
 export type MessagingArea = 'flags' | 'cohorts' | 'insights' | 'replay' | 'mcp'
 
 export const messagingCtaCopySchema = z.object({
-    label: z.string().min(1).max(60),
+    label: z.string().trim().min(1).max(60),
     description: z.string().max(200).optional(),
 })
 

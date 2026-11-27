@@ -110,7 +110,7 @@ describe('evaluateFeatureFlags', () => {
         flagsResponse.current = {
             flags: {
                 'flag-on': flag('flag-on', true, undefined, { message: 'Example invitation' }),
-                'flag-off': flag('flag-off', false),
+                'flag-off': flag('flag-off', false, undefined, { message: 'Off' }),
                 'xpm-mcp-placement': flag('xpm-mcp-placement', true, 'after_cohorts_create', {
                     label: 'Email the people in this cohort',
                 }),
@@ -125,7 +125,7 @@ describe('evaluateFeatureFlags', () => {
             organization: 'org-abc',
         })
 
-        expect(result).toMatchObject({
+        expect({ flags: result.flags, payloads: result.payloads }).toEqual({
             flags: { 'flag-on': true, 'flag-off': false, 'xpm-mcp-placement': 'after_cohorts_create' },
             payloads: {
                 'flag-on': { message: 'Example invitation' },

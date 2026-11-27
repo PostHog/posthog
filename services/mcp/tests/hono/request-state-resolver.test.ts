@@ -291,34 +291,43 @@ describe('RequestStateResolver MCP client contexts', () => {
         }
     })
 
-    it('keeps guidance flag payloads and the exposure report from the one flag lookup', async () => {
-        const guidanceFlag = GUIDANCE_RULE_FLAGS[0]!
-        const reported: string[] = []
-        const evaluate = vi
-            .mocked(evaluateFeatureFlags)
-            .mockClear()
-            .mockResolvedValueOnce({
-                flags: { [guidanceFlag]: 'treated', [MCP_INTENT_PROMPT_FLAG]: 'variant' },
-                payloads: {
-                    [guidanceFlag]: { label: 'Guidance copy' },
-                    [MCP_INTENT_PROMPT_FLAG]: { prompt: 'Intent' },
-                },
-                reportExposure: (flagKey) => reported.push(flagKey),
+    it.each([
+        { request: 'an analytics request', reported: true },
+        { request: 'an impersonated request', impersonated: true, reported: false },
+        { request: 'a request with analytics suppressed', suppressed: true, reported: false },
+    ])(
+        'keeps guidance flag payloads from the one flag lookup and reports exposure only when analytics are allowed: $request',
+        async (input) => {
+            mockApiKey.is_impersonated = input.impersonated
+            mockApiKey.suppress_analytics = input.suppressed
+            const guidanceFlag = GUIDANCE_RULE_FLAGS[0]!
+            const reported: string[] = []
+            const evaluate = vi
+                .mocked(evaluateFeatureFlags)
+                .mockClear()
+                .mockResolvedValueOnce({
+                    flags: { [guidanceFlag]: 'treated', [MCP_INTENT_PROMPT_FLAG]: 'variant' },
+                    payloads: {
+                        [guidanceFlag]: { label: 'Guidance copy' },
+                        [MCP_INTENT_PROMPT_FLAG]: { prompt: 'Intent' },
+                    },
+                    reportExposure: (flagKey) => reported.push(flagKey),
+                })
+
+            const state = await makeResolver().resolve(makeProps())
+            state.reportFlagExposure?.(guidanceFlag)
+
+            expect({
+                lookups: evaluate.mock.calls.length,
+                payloads: state.guidanceFlagPayloads,
+                reported,
+            }).toEqual({
+                lookups: 1,
+                payloads: { [guidanceFlag]: { label: 'Guidance copy' } },
+                reported: input.reported ? [guidanceFlag] : [],
             })
-
-        const state = await makeResolver().resolve(makeProps())
-        state.reportFlagExposure?.(guidanceFlag)
-
-        expect({
-            lookups: evaluate.mock.calls.length,
-            payloads: state.guidanceFlagPayloads,
-            reported,
-        }).toEqual({
-            lookups: 1,
-            payloads: { [guidanceFlag]: { label: 'Guidance copy' } },
-            reported: [guidanceFlag],
-        })
-    })
+        }
+    )
 
     it('times each resolution step it ran', async () => {
         const state = await makeResolver().resolve(makeProps())
