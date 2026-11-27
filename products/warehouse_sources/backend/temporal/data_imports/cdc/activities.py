@@ -72,6 +72,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     mark_cdc_broken,
     mark_lost_slot_broken,
     restore_missing_extraction_schedule,
+    tables_wait_for_repair,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
     BufferBacklog,
@@ -1330,6 +1331,21 @@ class CDCExtractActivity:
             return False
         return True
 
+    def _resume_schedules_after_slot_loss(self) -> None:
+        assert self.source is not None
+        try:
+            # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+            from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+                unpause_cdc_extraction_schedule,
+                unpause_external_data_schedule,
+            )
+
+            for schema in self.cdc_schemas:
+                unpause_external_data_schedule(str(schema.id))
+            unpause_cdc_extraction_schedule(str(self.source.id))
+        except Exception:
+            self.log.warning("cdc_resume_schedules_after_slot_loss_failed", exc_info=True)
+
     def _pause_cdc_extraction_schedule(self) -> None:
         """Pause the source's CDC extraction schedule after a non-retryable failure (best-effort)."""
         assert self.source is not None
@@ -1466,7 +1482,10 @@ class CDCExtractActivity:
             self._release_reset_awaiting_slot(schema)
         for schema in reset_schemas:
             self._unpause_schema_schedule(schema)
-        clear_slot_loss_markers(self.source)
+        # The sweeper can mark a source lost while this recovery runs. Lifting the marker does not lift the
+        # pauses it set, so the schedules are resumed here once nothing else holds the source.
+        if clear_slot_loss_markers(self.source) and not tables_wait_for_repair(self.source):
+            self._resume_schedules_after_slot_loss()
 
         self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
 

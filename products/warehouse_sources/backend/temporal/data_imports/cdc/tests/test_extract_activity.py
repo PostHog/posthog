@@ -1104,7 +1104,7 @@ class TestSlotInvalidationRecovery:
             )
             capture.adapter.is_slot_invalidation_error.return_value = True
             capture.adapter.recreate_stream.return_value = {"cdc_consistent_point": "0/AA"}
-            with patch(f"{_ACTIVITIES}.clear_slot_loss_markers") as clear_markers:
+            with patch(f"{_ACTIVITIES}.clear_slot_loss_markers", return_value=0) as clear_markers:
                 capture.clear_markers = clear_markers
                 yield capture
 
@@ -1141,6 +1141,29 @@ class TestSlotInvalidationRecovery:
         assert schema.latest_error == SLOT_INVALIDATION_RECOVERY_MESSAGE
 
         capture.reader.close.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("lifted_marker_resumes_the_paused_schedules", 1, False, True),
+            ("nothing_lifted_leaves_the_schedules", 0, False, False),
+            ("another_marker_still_holds_the_source", 1, True, False),
+        ]
+    )
+    def test_recovery_resumes_the_schedules_a_lost_slot_marker_paused(self, _name, cleared, still_held, resumed):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        service = "products.data_warehouse.backend.logic.data_load.service"
+
+        with (
+            self._invalidated_slot(source, schema) as capture,
+            patch(f"{_ACTIVITIES}.tables_wait_for_repair", return_value=still_held),
+            patch(f"{service}.unpause_cdc_extraction_schedule") as unpause_capture,
+            patch(f"{service}.unpause_external_data_schedule"),
+        ):
+            capture.clear_markers.return_value = cleared
+            capture.extract()
+
+        assert unpause_capture.called is resumed
 
     def test_recreate_passes_source_qualified_table_names(self):
         # Recovery must resolve each schema's real source location from its metadata,
