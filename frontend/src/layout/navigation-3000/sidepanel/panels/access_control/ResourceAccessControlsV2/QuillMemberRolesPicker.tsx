@@ -14,6 +14,8 @@ import {
     useComboboxAnchor,
 } from '@posthog/quill'
 
+import { organizationLogic } from 'scenes/organizationLogic'
+
 import { RoleType } from '~/types'
 
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
@@ -62,7 +64,8 @@ function RolesPickerFields({ disabledReason }: { disabledReason: string | undefi
 }
 
 export function QuillMemberRolesPicker({ userUuid }: { userUuid: string }): JSX.Element {
-    const { sortedRoles, rolesLoading, canEditRoles } = useValues(roleAccessControlLogic)
+    const { sortedRoles, rolesLoading } = useValues(roleAccessControlLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
     const { setMemberRoles } = useActions(roleAccessControlLogic)
     const [search, setSearch] = useState('')
 
@@ -76,7 +79,12 @@ export function QuillMemberRolesPicker({ userUuid }: { userUuid: string }): JSX.
         newRoleName.length > 0 && !sortedRoles.some((role) => role.name.toLowerCase() === newRoleName.toLowerCase())
     const items: RoleChoice[] = canCreate ? [...roleChoices, { kind: 'new', name: newRoleName }] : roleChoices
 
-    const disabledReason = canEditRoles === false ? 'You cannot edit roles' : rolesLoading ? 'Saving roles…' : undefined
+    // Roles belong to the organization, so the gate is organization admin, not project access. Unknown counts as no.
+    const disabledReason = !isAdminOrOwner
+        ? 'Only organization admins can change roles'
+        : rolesLoading
+          ? 'Saving roles…'
+          : undefined
 
     return (
         <Combobox<RoleChoice, true>

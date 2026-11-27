@@ -18,6 +18,7 @@ import {
     Text,
 } from '@posthog/quill'
 
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
@@ -32,7 +33,8 @@ export function QuillRoleAccessHeader({
     projectId: string
     role: AccessControlRoleEntry
 }): JSX.Element {
-    const { sortedRoles, canEditRoles } = useValues(roleAccessControlLogic)
+    const { sortedRoles } = useValues(roleAccessControlLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
     const { deleteRole } = useActions(roleAccessControlLogic)
     const { closeAccessDetailDialog } = useActions(accessControlsLogic({ projectId }))
     const [confirmOpen, setConfirmOpen] = useState(false)
@@ -60,7 +62,7 @@ export function QuillRoleAccessHeader({
                     </DropdownMenuItem>
                     <DropdownMenuItem
                         variant="destructive"
-                        disabledReason={canEditRoles === false ? 'You cannot edit roles' : undefined}
+                        disabledReason={!isAdminOrOwner ? 'Only organization admins can change roles' : undefined}
                         onClick={() => setConfirmOpen(true)}
                     >
                         <IconTrash />
