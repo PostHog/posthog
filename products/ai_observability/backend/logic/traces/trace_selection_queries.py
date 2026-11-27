@@ -550,11 +550,7 @@ def execute_selection(
     list_time_limit: bool = True,
 ) -> list[Any]:
     """Runs a read over the selection's traces with the catalog its filters need. A list's read stops at the lists'
-    time limit, and any other read at the general query time limit. Either fails at its limit, and never answers
-    from the part it read."""
-    settings = HogQLGlobalSettings(timeout_overflow_mode="throw")
-    if list_time_limit:
-        settings.max_execution_time = _SELECTION_QUERY_SECONDS
+    time limit, and any other read at the general query time limit."""
     with tags_context(product=Product.LLM_ANALYTICS):
         tag_queries(name=name)
         response = execute_hogql_query(
@@ -569,7 +565,9 @@ def execute_selection(
                 database=selection_database(team, selection),
                 property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
             ),
-            settings=settings,
+            settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS, timeout_overflow_mode="throw")
+            if list_time_limit
+            else HogQLGlobalSettings(timeout_overflow_mode="throw"),
         )
     return list(response.results or [])
 
