@@ -73,6 +73,11 @@ Larger catalogs may omit useful sources; the scan is not exhaustive.
 For more than ten candidates, an AI call selects up to ten source references before property metadata is loaded.
 The shortlist uses existing goals as context, and the backend rejects unknown references and removes duplicates.
 Each selected event receives at most 50 property names and their numeric status, with restricted property names removed.
+Custom properties come before `$` properties, and within each group the ones queries used most in the last 30 days come first.
+Query usage comes from the usage metrics that query execution records in ClickHouse, not from the events table.
+It is recorded per environment, and only for teams with the `property-usage-tracking` flag.
+Without recorded usage, or when the read fails, each group stays in name order.
+The ranking covers the first 500 property names of an event, read custom first in name order.
 A second call uses the existing recommendation schema to propose up to three goals; catalogs of ten candidates or fewer skip shortlisting.
 The schema queries use the catalog’s project index and a five-second statement timeout.
 Discovery does not evaluate event counts, distinct users, or test-account filters. Missing counts remain null.

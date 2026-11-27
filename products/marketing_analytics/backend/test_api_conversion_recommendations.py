@@ -61,6 +61,12 @@ class TestConversionRecommendations(APIBaseTest):
         )
         privacy_mode.start()
         self.addCleanup(privacy_mode.stop)
+        property_usage = patch(
+            "products.marketing_analytics.backend.services.conversion_recommendations.fetch_event_property_usage",
+            return_value={},
+        )
+        self.property_usage = property_usage.start()
+        self.addCleanup(property_usage.stop)
 
     @parameterized.expand([("consent",), ("flag",)])
     def test_generation_rechecks_consent_and_flag_before_worker_data_access(self, denied: str) -> None:
@@ -284,9 +290,15 @@ class TestConversionRecommendations(APIBaseTest):
         self.assertEqual(self.client.get(endpoint).json()["result_run"]["id"], run_id)
         self.assertIsNone(self.client.get(self.base).json()["latest_run"])
 
-    @parameterized.expand([("amount", True), ("invented_amount", False)])
+    @parameterized.expand(
+        [
+            ("amount", True, None),
+            ("invented_amount", False, None),
+            ("amount", False, RuntimeError("unavailable")),
+        ]
+    )
     def test_revenue_proposal_requires_observed_amount_and_keeps_business_questions(
-        self, amount: str, has_amount: bool
+        self, amount: str, has_amount: bool, usage_error: Exception | None
     ) -> None:
         now = timezone.now()
         run = ConversionRecommendationRun.objects.for_team(self.team.pk).create(
@@ -299,8 +311,13 @@ class TestConversionRecommendations(APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="order_settled", last_seen_at=now)
         EventProperty.objects.create(team=self.team, event="order_settled", property="amount")
         EventProperty.objects.bulk_create(
-            [EventProperty(team=self.team, event="order_settled", property=f"$sdk_{index:02}") for index in range(50)]
+            [
+                EventProperty(team=self.team, event="order_settled", property=f"a_filler_{index:02}")
+                for index in range(60)
+            ]
         )
+        self.property_usage.return_value = {"amount": 5}
+        self.property_usage.side_effect = usage_error
         PropertyDefinition.objects.create(
             team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, is_numerical=True
         )

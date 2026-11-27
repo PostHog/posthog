@@ -1,14 +1,22 @@
+from datetime import datetime, timedelta
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.utils.event_usage import (
     MAX_EVENTS_LOGGED_PER_QUERY,
     MAX_PROPERTIES_LOGGED_PER_QUERY,
+    PROPERTY_USAGE_APP_SOURCE,
+    fetch_event_property_usage,
     log_event_usage_from_query_metadata,
 )
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
+from posthog.test.fixtures import create_app_metric2
 
 
 class TestLogEventUsageFromQueryMetadata(SimpleTestCase):
@@ -102,3 +110,30 @@ class TestLogEventUsageFromQueryMetadata(SimpleTestCase):
         log_event_usage_from_query_metadata({"events": ["$pageview"]}, team_id=42)
 
         self.assertEqual(producer.produce.call_count, 1)
+
+
+class TestUsageReaders(ClickhouseTestMixin, BaseTest):
+    def test_readers_cover_only_the_team_and_the_last_30_days(self) -> None:
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        recent = datetime.now() - timedelta(hours=1)
+        other_team_id = self.team.pk + 1000
+        for team_id, app_source, instance_id, count, timestamp in [
+            (self.team.pk, PROPERTY_USAGE_APP_SOURCE, "property:event:amount", 5, recent),
+            (self.team.pk, PROPERTY_USAGE_APP_SOURCE, "property:event:amount", 2, recent - timedelta(days=2)),
+            (self.team.pk, PROPERTY_USAGE_APP_SOURCE, "property:event:amount", 50, recent - timedelta(days=40)),
+            (self.team.pk, PROPERTY_USAGE_APP_SOURCE, "property:person:amount", 100, recent),
+            (other_team_id, PROPERTY_USAGE_APP_SOURCE, "property:event:amount", 100, recent),
+        ]:
+            create_app_metric2(
+                team_id=team_id,
+                app_source=app_source,
+                instance_id=instance_id,
+                metric_name="viewed",
+                count=count,
+                timestamp=timestamp,
+            )
+
+        self.assertEqual(
+            fetch_event_property_usage(self.team, ["amount", "never_queried"], workload=Workload.OFFLINE),
+            {"amount": 7},
+        )
