@@ -1611,6 +1611,13 @@ describe('cloud controller', () => {
             'reader above its 2.5 ACU idle limit before T0 ({-5})',
         ],
         [
+            'a failover request the runner dates two days before the run',
+            { card: { intentAt: new Date(T.getTime() - 2 * 24 * HOUR_MS).toISOString() } },
+            () => undefined,
+            'invalid',
+            'falls outside the run',
+        ],
+        [
             'a failover entry without the instant of its request',
             { card: { journalsIntent: false } },
             () => undefined,

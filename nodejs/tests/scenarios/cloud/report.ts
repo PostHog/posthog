@@ -294,7 +294,14 @@ export async function report(
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
         capacityOf(controller.aws, `scn-${runId}-reader`, from, to, saved?.window ?? [])
     )
-    const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu) : undefined
+    const t0At = t0 === undefined ? Number.NaN : Date.parse(t0)
+    const t0InRun = t0At >= from && t0At <= to
+    if (t0 !== undefined && !t0InRun) {
+        reasons.push(
+            `the runner's ${FAILOVER_VALVE} request (${t0}) falls outside the run (${iso(from)} to ${iso(to)})`
+        )
+    }
+    const judged = capacity && t0InRun ? judgeCapacity(capacity, t0At, profile.readerAcu) : undefined
     if (judged?.reason) {
         reasons.push(judged.reason)
     }
