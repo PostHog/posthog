@@ -81,6 +81,9 @@ class Migration(migrations.Migration):
                 ),
                 ("revision", models.PositiveIntegerField()),
                 ("due_at", models.DateTimeField()),
+                ("owner_id", models.BigIntegerField(null=True)),
+                ("dispatched_at", models.DateTimeField(null=True)),
+                ("failure_notification_pending", models.BooleanField(default=False)),
                 ("started_at", models.DateTimeField(null=True)),
                 ("finished_at", models.DateTimeField(null=True)),
                 (

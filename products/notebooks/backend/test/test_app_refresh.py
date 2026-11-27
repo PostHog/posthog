@@ -10,8 +10,13 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.hogql.context import HogQLContext
 
+from posthog.exceptions import Conflict
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.notebooks.backend.app_refresh import (
     configure,
+    deliver_failure,
     notify_owner,
     read_outputs,
     refresh_status,
@@ -19,7 +24,7 @@ from products.notebooks.backend.app_refresh import (
     run_slot,
 )
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook, NotebookAppRefreshRun, NotebookAppSchedule
+from products.notebooks.backend.models import Notebook, NotebookAppRefreshRun, NotebookAppRelease, NotebookAppSchedule
 from products.notebooks.backend.tasks.app_refresh import dispatch_notebook_app_refreshes
 from products.notifications.backend.models import NotificationEvent
 
@@ -37,6 +42,15 @@ class TestAppRefresh(APIBaseTest):
                 "blocks": [{"id": "b", "kind": "cell", "node_id": "signups", "tab_id": "overview"}],
             },
         )
+        self.release = NotebookAppRelease.objects.for_team(self.team.pk).create(
+            team=self.team,
+            notebook=self.notebook,
+            revision=3,
+            layout=self.notebook.app_published,
+            markdown='<SQLV2 nodeId="signups" code="SELECT 1 AS signups" />',
+            variables=[],
+            title="Signups",
+        )
         self.url = f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/app_refresh_schedule/"
         self.schedule_payload = {"revision": 3, "enabled": True, "interval_minutes": 60, "freshness_minutes": 90}
 
@@ -46,7 +60,7 @@ class TestAppRefresh(APIBaseTest):
 
     def slot(self, schedule: NotebookAppSchedule) -> NotebookAppRefreshRun:
         return NotebookAppRefreshRun.objects.for_team(self.team.pk).create(
-            team=self.team, schedule=schedule, revision=3, due_at=timezone.now()
+            team=self.team, schedule=schedule, owner_id=schedule.owner_id, revision=3, due_at=timezone.now()
         )
 
     @patch(
@@ -74,6 +88,90 @@ class TestAppRefresh(APIBaseTest):
         run.refresh_from_db()
         assert run.status == "succeeded", run.detail
         assert read_outputs(self.team.pk, self.notebook.pk, self.user.pk, 3)["signups"].results == [[1]]
+
+    def test_schedule_requires_an_immutable_release_snapshot(self):
+        self.release.delete()
+        with pytest.raises(Conflict):
+            self.configure()
+        assert not NotebookAppSchedule.objects.for_team(self.team.pk).exists()
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_scoped_token_cannot_create_a_background_schedule(self, _flag):
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="schedule",
+            secure_value=hash_key_value(token),
+            scopes=["notebook:read", "notebook:write", "query:read"],
+        )
+        self.client.logout()
+        response = self.client.post(
+            self.url, self.schedule_payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        assert response.status_code == 403
+        assert not NotebookAppSchedule.objects.for_team(self.team.pk).exists()
+
+    def test_updates_cannot_create_another_immediate_refresh(self):
+        schedule = self.configure()
+        first = schedule.next_due_at
+        configure(self.team.pk, self.notebook.pk, self.user.pk, 3, 60, 180, True)
+        schedule.refresh_from_db()
+        assert schedule.next_due_at >= first + timedelta(minutes=60)
+        assert schedule.last_success_at is None
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_worker_and_reader_share_a_bound_literal_fingerprint_and_cap_the_query(self, _flag):
+        self.release.markdown = (
+            """<SQLV2 nodeId="signups" code="SELECT 'capacity' AS signups FROM numbers(3000) LIMIT 2500" />"""
+        )
+        self.release.save(update_fields=["markdown"])
+        schedule = self.configure()
+        run = self.slot(schedule)
+        run_slot(self.team.pk, run.pk)
+        output = read_outputs(self.team.pk, self.notebook.pk, self.user.pk, 3)["signups"]
+        assert output.hasMore and len(output.results) == 1000 and output.results[0] == ["capacity"]
+
+    def test_blocked_owner_cannot_refresh_and_failed_notification_is_retried(self):
+        schedule = self.configure()
+        run = self.slot(schedule)
+        with (
+            patch("products.notebooks.backend.app_refresh.access_refused", return_value=True),
+            patch("products.notebooks.backend.app_refresh.notify_owner", side_effect=RuntimeError("not available")),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            run_slot(self.team.pk, run.pk)
+        run.refresh_from_db()
+        assert run.status == "failed" and run.failure_notification_pending
+        with patch("products.notebooks.backend.app_refresh.notify_owner") as notify:
+            deliver_failure(self.team.pk, run.pk)
+            deliver_failure(self.team.pk, run.pk)
+        run.refresh_from_db()
+        assert not NotebookAppRefreshRun.objects.for_team(self.team.pk).get(pk=run.pk).failure_notification_pending
+        assert notify.call_count == 1
+        assert notify.call_args.kwargs["owner_id"] == self.user.pk
+
+    def test_stale_notification_stays_pending_until_delivery(self):
+        schedule = self.configure()
+        NotebookAppSchedule.objects.for_team(self.team.pk).filter(pk=schedule.pk).update(
+            stale_at=timezone.now() - timedelta(minutes=1),
+            next_due_at=timezone.now() + timedelta(hours=1),
+        )
+        with patch(
+            "products.notebooks.backend.app_refresh.notify_owner", side_effect=[RuntimeError("retry"), None]
+        ) as notify:
+            dispatch_notebook_app_refreshes()
+            schedule.refresh_from_db()
+            assert not schedule.stale_notified
+            dispatch_notebook_app_refreshes()
+            dispatch_notebook_app_refreshes()
+            schedule.refresh_from_db()
+        assert NotebookAppSchedule.objects.for_team(self.team.pk).get(pk=schedule.pk).stale_notified
+        assert notify.call_count == 2
+        assert notify.call_args_list[0].args[-1] == notify.call_args_list[1].args[-1]
 
     def test_beat_registers_an_expiring_dispatch_task_from_product_discovery(self):
         from celery import current_app
@@ -134,11 +232,12 @@ class TestAppRefresh(APIBaseTest):
     def test_dispatch_claims_one_slot_and_notifies_at_the_freshness_deadline(self):
         schedule = self.configure()
         with (
-            patch("products.notebooks.backend.tasks.app_refresh.refresh_notebook_app.delay"),
+            patch("products.notebooks.backend.tasks.app_refresh.refresh_notebook_app.delay") as publish,
             patch("products.notebooks.backend.app_refresh.notify_owner") as notify,
         ):
             dispatch_notebook_app_refreshes()
             dispatch_notebook_app_refreshes()
+            publish.assert_called_once()
             assert list(NotebookAppRefreshRun.objects.for_team(self.team.pk).values_list("status", flat=True)) == [
                 "queued"
             ]

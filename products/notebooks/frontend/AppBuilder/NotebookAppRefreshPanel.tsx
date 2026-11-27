@@ -138,14 +138,22 @@ export function RefreshDetails({
     onSave,
     busy,
     onReload,
+    publishedFallback = false,
 }: {
+    publishedFallback?: boolean
     status: NotebookAppRefreshStatusApi
     busy: boolean
     onReload: () => void
     onSave?: (settings: NotebookAppScheduleSettingsApi) => void
 }): JSX.Element {
     const active = status.enabled && status.revision === status.published_revision
-    const state = status.stale ? 'Stale' : status.last_success_at ? 'Fresh' : 'Waiting for first refresh'
+    const state = publishedFallback
+        ? 'Published results'
+        : status.stale
+          ? 'Stale'
+          : status.last_success_at
+            ? 'Fresh'
+            : 'Waiting for first refresh'
     return (
         <details className="border rounded p-3 mb-3">
             <summary className="cursor-pointer">
@@ -203,7 +211,15 @@ export function NotebookAppRefreshPanel({
     const [status, setStatus] = useState<NotebookAppRefreshStatusApi | null>(null)
     const [reload, setReload] = useState(0)
     const [busy, setBusy] = useState(false)
-    const [error, setError] = useState(false)
+    const [failure, setFailure] = useState<
+        { kind: 'read' } | { kind: 'write'; settings: NotebookAppScheduleSettingsApi }
+    >()
+    const [visibleSnapshotAt, setVisibleSnapshotAt] = useState<string>()
+    useEffect(() => {
+        setVisibleSnapshotAt(undefined)
+        setFailure(undefined)
+        onOutputs?.({})
+    }, [project, shortId, revision, onOutputs])
     useEffect(() => {
         const controller = new AbortController()
         const options = { signal: controller.signal }
@@ -213,18 +229,27 @@ export function NotebookAppRefreshPanel({
                 return
             }
             setStatus(next)
-            setError(false)
+            setFailure(undefined)
             if (onOutputs && next.revision === revision && next.last_success_at) {
                 const result = await notebooksAppRefreshOutputsRetrieve(project, shortId, options)
                 if (!controller.signal.aborted && result.revision === revision) {
                     onOutputs(result.outputs)
+                    const latest = next.history.find((run) => run.status === 'succeeded' && run.revision === revision)
+                    setVisibleSnapshotAt(
+                        latest && latest.output_count > 0 && Object.keys(result.outputs).length === latest.output_count
+                            ? (next.last_success_at ?? undefined)
+                            : undefined
+                    )
                 }
             }
         }
-        void load().catch(() => {
+        void load().catch((failure: { status?: number }) => {
             if (!controller.signal.aborted) {
-                setError(true)
-                onOutputs?.({})
+                if (failure?.status === 401 || failure?.status === 403 || failure?.status === 404) {
+                    setVisibleSnapshotAt(undefined)
+                    onOutputs?.({})
+                }
+                setFailure({ kind: 'read' })
             }
         })
         return () => controller.abort()
@@ -233,20 +258,23 @@ export function NotebookAppRefreshPanel({
         setBusy(true)
         try {
             setStatus(await notebooksAppRefreshScheduleCreate(project, shortId, settings))
-            setError(false)
+            setFailure(undefined)
         } catch {
-            setError(true)
+            setFailure({ kind: 'write', settings })
         } finally {
             setBusy(false)
         }
     }
     return (
         <>
-            {error && (
+            {failure && (
                 <LemonBanner
                     type="warning"
                     className="mb-3"
-                    action={{ children: 'Retry', onClick: () => setReload(reload + 1) }}
+                    action={{
+                        children: 'Retry',
+                        onClick: () => (failure.kind === 'write' ? void save(failure.settings) : setReload(reload + 1)),
+                    }}
                 >
                     Could not update scheduled refresh. Check your access and the published release.
                 </LemonBanner>
@@ -254,7 +282,8 @@ export function NotebookAppRefreshPanel({
             {status && (editable || status.revision !== undefined) && (
                 <RefreshDetails
                     key={status.published_revision}
-                    status={status}
+                    status={!editable && onOutputs ? { ...status, last_success_at: visibleSnapshotAt ?? null } : status}
+                    publishedFallback={!!onOutputs && !editable && !!status.last_success_at && !visibleSnapshotAt}
                     busy={busy}
                     onReload={() => setReload(reload + 1)}
                     onSave={editable ? save : undefined}
