@@ -68,6 +68,23 @@ async function resultsOrNull(request: Promise<AdventCalendarResultsApi>): Promis
     }
 }
 
+function mergeResults(
+    current: AdventCalendarResultsApi | null,
+    next: AdventCalendarResultsApi | null
+): AdventCalendarResultsApi | null {
+    if (!current?.questions || !next?.questions) {
+        return next ?? current
+    }
+    const known = new Map(current.questions.map((question) => [question.day, question]))
+    return {
+        ...next,
+        questions: next.questions.map((question) => {
+            const answered = known.get(question.day)
+            return !question.answer && answered?.answer ? answered : question
+        }),
+    }
+}
+
 export type AdventPollShares = Record<number, Record<string, number>>
 
 function sharesOfAnswered(results: AdventCalendarResultsApi | null, picks: Record<number, string>): AdventPollShares {
@@ -292,22 +309,21 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         share: true,
         preloadImages: true,
     }),
-    loaders(({ values, cache }) => {
-        const latestResults = async (
+    loaders(({ values }) => {
+        const mergedResults = async (
             request: Promise<AdventCalendarResultsApi>
         ): Promise<AdventCalendarResultsApi | null> => {
-            const sent = (cache.pollRequests = (cache.pollRequests ?? 0) + 1)
             const results = await resultsOrNull(request)
-            return sent === cache.pollRequests ? (results ?? values.pollResults) : (values.pollResults ?? results)
+            return mergeResults(values.pollResults, results)
         }
         return {
             pollResults: [
                 null as AdventCalendarResultsApi | null,
                 {
                     loadPollResults: async () =>
-                        latestResults(api.workflowAdventCalendarResults(String(values.currentProjectId))),
+                        mergedResults(api.workflowAdventCalendarResults(String(values.currentProjectId))),
                     savePollAnswer: async (answer: AdventCalendarAnswerApi) =>
-                        latestResults(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer)),
+                        mergedResults(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer)),
                 },
             ],
         }
