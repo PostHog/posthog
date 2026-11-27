@@ -108,8 +108,14 @@ const MAX_OBSERVED_NAMES = 64
 
 // Protocol names are short words. A long word, or one mixing letters with digits, is shaped like a
 // token or an id a client put in the name, and the name would carry that value into analytics.
+// A secret split by `/`, `.` or `-` leaves short words, so the name is also judged with its separators removed.
 function hasValueShapedWord(name: string): boolean {
-    return (name.match(/[A-Za-z0-9]+/g) ?? []).some((word) => word.length > 32 || (word.length >= 8 && /\d/.test(word)))
+    const words = name.match(/[A-Za-z0-9]+/g) ?? []
+    const joined = words.join('')
+    return (
+        (joined.length >= 16 && /\d/.test(joined)) ||
+        words.some((word) => word.length > 32 || (word.length >= 8 && /\d/.test(word)))
+    )
 }
 
 export function observedNames(names: Iterable<string>): string[] | undefined {

@@ -761,6 +761,7 @@ describe('ToolExecutor analytics capture', () => {
                 '550e8400-e29b-41d4-a716-446655440000': 1,
                 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0': 1,
                 ['a'.repeat(33)]: 1,
+                'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY': 1,
                 sessionId: 'abc',
                 'x-codex-turn-metadata': {},
             },
