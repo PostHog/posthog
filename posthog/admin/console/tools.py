@@ -7,7 +7,7 @@ from django import forms
 from django.urls import reverse
 
 from posthog.admin.console.panels import Gate, Owner, Tone, check_danger, is_internal_path
-from posthog.admin.console.records import RECORD_TYPES
+from posthog.admin.console.records import RECORD_TYPES, RecordLink
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
@@ -427,6 +427,23 @@ class ToolOperation:
             raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
 
 
+@frozen
+class ToolPlace:
+    """The record a tool page sits under, and the pages between that record and this one, for the breadcrumb."""
+
+    record_type: str
+    record: "Model"
+    # For a page about something inside the record, for example one experiment of a team: the tool's list of them,
+    # then the thing itself.
+    steps: tuple[RecordLink, ...] = ()
+
+    @classmethod
+    def under(cls, record_type: str, pk: object, steps: tuple[RecordLink, ...] = ()) -> "ToolPlace | None":
+        """The place under the record with this primary key, or None when no such record exists."""
+        record = RECORD_TYPES[record_type].find(str(pk))
+        return cls(record_type=record_type, record=record, steps=steps) if record is not None else None
+
+
 class ConsoleTool:
     """A console page that is not about one record, for example a report across all teams.
 
@@ -455,6 +472,17 @@ class ConsoleTool:
         if key not in found:
             found[key] = RECORD_TYPES[self.subject].find(key[1])
         return found[key]
+
+    def place(self, request: "HttpRequest") -> ToolPlace | None:
+        """Where this page sits, for its breadcrumb. A tool with a subject sits under that record.
+
+        Override it for a page about something inside a record, such as one experiment, to name the record from what
+        the page shows.
+        """
+        obj = self.subject_of(request)
+        if obj is None or self.subject is None:
+            return None
+        return ToolPlace(record_type=self.subject, record=obj)
 
     @classmethod
     def url_for(cls, obj: "Model") -> str:
