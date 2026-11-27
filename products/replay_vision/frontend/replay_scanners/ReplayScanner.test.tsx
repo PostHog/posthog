@@ -12,9 +12,6 @@ import { replayScannerSceneLogic } from './replayScannerSceneLogic'
 
 const mockImportedTabs: string[] = []
 
-jest.mock('./components/ScannerOverview', () => ({ ScannerOverview: () => <div>Overview content</div> }))
-jest.mock('./components/ScannerScoutCard', () => ({ ScannerScoutCard: () => null }))
-
 jest.mock('./components/ScannerScanTab', () => {
     mockImportedTabs.push('Run')
     return { ScannerScanTab: ({ scannerId }: { scannerId: string }) => <div>Run content {scannerId}</div> }
@@ -64,18 +61,17 @@ describe('ReplayScanner', () => {
 
     it('imports secondary tabs on selection and loads rows only while the observations table is mounted', async () => {
         const { unmount } = render(<ReplayScannerSceneComponent />)
-        await screen.findByText('Overview content')
-        expect(mockImportedTabs).toEqual([])
         const logic = replayScannerLogic({ id: 'scanner-example' })
-        expect(logic.values.observationsActive).toBe(false)
+        await waitFor(() => expect(logic.values.observationsActive).toBe(true))
+        expect(mockImportedTabs).toEqual([])
 
         const backfillId = '12345678-1234-4000-8000-123456789abc'
         act(() => {
             router.actions.push('/replay-vision/scanner-example', { tab: 'observations', backfill_id: backfillId })
         })
         await screen.findByText('Backfill 12345678')
-        await waitFor(() => expect(observationRequests).toHaveLength(1))
-        expect(observationRequests[0].get('backfill_id')).toBe(backfillId)
+        await waitFor(() => expect(observationRequests.some((params) => params.get('backfill_id'))).toBe(true))
+        expect(observationRequests.find((params) => params.get('backfill_id'))?.get('backfill_id')).toBe(backfillId)
         expect(mockImportedTabs).toEqual([])
 
         const tabKeys: [string, string][] = [

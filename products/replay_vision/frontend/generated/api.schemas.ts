@@ -3150,6 +3150,11 @@ export interface EstimateResponseApi {
 }
 
 /**
+ * `highlight_count` split by scanner id. A scanner with no highlights is left out.
+ */
+export type HighlightFeedResponseApiHighlightCountsByScanner = { [key: string]: number }
+
+/**
  * * `embedding_pick` - Embedding Pick
  * * `unviewed_recent` - Unviewed Recent
  * * `recent` - Recent
@@ -3224,6 +3229,12 @@ export interface HighlightFeedResponseApi {
     has_more: boolean
     /** The time this feed ranks as of. Send it back with later pages. */
     as_of: string
+    /** How many items across every page carry a finding (`embedding_pick`), so a reader can be told how many highlights the window holds. Padding rows are not counted. */
+    highlight_count: number
+    /** `highlight_count` split by scanner id. A scanner with no highlights is left out. */
+    highlight_counts_by_scanner: HighlightFeedResponseApiHighlightCountsByScanner
+    /** Succeeded observations in the window from the scanners the feed reads, highlighted or not, so the highlights can be shown against everything that was scanned. */
+    observation_count: number
 }
 
 /**

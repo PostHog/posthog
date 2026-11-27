@@ -32,12 +32,65 @@ const meta: Meta = {
 }
 export default meta
 
-export const ScannersList: StoryObj = {
-    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+// One scanner's view: its own highlights, with the cards no longer naming the scanner the header already names.
+export const HomeScannerView: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?scanner=${scanners.results[0].id}` },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
+                    results: [0, 1, 2].map((i) => ({
+                        observation: observation({
+                            id: `00000000-0000-0000-0000-0000000000e${i}`,
+                            scanner_id: scanners.results[0].id,
+                        }),
+                        reason: { kind: 'embedding_pick', watch_category: 'struggle', similar_count: 0 },
+                    })),
+                    has_more: false,
+                    as_of: '2026-05-12T00:00:00Z',
+                    highlight_count: 3,
+                    highlight_counts_by_scanner: { [scanners.results[0].id]: 3 },
+                    observation_count: 1250,
+                },
+            },
+        }),
+    ],
 }
 
-export const ScannersListReplayOff: StoryObj = {
-    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+export const HomeScannerNeedsAiConsent: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision()}?scanner=${scanners.results[0].id}`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': {
+                    ...scanners,
+                    results: [
+                        { ...scanners.results[0], enabled: false, disabled_reason: 'no_ai_consent' },
+                        ...scanners.results.slice(1),
+                    ],
+                },
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
+                    results: [0, 1, 2].map((i) => ({
+                        observation: observation({
+                            id: `00000000-0000-0000-0000-0000000000e${i}`,
+                            scanner_id: scanners.results[0].id,
+                        }),
+                        reason: { kind: 'embedding_pick', watch_category: 'struggle', similar_count: 0 },
+                    })),
+                    has_more: false,
+                    as_of: '2026-05-12T00:00:00Z',
+                    highlight_count: 3,
+                    highlight_counts_by_scanner: { [scanners.results[0].id]: 3 },
+                    observation_count: 1250,
+                },
+            },
+        }),
+    ],
+}
+
+export const HomeReplayOff: StoryObj = {
     decorators: [
         (Story) => {
             const { loadCurrentTeamSuccess } = useActions(teamLogic)
@@ -70,9 +123,8 @@ const emptyProjectDecorators = [
     }),
 ]
 
-export const ScannersListEmpty: StoryObj = {
+export const HomeNoScanners: StoryObj = {
     decorators: emptyProjectDecorators,
-    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
 }
 
 export const UsageTab: StoryObj = {
@@ -327,7 +379,6 @@ export const HomeHighlightFeedEmpty: StoryObj = {
 
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
 export const StartupProgramCap: StoryObj = {
-    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
     decorators: [
         mswDecorator({
             get: {
@@ -341,9 +392,9 @@ export const StartupProgramCap: StoryObj = {
     ],
 }
 
-// The list shows a free-only scanner that ran out as stopped, with the free-credits reason on hover.
-export const ScannersListFreeCreditsUsed: StoryObj = {
-    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+// A free-only scanner that ran out reads as stopped in its own view.
+export const HomeScannerFreeCreditsUsed: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?scanner=${summarizerScanner.id}` },
     decorators: [
         mswDecorator({
             get: {

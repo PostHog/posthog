@@ -25,7 +25,8 @@ export const HIGHLIGHT_FEED_BLOCKS: Record<
         cause: string
         fix: string
         actionLabel: string
-        tab: 'scanners' | 'usage'
+        /** The home view that lifts the block: the newest scanner, which shows its own turn-on button, or usage. */
+        view: 'newest-scanner' | 'usage'
         dataAttr: string
         bannerDataAttr: string
     }
@@ -33,8 +34,8 @@ export const HIGHLIGHT_FEED_BLOCKS: Record<
     'all-disabled': {
         cause: 'All scanners on this project are off.',
         fix: 'Turn one on to scan new recordings again.',
-        actionLabel: 'See scanners',
-        tab: 'scanners',
+        actionLabel: 'Open a scanner',
+        view: 'newest-scanner',
         dataAttr: 'vision-highlight-feed-see-scanners',
         bannerDataAttr: 'vision-highlight-feed-banner-see-scanners',
     },
@@ -42,7 +43,7 @@ export const HIGHLIGHT_FEED_BLOCKS: Record<
         cause: 'Your Replay Vision credits are used up for this period.',
         fix: 'Raise the limit to scan new recordings again.',
         actionLabel: 'See usage',
-        tab: 'usage',
+        view: 'usage',
         dataAttr: 'vision-highlight-feed-see-usage',
         bannerDataAttr: 'vision-highlight-feed-banner-see-usage',
     },
@@ -50,7 +51,7 @@ export const HIGHLIGHT_FEED_BLOCKS: Record<
         cause: 'Every running scanner has reached its credit limit for this period.',
         fix: "Raise a scanner's limit to scan new recordings again.",
         actionLabel: 'See usage',
-        tab: 'usage',
+        view: 'usage',
         dataAttr: 'vision-highlight-feed-see-usage',
         bannerDataAttr: 'vision-highlight-feed-banner-see-usage',
     },

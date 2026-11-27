@@ -4,20 +4,18 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { FEED_DATE_OPTIONS, feedWindowOption, highlightFeedLogic } from '../highlightFeedLogic'
+import { highlightFeedLogic } from '../highlightFeedLogic'
 import { HighlightFeedCustomizeButton } from './HighlightFeedCustomizeButton'
+import { HighlightFeedRangeMenu } from './HighlightFeedRangeMenu'
 
 export function HighlightFeedHeader({ className }: { className?: string }): JSX.Element {
-    const { dateFrom, scopedToMine, hasOwnScanners } = useValues(highlightFeedLogic)
-    const { setDateFrom, setOnlyMyScanners } = useActions(highlightFeedLogic)
+    const { scopedToMine, hasOwnScanners } = useValues(highlightFeedLogic)
+    const { setOnlyMyScanners } = useActions(highlightFeedLogic)
     return (
-        <div className={clsx('flex flex-wrap items-end gap-x-4 gap-y-2', className)}>
-            <div className="flex min-w-0 flex-col">
-                <h3 className="m-0 text-base font-semibold">Sessions worth watching</h3>
-                <p className="m-0 text-xs text-secondary">
-                    Picked from your scanners for signs of failures, struggles, or payment problems.
-                </p>
-            </div>
+        <div className={clsx('flex flex-wrap items-center gap-x-4 gap-y-2', className)}>
+            <p className="m-0 min-w-0 text-sm text-secondary">
+                Sessions your scanners picked out for signs of failures, struggles, or payment problems.
+            </p>
             <div className="ml-auto flex items-center gap-1">
                 {/* Only someone who created a scanner has a "mine" to narrow to. */}
                 {hasOwnScanners && (
@@ -47,22 +45,7 @@ export function HighlightFeedHeader({ className }: { className?: string }): JSX.
                         </LemonButton>
                     </LemonMenu>
                 )}
-                <LemonMenu
-                    items={FEED_DATE_OPTIONS.map((option) => ({
-                        label: option.label,
-                        active: option.value === dateFrom,
-                        onClick: () => setDateFrom(option.value),
-                    }))}
-                >
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        sideIcon={<IconChevronDown />}
-                        data-attr="vision-highlight-feed-range"
-                    >
-                        {feedWindowOption(dateFrom)?.label ?? dateFrom}
-                    </LemonButton>
-                </LemonMenu>
+                <HighlightFeedRangeMenu />
                 <HighlightFeedCustomizeButton />
             </div>
         </div>

@@ -1,22 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
 
 import { RECORDINGS_BLOCK_CAUSE } from '../../logics/replayRecordingsLogic'
 import { HIGHLIGHT_FEED_BLOCKS, type HighlightFeedEmptyReason, isHighlightFeedBlock } from '../highlightFeedEmptyState'
 import { feedWindowPhrase, longerFeedWindow, highlightFeedLogic } from '../highlightFeedLogic'
+import { visionHomeLogic } from '../visionHomeLogic'
 import { HighlightFeedIntro } from './HighlightFeedIntro'
-
-function DashedNote({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex flex-col items-center gap-2 text-sm text-secondary border border-dashed rounded p-6 text-center">
-            {children}
-        </div>
-    )
-}
+import { HighlightFeedNote } from './HighlightFeedNote'
 
 /**
  * The one screen the Highlights tab shows when it has no clips. Each reason gets the next step
@@ -25,7 +16,7 @@ function DashedNote({ children }: { children: React.ReactNode }): JSX.Element {
 export function HighlightFeedEmptyState({ reason }: { reason: HighlightFeedEmptyReason }): JSX.Element {
     const { setOnlyMyScanners, setDateFrom } = useActions(highlightFeedLogic)
     const { dateFrom } = useValues(highlightFeedLogic)
-    const { push } = useActions(router)
+    const { openBlockView } = useActions(visionHomeLogic)
 
     if (reason === 'no-scanners') {
         return <HighlightFeedIntro />
@@ -34,26 +25,26 @@ export function HighlightFeedEmptyState({ reason }: { reason: HighlightFeedEmpty
     // The recordings banner above the tabs carries the fix, so the note only names the cause.
     if (reason === 'replay-off' || reason === 'no-recordings') {
         return (
-            <DashedNote>
+            <HighlightFeedNote>
                 <span>No sessions to show. {RECORDINGS_BLOCK_CAUSE[reason]}.</span>
-            </DashedNote>
+            </HighlightFeedNote>
         )
     }
 
     if (isHighlightFeedBlock(reason)) {
         const block = HIGHLIGHT_FEED_BLOCKS[reason]
         return (
-            <DashedNote>
+            <HighlightFeedNote>
                 <span>No sessions to show. {block.cause}</span>
                 <LemonButton
                     type="secondary"
                     size="small"
-                    onClick={() => push(urls.replayVision(), { tab: block.tab })}
+                    onClick={() => openBlockView(block.view)}
                     data-attr={block.dataAttr}
                 >
                     {block.actionLabel}
                 </LemonButton>
-            </DashedNote>
+            </HighlightFeedNote>
         )
     }
 
@@ -61,7 +52,7 @@ export function HighlightFeedEmptyState({ reason }: { reason: HighlightFeedEmpty
 
     if (reason === 'filtered') {
         return (
-            <DashedNote>
+            <HighlightFeedNote>
                 <span>No sessions from your scanners stood out {inWindow}.</span>
                 <LemonButton
                     type="secondary"
@@ -71,13 +62,13 @@ export function HighlightFeedEmptyState({ reason }: { reason: HighlightFeedEmpty
                 >
                     Show all scanners
                 </LemonButton>
-            </DashedNote>
+            </HighlightFeedNote>
         )
     }
 
     const longerWindow = longerFeedWindow(dateFrom)
     return (
-        <DashedNote>
+        <HighlightFeedNote>
             <span>No sessions stood out {inWindow}.</span>
             {longerWindow && (
                 <LemonButton
@@ -89,6 +80,6 @@ export function HighlightFeedEmptyState({ reason }: { reason: HighlightFeedEmpty
                     Show {longerWindow.label.toLowerCase()}
                 </LemonButton>
             )}
-        </DashedNote>
+        </HighlightFeedNote>
     )
 }

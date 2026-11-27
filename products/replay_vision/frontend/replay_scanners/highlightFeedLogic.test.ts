@@ -111,6 +111,38 @@ describe('highlightFeedLogic', () => {
         expect(lastCategories()).toBeNull()
     })
 
+    it("narrows one scanner's feed to that scanner and leaves out the all-scanners filters", async () => {
+        feedSpy.mockImplementation(() => [
+            200,
+            { results: [item('o1', 'embedding_pick')], highlight_count: 1, observation_count: 40 },
+        ])
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/scanners/': {
+                    results: [{ id: 'scanner-a', created_by: userLogic.values.user }],
+                    next: null,
+                },
+            },
+        })
+        // The all-scanners choices persist, so a scanner's view has to ignore them rather than inherit them.
+        logic.mount()
+        logic.actions.setOnlyMyScanners(true)
+        logic.actions.setCategories(['revenue'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        const scoped = highlightFeedLogic({ scannerId: 'scanner-a' })
+        scoped.mount()
+        await expectLogic(scoped).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+        const params = new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams
+        expect([params.get('scanner_ids'), params.get('created_by'), params.get('categories')]).toEqual([
+            'scanner-a',
+            null,
+            null,
+        ])
+        expect(scoped.values.feedCounts).toEqual({ highlights: 1, observations: 40 })
+        scoped.unmount()
+    })
+
     it('names the empty reason only once the fleet and budget have answered', async () => {
         feedSpy.mockImplementation(() => [200, { results: [] }])
         useMocks({

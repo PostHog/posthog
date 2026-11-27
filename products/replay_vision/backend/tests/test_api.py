@@ -5779,6 +5779,16 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             [item["observation"]["session_id"] for item in resp.json()["results"]],
             ["wanted-sess"],
         )
+        # The counts follow the same filter, so a scanner's view never reports another scanner's work.
+        body = resp.json()
+        self.assertEqual(
+            (body["highlight_count"], body["highlight_counts_by_scanner"], body["observation_count"]), (0, {}, 1)
+        )
+        body = self.client.get(self.feed_url).json()
+        self.assertEqual(
+            (body["highlight_count"], body["highlight_counts_by_scanner"], body["observation_count"]),
+            (1, {str(other.id): 1}, 11),
+        )
 
     def test_date_to_excludes_newer_observations(self) -> None:
         scanner = self._create_scanner(name="m")

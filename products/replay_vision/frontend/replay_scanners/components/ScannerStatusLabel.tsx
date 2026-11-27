@@ -7,7 +7,7 @@ export type StatusTone = 'success' | 'warning' | 'danger' | 'muted'
 // which reads as urgent, so this slows it to 3s; reduced-motion users get a still dot.
 const ACTIVE_PULSE = 'animate-[pulse_3s_cubic-bezier(0.4,0,0.6,1)_infinite] motion-reduce:animate-none'
 
-const TONE_DOT: Record<StatusTone, string> = {
+export const TONE_DOT: Record<StatusTone, string> = {
     success: 'bg-success',
     warning: 'bg-warning',
     danger: 'bg-danger',
@@ -40,14 +40,17 @@ const STATUS_LABEL: Record<Exclude<ScannerStatus['kind'], 'off'>, StatusLabel> =
     running: { label: 'Running', tone: 'success' },
 }
 
-function statusLabel(status: ScannerStatus): StatusLabel {
+export function statusLabel(status: ScannerStatus): StatusLabel {
     if (status.kind === 'off') {
         return status.reason ? OFF_LABEL[status.reason] : OFF_LABEL.manual
     }
     return STATUS_LABEL[status.kind]
 }
 
-/** The status dot and label, shared by the scanner list and the scanner page so the two always agree. */
+export function statusTone(status: ScannerStatus): StatusTone {
+    return statusLabel(status).tone
+}
+
 export function ScannerStatusLabel({ status, className }: { status: ScannerStatus; className?: string }): JSX.Element {
     const { label, tone } = statusLabel(status)
     return (

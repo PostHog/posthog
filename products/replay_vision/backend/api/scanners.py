@@ -2364,6 +2364,22 @@ class HighlightFeedResponseSerializer(serializers.Serializer):
     as_of = serializers.DateTimeField(
         help_text="The time this feed ranks as of. Send it back with later pages.",
     )
+    highlight_count = serializers.IntegerField(
+        help_text=(
+            "How many items across every page carry a finding (`embedding_pick`), so a reader can be told how "
+            "many highlights the window holds. Padding rows are not counted."
+        ),
+    )
+    highlight_counts_by_scanner = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="`highlight_count` split by scanner id. A scanner with no highlights is left out.",
+    )
+    observation_count = serializers.IntegerField(
+        help_text=(
+            "Succeeded observations in the window from the scanners the feed reads, highlighted or not, so the "
+            "highlights can be shown against everything that was scanned."
+        ),
+    )
 
 
 class HighlightFeedImpressionsSerializer(serializers.Serializer):
@@ -3111,6 +3127,24 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             row["feed_impressions"] = impressions.get(row["id"], 0)
         ranked = rank_highlight_feed_by_embedding(candidate_rows)
         has_more = len(ranked) > page_end
+        scanner_by_observation = {row["id"]: row.get("scanner_id") for row in candidate_rows}
+        highlight_counts_by_scanner: dict[str, int] = {}
+        for entry in ranked:
+            if entry.reason["kind"] == HighlightFeedReason.EMBEDDING_PICK:
+                scanner_key = str(scanner_by_observation[entry.observation_id])
+                highlight_counts_by_scanner[scanner_key] = highlight_counts_by_scanner.get(scanner_key, 0) + 1
+        observation_count = accessible_observations(
+            self.user_access_control,
+            self.team_id,
+            ReplayObservation.objects.filter(
+                team_id=self.team_id,
+                scanner_id__in=allowed_ids,
+                status=ObservationStatus.SUCCEEDED,
+                created_at__gte=date_from,
+                created_at__lte=window_end,
+                completed_at__lte=as_of,
+            ),
+        ).count()
         ranked = ranked[params["offset"] : page_end]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {
@@ -3141,6 +3175,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "results": results,
                 "has_more": has_more,
                 "as_of": as_of,
+                "highlight_count": sum(highlight_counts_by_scanner.values()),
+                "highlight_counts_by_scanner": highlight_counts_by_scanner,
+                "observation_count": observation_count,
             }
         )
 

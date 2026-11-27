@@ -9,7 +9,6 @@ import { Breadcrumb } from '~/types'
 import { VISION_ROOT_BREADCRUMB } from '../utils/breadcrumbs'
 
 export enum ReplayScannerTab {
-    Overview = 'overview',
     Variants = 'variants',
     Observations = 'observations',
     Search = 'search',
@@ -19,15 +18,15 @@ export enum ReplayScannerTab {
 }
 
 const SCANNER_TABS: ReplayScannerTab[] = Object.values(ReplayScannerTab)
-// The at-a-glance Overview (charts + stat panels) is the landing tab; Observations is the drill-down list.
 // An experiment scanner lands on Variants instead, through `setDefaultTab`.
-const DEFAULT_TAB: ReplayScannerTab = ReplayScannerTab.Overview
+const DEFAULT_TAB: ReplayScannerTab = ReplayScannerTab.Observations
 
 // Keys of tabs that were merged into others, so links and bookmarks made before still open the right place.
 const TAB_ALIASES: Record<string, ReplayScannerTab> = {
     'on-demand': ReplayScannerTab.Run,
     backfills: ReplayScannerTab.Run,
-    configuration: ReplayScannerTab.Overview,
+    configuration: ReplayScannerTab.Observations,
+    overview: ReplayScannerTab.Observations,
 }
 
 function parseTab(tab: unknown): ReplayScannerTab {

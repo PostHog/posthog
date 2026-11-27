@@ -1,21 +1,26 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
-import { LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { observationThumbnailSrc, preloadObservationThumbnail } from '../../components/ObservationThumbnail'
 import { HighlightFeedItemApi } from '../../generated/api.schemas'
-import { isHighlightFeedBlock } from '../highlightFeedEmptyState'
-import { FEED_PAGE_SIZE, feedWindowPhrase, highlightFeedLogic } from '../highlightFeedLogic'
+import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
+import { type HighlightFeedEmptyReason, isHighlightFeedBlock } from '../highlightFeedEmptyState'
+import { FEED_PAGE_SIZE, feedWindowOption, feedWindowPhrase, highlightFeedLogic } from '../highlightFeedLogic'
+import { scannerFeedIsIdle, scannerObservationsUrl, visionHomeLogic } from '../visionHomeLogic'
 import { HighlightFeedBlockedBanner } from './HighlightFeedBlockedBanner'
 import { FILLER_REASON_KINDS, HighlightFeedRow } from './HighlightFeedCard'
 import { HighlightFeedEmptyState } from './HighlightFeedEmptyState'
 import { HighlightFeedHeader } from './HighlightFeedHeader'
+import { ScannerFeedIdleNote } from './ScannerFeedIdleNote'
+import { ScannerHighlightsHeader } from './ScannerHighlightsHeader'
+import { isOffForAReason, ScannerStatusNote } from './ScannerStatusNote'
 
 /**
  * Columns follow the scene's width, so cards stay a similar size and a wide window fills with them rather than empty margin.
@@ -118,8 +123,16 @@ function useGridColumns(element: HTMLElement | null): number {
 }
 
 /** Loads the next page as the reader nears the end, and closes the feed once the ranking runs out. */
-function FeedEnd({ itemCount, pendingCount }: { itemCount: number; pendingCount: number }): JSX.Element | null {
-    const { feedHasMore, feedItemsLoading, feedMoreFailed } = useValues(highlightFeedLogic)
+function FeedEnd({
+    itemCount,
+    pendingCount,
+    scannerId,
+}: {
+    itemCount: number
+    pendingCount: number
+    scannerId?: string
+}): JSX.Element | null {
+    const { feedHasMore, feedItemsLoading, feedMoreFailed, feedCounts, dateFrom } = useValues(highlightFeedLogic)
     const { loadMoreFeed } = useActions(highlightFeedLogic)
     // Starts the request well before the end is on screen, so a steady scroll rarely reaches the spinner.
     const { ref, inView } = useInView({ rootMargin: '4000px 0px' })
@@ -148,6 +161,21 @@ function FeedEnd({ itemCount, pendingCount }: { itemCount: number; pendingCount:
             </div>
         )
     }
+    // A scanner's view shows only its highlights, so its end says so and points at everything else it found.
+    if (scannerId && feedCounts) {
+        const window = feedWindowOption(dateFrom)?.label.toLowerCase()
+        return (
+            <p
+                className="col-span-full text-sm text-secondary text-center m-0 py-4"
+                data-attr="vision-highlight-feed-end"
+            >
+                {feedCounts.highlights > 0 && window ? `That's every highlight from the ${window}. ` : null}
+                <Link to={scannerObservationsUrl(scannerId)} data-attr="vision-home-feed-end-observations">
+                    See all {feedCounts.observations.toLocaleString()} observations →
+                </Link>
+            </p>
+        )
+    }
     return itemCount > 3 ? (
         <p className="col-span-full text-sm text-secondary text-center m-0 py-4" data-attr="vision-highlight-feed-end">
             You're caught up. New sessions show up here as your scanners find them.
@@ -155,10 +183,45 @@ function FeedEnd({ itemCount, pendingCount }: { itemCount: number; pendingCount:
     ) : null
 }
 
-export function HighlightFeedTab(): JSX.Element {
-    const { feedItems, feedItemsLoading, feedReloading, feedFailed, dateFrom, emptyReason, feedLoad } =
-        useValues(highlightFeedLogic)
+// A reason that blocks every scanner reads the same in one scanner's view. The rest describe the whole fleet,
+// which one scanner's empty window does not, so its view falls back to the quiet note.
+const SCANNER_VIEW_REASONS: ReadonlySet<HighlightFeedEmptyReason> = new Set([
+    'replay-off',
+    'no-recordings',
+    'quota-exhausted',
+    'quiet-window',
+])
+
+export function HighlightFeedTab({ scannerId }: { scannerId?: string }): JSX.Element {
+    return (
+        <BindLogic logic={highlightFeedLogic} props={{ scannerId }}>
+            <HighlightFeedView scannerId={scannerId} />
+        </BindLogic>
+    )
+}
+
+function HighlightFeedView({ scannerId }: { scannerId?: string }): JSX.Element {
+    const {
+        feedItems,
+        feedItemsLoading,
+        feedReloading,
+        feedFailed,
+        dateFrom,
+        emptyReason: fleetEmptyReason,
+        feedLoad,
+    } = useValues(highlightFeedLogic)
+    const { selectedScanner, scannerStatuses } = useValues(visionHomeLogic)
+    const scanner = scannerId && selectedScanner?.id === scannerId ? selectedScanner : null
+    const scannerStatus = scanner ? scannerStatuses[scanner.id] : undefined
+    const scannerStatusKind = scannerStatus?.kind
+    const idleKind =
+        scannerFeedIsIdle(scannerStatusKind) && !isOffForAReason(scannerStatus)
+            ? (scannerStatusKind as 'off' | 'starting')
+            : null
+    const emptyReason =
+        scannerId && fleetEmptyReason && !SCANNER_VIEW_REASONS.has(fleetEmptyReason) ? 'quiet-window' : fleetEmptyReason
     const { loadFeed } = useActions(highlightFeedLogic)
+    const { loadScanners } = useActions(visionScannersListLogic)
     // A callback ref, because a child's layout effect runs before React attaches the parent's object ref.
     const [grid, setGrid] = useState<HTMLDivElement | null>(null)
 
@@ -174,7 +237,13 @@ export function HighlightFeedTab(): JSX.Element {
     return (
         <div className="@container flex flex-col gap-4">
             {/* The empty state explains the feed on its own, and a project without scanners has nothing to filter. */}
-            {!(emptyReason === 'no-scanners' && items.length === 0) && <HighlightFeedHeader />}
+            {scannerId
+                ? scanner && <ScannerHighlightsHeader scanner={scanner} />
+                : !(emptyReason === 'no-scanners' && items.length === 0) && <HighlightFeedHeader />}
+            {scanner && idleKind && <ScannerFeedIdleNote scanner={scanner} kind={idleKind} />}
+            {scanner && scannerStatus && (
+                <ScannerStatusNote scanner={scanner} status={scannerStatus} onSaved={loadScanners} />
+            )}
             {/* The first render comes before the mount starts the load, and a filter change keeps the last
                 result until the new one lands, so an empty screen is only drawn from a finished load. */}
             {(feedItems === null && !feedFailed) || (feedItemsLoading && items.length === 0) || firstReveal ? (
@@ -208,7 +277,7 @@ export function HighlightFeedTab(): JSX.Element {
                             </LemonButton>
                         </div>
                     )}
-                    {items.length > 0 && isHighlightFeedBlock(emptyReason) && (
+                    {!scannerId && items.length > 0 && isHighlightFeedBlock(emptyReason) && (
                         <HighlightFeedBlockedBanner reason={emptyReason} />
                     )}
                     {items.length > 0 ? (
@@ -234,11 +303,12 @@ export function HighlightFeedTab(): JSX.Element {
                                     position={index}
                                     columnIndex={index % columns}
                                     stale={dimmed}
+                                    hideScanner={!!scannerId}
                                 />
                             ))}
-                            <FeedEnd itemCount={items.length} pendingCount={pendingCount} />
+                            <FeedEnd itemCount={items.length} pendingCount={pendingCount} scannerId={scannerId} />
                         </div>
-                    ) : feedFailed ? null : emptyReason ? (
+                    ) : feedFailed || idleKind ? null : emptyReason ? (
                         <div className="mx-auto w-full max-w-xl">
                             <HighlightFeedEmptyState reason={emptyReason} />
                         </div>
