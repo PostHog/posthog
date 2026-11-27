@@ -546,6 +546,21 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             OrganizationMembership.Level.MEMBER,
         )
 
+    def test_admin_making_a_service_account_owner_gets_the_permission_error(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        service_account = User.objects.create_and_join(
+            self.organization, "deploys@example.com", None, type=UserType.SERVICE_ACCOUNT
+        )
+
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{service_account.uuid}",
+            {"level": OrganizationMembership.Level.OWNER},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["code"], "permission_denied")
+
     def test_cannot_change_own_organization_member_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
