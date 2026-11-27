@@ -1,5 +1,9 @@
+import { act, cleanup, render } from '@testing-library/react'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
@@ -9,7 +13,8 @@ import {
     captureMessageAudienceShown,
     messageAudienceUrl,
 } from './messageAudience'
-import { rememberSavedWorkflowAttempt } from './messageAudienceAttempts'
+import { rememberSavedWorkflowAttempt, workflowEntryAttempt } from './messageAudienceAttempts'
+import { MessageAudienceShownInScenePanel } from './MessageAudienceShownInScenePanel'
 
 function audienceFrom(source: string): MessageAudience {
     return {
@@ -32,6 +37,7 @@ describe('message audience attempts', () => {
     })
 
     afterEach(() => {
+        cleanup()
         capture.mockRestore()
     })
 
@@ -79,6 +85,32 @@ describe('message audience attempts', () => {
             expect(workflowEntryAttempt({ id: 'workflow-1' })).toEqual('0195f3a2-7c4e-7d10-9a6b-2f3c4d5e6f71')
             expect(workflowEntryAttempt({ id: 'workflow-2' })).toBeUndefined()
         })
+    })
+
+    it('keeps the attempt of a saved workflow in the tab when session storage refuses the write', () => {
+        const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new Error('QuotaExceededError')
+        })
+        try {
+            rememberSavedWorkflowAttempt('workflow-3', '0195f3a2-7c4e-7d10-9a6b-2f3c4d5e6f72')
+        } finally {
+            setItem.mockRestore()
+        }
+
+        expect(workflowEntryAttempt({ id: 'workflow-3' })).toEqual('0195f3a2-7c4e-7d10-9a6b-2f3c4d5e6f72')
+    })
+
+    it('reports a scene panel spot shown only once the panel opens', () => {
+        initKeaTests()
+        sceneLayoutLogic.mount()
+        render(createElement(MessageAudienceShownInScenePanel, { source: 'feature_flag', destination: 'broadcast' }))
+        expect(captured('message audience shown')).toEqual([])
+
+        act(() => sceneLayoutLogic.actions.setScenePanelOpen(true))
+
+        expect(captured('message audience shown')).toEqual([
+            { source: 'feature_flag', destination: 'broadcast', attempt_id: expect.any(String) },
+        ])
     })
 
     it('opens the editor without an attempt from a spot that was never shown or clicked', () => {

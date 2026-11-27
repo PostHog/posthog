@@ -11,6 +11,7 @@ const SAVED_ATTEMPTS_STORAGE_KEY = 'message-audience-saved-attempts'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const shownAttempts = new Map<string, string>()
+const savedAttemptsInTab = new Map<string, string>()
 
 function attemptKey(source: string, destination: MessageAudienceDestination): string {
     return `${destination}:${source}`
@@ -50,6 +51,7 @@ function readSavedAttempts(): Record<string, string> {
 }
 
 export function rememberSavedWorkflowAttempt(workflowId: string, attemptId: string): void {
+    savedAttemptsInTab.set(workflowId, attemptId)
     try {
         sessionStorage.setItem(
             SAVED_ATTEMPTS_STORAGE_KEY,
@@ -64,5 +66,8 @@ export function workflowEntryAttempt(editor: { id?: string; entryAttemptId?: str
     if (editor.entryAttemptId) {
         return editor.entryAttemptId
     }
-    return editor.id ? parseAttemptPrefill(readSavedAttempts()[editor.id]) : undefined
+    if (!editor.id) {
+        return undefined
+    }
+    return savedAttemptsInTab.get(editor.id) ?? parseAttemptPrefill(readSavedAttempts()[editor.id])
 }

@@ -23,6 +23,7 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { captureMessageAudienceShown } from '../MessageAudience/messageAudience'
+import { workflowEntryAttempt } from '../MessageAudience/messageAudienceAttempts'
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
@@ -220,6 +221,7 @@ describe('broadcastWizardLogic', () => {
         { link: 'the attempt of a shown spot', sends: 'that attempt', attempt: 'shown', sent: 'shown' },
         { link: 'a malformed attempt', sends: 'no attempt', attempt: 'not-an-attempt', sent: undefined },
     ])('opened from a link with $link, sends $sends on the first save only', async ({ attempt, sent }) => {
+        const savedId = `broadcast-from-${attempt}`
         captureMessageAudienceShown('cohort_saved', 'broadcast')
         const link = new URL(
             urlForNewBroadcastWithAudience({ properties: LOCAL_AUDIENCE, source: 'cohort_saved' }),
@@ -237,7 +239,13 @@ describe('broadcastWizardLogic', () => {
             post: {
                 '/api/projects/:team_id/hog_flows/': async ({ request }) => {
                     await recordBody(request)
-                    return [201, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:00Z' })]
+                    return [
+                        201,
+                        {
+                            ...savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:00Z' }),
+                            id: savedId,
+                        },
+                    ]
                 },
             },
             patch: {
@@ -264,6 +272,7 @@ describe('broadcastWizardLogic', () => {
             sent === 'shown' ? shownAttempt : undefined,
             undefined,
         ])
+        expect(workflowEntryAttempt({ id: savedId })).toEqual(sent === 'shown' ? shownAttempt : undefined)
     })
 
     it.each([
