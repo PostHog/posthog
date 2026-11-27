@@ -116,7 +116,9 @@ class TestSharedFailures(SimpleTestCase):
             (
                 "funnel_udf_pool_timeout",
                 lambda: _clickhouse_error(
-                    "aggregate_funnel_v13 failed: Code: 159. Could not get process from pool. (TIMEOUT_EXCEEDED)", 754
+                    "User defined function 'aggregate_funnel_v13' failed. Original error: Code: 159. "
+                    "DB::Exception: Pipe read timeout exceeded 10000 milliseconds. (TIMEOUT_EXCEEDED)",
+                    754,
                 ),
             ),
             ("wrapped_by_the_app", _wrapped_by_the_app),

@@ -135,7 +135,7 @@ def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optiona
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
         return "memory_limit" if error.is_per_query_limit else None
     if isinstance(error, ClickHouseUDFTimeOut):
-        # The funnel UDF waits for a free process in a shared pool, so the timeout depends on cluster load.
+        # The funnel UDF runs in a shared process pool, so its timeout also depends on cluster load.
         return None
     if isinstance(error, ClickHouseQueryTimeOut):
         return "timeout"

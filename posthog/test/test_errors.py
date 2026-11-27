@@ -39,8 +39,8 @@ from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseUDF
 
 HTTP_CLIENT_URL = "https://clickhouse.example.com:8443"
 UDF_POOL_TIMEOUT = (
-    "Executable user defined function aggregate_funnel_v13 failed: Code: 159. DB::Exception: "
-    "Could not get process from pool, max processes 8 was reached, waited for 10000 ms. (TIMEOUT_EXCEEDED)"
+    "User defined function 'aggregate_funnel_array_v13' failed. Command: 'v13/aggregate_funnel', Arguments: [3]. "
+    "Original error: Code: 159. DB::Exception: Pipe read timeout exceeded 10000 milliseconds. (TIMEOUT_EXCEEDED)"
 )
 
 
@@ -609,12 +609,25 @@ class TestWrapClickhouseQueryError:
 
     @parameterized.expand(
         [
-            ("pool_timeout", f"DB::Exception: {UDF_POOL_TIMEOUT}. (UDF_EXECUTION_FAILED)", True),
-            ("timeout_name_only", "DB::Exception: aggregate_funnel_v13 failed. (TIMEOUT_EXCEEDED)", True),
-            ("script_error", "DB::Exception: aggregate_funnel_v13 failed: exit code 1. (UDF_EXECUTION_FAILED)", False),
+            ("funnel_timeout", f"DB::Exception: {UDF_POOL_TIMEOUT}. (UDF_EXECUTION_FAILED)", True),
+            (
+                "funnel_timeout_name_only",
+                "DB::Exception: User defined function 'aggregate_funnel_v13' failed. (TIMEOUT_EXCEEDED)",
+                True,
+            ),
+            (
+                "funnel_script_error",
+                "DB::Exception: User defined function 'aggregate_funnel_v13' failed. Exit code 1. (UDF_EXECUTION_FAILED)",
+                False,
+            ),
+            (
+                "other_udf_timeout",
+                UDF_POOL_TIMEOUT.replace("aggregate_funnel_array_v13", "JSONDropKeysPool"),
+                False,
+            ),
         ]
     )
-    def test_udf_failure_is_a_timeout_only_when_it_carries_an_inner_timeout(
+    def test_only_a_funnel_udf_with_an_inner_timeout_is_a_timeout(
         self, _name: str, raw_message: str, is_timeout: bool
     ) -> None:
         raw = ServerException(raw_message, code=754)

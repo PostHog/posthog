@@ -300,13 +300,18 @@ def _user_caused_not_implemented_message(raw_message: str) -> str | None:
     return None
 
 
+_FUNNEL_UDF_FAILED = re.compile(r"User defined function '?aggregate_funnel\w*'? failed")
 _INNER_TIMEOUT = re.compile(r"\bCode: 159\b|\(TIMEOUT_EXCEEDED\)")
 
 
 def _is_udf_timeout(name: str, raw_message: str) -> bool:
-    # An executable UDF that times out, for example while it waits for a free process in its pool,
-    # raises UDF_EXECUTION_FAILED with the inner TIMEOUT_EXCEEDED error in the message.
-    return name == "UDF_EXECUTION_FAILED" and _INNER_TIMEOUT.search(raw_message) is not None
+    # A funnel UDF (aggregate_funnel_*) that times out raises UDF_EXECUTION_FAILED with the inner
+    # TIMEOUT_EXCEEDED error in the message. Other executable UDFs, such as JSONDropKeysPool, stay internal.
+    return (
+        name == "UDF_EXECUTION_FAILED"
+        and _FUNNEL_UDF_FAILED.search(raw_message) is not None
+        and _INNER_TIMEOUT.search(raw_message) is not None
+    )
 
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
