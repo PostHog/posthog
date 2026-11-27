@@ -363,13 +363,18 @@ export async function report(
             return false
         }
     )
+    const verdict = status === 'invalid' ? EXIT_CODE.invalid : end.exitCode
+    if (controller.env.SCENARIO_PUBLISH_IN_WORKFLOW === '1') {
+        return kept ? verdict : EXIT_CODE.writeFailed
+    }
+
     const written = await publish(properties, controller.env, new AbortController().signal)
     if (written.recorded) {
         controller.print('Published the scorecard to Scenario runs.')
     } else if (written.problem) {
         controller.warn(`Could not publish the scorecard to Scenario runs: ${written.problem}`)
     } else {
-        controller.print('Scenario runs credentials are not set, so the scorecard is not published.')
+        controller.warn('Scenario runs credentials are not set, so the scorecard was not published.')
     }
     const reported = await reportToStore({ scorecard: properties }, controller.env)
     if (reported.stored) {
@@ -377,8 +382,5 @@ export async function report(
     } else if (reported.problem) {
         controller.warn(`Could not report the run to the run store: ${reported.problem}`)
     }
-    if (written.problem || (!kept && !written.recorded)) {
-        return EXIT_CODE.writeFailed
-    }
-    return status === 'invalid' ? EXIT_CODE.invalid : end.exitCode
+    return written.recorded ? verdict : EXIT_CODE.writeFailed
 }

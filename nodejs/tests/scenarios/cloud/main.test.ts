@@ -81,7 +81,7 @@ describe('cloud controller', () => {
         cloud: options = {},
         onMaster = true,
         arrange = () => undefined,
-        env = {},
+        env = { SCENARIO_PUBLISH_IN_WORKFLOW: '1' },
         uncommitted,
         cards = {},
     }: Setup = {}): {
@@ -584,7 +584,7 @@ describe('cloud controller', () => {
         ],
         ['the run id its caller gives', { SCENARIO_RUN_ID: GIVEN_RUN_ID }, GIVEN_RUN_ID],
     ])('runs under %s and releases the lease when the run ends', async (_story, env, expected) => {
-        const { controller } = prepare({ env })
+        const { controller } = prepare({ env: { ...env, SCENARIO_PUBLISH_IN_WORKFLOW: '1' } })
         if (env.SCENARIO_RUN_ID === undefined) {
             cloud.failWhen('put-object', (args) => args.includes('--if-none-match'), 'UnknownOption')
         }
@@ -1990,14 +1990,25 @@ describe('cloud controller', () => {
         expect(api.captured).toEqual([])
     })
 
-    it('keeps the scorecard in the bucket and names it when no Scenario runs credentials are set', async () => {
-        const { controller } = prepare()
+    it('warns and exits with a write failure when no Scenario runs credentials are set', async () => {
+        const { controller } = prepare({ env: {} })
 
-        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(3)
 
         const key = `runs/${leasedRunId()}/scorecard.json`
         expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ origin: 'cloud-manual', status: 'passed' })
         expect(out.join('\n')).toContain(`s3://test-evidence/${key}`)
+        expect(err.join('\n')).toContain('Scenario runs credentials are not set')
+        expect(api.captured).toEqual([])
+    })
+
+    it('keeps the verdict and saves the scorecard for a workflow that publishes separately', async () => {
+        const { controller } = prepare({ env: { ...api.credentials, SCENARIO_PUBLISH_IN_WORKFLOW: '1' } })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+        const key = `runs/${leasedRunId()}/scorecard.json`
+        expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ status: 'passed' })
         expect(api.captured).toEqual([])
     })
 
@@ -2043,7 +2054,7 @@ describe('cloud controller', () => {
                 /the run token could not be read: EISDIR/,
             ],
         ])('keeps its exit code and warns when %s', async (_story, envOf, said) => {
-            const { controller } = prepare({ env: envOf(dir) })
+            const { controller } = prepare({ env: { ...api.credentials, ...envOf(dir) } })
 
             await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 

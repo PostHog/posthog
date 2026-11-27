@@ -991,7 +991,9 @@ A 4xx answer other than 429 stops at once and names the variable to check.
 | `SCENARIO_RUNS_PROJECT_TOKEN` | The project token, for capture                      |
 | `SCENARIO_RUNS_READ_KEY`      | A personal API key that can only query that project |
 
-None set: the runner writes no event, reports `recorded: false` and exits by status.
+With none set, the local runner writes no event and exits with the run's status. The cloud controller warns and exits with a scorecard write failure, and keeps the scorecard in the evidence bucket.
+
+When a workflow takes responsibility for publishing, it sets `SCENARIO_PUBLISH_IN_WORKFLOW=1` on the cloud controller. The controller saves the scorecard to the evidence bucket and uses the run's verdict as its exit code. If saving fails, the controller exits with a scorecard write failure.
 All set: it writes and reads back, and exits 3 when either fails, unless the run was interrupted after the capture, which keeps the status's code.
 Some set: a configuration error, exit 2, before anything starts.
 
@@ -1177,7 +1179,7 @@ It holds at most 5 database connections and stops any statement after 25 seconds
 
 **Report runs to it**
 
-The local runner and the cloud controller post each run to the store after they publish its scorecard event, when `SCENARIO_STORE_URL` is set and `~/.config/posthog/scenario-runs/store-token` holds the run token.
+The local runner and the cloud controller post each run to the store after they publish its scorecard event, when `SCENARIO_STORE_URL` is set and `~/.config/posthog/scenario-runs/store-token` holds the run token. A workflow that publishes separately takes responsibility for both destinations.
 They post the event's properties as the scorecard, and a local run adds the host name of its box.
 The event and the store post are two independent writes from one payload, so the event stays the durable record when the store is down.
 A failed report prints `store: <problem>`, or a warning from the cloud controller, and never changes the status or the exit code.
