@@ -300,84 +300,19 @@ describe('measurements', () => {
         ])
     })
 
-    it.each([
-        [
-            'counts each invocation id the edge accepted more than once',
-            [
-                { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
-                { ...record(2, 'run-a-1', 42_000), invocationId: 'inv-a' },
-                { ...record(3, 'run-a-2', 20_000, 503), invocationId: 'inv-b' },
-                { ...record(4, 'run-a-2', 25_000), invocationId: 'inv-b' },
-                { ...record(5, 'run-a-3', 4500), invocationId: 'inv-c' },
-            ],
-            [
-                { key: 'total', value: 1 },
-                { key: 'run-a-1 inv-a', value: 2 },
-            ],
-            {},
-        ],
-        [
-            'reports none when every invocation went out once',
-            [
-                { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
-                { ...record(2, 'run-a-2', 4500), invocationId: 'inv-b' },
-            ],
-            [{ key: 'total', value: 0 }],
-            {},
-        ],
-        [
-            'leaves the count unmeasured while sends could still land',
-            resent,
-            [{ key: 'total', value: null, censored: true, unmeasured: 'sends were still landing' }],
-            { unsettled: 'sends were still landing' },
-        ],
-        [
-            'leaves the count unmeasured when the run did not converge',
-            resent.slice(0, 1),
-            [
-                {
-                    key: 'total',
-                    value: null,
-                    censored: true,
-                    unmeasured: 'the run did not converge, so a resend could still land after the final read',
-                },
-            ],
-            { converged: false },
-        ],
-        [
-            'leaves the count unmeasured when the final truth read failed after the run converged',
-            resent,
-            [
-                {
-                    key: 'total',
-                    value: null,
-                    censored: true,
-                    unmeasured: 'the truth could not be read: the edge did not answer',
-                },
-            ],
-            { unread: 'the edge did not answer', converged: true },
-        ],
-        [
-            'leaves out an invocation another run resent',
-            [
-                { ...record(1, 'run-b-1', 4000), invocationId: 'inv-z' },
-                { ...record(2, 'run-a-1', 4200), invocationId: 'inv-a' },
-                { ...record(3, 'run-b-1', 30_000), invocationId: 'inv-z' },
-            ],
-            [{ key: 'total', value: 0 }],
-            {},
-        ],
-        [
-            'leaves the count unmeasured when the settled truth skips a record',
-            [resent[0], { ...record(3, 'run-a-2', 4500), invocationId: 'inv-b' }],
-            [{ key: 'total', value: null, censored: true, unmeasured: 'the truth skips from seq 1 to 3' }],
-            { converged: true },
-        ],
-    ])('resent_invocations %s', (_story, truth, measured, overrides) => {
-        const journal = ['run-a-1', 'run-a-2', 'run-a-3'].map((unitId) => offered(unitId, 0))
-        expect(
-            measure([{ name: 'resent_invocations', params: {} }], evidence({ journal, truth, ...overrides }))
-        ).toEqual(measured.map((value) => ({ name: 'resent_invocations', unit: 'invocations', ...value })))
+    it('leaves resent_invocations unmeasured in this release, though this run sent one invocation twice', () => {
+        const journal = [offered('run-a-1', 0)]
+
+        expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ journal, truth: resent }))).toEqual([
+            {
+                name: 'resent_invocations',
+                unit: 'invocations',
+                key: 'total',
+                value: null,
+                censored: true,
+                unmeasured: 'not measured: a run-scoped resend count is a follow-up',
+            },
+        ])
     })
 
     it('times each delivery from its offer to its first accepted send, skipping refused and undelivered units', () => {
