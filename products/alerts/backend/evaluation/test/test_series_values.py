@@ -20,6 +20,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.errors import CHQueryErrorQueryWasCancelled
 
+from products.actions.backend.facade.testing import create_action
 from products.alerts.backend.evaluation.dispatcher import check_alert_for_insight
 from products.alerts.backend.evaluation.query_slot import QuerySlotFull
 from products.alerts.backend.evaluation.series_values_shadow import (
@@ -258,12 +259,25 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             assert _platform_check(alert).value == 3
         assert self._jobs() == 0
 
-    @parameterized.expand([("threshold", None), ("detector", _THRESHOLD_DETECTOR)])
+    @parameterized.expand(
+        [
+            ("threshold", None, False),
+            ("detector", _THRESHOLD_DETECTOR, False),
+            ("single_event_action", None, True),
+        ]
+    )
     def test_serving_changes_the_alert_verdict_only_while_enrolled(
-        self, _name: str, detector: dict[str, Any] | None
+        self, _name: str, detector: dict[str, Any] | None, use_action: bool
     ) -> None:
         alert = self._alert(detector=detector)
         self._shadowed_check(alert)
+        if use_action:
+            action = create_action(team=self.team, name="Signups", steps_json=[{"event": "signed_up"}])
+            query = _trends_query("day")
+            query["series"] = [{"kind": "ActionsNode", "id": action.id, "math": "total"}]
+            alert = self._alert_on(
+                query, {"type": "TrendsAlertConfig", "series_index": 0}, detector=detector, calculation_interval="daily"
+            )
         job = PreaggregationJob.objects.get(
             team=self.team, time_range_start__lte="2024-01-14T00:00:00Z", time_range_end__gt="2024-01-14T00:00:00Z"
         )

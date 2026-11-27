@@ -9,7 +9,7 @@ import structlog
 import posthoganalytics
 from temporalio.exceptions import CancelledError
 
-from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsQuery
+from posthog.schema import ChartDisplayType, TrendsQuery
 
 from posthog.hogql.constants import HogQLGlobalSettings
 
@@ -86,15 +86,11 @@ def _flag_enabled(team: Team, key: str) -> bool:
         return False
 
 
-def _can_serve(query: TrendsQuery) -> bool:
+def _shadow_covers_result_shape(query: TrendsQuery) -> bool:
     # The shadow validates one result series. Comparisons, formulas and specialized displays can return more.
     trends = query.trendsFilter
     return (
         len(query.series) == 1
-        and isinstance(query.series[0], EventsNode)
-        and query.series[0].math in (None, "total")
-        and query.interval in (None, IntervalType.DAY, IntervalType.HOUR)
-        and not query.modifiers
         and not _has_breakdown(query)
         and not (query.compareFilter and query.compareFilter.compare)
         and not (trends and (trends.formulaNodes or trends.formulas or trends.formula))
@@ -125,7 +121,11 @@ def calculate_alert_trends(
     if alert is None:
         return calculate()
 
-    if _can_serve(query) and _flag_enabled(alert.team, SERIES_VALUES_SERVE_FLAG):
+    if (
+        not query.modifiers
+        and _shadow_covers_result_shape(query)
+        and _flag_enabled(alert.team, SERIES_VALUES_SERVE_FLAG)
+    ):
         with serving_ready_series_values() as used_stored_values:
             result = calculate()
             # A serving-cache hit may also contain stored values. Neither is an independent shadow baseline.
