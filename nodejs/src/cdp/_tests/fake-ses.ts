@@ -9,6 +9,7 @@ export type FakeSesFault =
     | { acceptedThen: { status: number; type: string; message: string } }
     | 'drop-connection'
     | 'accept-then-drop-connection'
+    | 'accept-then-hold-answer'
     | 'answer-without-message-id'
     | 'no-answer'
     | 'stalled-body'
@@ -36,6 +37,8 @@ function faultRuleOf(fault: FakeSesFault, dose: FaultRule['dose'] = { share: 1 }
             return { name: 'ses.drop_connection', answer: { kind: 'drop-connection' }, dose }
         case 'accept-then-drop-connection':
             return { name: 'ses.accept_then_drop', answer: { kind: 'ambiguous', accepted: true }, dose }
+        case 'accept-then-hold-answer':
+            return { name: 'ses.accept_then_hold', answer: { kind: 'hold-answer' }, dose }
         case 'answer-without-message-id':
             return {
                 name: 'ses.no_message_id',

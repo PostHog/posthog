@@ -654,49 +654,110 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(await metric('cdp_cyclotron_v2_result_write_failures_total', { queue: queueName })).toBe(0)
     })
 
+    const stalledSes = (askedForCredentials: () => void = () => undefined): SesTransport =>
+        sesTransportFor(ses, {
+            credentials: () => {
+                askedForCredentials()
+                return new Promise(() => undefined)
+            },
+        })
+
+    const useFakeClock = (): void => {
+        jest.useFakeTimers({
+            doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'hrtime', 'performance'],
+        })
+        const timeout = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+            const controller = new AbortController()
+            setTimeout(
+                () => controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+                ms
+            )
+            return controller.signal
+        })
+        backToRealClock = () => {
+            timeout.mockRestore()
+            jest.useRealTimers()
+            backToRealClock = () => undefined
+        }
+    }
+
+    async function onTheFakeClock<T>(check: () => Promise<T>, before: number): Promise<T> {
+        for (;;) {
+            try {
+                return await check()
+            } catch (error) {
+                if (Date.now() + POLL_DELAY_MS >= before) {
+                    throw error
+                }
+                await jest.advanceTimersByTimeAsync(POLL_DELAY_MS)
+            }
+        }
+    }
+
+    describe('with a plain send that SES has not answered when the worker stops', () => {
+        async function stopWhileItWaits(worker: CdpCyclotronWorkerEmail, id: string): Promise<JobRow> {
+            let stopReturned = false
+            const stopDeadline = Date.now() + CONSUMER_STOP_DEADLINE_MS
+            void worker.stop().then(() => (stopReturned = true))
+            return await onTheFakeClock(async () => {
+                const returned = stopReturned
+                const row = await jobRow(id)
+                expect(returned).toBe(true)
+                return row
+            }, stopDeadline + 1_000)
+        }
+
+        it('fails the send that SES took before the queue disconnects, so no worker sends it again', async () => {
+            const [id] = await enqueue(transactionalSend(null))
+            ses.failWith('accept-then-hold-answer')
+            const clockStarted = Date.now()
+            useFakeClock()
+            const worker = await startWorker(null)
+            await onTheFakeClock(async () => {
+                expect((await jobRow(id)).status).toBe('running')
+                expect(delivered()).toEqual([[]])
+            }, clockStarted + 1_000)
+
+            const afterStop = await stopWhileItWaits(worker, id)
+
+            expect({ job: afterStop.status, email: emailStatusOf(id)?.status }).toEqual({
+                job: 'completed',
+                email: 'failed',
+            })
+            expect(delivered()).toEqual([[]])
+        })
+
+        it('leaves the send whose call never reached SES for the next worker, which sends it once', async () => {
+            const [id] = await enqueue(transactionalSend(null))
+            const clockStarted = Date.now()
+            useFakeClock()
+            let callStarted = false
+            const worker = await startWorker(
+                null,
+                stalledSes(() => (callStarted = true))
+            )
+            await onTheFakeClock(async () => {
+                expect((await jobRow(id)).status).toBe('running')
+                expect(callStarted).toBe(true)
+            }, clockStarted + 1_000)
+
+            const afterStop = await stopWhileItWaits(worker, id)
+
+            expect({ status: afterStop.status, retries: afterStop.queueMetadata?.attachmentLoadRetries }).toEqual({
+                status: 'available',
+                retries: 1,
+            })
+            expect(delivered()).toEqual([])
+            backToRealClock()
+            await db.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [id])
+            await startWorker(null)
+            expect(await ended(id)).toBe('completed')
+            expect(delivered()).toEqual([[]])
+        })
+    })
+
     describe('with a send whose SES call never settles, not even on abort', () => {
         const callsCannotOutlast = CONSUMER_STOP_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
-
-        const stalledSes = (askedForCredentials: () => void = () => undefined): SesTransport =>
-            sesTransportFor(ses, {
-                credentials: () => {
-                    askedForCredentials()
-                    return new Promise(() => undefined)
-                },
-            })
-
-        const useFakeClock = (): void => {
-            jest.useFakeTimers({
-                doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'hrtime', 'performance'],
-            })
-            const timeout = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
-                const controller = new AbortController()
-                setTimeout(
-                    () =>
-                        controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
-                    ms
-                )
-                return controller.signal
-            })
-            backToRealClock = () => {
-                timeout.mockRestore()
-                jest.useRealTimers()
-                backToRealClock = () => undefined
-            }
-        }
-
-        async function onTheFakeClock<T>(check: () => Promise<T>, before: number): Promise<T> {
-            for (;;) {
-                try {
-                    return await check()
-                } catch (error) {
-                    if (Date.now() + POLL_DELAY_MS >= before) {
-                        throw error
-                    }
-                    await jest.advanceTimersByTimeAsync(POLL_DELAY_MS)
-                }
-            }
-        }
 
         it('writes its result once its deadline and the wait for its call passed, before a stop that starts while it runs returns, and keeps its room taken', async () => {
             const [stuck] = await enqueue(transactionalSend([invoice.metadata]))
