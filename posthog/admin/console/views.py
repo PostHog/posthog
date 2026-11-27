@@ -385,11 +385,13 @@ def record_section(request: HttpRequest, record: str, pk: object, section: str) 
     """A record URL cut after its related lists or a panel leads back to the record, at that panel."""
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
+    # The query rides along, so a support ticket still fills in the reason on the record page.
+    record_url = _with_query(record_type.url(obj), request)
     if section == RELATED_SEGMENT:
-        return redirect(record_type.url(obj))
+        return redirect(record_url)
     if console.get_panel(record_type.key, section) is None:
         raise Http404("Unknown console panel")
-    return redirect(f"{record_type.url(obj)}#panel-{section}")
+    return redirect(f"{record_url}#panel-{section}")
 
 
 @require_safe

@@ -340,6 +340,11 @@ class TestAdminConsoleContract(SimpleTestCase):
                 "needs a title",
             ),
             (
+                "header_operation_without_a_form",
+                lambda: Operation(key="log-in", label="Log in", handler=lambda request, obj, form: None, header=True),
+                "needs a form",
+            ),
+            (
                 "panel_key_that_would_shadow_related_lists",
                 lambda: ConsoleRegistry().register_panel(type("P", (_DuplicatePanel,), {"key": "related"})),
                 "URL segment of related lists",
@@ -1042,7 +1047,11 @@ class TestAdminConsoleViews(BaseTest):
             ("record_type_without_a_list", "/admin/console/teams/?q=hedgebox", "/admin/console/?q=hedgebox"),
             ("record_type_with_a_list", "/admin/console/deletion-requests/", "/admin/console/tools/deletion-requests/"),
             ("related_lists", "/admin/console/teams/{team}/related/", "/admin/console/teams/{team}/"),
-            ("panel", "/admin/console/teams/{team}/{panel}/", "/admin/console/teams/{team}/#panel-{panel}"),
+            (
+                "panel_with_a_ticket",
+                "/admin/console/teams/{team}/{panel}/?ticket=t-1",
+                "/admin/console/teams/{team}/?ticket=t-1#panel-{panel}",
+            ),
             ("results", "/admin/console/results/", "/admin/console/"),
         ]
     )
