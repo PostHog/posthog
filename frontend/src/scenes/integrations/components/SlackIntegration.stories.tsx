@@ -3,7 +3,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { mockIntegration } from '~/test/mocks'
-import { AvailableFeature, IntegrationType, SLACK_INTEGRATION_SCOPES } from '~/types'
+import { AvailableFeature, IntegrationType, slackRequestedScopes } from '~/types'
 
 import { Slack } from '../definitions/slack'
 import { SlackIntegration } from './SlackIntegration'
@@ -79,7 +79,8 @@ export const SlackFullPageConnectedAllScopes: StoryObj = {
     name: 'Full Page — Connected (all scopes)',
     render: () =>
         renderFullPage({
-            integrations: [mockSlackIntegrationWithScopes([...SLACK_INTEGRATION_SCOPES])],
+            // Storybook requires the scopes still in Slack review too, as DEV does, so grant those as well.
+            integrations: [mockSlackIntegrationWithScopes(slackRequestedScopes(true))],
         }),
 }
 
