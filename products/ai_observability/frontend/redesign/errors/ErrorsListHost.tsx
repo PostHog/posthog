@@ -5,6 +5,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -43,6 +44,7 @@ export function ErrorsListHost(): JSX.Element {
     } = useValues(errorsListLogic)
     const { setPageIndex, setOrder, reload } = useActions(errorsListLogic)
     const { firstSeen } = useValues(errorFirstSeenLogic)
+    const { timezone } = useValues(teamLogic)
     const { newCountLoad } = useValues(errorNewCountLogic)
     const { filters, searchDraft } = useValues(listFiltersLogic(ERRORS_LIST_FILTERS))
     const { setPropertyFilters, setSearchDraft, toggleQuickFilter, clearFilters } = useActions(
@@ -60,9 +62,10 @@ export function ErrorsListHost(): JSX.Element {
                 order: sortedBy,
                 onOrder: setOrder,
                 firstSeen,
+                timezone,
                 'data-attr': DATA_ATTR,
             }),
-        [maxOccurrences, sortedBy, setOrder, firstSeen]
+        [maxOccurrences, sortedBy, setOrder, firstSeen, timezone]
     )
 
     return (

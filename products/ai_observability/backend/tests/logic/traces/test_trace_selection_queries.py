@@ -607,7 +607,10 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
             (expected_name, "llm_analytics")
         ]
 
-    def test_a_read_past_its_deadline_fails_instead_of_returning_partial_counts(self) -> None:
+    @parameterized.expand([("list read", True), ("read past the list time limit", False)])
+    def test_a_read_past_its_deadline_fails_instead_of_returning_partial_counts(
+        self, _name: str, list_time_limit: bool
+    ) -> None:
         selection_queries: list[str] = []
 
         def record_query(execute: Any, query: str, *args: Any, **kwargs: Any) -> Any:
@@ -616,8 +619,12 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
                 selection_queries.append(query)
             return execute(query, *args, **kwargs)
 
+        selection = self._selection()
+        query = parse_select("SELECT trace_id FROM {traces}", {"traces": grouped_traces(self.team, selection, {})})
         with patch_clickhouse_client_execute(record_query):
-            load_rows_after(self.team, self.user, self._selection(), after=None, take=10)
+            execute_selection(
+                self.team, self.user, selection, query, SELECTION_QUERY_NAME, list_time_limit=list_time_limit
+            )
 
         [selection_query] = selection_queries
         assert "timeout_overflow_mode='throw'" in selection_query

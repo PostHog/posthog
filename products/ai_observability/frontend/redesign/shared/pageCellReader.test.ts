@@ -8,8 +8,30 @@ interface Params {
 interface PendingRead {
     keys: string[]
     params: Params
+    signal: AbortSignal
     answer: (value: string) => void
     fail: () => void
+}
+
+/** The part of kea-disposables the reader uses, with an unmount that runs every cleanup. */
+function fakeDisposables(): {
+    isDisposed: boolean
+    add: (setup: () => () => void, key: string) => void
+    unmount: () => void
+} {
+    const cleanups = new Map<string, () => void>()
+    const disposables = {
+        isDisposed: false,
+        add: (setup: () => () => void, key: string): void => {
+            cleanups.get(key)?.()
+            cleanups.set(key, setup())
+        },
+        unmount: (): void => {
+            cleanups.forEach((cleanup) => cleanup())
+            disposables.isDisposed = true
+        },
+    }
+    return disposables
 }
 
 const LAST_WEEK: Params = { date_from: '-7d' }
@@ -20,6 +42,7 @@ describe('createPageCellReader', () => {
     let reads: PendingRead[]
     let failures: string[][]
     let reader: PageCellReader<Params>
+    let disposables: ReturnType<typeof fakeDisposables>
 
     const valueOf = (key: string): string | undefined => {
         const load = loads.get(key)
@@ -30,8 +53,9 @@ describe('createPageCellReader', () => {
         loads = new Map()
         reads = []
         failures = []
+        disposables = fakeDisposables()
         reader = createPageCellReader<Params, string>({
-            cache: { disposables: { isDisposed: false } },
+            cache: { disposables },
             loads: () => loads,
             paramsChanged: () => {
                 loads = new Map()
@@ -46,11 +70,12 @@ describe('createPageCellReader', () => {
             loaded: (entries) => {
                 loads = withLoaded(loads, entries)
             },
-            request: (keys, params) =>
+            request: (keys, params, signal) =>
                 new Promise<CellEntry<string>[]>((resolve, reject) => {
                     reads.push({
                         keys,
                         params,
+                        signal,
                         answer: (value) => resolve(keys.map((key) => [key, value])),
                         fail: () => reject(new Error('read failed')),
                     })
@@ -129,5 +154,39 @@ describe('createPageCellReader', () => {
             { keys: ['a'], params: LAST_WEEK },
         ])
         expect(valueOf('a')).toEqual('fresh')
+    })
+
+    it('asks again on a reload for keys whose first read is still in flight, and keeps the newer answer', async () => {
+        const firstRead = reader.pageLoaded(['a'], LAST_WEEK)
+        reader.pageReloading()
+        const reload = reader.pageLoaded(['a'], LAST_WEEK)
+
+        reads[1].answer('reloaded')
+        await reload
+        reads[0].answer('first')
+        await firstRead
+
+        expect(reads.map(({ keys }) => keys)).toEqual([['a'], ['a']])
+        expect(valueOf('a')).toEqual('reloaded')
+    })
+
+    it.each<[string, () => void]>([
+        ['its params change', () => reader.scopeTo(LAST_DAY)],
+        ['the logic unmounts', () => disposables.unmount()],
+    ])('aborts the reads in flight when %s', (_name, discard) => {
+        void reader.pageLoaded(['a'], LAST_WEEK)
+        void reader.read(['b'], LAST_WEEK)
+
+        discard()
+
+        expect(reads.map(({ signal }) => signal.aborted)).toEqual([true, true])
+    })
+
+    it('keeps the reads of the current params open', () => {
+        void reader.pageLoaded(['a'], LAST_WEEK)
+        reader.scopeTo(LAST_DAY)
+        void reader.read(['b'], LAST_DAY)
+
+        expect(reads.map(({ signal }) => signal.aborted)).toEqual([true, false])
     })
 })
