@@ -124,6 +124,9 @@ temporal_subtree = { type = "string" }
 # A wiring location core runs by a name it reads at run time (a Celery task, a Temporal workflow, a
 # Max tool), a channel no producer reads: the contract-check inputs watch it while it exists.
 runs_by_name = { type = "bool" }
+# Who may import posthog.admin.console: the shell and its mounts, or a product admin module
+# that links a moved button.
+console_user = { type = "enum", values = ["shell", "moved-button"] }
 
 # Owners of a finding come from `owners`; cycles and compare's new pairs are between packages.
 [roles]
@@ -403,7 +406,8 @@ data-api       = { parent = "facade", paths = ["backend/facade/api*.py"] }
 fixtures       = { parent = "facade", paths = ["backend/facade/testing.py"] }
 # Where core runs a product's code: what a facade module hands out from here makes it a capability.
 wiring         = { parent = "backend", paths = ["backend/hogql_queries/**", "backend/max_tools.py", "backend/temporal/**", "backend/tasks.py"] }
-presentation   = { parent = "backend", paths = ["backend/presentation/**", "backend/routes.py"] }
+# routes.py and console.py are the presentation that a core registry loads by name: URL routes and PostHog Admin panels.
+presentation   = { parent = "backend", paths = ["backend/presentation/**", "backend/routes.py", "backend/console.py", "backend/console/**"] }
 # Viewsets that have not moved to presentation/ yet.
 api            = { parent = "backend", paths = ["backend/api/**", "backend/api.py"] }
 logic          = { parent = "backend", paths = ["backend/logic.py", "backend/logic/**"] }
@@ -1278,3 +1282,45 @@ within_group = ["presentation-uses-facade"]
 # A product whose own turbo.json narrows its contract-check inputs claims the level: if it fails
 # the level, check fails, and no ledger line accepts it. An unsound skip is never debt.
 claimed_by   = { adapter = "turbo", task = "backend:contract-check" }
+
+# ── PostHog Admin ──────────────────────────────────────────────
+
+# Who may import the staff console (posthog.admin.console): the admin shell itself, the code that
+# mounts it (URL conf, template tag, system check, dev bootstrap command), and each product's console
+# contribution point. Settings name it by string (`LOGGING`).
+[[assign]]
+match = [
+  "posthog/admin/**",
+  "ee/urls.py",
+  "posthog/templatetags/admin_console.py",
+  "posthog/management/commands/ensure_migration_defaults.py",
+  "posthog/management/commands/test/test_ensure_migration_defaults.py",
+  "posthog/checks.py",
+  "posthog/test/test_checks.py",
+  "posthog/test/repo_invariants/test_admin_console_assets.py",
+]
+set   = { console_user = "shell" }
+
+# A product's Django admin points its old buttons at the console with MovedToConsole only.
+[[assign]]
+match = ["products/*/backend/admin.py", "products/*/backend/admin/**"]
+set   = { console_user = "moved-button" }
+
+[rules.admin-console-consumers]
+primitive  = "edge"
+doc        = "Code imports posthog.admin.console only from the admin shell, the code that mounts it and their tests, a product's backend/console.py and the product's tests of it, and Django settings by string. A product's Django admin may import posthog.admin.console.moved for MovedToConsole."
+why        = "PostHog Admin is a staff-only surface. Product and core code that imports it couples staff tooling into request paths, tasks and APIs that do not run under the admin step-up."
+ways       = [
+  { safety = "care", text = "Put the panel, tool or operation in products/<product>/backend/console.py. Call the product's facade from there." },
+  { safety = "care", text = "If a Django admin button must point at the console, use MovedToConsole from posthog.admin.console.moved in the product's admin module." },
+  { safety = "person", text = "If core code outside posthog/admin must read the console, stop and tell the person. The preset lists the allowed importers." },
+]
+example    = { finding = "from posthog.admin.console.records import RECORD_TYPES  # in products/<product>/backend/api.py", fixed = "Link to the console page from products/<product>/backend/console.py, or call the product's facade." }
+kinds      = ["import", "reference", "dotted-path"]
+contexts   = { exclude = ["migration"] }
+from       = "src.console_user != 'shell' and src.registry != 'admin_console' and not (src.path startswith 'products/' and src.testcode == true)"
+endpoint   = "surface"
+deny       = "dst.path startswith 'posthog/admin/console/'"
+unless     = "(src.console_user == 'moved-button' and dst.module == 'posthog.admin.console.moved') or (src.settings == true and edge.kind == 'dotted-path')"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]

@@ -4,9 +4,10 @@ import { z } from 'zod'
 import type { Definition } from '../cards/definitions'
 import { CdpRole, ValveEntry } from '../cards/schema'
 import type { RunManifest } from '../cloud/lease'
-import { durationMs } from '../duration'
+import { TerminationGrace, durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
+import type { RoleTermination } from '../environment/supervisor'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import {
@@ -55,6 +56,7 @@ export type ValveTimelineEntry = {
     releaseIntentAt?: string
     releaseObservations?: Observation[]
     releaseError?: string
+    exit?: RoleTermination
     error?: string
 }
 
@@ -77,6 +79,21 @@ export const roleKill: ValveDefinition = {
     target: CdpRole,
     strandsRunningJobs: true,
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
+}
+
+const Grace = z.object({ grace: TerminationGrace }).strict()
+
+export const roleTerminate: ValveDefinition = {
+    name: 'role.terminate',
+    params: Grace,
+    target: CdpRole,
+    strandsRunningJobs: false,
+    apply: ({ environment }, target, dose) =>
+        environment.actuate({
+            kind: 'terminate',
+            role: CdpRole.parse(target),
+            graceMs: durationMs(Grace.parse(dose).grace),
+        }),
 }
 
 export const roleFreeze: ValveDefinition = {
@@ -246,18 +263,27 @@ export const destAmbiguous: ValveDefinition = {
     },
 }
 
+export const FailoverDose = z.object({ warmReader: z.literal(true).optional() }).strict()
+
 export const pgFailover: ValveDefinition = {
     name: 'pg.failover',
-    params: z.object({}).strict(),
+    params: FailoverDose,
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
     roleExitGraceMs: 5000,
     restarts: CdpRole.exclude(['cdp-ses-webhooks']).options,
     journalsIntent: true,
-    apply: ({ environment, commits, manifest }, _target, _dose, holdMs, signal) =>
+    apply: ({ environment, commits, manifest }, _target, dose, holdMs, signal) =>
         manifest === undefined
             ? Promise.reject(new Error('pg.failover runs only on a run host'))
-            : environment.actuate({ kind: 'rds.failover', manifest, holdMs, commits, signal }),
+            : environment.actuate({
+                  kind: 'rds.failover',
+                  manifest,
+                  holdMs,
+                  commits,
+                  signal,
+                  warmReader: FailoverDose.parse(dose).warmReader === true,
+              }),
 }
 
 const Dose = z.union([
@@ -294,6 +320,7 @@ export const pgCommitReplyLost: ValveDefinition = {
 
 export const VALVES: ValveDefinition[] = [
     roleKill,
+    roleTerminate,
     roleFreeze,
     pgDropConnections,
     pgFailover,
@@ -462,6 +489,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                     journal()
                 } catch (error) {
                     record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
+                    journal()
                 }
                 try {
                     const hits = await hitSource?.hits?.()

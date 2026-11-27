@@ -93,9 +93,6 @@ rules:
       owners: team-devex
     - match: '/.claude/agents/ingestion/'
       owners: team-ingestion
-    - match: '/bin/start-llm-gateway'
-      owners: [team-devex, team-agent-infrastructure]
-      sensitive: true
     - match: '/cli/'
       owners: team-growth
     - match: '/docs/onboarding/ai-observability/'

@@ -1,4 +1,7 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
+from unittest.mock import ANY
 
 from parameterized import parameterized
 from rest_framework import status
@@ -18,9 +21,9 @@ class TestSlackChannelScoutsAPI(APIBaseTest):
     def _url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/signals/slack_channel_scouts/{suffix}"
 
-    def _slack_source(self, team: Team, channels: dict[str, str | None]) -> ExternalDataSource:
+    def _slack_source(self, team: Team, channels: dict[str, str | None], prefix: str = "") -> ExternalDataSource:
         """A Slack source with its fixed tables and one schema per channel id. A None name leaves the channel unsynced."""
-        source = ExternalDataSource.objects.create(team=team, source_type="Slack", status="Running", prefix="")
+        source = ExternalDataSource.objects.create(team=team, source_type="Slack", status="Running", prefix=prefix)
         for schema_name in ("$channels", "$users", *channels):
             label = channels.get(schema_name)
             table = (
@@ -51,6 +54,7 @@ class TestSlackChannelScoutsAPI(APIBaseTest):
             "sources": [
                 {
                     "id": str(source.id),
+                    "label": ANY,
                     "channels": [
                         {"id": "C01", "name": "bugs", "table_name": "slack.c01"},
                         {"id": "C03", "name": "C03", "table_name": None},
@@ -59,6 +63,20 @@ class TestSlackChannelScoutsAPI(APIBaseTest):
                 }
             ]
         }
+
+    def test_channels_labels_each_source_by_its_prefix_or_its_connected_date(self) -> None:
+        unnamed = self._slack_source(self.team, {"C01": "bugs"})
+        ExternalDataSource.objects.filter(id=unnamed.id).update(created_at=datetime(2026, 3, 5, tzinfo=UTC))
+        named = self._slack_source(self.team, {"C02": "support"}, prefix="_customers_")
+        ExternalDataSource.objects.filter(id=named.id).update(created_at=datetime(2026, 4, 1, tzinfo=UTC))
+
+        response = self.client.get(self._url("channels/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(source["id"], source["label"]) for source in response.json()["sources"]] == [
+            (str(unnamed.id), "Connected Mar 5, 2026"),
+            (str(named.id), "customers"),
+        ]
 
     def test_create_makes_a_scout_owned_by_the_slack_source(self) -> None:
         source = self._slack_source(self.team, {"C01": "bugs", "C02": "support", "C03": "random"})

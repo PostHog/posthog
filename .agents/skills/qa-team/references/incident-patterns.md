@@ -143,7 +143,7 @@ This document grounds QA review agents with real-world failure modes.
 - Infrastructure changes to networking, CNI, service mesh
 - Config values that should be runtime-adjustable but are hardcoded
 - Missing alerting for new services or endpoints
-- A first read of a new database table (or queue, bucket, secret) in a service whose runtime role has an explicit grant allowlist in another repo (e.g. `services/llm-gateway`, allowlist in posthog-cloud-infra)
+- A first read of a new database table (or queue, bucket, secret) in a service whose runtime role has an explicit grant allowlist in another repo (for example, an allowlist in posthog-cloud-infra)
 
 ## Pattern 8: Cross-Service & Queue Processing Failures
 

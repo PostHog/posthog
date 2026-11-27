@@ -203,10 +203,10 @@ Check these four things before a local `run_review`; don't re-derive them from c
    `products/**/*.py` edit — **never start a second worker** (it dies on port 8001 already-in-use).
    The `backend` process must be running too.
 2. **ngrok tunnels up** (only the user can start ngrok): `curl -s http://localhost:4040/api/tunnels`
-   must list all three — `django` → :8010, `gateway` → :3308 (LLM gateway), `mcp` → :8787.
+   must list all three: `django` → :8010, `gateway` → :8080 (AI gateway), `mcp` → :8787.
    Without them the Modal sandboxes can't reach the local backend / gateway / MCP.
-   A tunnel can be up while its local service is down: the `llm-gateway` process can crash at stack
-   boot (exit 127), which shows as HTTP 502 on the gateway tunnel while django/mcp answer 200.
+   A tunnel can be up while its local service is down: the `ai-gateway` process can exit at stack
+   boot, which shows as HTTP 502 on the gateway tunnel while django/mcp answer 200.
    Probe all three from Modal's network, and on a 502 check the process in phrocs and restart it —
    the tunnel itself is fine.
 3. **Target PR is reviewable** — non-fork (fork PRs are rejected at fetch) and open. Drafts ARE

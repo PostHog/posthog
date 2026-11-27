@@ -1,15 +1,22 @@
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
 
+import pyarrow.fs as pa_fs
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import RoleCredentials
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import filesystem
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
+    ObjectStoreConfig,
+    ObjectStoreProvider,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     BLOCKED_LOCATION_ERROR,
     INVALID_CONFIG_ERROR,
@@ -21,7 +28,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import (
     AzureObjectStore,
+    open_s3_store,
     open_store,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    parse_r2_url,
+    parse_s3_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
     STORE_BUILDERS,
@@ -94,6 +106,53 @@ def test_each_provider_reads_from_its_own_endpoint(
     assert store.delta_uri("sales") == delta_uri
     assert delta_options.items() <= store.delta_storage_options.items()
     assert ("AWS_ENDPOINT_URL" in store.delta_storage_options) is (endpoint_url is not None)
+
+
+def _role_metadata(suffix: str, expires_in: timedelta) -> dict[str, str]:
+    return {
+        "access_key": f"ASIA{suffix}",
+        "secret_key": f"secret-{suffix}",
+        "token": f"token-{suffix}",
+        "expiry_time": (datetime.now(UTC) + expires_in).isoformat(),
+    }
+
+
+def test_an_s3_role_signs_every_client_and_refreshes() -> None:
+    refreshes = iter([_role_metadata("SECOND", timedelta(minutes=5)), _role_metadata("THIRD", timedelta(hours=1))])
+    role_credentials = RoleCredentials.create_from_metadata(
+        _role_metadata("FIRST", timedelta(minutes=5)), refresh_using=lambda: next(refreshes), method="sts-assume-role"
+    )
+    config = ObjectStoreConfig.from_url(
+        ObjectStoreProvider.S3,
+        parse_s3_url("https://customer-data.s3.eu-west-1.amazonaws.com/exports/"),
+        access_key_id="",
+        secret_access_key="",
+        role_credentials=role_credentials,
+    )
+
+    store = open_s3_store(config)
+
+    # s3fs starts on SECOND, which is close to expiry, so this read goes through its own refresh callback.
+    s3fs_credentials = asyncio.run(store.fs.session._credentials.get_frozen_credentials())
+    boto3_credentials = store.client._request_signer._credentials.get_frozen_credentials()
+    assert (s3fs_credentials.access_key, s3fs_credentials.token) == ("ASIATHIRD", "token-THIRD")
+    assert (boto3_credentials.access_key, boto3_credentials.token) == ("ASIATHIRD", "token-THIRD")
+    assert store.delta_storage_options["AWS_SESSION_TOKEN"] == "token-THIRD"
+    data_filesystem = store.delta_data_filesystem("sales")
+    assert isinstance(data_filesystem, pa_fs.SubTreeFileSystem)
+    assert data_filesystem.base_path == "customer-data/exports/sales/"
+
+
+def test_role_credentials_are_refused_for_a_provider_other_than_s3() -> None:
+    role_credentials = RoleCredentials.create_from_metadata(
+        _role_metadata("ROLE", timedelta(hours=1)), refresh_using=lambda: {}, method="sts-assume-role"
+    )
+    url = parse_r2_url(PROVIDER_VALUES["r2"]["url_pattern"])
+
+    with pytest.raises(ObjectStorageError, match="only AWS S3 can connect with an IAM role"):
+        ObjectStoreConfig.from_url(
+            ObjectStoreProvider.R2, url, access_key_id="", secret_access_key="", role_credentials=role_credentials
+        )
 
 
 @pytest.mark.parametrize(

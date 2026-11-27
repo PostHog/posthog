@@ -31,7 +31,7 @@ const meta: Meta<typeof AdventCalendarScene> = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await canvas.findByText('THE WORKFLOWS ADVENT CALENDAR')
+        await canvas.findByText('A very merry PostHog')
         await expect(canvas.queryByRole('button', { name: 'Share' })).toBeNull()
         await waitFor(() => expect(userLogic.findMounted()?.values.user?.uuid).toBeTruthy())
 

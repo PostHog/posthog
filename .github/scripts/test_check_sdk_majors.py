@@ -273,7 +273,7 @@ def test_check_node_holds_every_pnpm_workspace_to_the_expected_major(
         assert actual.startswith(expected)
 
 
-def _write_python_root(root: Path, django_major: int, gateway_major: int) -> None:
+def _write_python_root(root: Path, django_major: int) -> None:
     def uv_project(path: Path, major: int) -> None:
         path.mkdir(parents=True, exist_ok=True)
         (path / "pyproject.toml").write_text(
@@ -283,7 +283,6 @@ def _write_python_root(root: Path, django_major: int, gateway_major: int) -> Non
         (path / "uv.lock").write_text(f'[[package]]\nname = "posthoganalytics"\nversion = "{major}.0.1"\n')
 
     uv_project(root, django_major)
-    uv_project(root / "services" / "llm-gateway", gateway_major)
     acceptance_tests = root / "common" / "ingestion" / "acceptance_tests"
     acceptance_tests.mkdir(parents=True)
     (acceptance_tests / "requirements.txt").write_text(f"posthoganalytics=={django_major}.0.1\n")
@@ -294,20 +293,11 @@ def _write_python_root(root: Path, django_major: int, gateway_major: int) -> Non
 
 
 @pytest.mark.parametrize(
-    "django_major,gateway_major,problems",
+    "django_major,problems",
     [
-        (8, 8, []),
-        (
-            8,
-            7,
-            [
-                "services/llm-gateway/pyproject.toml: posthoganalytics declares 'posthoganalytics==7.0.1', expected major 8",
-                "services/llm-gateway/uv.lock resolves posthoganalytics outside major 8",
-            ],
-        ),
+        (8, []),
         (
             7,
-            8,
             [
                 "pyproject.toml: posthoganalytics declares 'posthoganalytics==7.0.1', expected major 8",
                 "uv.lock resolves posthoganalytics outside major 8",
@@ -317,9 +307,9 @@ def _write_python_root(root: Path, django_major: int, gateway_major: int) -> Non
     ],
 )
 def test_check_python_holds_every_project_to_the_expected_major(
-    tmp_path: Path, django_major: int, gateway_major: int, problems: list[str]
+    tmp_path: Path, django_major: int, problems: list[str]
 ) -> None:
-    _write_python_root(tmp_path, django_major, gateway_major)
+    _write_python_root(tmp_path, django_major)
 
     found = guard.check_python(tmp_path)
 

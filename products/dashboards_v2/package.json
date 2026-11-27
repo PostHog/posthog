@@ -2,6 +2,8 @@
     "name": "@posthog/products-dashboards-v2",
     "dependencies": {
         "@posthog/quill": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
+        "@posthog/quill-components": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",

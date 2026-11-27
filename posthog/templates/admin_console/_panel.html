@@ -51,6 +51,7 @@
                         {% else %}
                             {{ fact.value }}
                         {% endif %}
+                        {% if fact.detail %}<span class="ml-1 font-mono text-xs text-muted-foreground">{{ fact.detail }}</span>{% endif %}
                     </dd>
                 {% endfor %}
             </dl>

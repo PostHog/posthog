@@ -255,26 +255,83 @@ describe('valves', () => {
         return { cloud, ...run, writerNow, commits, environment, stalledOnce }
     }
 
-    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>]>([
-        [
-            'fails the run cluster over and back, and journals each recovery stage',
-            {},
-            true,
-            {
-                intentAt: expect.any(String),
-                appliedAt: expect.any(String),
-                observedAt: expect.any(String),
-                releasedAt: expect.any(String),
-                observations: STAGES,
-                releaseIntentAt: expect.any(String),
-                releaseObservations: STAGES,
-            },
-        ],
+    const RECOVERED = {
+        intentAt: expect.any(String),
+        appliedAt: expect.any(String),
+        observedAt: expect.any(String),
+        releasedAt: expect.any(String),
+        observations: STAGES,
+        releaseIntentAt: expect.any(String),
+        releaseObservations: STAGES,
+    }
+
+    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>, ValveEntry['dose']?]>([
+        ['fails the run cluster over and back, and journals each recovery stage', {}, true, RECOVERED],
         [
             'records no intent for a failover its preconditions refused',
             { liveReaderAcu: { maxima: [1, 1, 3, 1, 1] } },
             true,
             { error: expect.stringMatching(/^pg\.failover refused: .* was above its 2.5 ACU idle limit/) },
+        ],
+        [
+            'fails a reader above its idle limit over and back when the dose takes a warm reader',
+            { liveReaderAcu: { maxima: [3, 3, 3, 3, 3] } },
+            true,
+            RECOVERED,
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover on a reader whose oldest lagging minute averaged above its maximum',
+            { liveReaderAcu: { maxima: [33, 2, 2, 2, 2], lagMinutes: 1 } },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .* was above its 32 ACU maximum/) },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover on a reader whose minute peaked above its maximum',
+            { liveReaderAcu: { maxima: [2, 2, 2, 40, 2], averages: [2, 2, 2, 3, 2] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .* was above its 32 ACU maximum in its last 5 minutes: 40 at /
+                ),
+            },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover on a reader whose newest minute peaked above its maximum with no average',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2, 40], averages: [2, 2, 2, 2, 2, null] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has no average or no maximum for .*; .* was above its 32 ACU maximum in its last 5 minutes: 40 at /
+                ),
+            },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a failover on a reader whose minute averaged above its own maximum',
+            { liveReaderAcu: { maxima: [1, 1, 1, 1, 1], averages: [1, 1, 2, 1, 1] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has an average above its maximum at /
+                ),
+            },
+        ],
+        [
+            'fails a warm reader at its maximum over and back',
+            { liveReaderAcu: { maxima: [32, 32, 32, 32, 32] } },
+            true,
+            RECOVERED,
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover whose capacity read has fewer values than timestamps',
+            { shortValuesOf: 'Average' },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .*'s capacity read has 5 timestamps and 4 values/) },
+            { warmReader: true },
         ],
         [
             'records no intent for a failover whose capacity read has fewer values than timestamps',
@@ -303,12 +360,12 @@ describe('valves', () => {
             },
         ],
         ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
-    ])('%s', async (_story, options, onRunHost, recorded) => {
+    ])('%s', async (_story, options, onRunHost, recorded, dose = {}) => {
         const valves = createValves({ pollMs: 5 })
         const { context } = stackOf()
         const run = runClusterOf(options)
 
-        await valves.start([FAILOVER], {
+        await valves.start([{ ...FAILOVER, dose }], {
             ...context,
             commits: run.commits,
             manifest: onRunHost ? run.manifest : undefined,
@@ -383,6 +440,52 @@ describe('valves', () => {
             ])
         }
     )
+
+    it.each([
+        ['records how the role exited', undefined, { releasedAt: expect.any(String), error: undefined }],
+        [
+            'keeps the exit of a role that outlived its SIGKILL, unreleased',
+            'cdp-cyclotron-worker-email did not exit 10s after its grace',
+            { error: 'cdp-cyclotron-worker-email did not exit 10s after its grace', releasedAt: undefined },
+        ],
+    ])('terminates the role with its grace and %s', async (_story, releaseFailure, expected) => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf()
+        const signalledAt = '2026-01-01T00:00:00.000Z'
+        const killedAt = '2026-01-01T00:00:20.000Z'
+        const exit =
+            releaseFailure === undefined
+                ? { signalledAt, killedAt, exitedAt: '2026-01-01T00:00:21.000Z' }
+                : { signalledAt, killedAt }
+        let releaseRan = false
+        const terminated: unknown[] = []
+        const context: ValveContext = {
+            ...stack.context,
+            environment: {
+                actuate: (action) => {
+                    terminated.push(action)
+                    return Promise.resolve({
+                        observed: () => Promise.resolve(true),
+                        release: () => {
+                            releaseRan = true
+                            return releaseFailure === undefined
+                                ? Promise.resolve()
+                                : Promise.reject(new Error(releaseFailure))
+                        },
+                        journal: () => ({ exit: releaseRan ? exit : { signalledAt } }),
+                    })
+                },
+            },
+        }
+
+        await valves.start([{ ...kill({ at: '0ms' }), valve: 'role.terminate', dose: { grace: '20s' } }], context)
+        await waitForExpect(() => expect(valves.timeline()[0].observedAt).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        expect(terminated).toEqual([{ kind: 'terminate', role: EMAIL_WORKER, graceMs: 20_000 }])
+        const { exit: recorded, error, releasedAt } = valves.timeline()[0]
+        expect({ exit: recorded, error, releasedAt }).toEqual({ exit, ...expected })
+    })
 
     it('never kills when its offset comes due only after the drive was due to end, though no release ran', async () => {
         const valves = createValves({ pollMs: 5 })

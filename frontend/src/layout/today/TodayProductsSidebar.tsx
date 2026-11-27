@@ -5,6 +5,7 @@ import { Text } from '@posthog/quill'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
 import { productsItemName } from '~/layout/panel-layout/navbar/tabs/productsCatalog'
+import { CustomCategorySuffix } from '~/layout/panel-layout/ProjectTree/CustomCategorySuffix'
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
@@ -118,7 +119,12 @@ export function TodayProductsSidebar(): JSX.Element {
                     >
                         {productGroups.map((group, index) => (
                             <div key={group.label}>
-                                <TodayPaneGroupLabel first={index === 0}>{group.label}</TodayPaneGroupLabel>
+                                <TodayPaneGroupLabel first={index === 0}>
+                                    <span className="flex w-full items-center justify-between">
+                                        <span>{group.label}</span>
+                                        <CustomCategorySuffix category={group.label} nav="today" />
+                                    </span>
+                                </TodayPaneGroupLabel>
                                 {group.items.map((item, index) => renderProduct(item, group.label, index))}
                             </div>
                         ))}
