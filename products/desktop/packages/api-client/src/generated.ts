@@ -242,6 +242,7 @@ export namespace Schemas {
         usePreaggregatedTableTransforms: boolean | null;
         useWebAnalyticsPreAggregatedTables: boolean | null;
         webAnalyticsFirstPageviewFilters: boolean | null;
+        webAnalyticsSessionlessShape: boolean | null;
     }>;
     export type ClickhouseQueryProgress = {
         active_cpu_time: number;
