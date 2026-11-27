@@ -392,6 +392,10 @@ def _clean_from_name(value: str) -> str:
     value = value.strip()
     if not value:
         raise serializers.ValidationError("Display name cannot be blank.")
+    # A line break here makes Django raise BadHeaderError when it builds the From header,
+    # so every reply on the channel fails instead of sending.
+    if any(ord(c) < 32 or ord(c) == 127 for c in value):
+        raise serializers.ValidationError("Display name cannot contain line breaks or control characters.")
     return value
 
 

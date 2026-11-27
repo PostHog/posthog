@@ -1713,7 +1713,7 @@ class TestEmailDisplayNameSettings(BaseTest):
         config.refresh_from_db()
         assert config.from_name == ("Acme Support" if expected_status == 200 else "Old name")
 
-    def test_rename_is_scoped_to_the_current_team_and_rejects_blank(self):
+    def test_rename_is_scoped_to_the_current_team_and_rejects_invalid_names(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         other_team = Team.objects.create(organization=self.organization)
@@ -1734,6 +1734,7 @@ class TestEmailDisplayNameSettings(BaseTest):
 
         assert self._set_display_name(other_config, "Renamed").status_code == 404
         assert self._set_display_name(config, "   ").status_code == 400
+        assert self._set_display_name(config, "Acme\r\nSupport").status_code == 400
         other_config.refresh_from_db()
         config.refresh_from_db()
         assert (other_config.from_name, config.from_name) == ("Other", "Support")

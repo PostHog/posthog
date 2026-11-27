@@ -562,6 +562,13 @@ export interface supportSettingsLogicActions {
     setEditingDomainIndex: (index: number | null) => {
         index: number | null
     }
+    setEmailDisplayNameDraft: (
+        configId: string,
+        value: string
+    ) => {
+        configId: string
+        value: string
+    }
     setGithubRepos: (repos: string[]) => {
         repos: string[]
     }
@@ -573,13 +580,6 @@ export interface supportSettingsLogicActions {
     }
     setIdentificationFormTitleValue: (value: string | null) => {
         value: string | null
-    }
-    setEmailDisplayNameDraft: (
-        configId: string,
-        value: string
-    ) => {
-        configId: string
-        value: string
     }
     setIsAddingDomain: (isAdding: boolean) => {
         isAdding: boolean
