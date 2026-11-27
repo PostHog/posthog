@@ -18,6 +18,7 @@ than ``completed``. The seeder scans those days only after they end, and it comp
 they confirm.
 """
 
+from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -54,7 +55,7 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillScope,
     CohortBackfillTrigger,
 )
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.dependencies import invalidate_team_behavioral_cohort_cache
 from products.cohorts.backend.realtime_state import flags_can_target
 from products.notifications.backend.facade.api import (
@@ -291,9 +292,10 @@ def _notify_people_waiting_for_cohorts(team_ids: set[int]) -> None:
     except Exception:
         logger.exception("cohort_backfill_finalizer_ready_notice_failed", teams=len(team_ids))
         return
+    seen_cohorts_by_team: defaultdict[int, dict[int, CohortOrEmpty]] = defaultdict(dict)
     for cohort in waiting:
         try:
-            if cohort.realtime_enabled_at is None or not flags_can_target(cohort):
+            if cohort.realtime_enabled_at is None or not flags_can_target(cohort, seen_cohorts_by_team[cohort.team_id]):
                 continue
             notification = create_notification(
                 NotificationData(
