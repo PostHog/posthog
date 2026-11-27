@@ -532,6 +532,89 @@ const commentsCreate = (): ToolBase<ReturnType<typeof CommentsCreateSchema>, Sch
     },
 })
 
+const CommentsLinkSlackThreadSchema = () => {
+    const CommentsLinkSlackThreadCreateBody = orvalSchemas.CommentsLinkSlackThreadCreateBody()
+    return CommentsLinkSlackThreadCreateBody.extend({
+        url: CommentsLinkSlackThreadCreateBody.shape['url'].describe(
+            'Link to any message in the Slack thread, from Copy link in Slack, e.g. https://acme.slack.com/archives/C0123ABCDEF/p1767225636123456.'
+        ),
+    })
+}
+
+const CommentsLinkSlackThreadSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const commentsLinkSlackThreadPrepare = (): ToolBase<
+    ReturnType<typeof CommentsLinkSlackThreadSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'comments-link-slack-thread-prepare',
+    schema: CommentsLinkSlackThreadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CommentsLinkSlackThreadSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'comments-link-slack-thread',
+            inputSchema: CommentsLinkSlackThreadSchema(),
+            actionLabel: 'link Slack thread',
+            messageTemplate:
+                "About to link the Slack thread at {url} to {scope} {item_id} through integration {integration_id}. Its first message opens a discussion there and its earlier replies are copied in. The PostHog bot posts a notice in the thread, and replies then sync both ways. Reply 'confirm' to link.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const commentsLinkSlackThreadExecute = (): ToolBase<typeof CommentsLinkSlackThreadSchemaExecute, Schemas.Comment> => ({
+    name: 'comments-link-slack-thread-execute',
+    schema: CommentsLinkSlackThreadSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof CommentsLinkSlackThreadSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof CommentsLinkSlackThreadSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'comments-link-slack-thread',
+                inputSchema: CommentsLinkSlackThreadSchema(),
+                codec: __runtime.codec,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
+        if (params.item_id !== undefined) {
+            body['item_id'] = params.item_id
+        }
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.url !== undefined) {
+            body['url'] = params.url
+        }
+        const result = await context.api.request<Schemas.Comment>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/link_slack_thread/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CommentsListSchema = () => {
     const CommentsListQueryParams = orvalSchemas.CommentsListQueryParams()
     return CommentsListQueryParams
@@ -636,6 +719,75 @@ const commentsSendToSlackExecute = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/${encodeURIComponent(String(params.id))}/send_to_slack/`,
             body,
+        })
+        return result
+    },
+})
+
+const CommentsUnlinkSlackThreadSchema = () => {
+    const CommentsUnlinkSlackThreadCreateParams = orvalSchemas.CommentsUnlinkSlackThreadCreateParams()
+    return CommentsUnlinkSlackThreadCreateParams.omit({ project_id: true }).extend({
+        id: CommentsUnlinkSlackThreadCreateParams.shape['id'].describe(
+            'ID of the opening comment of a discussion linked from a Slack thread.'
+        ),
+    })
+}
+
+const CommentsUnlinkSlackThreadSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const commentsUnlinkSlackThreadPrepare = (): ToolBase<
+    ReturnType<typeof CommentsUnlinkSlackThreadSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'comments-unlink-slack-thread-prepare',
+    schema: CommentsUnlinkSlackThreadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CommentsUnlinkSlackThreadSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'comments-unlink-slack-thread',
+            inputSchema: CommentsUnlinkSlackThreadSchema(),
+            actionLabel: 'unlink Slack thread',
+            messageTemplate:
+                "About to unlink discussion {id} from its Slack thread. The discussion and its replies are deleted in PostHog and stop syncing. The thread stays in Slack. Reply 'confirm' to unlink.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const commentsUnlinkSlackThreadExecute = (): ToolBase<typeof CommentsUnlinkSlackThreadSchemaExecute, unknown> => ({
+    name: 'comments-unlink-slack-thread-execute',
+    schema: CommentsUnlinkSlackThreadSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof CommentsUnlinkSlackThreadSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof CommentsUnlinkSlackThreadSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'comments-unlink-slack-thread',
+                inputSchema: CommentsUnlinkSlackThreadSchema(),
+                codec: __runtime.codec,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/${encodeURIComponent(String(params.id))}/unlink_slack_thread/`,
         })
         return result
     },
@@ -1063,9 +1215,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comment-get': commentGet,
     'comment-thread': commentThread,
     'comments-create': commentsCreate,
+    'comments-link-slack-thread-prepare': commentsLinkSlackThreadPrepare,
+    'comments-link-slack-thread-execute': commentsLinkSlackThreadExecute,
     'comments-list': commentsList,
     'comments-send-to-slack-prepare': commentsSendToSlackPrepare,
     'comments-send-to-slack-execute': commentsSendToSlackExecute,
+    'comments-unlink-slack-thread-prepare': commentsUnlinkSlackThreadPrepare,
+    'comments-unlink-slack-thread-execute': commentsUnlinkSlackThreadExecute,
     'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,
     'organization-create': organizationCreate,
