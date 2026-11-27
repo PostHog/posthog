@@ -45,11 +45,15 @@ describe('AdventCalendarScene', () => {
     const setCalendarFlag = (enabled: boolean): void =>
         act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]: enabled }))
 
-    it('sends a visitor without the calendar to Workflows once a fresh flag load agrees', async () => {
+    it.each([
+        ['the shared link', urls.workflowsAdventCalendar()],
+        ['an encoded path', urls.workflowsAdventCalendar().replace('advent', '%61dvent')],
+    ])('sends a visitor without the calendar on %s to Workflows once a fresh flag load agrees', async (_, url) => {
+        router.actions.push(url)
         const { unmount } = render(<AdventCalendarScene />)
         setCalendarFlag(false)
         expect({ pathname: pathname(), showsSpinner: showsSpinner() }).toEqual({
-            pathname: expect.stringMatching(/\/workflows\/advent$/),
+            pathname: expect.stringMatching(/\/workflows\/(advent|%61dvent)$/),
             showsSpinner: true,
         })
 

@@ -1,10 +1,9 @@
-import { actions, connect, kea, listeners, MakeLogicType, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, MakeLogicType, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { appLogic } from 'scenes/appLogic'
 import { urls } from 'scenes/urls'
 
@@ -61,17 +60,20 @@ export const adventCalendarAccessLogic = kea<adventCalendarAccessLogicType>([
             ): boolean => receivedFeatureFlags || featureFlagsTimedOut,
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, cache }) => ({
         leaveWithoutCalendar: async (_, breakpoint) => {
-            const calendarPath = router.values.location.pathname
-            if (removeProjectIdIfPresent(calendarPath) !== urls.workflowsAdventCalendar()) {
+            const stillOnCalendar = (): boolean => router.values.location.pathname === cache.calendarPath
+            if (!stillOnCalendar()) {
                 return
             }
             await posthog.featureFlags?.reloadFeatureFlagsAsync()
             breakpoint()
-            if (!values.hasCalendar && router.values.location.pathname === calendarPath) {
+            if (!values.hasCalendar && stillOnCalendar()) {
                 router.actions.replace(urls.workflows())
             }
         },
     })),
+    afterMount(({ cache }) => {
+        cache.calendarPath = router.values.location.pathname
+    }),
 ])
