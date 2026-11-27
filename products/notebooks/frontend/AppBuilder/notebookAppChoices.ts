@@ -1,3 +1,5 @@
+import { createContext } from 'react'
+
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { getSqlV2PropsFromQueryProp } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MAX_NOTEBOOK_VARIABLE_VALUE_CHARS } from 'scenes/notebooks/Notebook/notebookVariables'
@@ -56,3 +58,5 @@ export function draftChoices(cell: NotebookBlockNode | undefined, column: string
         ? queryChoices(result.columns, result.first_page, column, !!result.has_more)
         : null
 }
+
+export const NotebookAppQueryChoicesContext = createContext(draftChoices)

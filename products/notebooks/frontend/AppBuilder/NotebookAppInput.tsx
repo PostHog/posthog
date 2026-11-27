@@ -1,7 +1,8 @@
-import { useId } from 'react'
+import { useContext, useId } from 'react'
 
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
@@ -9,7 +10,7 @@ import { coerceNotebookVariableValue } from 'scenes/notebooks/Notebook/notebookV
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { NotebookVariableListInput } from '../NotebookVariableListInput'
-import { dropdownOptions, type AppChoices } from './notebookAppChoices'
+import { dropdownOptions, NotebookAppQueryChoicesContext, type AppChoices } from './notebookAppChoices'
 
 type InputProps = {
     variable: NotebookVariable
@@ -19,20 +20,22 @@ type InputProps = {
 
 export function NotebookAppInput({
     block,
-    choices,
+    cell,
     variable,
     disabled,
     onChange,
 }: Omit<InputProps, 'variable'> & {
-    choices?: AppChoices | null
+    cell?: NotebookBlockNode
     block: NotebookAppBlockApi
     variable?: NotebookVariable
 }): JSX.Element {
     const id = useId()
+    const getChoices = useContext(NotebookAppQueryChoicesContext)
     if (!variable) {
         return <LemonBanner type="warning">Choose an existing notebook variable in component settings.</LemonBanner>
     }
     const label = block.title || variable.name
+    const choices = block.input_kind === 'query_select' ? getChoices(cell, block.option_column ?? '') : undefined
     const options = dropdownOptions(block, choices)
     return (
         <div className="flex flex-col gap-2">
