@@ -114,10 +114,6 @@
     transition-property: clip-path;
 }
 
-.AdventCard--upward {
-    flex-direction: column-reverse;
-}
-
 .AdventCard__face {
     display: flex;
     flex-shrink: 0;
