@@ -12,6 +12,7 @@ export function SurveyRespondentsBroadcastButton({ surveyId }: { surveyId: strin
     const logic = surveyRespondentsBroadcastLogic({ surveyId })
     const { respondentsCohortLoading, hasActiveFilters } = useValues(logic)
     const { emailRespondents } = useActions(logic)
+    const accessDisabledReason = messageAudienceAccessDisabledReason()
     return (
         <LemonButton
             type="secondary"
@@ -19,11 +20,15 @@ export function SurveyRespondentsBroadcastButton({ surveyId }: { surveyId: strin
             icon={<IconSend />}
             onClick={emailRespondents}
             loading={respondentsCohortLoading}
-            disabledReason={messageAudienceAccessDisabledReason()}
+            disabledReason={accessDisabledReason}
             tooltip="Send a one-time email to the people behind the responses shown"
             data-attr="survey-email-respondents"
         >
-            <MessageAudienceSpot source={SURVEY_RESPONDENTS_SOURCE} destination="broadcast">
+            <MessageAudienceSpot
+                source={SURVEY_RESPONDENTS_SOURCE}
+                destination="broadcast"
+                disabled={!!accessDisabledReason}
+            >
                 {hasActiveFilters ? 'Email these respondents' : 'Email respondents'}
             </MessageAudienceSpot>
         </LemonButton>

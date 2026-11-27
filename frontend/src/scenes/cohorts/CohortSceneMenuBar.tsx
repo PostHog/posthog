@@ -83,7 +83,11 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                                 data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
                             >
                                 <IconLetter />
-                                <MessageAudienceSpot source="cohort" destination="broadcast">
+                                <MessageAudienceSpot
+                                    source="cohort"
+                                    destination="broadcast"
+                                    disabled={!!broadcastDisabledReason}
+                                >
                                     Email this cohort
                                 </MessageAudienceSpot>
                             </SceneMenuBarItem>
@@ -97,7 +101,11 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                                 data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
                             >
                                 <IconSend />
-                                <MessageAudienceSpot source="cohort" destination="workflow">
+                                <MessageAudienceSpot
+                                    source="cohort"
+                                    destination="workflow"
+                                    disabled={!!accessDisabledReason}
+                                >
                                     Build a custom workflow
                                 </MessageAudienceSpot>
                             </SceneMenuBarItem>

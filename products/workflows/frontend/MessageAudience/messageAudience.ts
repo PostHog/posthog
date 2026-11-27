@@ -62,7 +62,7 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
     )
 }
 
-const attemptsOnScreen = new Map<string, string>()
+const attemptsOnScreen = new Map<string, string[]>()
 
 export function holdMessageAudienceAttempt(
     source: string,
@@ -70,9 +70,12 @@ export function holdMessageAudienceAttempt(
     attemptId: string
 ): () => void {
     const key = `${source}:${destination}`
-    attemptsOnScreen.set(key, attemptId)
+    attemptsOnScreen.set(key, [...(attemptsOnScreen.get(key) ?? []), attemptId])
     return () => {
-        if (attemptsOnScreen.get(key) === attemptId) {
+        const remaining = (attemptsOnScreen.get(key) ?? []).filter((held) => held !== attemptId)
+        if (remaining.length > 0) {
+            attemptsOnScreen.set(key, remaining)
+        } else {
             attemptsOnScreen.delete(key)
         }
     }
@@ -92,7 +95,7 @@ export function captureMessageAudienceClicked(source: string, destination: Messa
     posthog.capture('message audience clicked', {
         source,
         destination,
-        attempt_id: attemptsOnScreen.get(`${source}:${destination}`) ?? uuid(),
+        attempt_id: attemptsOnScreen.get(`${source}:${destination}`)?.at(-1) ?? uuid(),
     })
 }
 

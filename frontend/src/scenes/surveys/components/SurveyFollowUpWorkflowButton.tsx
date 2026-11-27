@@ -53,7 +53,7 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
             data-attr="survey-start-follow-up-workflow"
         >
             <IconSend />
-            <MessageAudienceSpot source={SOURCE} destination="workflow">
+            <MessageAudienceSpot source={SOURCE} destination="workflow" disabled={!!accessDisabledReason}>
                 Email everyone who responds
             </MessageAudienceSpot>
         </ButtonPrimitive>

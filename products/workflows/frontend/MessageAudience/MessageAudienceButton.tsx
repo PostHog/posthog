@@ -49,7 +49,11 @@ export function MessageAudienceButton({
                 onClick={() => open(destinations[0])}
                 data-attr={`message-audience-${audience.source}-${destinations[0]}`}
             >
-                <MessageAudienceSpot source={audience.source} destination={destinations[0]}>
+                <MessageAudienceSpot
+                    source={audience.source}
+                    destination={destinations[0]}
+                    disabled={!!buttonProps.disabledReason}
+                >
                     {label}
                 </MessageAudienceSpot>
             </LemonButton>

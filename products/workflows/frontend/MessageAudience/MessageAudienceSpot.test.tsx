@@ -1,16 +1,16 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { mockAllIsIntersecting } from 'react-intersection-observer/test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { MessageAudience, captureMessageAudienceClicked } from './messageAudience'
 import { MessageAudienceButton } from './MessageAudienceButton'
-
-jest.mock('./messageAudienceWarnings', () => ({ openMessageAudience: jest.fn(async () => {}) }))
 
 const audience: MessageAudience = {
     source: 'early_access_feature',
@@ -23,8 +23,32 @@ describe('message audience on-screen events', () => {
     const events = (name: string): Record<string, any>[] =>
         captured.filter((capture) => capture.event === name).map((capture) => capture.properties)
 
+    const clickAndOpen = async (label: string): Promise<void> => {
+        const startedOn = router.values.location.pathname
+        fireEvent.click(screen.getByText(label))
+        await waitFor(() => expect(router.values.location.pathname).not.toEqual(startedOn))
+    }
+
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/email_sending_suspension/': { email_sending_suspended: false },
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'email', config: { verified: true } }],
+                    next: null,
+                },
+                '/api/projects/:team_id/cohorts/:id/': {
+                    id: 7,
+                    name: 'Beta testers',
+                    is_static: false,
+                    is_calculating: false,
+                    last_calculation: '2026-11-01T00:00:00Z',
+                    count: 3,
+                },
+            },
+        })
         initKeaTests()
+        router.actions.push('/project/997/early_access_features/1')
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT!,
             resource_access_control: {
@@ -44,7 +68,7 @@ describe('message audience on-screen events', () => {
         jest.restoreAllMocks()
     })
 
-    it('reports a button once it is on screen, and its click carries the same attempt', () => {
+    it('reports a button once it is on screen, and its click carries the same attempt', async () => {
         render(<MessageAudienceButton audience={audience} destinations={['broadcast']} label="Email them" />)
         expect(events('message audience shown')).toEqual([])
 
@@ -56,7 +80,7 @@ describe('message audience on-screen events', () => {
             { source: 'early_access_feature', destination: 'broadcast', attempt_id: expect.any(String) },
         ])
 
-        fireEvent.click(screen.getByText('Email them'))
+        await clickAndOpen('Email them')
         expect(events('message audience clicked')).toEqual([
             { source: 'early_access_feature', destination: 'broadcast', attempt_id: shown[0].attempt_id },
         ])
@@ -73,7 +97,37 @@ describe('message audience on-screen events', () => {
         expect(secondShown.attempt_id).not.toEqual(firstShown.attempt_id)
     })
 
-    it('reports each menu destination only once the menu opens', () => {
+    it('keeps the attempt of a button that stays when another one for the same audience goes away', async () => {
+        render(<MessageAudienceButton audience={audience} destinations={['broadcast']} label="In the panel" />)
+        act(() => mockAllIsIntersecting(true))
+        const menu = render(
+            <MessageAudienceButton audience={audience} destinations={['broadcast']} label="In the menu" />
+        )
+        act(() => mockAllIsIntersecting(true))
+        menu.unmount()
+
+        await clickAndOpen('In the panel')
+        const [panelShown] = events('message audience shown')
+        expect(events('message audience clicked')).toEqual([
+            { source: 'early_access_feature', destination: 'broadcast', attempt_id: panelShown.attempt_id },
+        ])
+    })
+
+    it('reports nothing for a button the person cannot use', () => {
+        render(
+            <MessageAudienceButton
+                audience={audience}
+                destinations={['broadcast']}
+                label="Email them"
+                disabledReason="You need editor access to workflows"
+            />
+        )
+        act(() => mockAllIsIntersecting(true))
+
+        expect(events('message audience shown')).toEqual([])
+    })
+
+    it('reports each menu destination only once the menu opens', async () => {
         render(<MessageAudienceButton audience={audience} label="Email them" />)
         act(() => mockAllIsIntersecting(true))
         expect(events('message audience shown')).toEqual([])
@@ -83,7 +137,7 @@ describe('message audience on-screen events', () => {
         const shown = events('message audience shown')
         expect(shown.map(({ destination }) => destination).sort()).toEqual(['broadcast', 'workflow'])
 
-        fireEvent.click(screen.getByText('Build a custom workflow'))
+        await clickAndOpen('Build a custom workflow')
         expect(events('message audience clicked')).toEqual([
             {
                 source: 'early_access_feature',

@@ -327,7 +327,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             menuItem
                         >
                             <IconLetter />{' '}
-                            <MessageAudienceSpot source="cohort" destination="broadcast">
+                            <MessageAudienceSpot
+                                source="cohort"
+                                destination="broadcast"
+                                disabled={!!broadcastDisabledReason}
+                            >
                                 Email this cohort
                             </MessageAudienceSpot>
                         </ButtonPrimitive>
@@ -346,7 +350,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             menuItem
                         >
                             <IconSend />{' '}
-                            <MessageAudienceSpot source="cohort" destination="workflow">
+                            <MessageAudienceSpot
+                                source="cohort"
+                                destination="workflow"
+                                disabled={isNewCohort || !!accessDisabledReason}
+                            >
                                 Build a custom workflow
                             </MessageAudienceSpot>
                         </ButtonPrimitive>
