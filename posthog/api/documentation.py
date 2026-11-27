@@ -1329,11 +1329,11 @@ def custom_postprocessing_hook(result, generator, request, public):
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects", "environments"]]
 
             # If a ViewSet sets x-swagger-tag via @extend_schema(extensions={"x-swagger-tag": "..."}),
-            # use that as the sole display tag instead of appending the URL-derived one.
+            # use that (a tag or a list of tags) as the display tags instead of appending the URL-derived one.
             # This controls Swagger UI grouping without affecting x-product (used for codegen).
             swagger_tag = definition.pop("x-swagger-tag", None)
             if swagger_tag:
-                definition["tags"] = [swagger_tag]
+                definition["tags"] = swagger_tag if isinstance(swagger_tag, list) else [swagger_tag]
             else:
                 match = _TAG_PATH_RE.search(path)
                 if match:

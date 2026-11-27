@@ -106,6 +106,18 @@ def _ordered_viewset(docs_order: int | None) -> type[viewsets.ViewSet]:
     return OrderedViewSet
 
 
+def _swagger_tagged_viewset(swagger_tag: str | list[str]) -> type[viewsets.ViewSet]:
+    @extend_schema(extensions={"x-swagger-tag": swagger_tag})
+    class SwaggerTaggedViewSet(viewsets.ViewSet):
+        scope_object = "project"
+
+        @extend_schema(responses={200: _XInternalMarkerSerializer})
+        def list(self, request: Request, **kwargs: Any) -> Response:
+            return Response({"ok": True})
+
+    return SwaggerTaggedViewSet
+
+
 class TestAPIDocsSchema(APIBaseTest):
     @parameterized.expand([("duplicate", False, True), ("not_a_duplicate", True, False)])
     def test_org_path_sharing_a_project_suffix(self, _name: str, opted_out: bool, deprecated: bool) -> None:
@@ -139,6 +151,16 @@ class TestAPIDocsSchema(APIBaseTest):
             "/api/projects/{project_id}/messaging/attachments/",
             "/api/projects/{project_id}/messaging_templates/",
         ]
+
+    @parameterized.expand([("one_tag", "workflows"), ("tag_list", ["workflows", "broadcasts"])])
+    def test_x_swagger_tag_replaces_the_path_tag(self, _name: str, swagger_tag: str | list[str]) -> None:
+        view = _swagger_tagged_viewset(swagger_tag)
+        patterns = [path("api/projects/<str:parent_lookup_team_id>/hog_flows/", view.as_view({"get": "list"}))]
+
+        schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+
+        tags = schema["paths"]["/api/projects/{project_id}/hog_flows/"]["get"]["tags"]
+        assert tags == (swagger_tag if isinstance(swagger_tag, list) else [swagger_tag])
 
     def test_retired_project_environments_route_is_not_in_schema(self) -> None:
         self.client.logout()

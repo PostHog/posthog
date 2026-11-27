@@ -108,6 +108,7 @@ class TransactionalEmailReadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThr
     rate = "20000/hour"
 
 
+@extend_schema(extensions={"x-swagger-tag": "transactional_email"})
 class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema_docs_order = MessagingDocsOrder.EMAILS
     scope_object = "hog_flow"

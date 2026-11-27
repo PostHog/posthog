@@ -1504,6 +1504,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             logger.warning("Failed to capture transactional email usage event", error=str(e))
 
 
+@extend_schema(extensions={"x-swagger-tag": "email_templates"})
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
     update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
@@ -1847,6 +1848,7 @@ class MessageTemplatesViewSet(
         return Response(data)
 
 
+@extend_schema(extensions={"x-swagger-tag": "transactional_email"})
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema_docs_order = MessagingDocsOrder.SEND
     scope_object = "hog_flow"
