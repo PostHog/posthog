@@ -1143,8 +1143,12 @@ class TestWidgetData(APIBaseTest):
             )
 
         assert error.exception.code == "frame_page_unavailable"
-        authorize = MagicMock()
-        with patch("products.notebooks.backend.widgets.sync_direct_run") as load_rows:
+
+        def authorize(candidate: NotebookNodeRun) -> None:
+            if candidate.pk != run.pk:
+                raise PermissionDenied()
+
+        with patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError()):
             metadata = read_widget_frame(
                 notebook=self.notebook,
                 node_id=self.NODE_ID,
@@ -1154,8 +1158,16 @@ class TestWidgetData(APIBaseTest):
                 run_id=run.id,
                 limit=0,
             )
-        authorize.assert_called_once_with(run)
-        load_rows.assert_not_called()
+        with self.assertRaises(PermissionDenied):
+            read_widget_frame(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                frame_name=self.INPUT_NAME,
+                authorize_run=MagicMock(side_effect=PermissionDenied()),
+                user=self.user,
+                run_id=run.id,
+                limit=0,
+            )
         assert metadata.frame["runId"] == run.id
         assert metadata.frame["rows"] == []
         assert metadata.frame["columns"] and metadata.frame["totalRowCount"] == 150

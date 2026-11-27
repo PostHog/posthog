@@ -58,11 +58,16 @@ describe('viewer widget frames', () => {
 
 it('checks the authorized source run without fetching any saved rows', async () => {
     const session = viewerWidgetSession({ weekly: output }, 'card', 'active')
-    const load = jest.fn().mockResolvedValue(authorized)
-    await expect(session.read('records', 1, 1, load)).resolves.toMatchObject({ rows: [['second']] })
-    expect(load).toHaveBeenCalledWith(0, 0, 'pinned')
-    load.mockResolvedValue({ ...authorized, runId: 'changed' })
-    await expect(session.read('records', 0, 1, load)).rejects.toThrow('source run changed')
+    const readMetadata = async (offset: number, limit: number, runId?: string): Promise<WidgetFrameApi> => {
+        if (offset !== 0 || limit !== 0) {
+            throw new Error('Saved rows have expired')
+        }
+        return { ...authorized, runId: runId ?? 'latest' }
+    }
+    await expect(session.read('records', 1, 1, readMetadata)).resolves.toMatchObject({ rows: [['second']] })
+    await expect(session.read('records', 0, 1, async () => ({ ...authorized, runId: 'changed' }))).rejects.toThrow(
+        'source run changed'
+    )
 })
 
 it('preserves integer identifiers before browser JSON decoding', () => {
