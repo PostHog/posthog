@@ -10,6 +10,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import type { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -27,6 +28,7 @@ import {
     WARNING_TYPE_TO_DESCRIPTION,
     WARNING_TYPE_TO_DOCS_ANCHOR,
 } from '../ingestion-warnings/ingestionWarningTypes'
+import { SEVERITIES, SEVERITY_BAR_COLORS } from './ingestionWarningSeverity'
 import {
     IngestionWarningV2Sample,
     IngestionWarningV2Summary,
@@ -34,6 +36,7 @@ import {
     IngestionWarningsTimeWindow,
     ingestionWarningsV2Logic,
 } from './ingestionWarningsV2Logic'
+import { QuillIngestionWarningsV2 } from './QuillIngestionWarningsV2'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
@@ -41,12 +44,6 @@ const SEVERITY_TO_TAG_TYPE: Record<string, LemonTagType> = {
     error: 'danger',
     warning: 'warning',
     info: 'default',
-}
-
-const SEVERITY_BAR_COLORS: Record<string, string> = {
-    error: 'bg-danger',
-    warning: 'bg-warning',
-    info: 'bg-brand-blue',
 }
 
 function EntityChip({ label, value, to }: { label: string; value: string | null; to?: string }): JSX.Element | null {
@@ -112,14 +109,13 @@ function SummaryTiles(): JSX.Element {
     const { summaryStats, filters } = useValues(ingestionWarningsV2Logic)
     const { setFilters } = useActions(ingestionWarningsV2Logic)
 
-    const severities = ['error', 'warning', 'info']
     return (
         <div className="flex flex-wrap gap-2">
             <div className="flex flex-col gap-0.5 rounded border px-3 py-2 min-w-30">
                 <span className="text-muted text-xs">Warnings in window</span>
                 <span className="text-lg font-semibold">{humanFriendlyNumber(summaryStats.totalCount)}</span>
             </div>
-            {severities.map((severity) => {
+            {SEVERITIES.map((severity) => {
                 const count = summaryStats.bySeverity[severity]
                 if (count === undefined && filters.severity !== severity) {
                     return null
@@ -179,6 +175,7 @@ export function IngestionWarningsV2View(): JSX.Element {
     const { warnings, warningsLoading, summaryDatasets, bucketLabels, filters, showProductIntro } =
         useValues(ingestionWarningsV2Logic)
     const { setFilters, loadWarnings } = useActions(ingestionWarningsV2Logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <SceneContent data-attr="ingestion-warnings-v2">
@@ -187,7 +184,9 @@ export function IngestionWarningsV2View(): JSX.Element {
                 description="Structured ingestion warnings with category and severity, over a selectable time range."
                 resourceType={{ type: 'ingestion_warning' }}
             />
-            {showProductIntro ? (
+            {todayRailNav ? (
+                <QuillIngestionWarningsV2 />
+            ) : showProductIntro ? (
                 <ProductIntroduction
                     thingName="ingestion warning"
                     isEmpty={true}

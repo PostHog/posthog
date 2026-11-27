@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 
-import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
-import { IconChevronRight, IconOpenSidebar, IconSearch } from '@posthog/icons'
+import { IconChevronRight, IconSearch } from '@posthog/icons'
 import {
     Button,
     Card,
@@ -17,19 +16,16 @@ import {
     cn,
 } from '@posthog/quill'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { QuillTableSkeleton } from 'lib/components/QuillTableSkeleton/QuillTableSkeleton'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
-import { urls } from 'scenes/urls'
 
 import { warningDocsUrl, warningTypeLabel } from './ingestionWarningDisplay'
 import { IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
+import { QuillIngestionWarningsIntro } from './QuillIngestionWarningsIntro'
 import { QuillNestedWarnings } from './QuillNestedWarnings'
-
-const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 type Columns = DataTableProps<IngestionWarningSummary, unknown>['columns']
 
@@ -139,42 +135,10 @@ export function QuillIngestionWarnings(): JSX.Element {
 
     if (showProductIntro) {
         return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyMedia>
-                        <HedgehogReadingIsMagic className="w-40" />
-                    </EmptyMedia>
-                    <EmptyTitle>Nice! No ingestion warnings in the past 30 days</EmptyTitle>
-                    <EmptyDescription>
-                        Your incoming events look clean. If we detect any issues with your data, we'll show them here.
-                    </EmptyDescription>
-                </EmptyHeader>
-                <EmptyContent className="flex-row justify-center">
-                    <Button
-                        variant="primary"
-                        nativeButton={false}
-                        render={<LinkPrimitive to={urls.eventDefinitions()} />}
-                        data-attr="ingestion-warnings-empty-state-events"
-                    >
-                        Explore your events
-                        <IconOpenSidebar />
-                    </Button>
-                    <Button
-                        variant="outline"
-                        nativeButton={false}
-                        render={
-                            <LinkPrimitive
-                                to="https://posthog.com/docs/data/data-management#ingestion-warnings?utm_medium=in-product&utm_campaign=empty-state-docs-link"
-                                target="_blank"
-                            />
-                        }
-                        data-attr="product-introduction-docs-link"
-                    >
-                        Learn more
-                        <IconOpenSidebar />
-                    </Button>
-                </EmptyContent>
-            </Empty>
+            <QuillIngestionWarningsIntro
+                title="Nice! No ingestion warnings in the past 30 days"
+                eventsDataAttr="ingestion-warnings-empty-state-events"
+            />
         )
     }
 
