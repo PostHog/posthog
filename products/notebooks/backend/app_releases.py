@@ -1,4 +1,3 @@
-from collections import defaultdict
 from datetime import datetime
 from uuid import UUID
 
@@ -7,22 +6,16 @@ from django.db.models import QuerySet
 from rest_framework.exceptions import ValidationError
 
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
-from products.notebooks.backend.facade.contracts import (
-    AppBlockSource,
-    AppCellDependencies,
-    AppRelease,
-    AppReleaseReview,
-    AppWidgetSlot,
-)
+from products.notebooks.backend.app_widget_sources import widget_source_slots
+from products.notebooks.backend.facade.contracts import AppBlockSource, AppRelease, AppReleaseReview
 from products.notebooks.backend.markdown_collab import get_markdown_notebook_markdown
-from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun, NotebookWidgetInstance
+from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun
 from products.notebooks.backend.sql_v2_state import (
     MAX_ADDRESSABLE_PROSE_BLOCKS,
     NotebookCellState,
     annotate_run_state,
     build_dependency_edges,
     extract_cells,
-    get_dataframe_owners,
 )
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
@@ -31,7 +24,6 @@ from products.notebooks.backend.sql_v2_variables import (
     substitute_duckdb_variables,
 )
 from products.notebooks.backend.util import _parse_markdown_component_props, iter_markdown_blocks
-from products.notebooks.backend.widgets import widget_source_name
 
 
 def releases_for(notebook: Notebook) -> QuerySet[NotebookAppRelease]:
@@ -100,12 +92,24 @@ def review_release(team_id: int, notebook_id: UUID, blocks: list[AppBlockSource]
 
 
 def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSource]) -> AppReleaseReview:
+    from products.notebooks.backend.facade.contracts import AppCellDependencies
+
     sources = {
         block.node_id: block
         for block in iter_markdown_blocks(
             markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS, group_anchored_prose=True
         )
     }
+    displayed = {block.node_id for block in blocks if block.kind == "cell" and block.display != "source"}
+    if any(node_id in sources and sources[node_id].tag_name == "Widget" for node_id in displayed):
+        widget_sources = widget_source_slots(notebook.team_id, notebook.id, markdown, displayed)
+        blocks = [
+            *blocks,
+            *(
+                AppBlockSource(id=node_id, node_id=node_id, kind="cell")
+                for node_id in widget_sources.keys() - displayed
+            ),
+        ]
     variables = {variable["name"] for variable in notebook.variables or []}
     result_ids = {
         block.node_id
@@ -115,16 +119,7 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         and block.node_id in sources
         and sources[block.node_id].tag_name in ("SQLV2", "PythonV2")
     }
-    visible_widgets = {
-        block.node_id
-        for block in blocks
-        if block.kind == "cell"
-        and block.display != "source"
-        and block.node_id in sources
-        and sources[block.node_id].tag_name == "Widget"
-    }
-    widget_frames = widget_input_sources(notebook.team_id, notebook.pk, visible_widgets)
-    states = release_cell_states(notebook, result_ids, set(widget_frames))
+    states = release_cell_states(notebook, result_ids)
     problems: list[str] = []
     completed: list[datetime] = []
     for block in blocks:
@@ -162,36 +157,14 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
     )
 
 
-def widget_input_sources(team_id: int, notebook_id: UUID, visible_widgets: set[str]) -> dict[str, list[AppWidgetSlot]]:
-    instances = (
-        NotebookWidgetInstance.objects.for_team(team_id)
-        .filter(notebook_id=notebook_id, node_id__in=visible_widgets)
-        .select_related("pinned_version", "widget__current_version")
-    )
-    sources: dict[str, list[AppWidgetSlot]] = defaultdict(list)
-    for instance in instances:
-        version = instance.pinned_version or instance.widget.current_version
-        if version is None:
-            continue
-        for item in version.input_contract:
-            if isinstance(item, dict) and isinstance(item.get("slot"), str):
-                sources[widget_source_name(instance, item)].append(
-                    AppWidgetSlot(node_id=instance.node_id, version_id=version.id, slot=item["slot"])
-                )
-    return sources
-
-
-def release_cell_states(
-    notebook: Notebook, result_ids: set[str], widget_frames: set[str]
-) -> dict[str, NotebookCellState]:
-    if not result_ids and not widget_frames:
+def release_cell_states(notebook: Notebook, result_ids: set[str]) -> dict[str, NotebookCellState]:
+    if not result_ids:
         return {}
     cells = extract_cells(notebook.content)
     build_dependency_edges(cells)
     states = {cell.node_id: cell for cell in cells}
     required: dict[str, NotebookCellState] = {}
     pending = list(result_ids.intersection(states))
-    pending.extend(node_id for frame, node_id in get_dataframe_owners(cells).items() if frame in widget_frames)
     while pending:
         node_id = pending.pop()
         if node_id not in required:

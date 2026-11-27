@@ -1,7 +1,7 @@
 import './NotebookAppBuilder.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { type ComponentProps, useEffect } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTabs, Spinner } from '@posthog/lemon-ui'
@@ -25,6 +25,10 @@ import { notebookAppLogic } from './notebookAppLogic'
 import { NotebookAppPalette } from './NotebookAppPalette'
 import { NotebookAppPublicationChecks } from './NotebookAppPublicationChecks'
 import PublishedNotebookApp from './PublishedNotebookApp'
+
+function DraftWorkspace({ visible, ...props }: ComponentProps<'fieldset'> & { visible: boolean }): JSX.Element | null {
+    return visible ? <fieldset {...props} /> : null
+}
 
 export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
@@ -263,7 +267,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                     AI updated this app. Your local changes have been kept.
                 </LemonBanner>
             )}
-            {preview ? (
+            {preview && (
                 <PublishedNotebookApp
                     key={JSON.stringify([notebook?.version ?? savedNotebook.version, layout])}
                     shortId={shortId}
@@ -278,105 +282,103 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                         has_previous: false,
                     }}
                 />
-            ) : (
-                <fieldset disabled={savedNotebookLoading} className="border-0 p-0 m-0 min-w-0">
-                    <div className={editing ? 'NotebookAppBuilder__workspace' : ''}>
-                        {editing && (
-                            <NotebookAppPalette
-                                cells={cells}
-                                variables={variables}
-                                onAdd={addBlock}
-                                onAddCell={addCell}
-                                onUseNotebook={useNotebookLayout}
-                            />
-                        )}
-                        <main className={cn('min-w-0', !layout.full_width && 'NotebookAppBuilder__page')}>
-                            <div className="mb-4">
-                                <h1 className="mb-2">{layout.title || notebook?.title || 'Untitled app'}</h1>
-                                {layout.description && <p className="text-secondary">{layout.description}</p>}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2 mb-4">
-                                <LemonTabs
-                                    activeKey={selectedTab}
-                                    onChange={selectTab}
-                                    tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
-                                />
-                                {editing && (
-                                    <LemonMenu
-                                        items={[
-                                            {
-                                                label: 'Add tab',
-                                                icon: <IconPlus />,
-                                                disabledReason:
-                                                    layout.tabs.length >= 20 ? 'Maximum 20 tabs' : undefined,
-                                                onClick: addTab,
-                                            },
-                                            {
-                                                label: 'Remove tab',
-                                                status: 'danger',
-                                                disabledReason:
-                                                    layout.tabs.length <= 1 ? 'Keep at least one tab' : undefined,
-                                                onClick: () => removeTab(selectedTab),
-                                            },
-                                        ]}
-                                    >
-                                        <LemonButton size="xsmall" aria-label="Tab actions">
-                                            •••
-                                        </LemonButton>
-                                    </LemonMenu>
-                                )}
-                            </div>
-                            {editing && (
-                                <LemonInput
-                                    className="mb-4"
-                                    size="small"
-                                    aria-label="Tab name"
-                                    value={layout.tabs.find((tab) => tab.id === selectedTab)?.title ?? ''}
-                                    maxLength={80}
-                                    onChange={(title) =>
-                                        changeLayout({
-                                            ...layout,
-                                            tabs: layout.tabs.map((tab) =>
-                                                tab.id === selectedTab ? { ...tab, title } : tab
-                                            ),
-                                        })
-                                    }
-                                />
-                            )}
-                            <NotebookAppCanvas
-                                layout={layout}
-                                activeTab={selectedTab}
-                                cells={cells}
-                                staleNodeIds={staleNodeIds}
-                                variables={variables}
-                                editing={editing}
-                                selectedId={selectedBlockId}
-                                canInteract={canEditNotebook && !isTemplate}
-                                onSelect={selectBlock}
-                                onMove={moveBlock}
-                                onMoveBy={moveBlockBy}
-                                onDuplicate={duplicateBlock}
-                                onRemove={removeBlock}
-                                onSource={openSource}
-                                onInput={setInputValue}
-                                onCellOutput={updateCellOutput}
-                            />
-                        </main>
-                        {editing && (
-                            <NotebookAppInspector
-                                layout={layout}
-                                block={selectedBlock}
-                                cells={cells}
-                                variables={variables}
-                                onLayout={changeLayout}
-                                onBlock={updateBlock}
-                                onClose={() => selectBlock(null)}
-                                onSource={openSource}
-                            />
-                        )}
-                    </div>
-                </fieldset>
             )}
+            <DraftWorkspace visible={!preview} disabled={savedNotebookLoading} className="border-0 p-0 m-0 min-w-0">
+                <div className={editing ? 'NotebookAppBuilder__workspace' : ''}>
+                    {editing && (
+                        <NotebookAppPalette
+                            cells={cells}
+                            variables={variables}
+                            onAdd={addBlock}
+                            onAddCell={addCell}
+                            onUseNotebook={useNotebookLayout}
+                        />
+                    )}
+                    <main className={cn('min-w-0', !layout.full_width && 'NotebookAppBuilder__page')}>
+                        <div className="mb-4">
+                            <h1 className="mb-2">{layout.title || notebook?.title || 'Untitled app'}</h1>
+                            {layout.description && <p className="text-secondary">{layout.description}</p>}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mb-4">
+                            <LemonTabs
+                                activeKey={selectedTab}
+                                onChange={selectTab}
+                                tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
+                            />
+                            {editing && (
+                                <LemonMenu
+                                    items={[
+                                        {
+                                            label: 'Add tab',
+                                            icon: <IconPlus />,
+                                            disabledReason: layout.tabs.length >= 20 ? 'Maximum 20 tabs' : undefined,
+                                            onClick: addTab,
+                                        },
+                                        {
+                                            label: 'Remove tab',
+                                            status: 'danger',
+                                            disabledReason:
+                                                layout.tabs.length <= 1 ? 'Keep at least one tab' : undefined,
+                                            onClick: () => removeTab(selectedTab),
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton size="xsmall" aria-label="Tab actions">
+                                        •••
+                                    </LemonButton>
+                                </LemonMenu>
+                            )}
+                        </div>
+                        {editing && (
+                            <LemonInput
+                                className="mb-4"
+                                size="small"
+                                aria-label="Tab name"
+                                value={layout.tabs.find((tab) => tab.id === selectedTab)?.title ?? ''}
+                                maxLength={80}
+                                onChange={(title) =>
+                                    changeLayout({
+                                        ...layout,
+                                        tabs: layout.tabs.map((tab) =>
+                                            tab.id === selectedTab ? { ...tab, title } : tab
+                                        ),
+                                    })
+                                }
+                            />
+                        )}
+                        <NotebookAppCanvas
+                            layout={layout}
+                            activeTab={selectedTab}
+                            cells={cells}
+                            staleNodeIds={staleNodeIds}
+                            variables={variables}
+                            editing={editing}
+                            selectedId={selectedBlockId}
+                            canInteract={canEditNotebook && !isTemplate}
+                            onSelect={selectBlock}
+                            onMove={moveBlock}
+                            onMoveBy={moveBlockBy}
+                            onDuplicate={duplicateBlock}
+                            onRemove={removeBlock}
+                            onSource={openSource}
+                            onInput={setInputValue}
+                            onCellOutput={updateCellOutput}
+                        />
+                    </main>
+                    {editing && (
+                        <NotebookAppInspector
+                            layout={layout}
+                            block={selectedBlock}
+                            cells={cells}
+                            variables={variables}
+                            onLayout={changeLayout}
+                            onBlock={updateBlock}
+                            onClose={() => selectBlock(null)}
+                            onSource={openSource}
+                        />
+                    )}
+                </div>
+            </DraftWorkspace>
         </div>
     )
 }

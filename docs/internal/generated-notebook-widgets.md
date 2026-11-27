@@ -14,7 +14,11 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 ## Notebook apps and variables
 
+Drag the bottom-right corner of an app card to resize it. In **Component settings**, you can also adjust **Width** in grid columns and enter a **Height** in pixels. Clear the height to restore automatic sizing. Publishing includes these sizes in the app release.
+
 To filter on several values, add a **List of text** notebook variable, then bind an app input to it. Choose **Multi-select dropdown** and enter one option per line. The variable holds the selected strings, including an empty list when cleared. For a variable named `regions`, use `WHERE region IN {regions}` in a native SQL cell. To show all regions when the selection is empty, use `WHERE empty({regions}) OR region IN {regions}`. A Python cell receives `regions` as a list.
+
+**Preview** opens the draft with a separate set of inputs. Authors can filter results and switch tabs as a viewer would. Returning to the builder discards those preview inputs and preserves the notebook defaults. Expand **Data dependencies** in the publication checks to inspect output dataframes and open their source cells. Widget previews read the same declared source dataframes as published apps.
 
 Choose **Review and publish** to check the sources and default inputs against the draft layout. The preview lists missing sources, failed or stale calculations, and outputs still waiting to save. For a widget it follows the selected version’s mapped dataframe inputs, including cells outside the layout. **Run all** refreshes the notebook’s calculations from the draft preview. The preview checks them again after the notebook saves. Undoing or redoing a layout change opens a fresh preview of that layout.
 
@@ -28,9 +32,7 @@ Generated code reads approved dataframe snapshots through `ph.readFrame`. It has
 
 SQL inputs read the completed query's cached rows, rather than only its saved preview. Follow `nextOffset` to read subsequent pages and check `truncated` before presenting totals. Reaching the SQL result-cache ceiling marks the frame as truncated; aggregate large datasets in the notebook before passing them to a widget. Expired SQL results require rerunning the source cell.
 
-**Preview** opens the draft with a separate set of inputs. Authors can filter results and switch tabs as a viewer would. Returning to the builder discards those preview inputs and preserves the notebook defaults. Expand **Data dependencies** in the publication checks to inspect output dataframes and open their source cells. Widget previews read the same declared source dataframes as published apps.
-
-Each visitor to a published app starts with its published defaults. Changing an input updates affected native HogQL outputs for that browser view using the visitor's query permissions. Selecting a point on a SQL line or bar chart can set the input named by its x-axis column. Turn off **Auto-update results** to apply several changes together. A failed refresh keeps the last successful outputs visible. Widgets bound to native HogQL dataframes receive the filtered rows. Python, directly connected SQL and saved insights retain their published results.
+Each visitor to a published app starts with its published defaults. Changing an input updates affected native HogQL outputs for that browser view using the visitor's query permissions. Selecting a point on a SQL line or bar chart can set the input named by its x-axis column. Turn off **Auto-update results** to apply several changes together. A failed refresh keeps the last successful outputs visible. Widgets bound to native HogQL dataframes receive up to 5,000 filtered rows. Before publishing, run each bound source with the published defaults, including sources outside the layout. A filtered widget checks its pinned run and schema even after the saved query rows expire. Python, directly connected SQL and saved insights retain their published results.
 
 When you publish a SQL result, the app keeps up to 300 cached rows. Published results share an 8 MiB limit per release. If the original query cache expired before publication or a result exceeds the remaining space, the viewer shows the saved first page and labels it as partial. Reading these rows requires access to the notebook, queries, and any connected data source.
 
