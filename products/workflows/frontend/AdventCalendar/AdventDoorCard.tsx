@@ -24,6 +24,7 @@ export interface AdventCardFace {
     top: number
     size: number
     zoom: number
+    tint?: string
 }
 
 export interface AdventDoorCardProps {
@@ -156,6 +157,7 @@ export function AdventDoorCard({
                     door={door}
                     size={face.size}
                     zoom={face.zoom}
+                    tint={face.tint}
                     style={faceShift}
                     onClick={() => onPin(door.id)}
                 />

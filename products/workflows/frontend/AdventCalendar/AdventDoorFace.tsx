@@ -12,11 +12,12 @@ export interface AdventDoorFaceProps {
     size: number
     zoom: number
     style?: CSSProperties
+    tint?: string
     onClick: () => void
 }
 
-export function AdventDoorFace({ door, size, zoom, style, onClick }: AdventDoorFaceProps): JSX.Element {
-    const color = adventDoorColor(door)
+export function AdventDoorFace({ door, size, zoom, style, tint, onClick }: AdventDoorFaceProps): JSX.Element {
+    const color = tint ?? adventDoorColor(door)
     return (
         <button
             type="button"
@@ -37,11 +38,11 @@ export function AdventDoorFace({ door, size, zoom, style, onClick }: AdventDoorF
                         height: ADVENT_DOOR_SIZE,
                         transform: `scale(${zoom})`,
                         borderColor: color,
-                        color: door.status === 'ready' ? color : 'var(--color-text-tertiary)',
+                        color: tint || door.status === 'ready' ? color : 'var(--color-text-tertiary)',
                     }}
                 >
                     {door.day}
-                    {door.status === 'locked' && <IconLock className="absolute right-1 top-1 text-sm" />}
+                    {door.status === 'locked' && !tint && <IconLock className="absolute right-1 top-1 text-sm" />}
                 </span>
             )}
         </button>

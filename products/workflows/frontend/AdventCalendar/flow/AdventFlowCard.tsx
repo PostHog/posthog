@@ -3,7 +3,7 @@ import { RefObject } from 'react'
 
 import { adventCalendarLogic } from '../adventCalendarLogic'
 import { AdventCardFace, AdventDoorCard } from '../AdventDoorCard'
-import { AdventDoor } from '../adventGraph'
+import { AdventDoor, adventDayColor } from '../adventGraph'
 import { useAdventCard } from '../useAdventCard'
 import { ADVENT_FLOW_DOOR, AdventFlowLayout, AdventFlowNode } from './adventFlowLayout'
 import { useAdventCardFocus } from './useAdventCardFocus'
@@ -25,7 +25,13 @@ export interface AdventFlowCardProps {
 
 function faceOf(node: AdventFlowNode, zoom: number, rectOnStage: AdventFlowViewport['rectOnStage']): AdventCardFace {
     const { x, y, width } = rectOnStage(node.tile)
-    return { left: x, top: y, size: width, zoom: (zoom * ADVENT_FLOW_DOOR.width) / FACE_DOOR_SIZE }
+    return {
+        left: x,
+        top: y,
+        size: width,
+        zoom: (zoom * ADVENT_FLOW_DOOR.width) / FACE_DOOR_SIZE,
+        tint: node.door ? adventDayColor(node.door.day) : undefined,
+    }
 }
 
 function cardDoorOf(node: AdventFlowNode, face: AdventCardFace, stageHeight: number, isRows: boolean): AdventDoor {
@@ -52,7 +58,7 @@ export function AdventFlowCard({
     const card = useAdventCard(selectedDoorId, !revealingDoor)
     hover.card.current = card
     const cardNode = nodeOfDoor(layout, card.doorId)
-    useAdventCardFocus(stageRef, card.isPinned, cardNode)
+    useAdventCardFocus(stageRef, card.isPinned, cardNode, onDismiss)
 
     if (!cardNode) {
         return null
