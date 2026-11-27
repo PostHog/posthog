@@ -379,7 +379,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             {
                 openDoor: (state, { day, optionId, isLive }) =>
                     isLive
-                        ? state
+                        ? EMPTY_ADVENT_PROGRESS
                         : mergeAdventProgress(state, { opened: [day], answers: optionId ? { [day]: optionId } : {} }),
             },
         ],
