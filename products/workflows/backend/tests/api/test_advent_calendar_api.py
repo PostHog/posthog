@@ -157,6 +157,7 @@ class TestAdventCalendarAPI(APIBaseTest):
             ("missing_offset", {"day": 1, "hoggy": "hoggy-santa"}),
             ("hoggy_sent_as_a_number", {"day": 1, "hoggy": 123, "utc_offset_minutes": 0}),
             ("hoggy_padded_with_spaces", {"day": 1, "hoggy": " hoggy-santa", "utc_offset_minutes": 0}),
+            ("hoggy_ending_in_a_newline", {"day": 1, "hoggy": "hoggy-santa\n", "utc_offset_minutes": 0}),
         ]
     )
     def test_open_rejects_a_door_hoggy_or_offset_out_of_range(self, _name: str, body: dict[str, Any]) -> None:
@@ -241,10 +242,13 @@ class TestAdventCalendarDoorOpenRace(TransactionTestCase):
         racer = User.objects.create_user(email="racer@example.com", password=None, first_name="Racer")
         racer_id = racer.id
         opened = threading.Event()
+        opener_pids: list[int] = []
         results: list[Any] = []
 
         def open_door() -> None:
             try:
+                connections["default"].ensure_connection()
+                opener_pids.append(connections["default"].connection.info.backend_pid)
                 results.append(
                     open_advent_calendar_door(user_id=racer_id, day=5, hoggy="hoggy-santa", utc_offset_minutes=0)
                 )
@@ -253,14 +257,15 @@ class TestAdventCalendarDoorOpenRace(TransactionTestCase):
                 connections.close_all()
 
         def opener_waits_on_the_deletion() -> bool:
+            if not opener_pids:
+                return False
             with connections["default"].cursor() as cursor:
-                cursor.execute("SELECT pg_stat_clear_snapshot()")
                 cursor.execute(
-                    "SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() "
-                    "AND datname = current_database() AND wait_event_type = 'Lock'"
+                    "SELECT pg_backend_pid() = ANY(pg_blocking_pids(%s))",
+                    [opener_pids[0]],
                 )
                 row = cursor.fetchone()
-            return row is not None and row[0] > 0
+            return row is not None and bool(row[0])
 
         with transaction.atomic():
             racer.delete()

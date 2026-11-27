@@ -71,7 +71,8 @@ class AdventCalendarResultsSerializer(serializers.Serializer):
 
 class StringRegexField(serializers.RegexField):
     def to_internal_value(self, data: Any) -> str:
-        if not isinstance(data, str):
+        # The pattern's `$` also matches before a trailing newline, which would slip into the stored slug.
+        if not isinstance(data, str) or data.endswith("\n"):
             self.fail("invalid")
         return super().to_internal_value(data)
 
