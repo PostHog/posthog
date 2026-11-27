@@ -222,10 +222,11 @@ export const resentInvocations: MeasurementDefinition = {
         if (unreadTruth !== undefined) {
             return [{ key: 'total', ...unmeasured(unreadTruth) }]
         }
+        const units = new Set(evidence.journal.map(({ unitId }) => unitId))
         const accepted = Map.groupBy(
             evidence.truth.filter(
                 ({ invocationId, unitId, status }) =>
-                    invocationId !== undefined && unitId !== undefined && isAccepted(status)
+                    invocationId !== undefined && unitId !== undefined && units.has(unitId) && isAccepted(status)
             ),
             ({ unitId, invocationId }) => `${unitId} ${invocationId}`
         )
