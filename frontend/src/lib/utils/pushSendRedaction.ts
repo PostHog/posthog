@@ -20,12 +20,15 @@ function redactPushSend(request: unknown): unknown {
     ) {
         return request
     }
-    if (!isSet(requestBody) && !isSet(responseBody)) {
+    // A push log search is a recipient's distinct ID.
+    const scrubbedName = PUSH_LOG_PATH.test(name) ? name.replace(/([?&]search=)[^&#]*/g, '$1[redacted]') : name
+    if (!isSet(requestBody) && !isSet(responseBody) && scrubbedName === name) {
         return request
     }
     // A test send's response can echo the push it sent in its logs.
     return {
         ...request,
+        name: scrubbedName,
         ...(isSet(requestBody) ? { requestBody: REDACTED_BODY } : {}),
         ...(isSet(responseBody) ? { responseBody: REDACTED_BODY } : {}),
     }
