@@ -324,7 +324,7 @@ async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
         max_tokens=SUMMARY_MAX_TOKENS,
         system=_SUMMARY_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
-        **tracing_kwargs(trace_id, ""),
+        **tracing_kwargs(trace_id),
     )
     content = anthropic_text(message).strip()
     if not content:

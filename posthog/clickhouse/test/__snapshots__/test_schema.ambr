@@ -1063,7 +1063,7 @@
       _partition UInt64
   
       
-  ) ENGINE = Distributed('ai_events', 'posthog_test', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))))
+  ) ENGINE = Distributed('ai_events', 'posthog_test', 'sharded_ai_events', rand())
   
   '''
 # ---
@@ -1071,7 +1071,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS ai_events_json_mv
-  TO ai_events
+  TO sharded_ai_events
   AS SELECT
       uuid,
       event,
@@ -8030,10 +8030,10 @@
       , INDEX idx_is_error is_error TYPE set(2) GRANULARITY 1
       , INDEX idx_provider provider TYPE set(50) GRANULARITY 1
   
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}', _timestamp)
   
   PARTITION BY toYYYYMM(drop_date)
-  ORDER BY (team_id, trace_id, timestamp)
+  ORDER BY (team_id, trace_id, timestamp, uuid)
   TTL drop_date
   SETTINGS ttl_only_drop_parts = 1
   
@@ -14058,10 +14058,10 @@
       , INDEX idx_is_error is_error TYPE set(2) GRANULARITY 1
       , INDEX idx_provider provider TYPE set(50) GRANULARITY 1
   
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}', _timestamp)
   
   PARTITION BY toYYYYMM(drop_date)
-  ORDER BY (team_id, trace_id, timestamp)
+  ORDER BY (team_id, trace_id, timestamp, uuid)
   TTL drop_date
   SETTINGS ttl_only_drop_parts = 1
   

@@ -398,12 +398,9 @@ describe("ClaudeAcpAgent session creation", () => {
     },
   );
 
-  it.each([
-    { isAiGateway: true, expectedSetModel: "zai-org/glm-5.2" },
-    { isAiGateway: false, expectedSetModel: "@cf/zai-org/glm-5.2" },
-  ])(
-    "resumes a run stored on @cf/zai-org/glm-5.2 as $expectedSetModel when isAiGateway is $isAiGateway",
-    async ({ isAiGateway, expectedSetModel }) => {
+  it.each([{ expectedSetModel: "zai-org/glm-5.2" }])(
+    "resumes a run stored on @cf/zai-org/glm-5.2 as $expectedSetModel on the gateway",
+    async ({ expectedSetModel }) => {
       vi.mocked(fetchGatewayModels).mockResolvedValueOnce([]);
       const client = {
         sessionUpdate: vi.fn().mockResolvedValue(undefined),
@@ -415,7 +412,6 @@ describe("ClaudeAcpAgent session creation", () => {
           anthropicAuthToken: "token",
           openaiBaseUrl: "http://gateway.test/v1",
           openaiApiKey: "token",
-          isAiGateway,
         },
       });
 

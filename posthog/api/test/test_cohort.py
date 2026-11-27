@@ -7419,6 +7419,25 @@ email@example.org,
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_calculation_history_returns_recorded_queries(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort")
+        recorded_queries = [{"query": "SELECT 1", "query_id": "q-1", "query_ms": 12}]
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=1),
+            queries=recorded_queries,
+        )
+        CohortCalculationHistory.objects.create(
+            cohort=cohort, team=self.team, filters={}, started_at=timezone.now() - timedelta(hours=2), queries=None
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/calculation_history/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["queries"] for row in response.json()["results"]], [recorded_queries, None])
+
     def test_cohort_last_error_message_clears_after_subsequent_success(self):
         """Test that a subsequent completed successful calculation clears last_error_message in detail, list, and fallback paths"""
         from posthog.api.cohort import CohortSerializer

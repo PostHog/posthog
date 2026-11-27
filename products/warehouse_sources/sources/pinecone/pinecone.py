@@ -110,12 +110,81 @@ def _data_plane_url(parent: str, row: dict[str, Any]) -> str | None:
     return f"https://{hostname}"
 
 
-def _child_row(settings: PineconeEndpoint, parent_name: str, row: dict[str, Any]) -> dict[str, Any]:
+def _control_plane_url(parent: str, row: dict[str, Any]) -> str | None:
+    # Backup schedules exist only on serverless and BYOC indexes.
+    if parent == "indexes" and (row.get("deployment") or {}).get("deployment_type") == "pod":
+        return None
+    return BASE_URL
+
+
+def _child_row(settings: PineconeEndpoint, parent_value: str, row: dict[str, Any]) -> dict[str, Any]:
     assert settings.parent_key is not None
     return {
-        settings.parent_key: parent_name,
+        settings.parent_key: parent_value,
         **{key: value for key, value in row.items() if key not in DROPPED_FILE_FIELDS},
     }
+
+
+def _endpoint_pages(
+    api_key: str,
+    api_version: str,
+    endpoint: str,
+    control_client: RESTClient,
+    resumable_source_manager: "ResumableSourceManager[PineconeResumeConfig]",
+) -> Iterator[list[dict[str, Any]]]:
+    settings = ENDPOINTS[endpoint]
+    if settings.parent is not None:
+        yield from _fan_out_pages(api_key, api_version, settings, control_client, resumable_source_manager)
+        return
+    yield from control_client.paginate(
+        path=settings.path,
+        params={"limit": 100} if settings.paginated else {},
+        paginator=_paginator(settings),
+        data_selector=settings.data_selector,
+        data_selector_required=True,
+    )
+
+
+def _fan_out_pages(
+    api_key: str,
+    api_version: str,
+    settings: PineconeEndpoint,
+    control_client: RESTClient,
+    resumable_source_manager: "ResumableSourceManager[PineconeResumeConfig]",
+) -> Iterator[list[dict[str, Any]]]:
+    assert settings.parent is not None and settings.parent_key is not None
+    for parents in _endpoint_pages(api_key, api_version, settings.parent, control_client, resumable_source_manager):
+        for parent in parents:
+            if settings.data_plane:
+                base_url = _data_plane_url(settings.parent, parent)
+            else:
+                base_url = _control_plane_url(settings.parent, parent)
+            if base_url is None or parent.get(settings.parent_field) is None:
+                continue
+            parent_value = str(parent[settings.parent_field])
+            path = settings.path.format(**{settings.parent_key: quote(parent_value, safe="")})
+            client = _client(api_key, api_version, base_url) if settings.data_plane else control_client
+            try:
+                # A data plane listing can omit an empty list, so a missing selector means zero rows.
+                for rows in client.paginate(
+                    path=path,
+                    params={"limit": 100},
+                    paginator=_paginator(settings),
+                    data_selector=settings.data_selector,
+                ):
+                    if rows:
+                        yield [_child_row(settings, parent_value, row) for row in rows]
+                    else:
+                        resumable_source_manager.safe_point()
+            except HTTPError as error:
+                # The parent was deleted after the parent listing.
+                if error.response is None or error.response.status_code != 404:
+                    raise
+                resumable_source_manager.safe_point()
+            finally:
+                if client is not control_client:
+                    client.session.close()
+        resumable_source_manager.safe_point()
 
 
 def fan_out_rows(
@@ -124,52 +193,17 @@ def fan_out_rows(
     settings: PineconeEndpoint,
     resumable_source_manager: "ResumableSourceManager[PineconeResumeConfig]",
 ) -> Iterator[list[dict[str, Any]]]:
-    assert settings.parent is not None and settings.parent_key is not None
-    parent_settings = ENDPOINTS[settings.parent]
     control_client = _client(api_key, api_version)
     try:
-        for parents in control_client.paginate(
-            path=parent_settings.path,
-            params={"limit": 100} if parent_settings.paginated else {},
-            paginator=_paginator(parent_settings),
-            data_selector=parent_settings.data_selector,
-            data_selector_required=True,
-        ):
-            for parent in parents:
-                base_url = _data_plane_url(settings.parent, parent)
-                if base_url is None:
-                    continue
-                parent_name = str(parent["name"])
-                path = settings.path.format(**{settings.parent_key: quote(parent_name, safe="")})
-                client = _client(api_key, api_version, base_url)
-                try:
-                    # A data plane listing can omit an empty list, so a missing selector means zero rows.
-                    for rows in client.paginate(
-                        path=path,
-                        params={"limit": 100},
-                        paginator=_paginator(settings),
-                        data_selector=settings.data_selector,
-                    ):
-                        if rows:
-                            yield [_child_row(settings, parent_name, row) for row in rows]
-                        else:
-                            resumable_source_manager.safe_point()
-                except HTTPError as error:
-                    # The parent was deleted after the parent listing.
-                    if error.response is None or error.response.status_code != 404:
-                        raise
-                    resumable_source_manager.safe_point()
-                finally:
-                    client.session.close()
-            resumable_source_manager.safe_point()
+        yield from _fan_out_pages(api_key, api_version, settings, control_client, resumable_source_manager)
     finally:
         control_client.session.close()
 
 
 def validate_credentials(api_key: str, api_version: str, endpoint: str) -> None:
     settings = schema_for_resource(ENDPOINTS, endpoint)
-    # A fan-out table needs a reachable parent listing; its data plane hosts are only known per parent.
-    if settings.parent is not None:
+    # A fan-out table needs a reachable top-level parent listing; child paths are only known per parent.
+    while settings.parent is not None:
         settings = ENDPOINTS[settings.parent]
     client = _client(api_key, api_version)
     pages = cast(

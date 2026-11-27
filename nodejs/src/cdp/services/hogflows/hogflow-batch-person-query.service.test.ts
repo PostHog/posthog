@@ -5,7 +5,6 @@ import { Team } from '~/types'
 import {
     AccountAudienceResponse,
     AudienceFetchTimeoutError,
-    BlastRadiusPersonsResponse,
     BlastRadiusResponse,
     HogFlowBatchPersonQueryService,
 } from './hogflow-batch-person-query.service'
@@ -113,120 +112,6 @@ describe('HogFlowBatchPersonQueryService', () => {
         })
     })
 
-    describe('getBlastRadiusPersons', () => {
-        it("uses the first page's cursor for the next page request", async () => {
-            const service = createService()
-            const firstPageResponse: BlastRadiusPersonsResponse = {
-                users_affected: ['person_1'],
-                cursor: 'next-cursor',
-                has_more: true,
-            }
-            const secondPageResponse: BlastRadiusPersonsResponse = {
-                users_affected: ['person_2'],
-                cursor: null,
-                has_more: false,
-            }
-
-            fetchMock.mockResolvedValueOnce({
-                fetchResponse: createFetchResponse(200, firstPageResponse),
-                fetchError: null,
-            })
-            fetchMock.mockResolvedValueOnce({
-                fetchResponse: createFetchResponse(200, secondPageResponse),
-                fetchError: null,
-            })
-
-            const firstPage = await service.getBlastRadiusPersons(team, filters, 2)
-            await expect(service.getBlastRadiusPersons(team, filters, 2, firstPage.cursor)).resolves.toEqual(
-                secondPageResponse
-            )
-
-            expect(fetchMock).toHaveBeenCalledTimes(2)
-            expect(fetchMock).toHaveBeenNthCalledWith(1, {
-                urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
-                fetchParams: {
-                    method: 'POST',
-                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
-                    body: JSON.stringify({
-                        filters,
-                        group_type_index: 2,
-                        cursor: null,
-                        dedupe_key: null,
-                    }),
-                },
-            })
-            expect(fetchMock).toHaveBeenNthCalledWith(2, {
-                urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
-                fetchParams: {
-                    method: 'POST',
-                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
-                    body: JSON.stringify({
-                        filters,
-                        group_type_index: 2,
-                        cursor: 'next-cursor',
-                        dedupe_key: null,
-                    }),
-                },
-            })
-        })
-
-        it.each([
-            ['email dedupe key is forwarded', 'email' as const, 'email'],
-            ['missing dedupe key is sent as null', undefined, null],
-        ])('%s', async (_name, dedupeKey, expectedBodyValue) => {
-            const service = createService()
-
-            fetchMock.mockResolvedValue({
-                fetchResponse: createFetchResponse(200, {
-                    users_affected: [],
-                    cursor: null,
-                    has_more: false,
-                }),
-                fetchError: null,
-            })
-
-            await service.getBlastRadiusPersons(team, filters, undefined, null, dedupeKey)
-
-            expect(fetchMock).toHaveBeenCalledWith({
-                urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
-                fetchParams: {
-                    method: 'POST',
-                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
-                    body: JSON.stringify({
-                        filters,
-                        group_type_index: undefined,
-                        cursor: null,
-                        dedupe_key: expectedBodyValue,
-                    }),
-                },
-            })
-        })
-
-        it('throws when persons endpoint responds with non-200 status', async () => {
-            const service = createService()
-
-            fetchMock.mockResolvedValue({
-                fetchResponse: createFetchResponse(403, 'forbidden'),
-                fetchError: null,
-            })
-
-            await expect(service.getBlastRadiusPersons(team, filters)).rejects.toThrow(
-                'Failed to fetch blast radius persons: 403 forbidden'
-            )
-        })
-
-        it('throws fetchError when persons fetch fails', async () => {
-            const service = createService()
-
-            fetchMock.mockResolvedValue({
-                fetchResponse: null,
-                fetchError: new Error('timeout'),
-            })
-
-            await expect(service.getBlastRadiusPersons(team, filters)).rejects.toThrow('timeout')
-        })
-    })
-
     describe('getAccountAudiencePage', () => {
         const accountFilters = { audience_type: 'accounts', properties: [], tag_names: ['vip'] }
 
@@ -287,8 +172,8 @@ describe('HogFlowBatchPersonQueryService', () => {
         it.each([
             ['user_blast_radius', (service: HogFlowBatchPersonQueryService) => service.getBlastRadius(team, filters)],
             [
-                'user_blast_radius_persons',
-                (service: HogFlowBatchPersonQueryService) => service.getBlastRadiusPersons(team, filters),
+                'audience_snapshot_page',
+                (service: HogFlowBatchPersonQueryService) => service.getAudienceSnapshotPage(team, 'batch-1'),
             ],
             ['account_audience', (service: HogFlowBatchPersonQueryService) => service.getAccountAudiencePage(team, {})],
         ])('reports a %s timeout as AudienceFetchTimeoutError and counts it', async (endpoint, call) => {
@@ -318,7 +203,9 @@ describe('HogFlowBatchPersonQueryService', () => {
                 fetchError: new Error('fetch failed', { cause: aborted }),
             })
 
-            await expect(service.getBlastRadiusPersons(team, filters)).rejects.toBeInstanceOf(AudienceFetchTimeoutError)
+            await expect(service.getAudienceSnapshotPage(team, 'batch-1')).rejects.toBeInstanceOf(
+                AudienceFetchTimeoutError
+            )
         })
 
         it('keeps a transport error that is not a timeout unchanged', async () => {
@@ -326,7 +213,7 @@ describe('HogFlowBatchPersonQueryService', () => {
 
             fetchMock.mockResolvedValue({ fetchResponse: null, fetchError: new Error('network down') })
 
-            await expect(service.getBlastRadiusPersons(team, filters)).rejects.not.toBeInstanceOf(
+            await expect(service.getAudienceSnapshotPage(team, 'batch-1')).rejects.not.toBeInstanceOf(
                 AudienceFetchTimeoutError
             )
         })
@@ -336,8 +223,8 @@ describe('HogFlowBatchPersonQueryService', () => {
 
             fetchMock.mockResolvedValue({ fetchResponse: null, fetchError: null })
 
-            await expect(service.getBlastRadiusPersons(team, filters)).rejects.toThrow(
-                'Audience fetch to user_blast_radius_persons returned no response'
+            await expect(service.getAudienceSnapshotPage(team, 'batch-1')).rejects.toThrow(
+                'Audience fetch to audience_snapshot_page returned no response'
             )
         })
     })
@@ -379,12 +266,12 @@ describe('HogFlowBatchPersonQueryService', () => {
             ],
         ])('records %s under outcome %s', async (_name, outcome, result) => {
             const service = createService()
-            const before = await fetchCount('user_blast_radius_persons', outcome)
+            const before = await fetchCount('audience_snapshot_page', outcome)
 
             fetchMock.mockResolvedValue(result as MockedInternalFetchResult)
-            await service.getBlastRadiusPersons(team, filters).catch(() => undefined)
+            await service.getAudienceSnapshotPage(team, 'batch-1').catch(() => undefined)
 
-            expect(await fetchCount('user_blast_radius_persons', outcome)).toBe(before + 1)
+            expect(await fetchCount('audience_snapshot_page', outcome)).toBe(before + 1)
         })
     })
 })

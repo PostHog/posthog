@@ -130,6 +130,14 @@ describe('healthCheckValues', () => {
             ],
         },
         {
+            name: 'the start of a significant run reads as a date after the sample',
+            values: { sample_count: 9602, significant_since_at: '2026-11-14T20:00:00+00:00' },
+            expected: [
+                { label: 'Users so far', text: '9,602' },
+                { label: 'Significant since', time: '2026-11-14T20:00:00+00:00', asDate: true },
+            ],
+        },
+        {
             name: 'a billing limit that is not reached still shows',
             values: { events_billing_limit_reached: false },
             expected: [{ label: 'Product analytics billing limit', text: 'Not reached' }],
