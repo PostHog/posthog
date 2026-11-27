@@ -747,6 +747,9 @@ class AvailableToolsResponseSerializer(serializers.Serializer):
     servers = AvailableServerSerializer(many=True, help_text="Connected servers the caller can reach.")
 
 
+RUN_INSTALL_DENIED = "This run can only use the connections it selected, so it cannot install or reconnect one."
+
+
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     # An action in neither list derives no scope, and APIScopePermission rejects
@@ -775,6 +778,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     # Tool approval is included: it gates which tools autonomous runs may execute
     # under the owner's credential, so a non-owner must not be able to flip it.
     _OWNER_ONLY_ACTIONS = {"destroy", "partial_update", "refresh_tools", "update_tool_approval"}
+    # These look installations up directly rather than through the queryset, so the run allowlist cannot filter them.
+    # A run that selected its connections has nothing to install or reconnect, so it may not call them at all.
+    _INSTALL_ACTIONS = {"authorize", "install_template", "install_custom"}
 
     def _run_installation_allowlist(self) -> list[str] | None:
         """The installations a sandbox run's token may reach: the ones its run selected at dispatch. None for every other
@@ -814,6 +820,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             installation=installation,
         )
         return {"policy_context": policy_context}
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if self.action in self._INSTALL_ACTIONS and self._run_installation_allowlist() is not None:
+            raise PermissionDenied(RUN_INSTALL_DENIED)
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         # Enforce owner-only mutation of shared rows centrally so every action in

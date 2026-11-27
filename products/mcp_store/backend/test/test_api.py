@@ -58,6 +58,7 @@ from products.mcp_store.backend.presentation.gateway_views import (
     ServiceAccountAccessUpdateSerializer,
 )
 from products.mcp_store.backend.presentation.views import (
+    RUN_INSTALL_DENIED,
     MCPOAuthRedirectViewSet,
     MCPServerInstallationViewSet,
     _is_valid_posthog_code_callback_url,
@@ -2650,7 +2651,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             application=application,
             token=f"pha_sandbox_run_{'task' if sandbox_task_id else 'none'}",
             expires=timezone.now() + timedelta(hours=1),
-            scope="project:read",
+            scope="project:read project:write",
             scoped_teams=[self.team.id],
             sandbox_task_id=sandbox_task_id,
         )
@@ -2695,14 +2696,26 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             retrieved = client.get(f"{base}{other.id}/")
             proxied = client.post(f"{base}{other.id}/proxy/", data={"jsonrpc": "2.0", "id": 1}, format="json")
             called = client.post(f"{base}{other.id}/call_tool/", data={"tool_name": "search"}, format="json")
+            # Empty requests, so a caller that may install stops at validation and never reaches an upstream.
+            installs = [
+                client.get(f"{base}authorize/"),
+                client.post(f"{base}install_template/", data={}, format="json"),
+                client.post(f"{base}install_custom/", data={}, format="json"),
+            ]
 
         # Every route that names a connection agrees with what the run mounted.
         reachable = {str(mounted.id), str(other.id)} if reaches_other else {str(mounted.id)}
         assert listed == tools == reachable
+        refused = [
+            response.status_code == 403 and response.json()["detail"] == RUN_INSTALL_DENIED for response in installs
+        ]
         if not reaches_other:
             assert [retrieved.status_code, proxied.status_code, called.status_code] == [404, 404, 404]
+            # These routes look installations up directly, so a narrowed run may not call them at all.
+            assert refused == [True, True, True]
         else:
             assert retrieved.status_code == 200
+            assert refused == [False, False, False]
 
     def test_create_not_allowed(self):
         response = self.client.post(
