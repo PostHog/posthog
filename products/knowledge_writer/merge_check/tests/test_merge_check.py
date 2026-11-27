@@ -30,7 +30,13 @@ from products.knowledge_writer.merge_check.facts import (
     YesNoFact,
 )
 from products.knowledge_writer.merge_check.gather import DocsPage, docs_content_root
-from products.knowledge_writer.merge_check.judge import GATEWAY_LABELS_HEADER, JudgeVerdict, judge_client, judge_merge
+from products.knowledge_writer.merge_check.judge import (
+    GATEWAY_LABELS_HEADER,
+    JUDGE_INSTRUCTIONS,
+    JudgeVerdict,
+    judge_client,
+    judge_merge,
+)
 from products.knowledge_writer.merge_check.sources import LandedChange, read_page_sources
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
@@ -230,9 +236,12 @@ def judge_recording(
     verdict: JudgeVerdict,
     judge_requests: list[dict],
     facts: MergeFacts | None = None,
+    facts_requests: list[dict] | None = None,
 ) -> Anthropic:
     def parse(**request: object) -> object:
         if request["output_format"] is MergeFacts:
+            if facts_requests is not None:
+                facts_requests.append(request)
             return SimpleNamespace(stop_reason="end_turn", parsed_output=facts or merge_facts())
         judge_requests.append(request)
         return SimpleNamespace(stop_reason="end_turn", parsed_output=verdict)
@@ -254,11 +263,17 @@ def judge_returning_malformed_output() -> Anthropic:
         pytest.param({"login": "renovate[bot]", "type": "Bot"}, None, id="bot_author"),
     ],
 )
-def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_once(
+def test_merge_judged_on_non_generated_diff_yields_every_read_page_once(
     merged_by: dict[str, str], expected_author_login: str | None
 ) -> None:
     commit_sha = "a" * 40
     judge_requests: list[dict] = []
+    read_page_paths = (FLAGS_PATHS[-1], *FLAGS_PATHS[:2])
+    github = FakePostHogGitHub(
+        commit_sha,
+        merged_by=merged_by,
+        page_text_by_path={page_path: f"Text of {page_path}." for page_path in read_page_paths},
+    )
     verdict = JudgeVerdict(
         needs_docs=True,
         change_kind=DocsChangeKind.UPDATE,
@@ -267,18 +282,18 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
     )
 
     report = check_merge(
-        commit_sha, FakePostHogGitHub(commit_sha, merged_by=merged_by), judge_recording(verdict, judge_requests)
+        commit_sha,
+        github,
+        judge_recording(verdict, judge_requests, merge_facts(changed_page_paths=read_page_paths)),
     )
 
     judge_content = judge_requests[0]["messages"][0]["content"]
-    assert judge_requests[0]["system"][1] == {
-        "type": "text",
-        "text": "Docs pages:\n" + "\n".join(FLAGS_PATHS),
-        "cache_control": {"type": "ephemeral", "ttl": "1h"},
-    }
+    assert judge_requests[0]["system"] == JUDGE_INSTRUCTIONS
+    assert FLAGS_PATHS[2] not in judge_content
+    assert all(f"Text of {page_path}." in judge_content for page_path in read_page_paths)
     assert judge_content.endswith(f"<diff>\n{SCRIPT_CHUNK}{COMPONENT_CHUNK}\n</diff>")
     assert (report.needs_docs, report.change_kind) == (True, DocsChangeKind.UPDATE)
-    assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:3])
+    assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:2])
     assert report.docs_content_root == "contents/docs/"
     assert (report.repository, report.pull_request_number) == ("PostHog/posthog", 7)
     assert report.author_login == expected_author_login
@@ -294,7 +309,7 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
         ("doc_impact", "changed_behavior"),
         ("generated_only", "false"),
         ("no_public_page_fits", "false"),
-        ("picked_pages", "0/0"),
+        ("picked_pages", "3/3"),
         ("judge", "update"),
         ("outdated_sentence", "false"),
     ]
@@ -322,10 +337,17 @@ def test_docs_content_root_is_the_real_folder_the_pages_sit_in(
     assert docs_content_root(pages) == expected_root
 
 
-def test_update_naming_no_sitemap_page_becomes_create() -> None:
+@pytest.mark.parametrize(
+    "named_page_path",
+    [
+        pytest.param("product-analytics/alerts", id="unlisted"),
+        pytest.param(FLAGS_PATHS[0], id="listed_but_unread"),
+    ],
+)
+def test_update_naming_no_read_page_becomes_create(named_page_path: str) -> None:
     commit_sha = "c" * 40
     verdict = JudgeVerdict(
-        needs_docs=True, change_kind=DocsChangeKind.UPDATE, page_urls=["product-analytics/alerts"], reason="new option"
+        needs_docs=True, change_kind=DocsChangeKind.UPDATE, page_urls=[named_page_path], reason="new option"
     )
 
     report = check_merge(commit_sha, FakePostHogGitHub(commit_sha), judge_recording(verdict, []))
@@ -350,25 +372,28 @@ def test_update_naming_no_sitemap_page_becomes_create() -> None:
         ),
     ],
 )
-def test_sitemap_pages_without_a_docs_source_are_kept_from_the_judge(
+def test_sitemap_pages_without_a_docs_source_are_kept_from_the_picker(
     github_options: dict[str, Any], is_pinned_to_merge: bool, not_editable_count: str
 ) -> None:
     commit_sha = "d" * 40
-    judge_requests: list[dict] = []
+    facts_requests: list[dict] = []
     verdict = JudgeVerdict(
         needs_docs=True, change_kind=DocsChangeKind.UPDATE, page_urls=[FLAGS_PATHS[-1]], reason="new option"
     )
     github = FakePostHogGitHub(commit_sha, **github_options)
 
     report = check_merge(
-        commit_sha, github, judge_recording(verdict, judge_requests), is_pinned_to_merge=is_pinned_to_merge
+        commit_sha,
+        github,
+        judge_recording(verdict, [], facts_requests=facts_requests),
+        is_pinned_to_merge=is_pinned_to_merge,
     )
 
-    judged_page_list = judge_requests[0]["system"][1]["text"]
-    assert FLAGS_PATHS[149] in judged_page_list and FLAGS_PATHS[-1] not in judged_page_list
+    picker_page_list = facts_requests[0]["system"][1]["text"]
+    assert FLAGS_PATHS[149] in picker_page_list and FLAGS_PATHS[-1] not in picker_page_list
     published_page_paths = [path for path in github.pinned_docs_page_paths if not path.startswith("_")]
-    assert all(page_path in judged_page_list for page_path in published_page_paths)
-    assert "_snippets" not in judged_page_list
+    assert all(page_path in picker_page_list for page_path in published_page_paths)
+    assert "_snippets" not in picker_page_list
     assert (report.change_kind, report.page_urls) == (DocsChangeKind.CREATE, ())
     assert ("not_editable_here", not_editable_count) in [(row.criterion, row.value) for row in report.criteria]
 
@@ -531,9 +556,15 @@ def test_a_docs_pull_request_from_a_trusted_person_asks_to_review_it(
     verdict = JudgeVerdict(
         needs_docs=True, change_kind=DocsChangeKind.UPDATE, page_urls=[FLAGS_PATHS[0]], reason="new option"
     )
-    github = FakePostHogGitHub(commit_sha, docs_pull_requests=(person_docs_pull_request,))
+    github = FakePostHogGitHub(
+        commit_sha,
+        docs_pull_requests=(person_docs_pull_request,),
+        page_text_by_path={FLAGS_PATHS[0]: "Rollouts page."},
+    )
 
-    report = check_merge(commit_sha, github, judge_recording(verdict, []))
+    report = check_merge(
+        commit_sha, github, judge_recording(verdict, [], merge_facts(changed_page_paths=(FLAGS_PATHS[0],)))
+    )
 
     assert (report.needs_docs, report.change_kind, report.page_urls) == (True, change_kind, (FLAGS_PAGES[0],))
     assert (str(person_docs_pull_request["html_url"]) in report.evidence) == (
@@ -756,7 +787,6 @@ def test_judge_call_labels_its_stage_and_keeps_the_client_labels(settings: Any) 
             client.with_options(http_client=httpx.Client(transport=httpx.MockTransport(respond))),
             title="Rename an internal helper",
             judged_diff=COMPONENT_CHUNK,
-            docs_page_paths=FLAGS_PATHS[:1],
             page_text_by_key={},
         )
 
