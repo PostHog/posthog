@@ -704,9 +704,6 @@ export interface replayScannerLogicActions {
         observations: ReplayObservationApi[]
         total: number
     }
-    refreshScannerStatus: () => {
-        value: true
-    }
     loadScanner: () => {
         value: true
     }
@@ -729,6 +726,9 @@ export interface replayScannerLogicActions {
         linkedExperimentId: number | null
     }
     refreshObservations: () => {
+        value: true
+    }
+    refreshScannerStatus: () => {
         value: true
     }
     requestScannerEstimate: () => {
@@ -856,9 +856,6 @@ export interface replayScannerLogicActions {
     setObservationWatchGroupFilter: (value: string | null) => {
         value: string | null
     }
-    setStatusPolling: (active: boolean) => {
-        active: boolean
-    }
     setObservationsActive: (active: boolean) => {
         active: boolean
     }
@@ -889,6 +886,9 @@ export interface replayScannerLogicActions {
     }
     setScannerValues: (values: DeepPartial<ScannerFormValues>) => {
         values: DeepPartial<ScannerFormValues>
+    }
+    setStatusPolling: (active: boolean) => {
+        active: boolean
     }
     startFromScratch: () => {
         value: true
