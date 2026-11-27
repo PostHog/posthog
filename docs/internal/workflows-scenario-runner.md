@@ -994,7 +994,7 @@ A 4xx answer other than 429 stops at once and names the variable to check.
 
 The local runner skips publishing when all four variables are absent and exits with the run's status. If only some are set, it exits 2 before starting the run. If all four are set, it publishes and reads the event back. A capture or readback failure exits 3, unless an interruption after capture means the runner keeps the run's status.
 
-When publishing directly, the cloud controller attempts to save the scorecard to the evidence bucket and publish it to Scenario runs. If publishing and readback succeed, it returns the run's status. Otherwise it warns and exits 3, including when publishing credentials are missing.
+Direct cloud runs require all four variables. If any are missing, the controller warns and exits 3 before admission. After an admitted run, it attempts to save the scorecard to the evidence bucket and publish it to Scenario runs. If publishing and readback succeed, it returns the run's status. Otherwise it warns and exits 3.
 
 When a workflow takes responsibility for publishing, it sets `SCENARIO_PUBLISH_IN_WORKFLOW=1` on the cloud controller. The controller saves the scorecard to the evidence bucket and uses the run's verdict as its exit code. If saving fails, the controller exits with a scorecard write failure.
 
