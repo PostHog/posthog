@@ -245,6 +245,7 @@ describe('SES notifications lost', () => {
             [...run, scraped('cdp-ses-webhooks', 0, {}, -60, 1)],
             [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }],
         ],
+        ['a consumer replica was never scraped', run, [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }]],
     ])('marks the count incomplete when %s', (_story, samples, missed) => {
         const measured = lostOf(samples, { missed })
 
@@ -286,6 +287,11 @@ describe('SES notifications lost', () => {
     })
 
     it.each<[string, Partial<MeasureEvidence>, string]>([
+        [
+            'the final truth read failed',
+            { unread: 'the edge did not answer' },
+            'the truth could not be read (the edge did not answer), so a late or unanswered SES feedback post may be missing from it',
+        ],
         [
             'the truth never settled',
             { unsettled: 'feedback in flight at the final read: the edge was still posting the feedback of 1 send' },

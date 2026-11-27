@@ -286,21 +286,23 @@ const feedbackAnswersOf = ({ truth }: MeasureEvidence): { status: number; answer
         .map(({ status, at }) => ({ status, answeredAt: Date.parse(at) }))
 
 const lossUnknown = (evidence: MeasureEvidence, failed: number, lost: number): string | undefined => {
-    const { converged, unsettled, horizonAt } = evidence
+    const { converged, unread, unsettled, horizonAt } = evidence
     const answers = feedbackAnswersOf(evidence)
     return converged === false
         ? 'the run did not converge, so the consumer may still have been recording'
-        : unsettled !== undefined
-          ? `the truth never settled (${unsettled}), so cdp-api may have queued notifications after the counters were read`
-          : answers.some(({ status }) => status === 0)
-            ? 'an SES feedback post got no status, so cdp-api may have queued it after the counters were read'
-            : horizonAt !== undefined && answers.some(({ answeredAt }) => answeredAt > horizonAt)
-              ? 'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read'
-              : failed > 0
-                ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
-                : lost < 0
-                  ? 'recorded and skipped add up to more than queued; the counters do not show why'
-                  : undefined
+        : unread !== undefined
+          ? `the truth could not be read (${unread}), so a late or unanswered SES feedback post may be missing from it`
+          : unsettled !== undefined
+            ? `the truth never settled (${unsettled}), so cdp-api may have queued notifications after the counters were read`
+            : answers.some(({ status }) => status === 0)
+              ? 'an SES feedback post got no status, so cdp-api may have queued it after the counters were read'
+              : horizonAt !== undefined && answers.some(({ answeredAt }) => answeredAt > horizonAt)
+                ? 'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read'
+                : failed > 0
+                  ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
+                  : lost < 0
+                    ? 'recorded and skipped add up to more than queued; the counters do not show why'
+                    : undefined
 }
 
 export const sesNotificationsLost: MeasurementDefinition = {
@@ -312,7 +314,15 @@ export const sesNotificationsLost: MeasurementDefinition = {
         const replicas = [...byRole(samples).values()]
             .flatMap(replicasOf)
             .filter((ofReplica) => QUEUEING_AND_RECORDING_ROLES.includes(ofReplica[0].role))
-        const incomplete = replicas.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}
+        const neverScraped = missed.some(
+            (miss) =>
+                QUEUEING_AND_RECORDING_ROLES.includes(miss.role) &&
+                !replicas.some((ofReplica) => ofReplica[0].role === miss.role && ofReplica[0].replica === miss.replica)
+        )
+        const incomplete =
+            neverScraped || replicas.some((ofReplica) => lostCpu(ofReplica, missed))
+                ? { incomplete: true as const }
+                : {}
         if (
             !replicas.some((ofReplica) =>
                 ofReplica.some(({ sesNotifications }) => Object.keys(sesNotifications).length > 0)

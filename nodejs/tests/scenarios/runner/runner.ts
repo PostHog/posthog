@@ -82,7 +82,8 @@ const CLOUD_RUN_HOST_LABEL = 'run-host'
 const ALERTS_FILE = 'alerts.jsonl'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
-export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog' | 'drainsFeedback'> & {
+export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
+    drainsFeedback: boolean
     probe: Pick<CyclotronProbe, 'unfinishedJobs' | 'runningJobs'>
     counters?: CounterProbe
     groups: ConsumerGroup[]

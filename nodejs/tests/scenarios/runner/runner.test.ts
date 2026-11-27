@@ -329,6 +329,7 @@ describe('runner', () => {
         const closed: TargetRun = {
             truth: { head: () => Promise.resolve(0), after: (next) => Promise.resolve({ records: [], next }) },
             fetchRetries: 0,
+            drainsFeedback: false,
             probe: { unfinishedJobs: () => Promise.resolve(0), runningJobs: () => Promise.resolve(0) },
             groups: [],
             connect: () => Promise.reject(new Error('the given target refused the connection')),
