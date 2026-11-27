@@ -8,14 +8,18 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { Link } from 'lib/lemon-ui/Link'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 
 import { QuillOrganizationDisplayName } from './QuillOrganizationDisplayName'
 
 export function OrganizationDisplayName(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
+    const { billing, isExternallyBilled, isBillingManagedByPartner } = useValues(billingLogic)
 
     const [name, setName] = useState(currentOrganization?.name || '')
     const [logoMediaId, setLogoMediaId] = useState(currentOrganization?.logo_media_id || null)
@@ -41,6 +45,8 @@ export function OrganizationDisplayName(): JSX.Element {
     const nameChanged = name !== (currentOrganization?.name || '')
     const logoChanged = logoMediaId !== (currentOrganization?.logo_media_id || null)
     const hasChanges = nameChanged || logoChanged
+    const showBillingNameNote =
+        nameChanged && !!billing?.has_active_subscription && !isExternallyBilled && !isBillingManagedByPartner
 
     const saveDisabledReason = restrictionReason
         ? restrictionReason
@@ -76,6 +82,7 @@ export function OrganizationDisplayName(): JSX.Element {
                 organization={currentOrganization}
                 name={name}
                 onNameChange={setName}
+                showBillingNameNote={showBillingNameNote}
                 logoMediaId={logoMediaId}
                 onResetLogo={resetLogo}
                 filesToUpload={filesToUpload}
@@ -134,6 +141,12 @@ export function OrganizationDisplayName(): JSX.Element {
                     data-attr="organization-name-input-settings"
                     placeholder="Organization name"
                 />
+                {showBillingNameNote && (
+                    <p className="text-xs text-secondary -mt-1 mb-1.5">
+                        This doesn't change the company name on your invoices. To change that, update your billing
+                        details from the <Link to={urls.organizationBilling()}>billing page</Link>.
+                    </p>
+                )}
                 <div className="flex items-center gap-2">
                     <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason} loading={saving}>
                         Save
