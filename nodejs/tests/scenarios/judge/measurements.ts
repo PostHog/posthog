@@ -41,6 +41,17 @@ export type QueueSample = { at: number } & (QueueCounts | { error: string })
 
 export type ActivitySample = { at: number } & ({ backends: WriterBackends } | { error: string })
 
+export function readActivity(
+    read: () => Promise<WriterBackends>,
+    now: () => number = Date.now
+): Promise<ActivitySample> {
+    const at = now()
+    return read().then(
+        (backends) => ({ at: now(), backends }),
+        (error: unknown) => ({ at, error: error instanceof Error ? error.message : String(error) })
+    )
+}
+
 export type Probed = { writer: WriterSample[]; queue: QueueSample[]; activity?: ActivitySample[] }
 
 export type DriveWindow = { startedAt: number; endedAt: number; warmedAt?: number }

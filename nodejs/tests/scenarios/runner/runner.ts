@@ -49,6 +49,7 @@ import {
     janitorResetsOf,
     measure,
     phasesOf,
+    readActivity,
     startSampler,
 } from '../judge/measurements'
 import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
@@ -202,13 +203,9 @@ async function startProbes(
             (error: unknown) => ({ at, error: messageOf(error) })
         )
     })
-    const activity: Sampling<ActivitySample> = sampleEvery(QUEUE_PROBE_EVERY_MS, async () => {
-        const at = Date.now()
-        return probe.activity().then(
-            (backends) => ({ at: Date.now(), backends }),
-            (error: unknown) => ({ at, error: messageOf(error) })
-        )
-    })
+    const activity: Sampling<ActivitySample> = sampleEvery(QUEUE_PROBE_EVERY_MS, () =>
+        readActivity(() => probe.activity())
+    )
     let stopping: Promise<Probed> | undefined
     return {
         commits: () => writer.taken(),

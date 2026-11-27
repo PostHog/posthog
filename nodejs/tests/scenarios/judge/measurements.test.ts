@@ -18,6 +18,7 @@ import {
     janitorResetsOf,
     measure,
     phasesOf,
+    readActivity,
     sampleOf,
     startSampler,
 } from './measurements'
@@ -1391,6 +1392,33 @@ describe('measurements', () => {
             { name: 'step_writer_active_waits', key: '1x', unit: 'backends', value: 0, incomplete: true },
             { name: 'step_writer_active_waits', ...unread },
             { name: 'step_writer_active_waits', ...unlanded },
+        ])
+    })
+
+    it('counts a writer read for the step in which the writer answered it, also when that step was halted short', async () => {
+        const clock = [atS(58), atS(61)]
+        const answeredLate = await readActivity(
+            () => Promise.resolve([{ state: 'active', wait: 'lock', count: 4 }]),
+            () => clock.shift()!
+        )
+        const recorded = evidence({
+            activity: [
+                ...Array.from({ length: 12 }, (_, i) => ({
+                    at: atS(i * 5),
+                    backends: [{ state: 'idle', wait: 'client', count: 2 }],
+                })),
+                answeredLate,
+            ],
+            drive: { startedAt: atS(0), endedAt: atS(62) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 62_000 },
+            ],
+        })
+
+        expect(measure([{ name: 'step_writer_backends', params: {} }], recorded)).toEqual([
+            { name: 'step_writer_backends', key: 'idle_1x', unit: 'backends', value: 2 },
+            { name: 'step_writer_backends', key: 'active_10x', unit: 'backends', value: 4 },
         ])
     })
 
