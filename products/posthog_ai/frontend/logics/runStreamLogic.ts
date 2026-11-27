@@ -2638,9 +2638,9 @@ export interface runStreamLogicValues {
     currentProjectId: number | null // projectLogic
     toolListeners: Record<string, ToolStreamSubscription> // toolStreamEventsLogic
     user: UserType | null // userLogic
-    aiCreditsComputeCostUsd: number
     availableCommands: AgentCommand[]
     awaitingOptimisticAttach: boolean
+    billedComputeCostUsd: number
     bootstrapError: StreamErrorEnvelope | null
     bootstrapLoading: boolean
     bootstrappedRunId: string | null
@@ -2819,7 +2819,7 @@ export interface runStreamLogicActions {
         record: PermissionRequestRecord
         replayedFromHistory: boolean
     }
-    loadAiCreditsComputeCost: () => {
+    loadBilledComputeCost: () => {
         value: true
     }
     loadOlderHistory: () => {
@@ -2943,11 +2943,11 @@ export interface runStreamLogicActions {
         record: PermissionRequestRecord
         replayedFromHistory: boolean
     }
-    setAiCreditsComputeCostUsd: (costUsd: number) => {
-        costUsd: number
-    }
     setAvailableCommands: (commands: AgentCommand[]) => {
         commands: AgentCommand[]
+    }
+    setBilledComputeCostUsd: (costUsd: number) => {
+        costUsd: number
     }
     setContextUsage: (usage: ContextUsage) => {
         usage: ContextUsage
@@ -3304,8 +3304,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
         setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
-        loadAiCreditsComputeCost: true,
-        setAiCreditsComputeCostUsd: (costUsd: number) => ({ costUsd }),
+        loadBilledComputeCost: true,
+        setBilledComputeCostUsd: (costUsd: number) => ({ costUsd }),
         setTurnSuggestionLedger: (ledger: TurnSuggestionLedger) => ({ ledger }),
         loadTurnSuggestionLedger: (taskId: string, attempt: number = 0) => ({ taskId, attempt }),
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
@@ -3815,10 +3815,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => null,
             },
         ],
-        aiCreditsComputeCostUsd: [
+        billedComputeCostUsd: [
             0,
             {
-                setAiCreditsComputeCostUsd: (_, { costUsd }) => costUsd,
+                setBilledComputeCostUsd: (_, { costUsd }) => costUsd,
                 reset: () => 0,
             },
         ],
@@ -4373,7 +4373,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (replayContextUsage) {
                     actions.setContextUsage(replayContextUsage)
                 }
-                actions.loadAiCreditsComputeCost()
+                actions.loadBilledComputeCost()
             }
         }
         const rememberLegacyBacklog = (session: RunStreamRecovery, entries: unknown[], offset: number): void => {
@@ -5855,10 +5855,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
             markTurnComplete: ({ isReplay }) => {
                 // A history replay marks every past turn complete, so the compute loads once when the replay ends.
                 if (!isReplay) {
-                    actions.loadAiCreditsComputeCost()
+                    actions.loadBilledComputeCost()
                 }
             },
-            loadAiCreditsComputeCost: async (_, breakpoint) => {
+            loadBilledComputeCost: async (_, breakpoint) => {
                 const taskId = values.bootstrappedTaskId
                 const runId = values.bootstrappedRunId
                 const projectId = values.currentProjectId
@@ -5874,10 +5874,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     return
                 }
                 breakpoint()
-                const costUsd: unknown = usage?.ai_credits_compute_cost_usd
+                const costUsd: unknown = usage?.compute_cost_usd
                 // A reset or a successor run while the request was in flight makes this response stale.
                 if (values.bootstrappedRunId === runId && typeof costUsd === 'number') {
-                    actions.setAiCreditsComputeCostUsd(costUsd)
+                    actions.setBilledComputeCostUsd(costUsd)
                 }
             },
             attachOptimisticResume: ({ taskId, run }) => {

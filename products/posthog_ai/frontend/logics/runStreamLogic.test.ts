@@ -16,7 +16,11 @@ import {
     tasksRunsRetrieve,
     tasksRunsStreamTokenRetrieve,
 } from 'products/tasks/frontend/generated/api'
-import type { TaskRunComputeUsageResponseApi, TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    ComputeBillingMeterEnumApi,
+    type TaskRunComputeUsageResponseApi,
+    type TaskRunDetailDTOApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import logPageFixtures from '../../../tasks/backend/tests/fixtures/log_pages.json'
 import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
@@ -67,8 +71,11 @@ jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsComputeUsageRetrieve: jest.fn(),
 }))
 
-function runComputeUsage(aiCreditsComputeCostUsd: number): TaskRunComputeUsageResponseApi {
-    return { posthog_code_compute_cost_usd: 0.5, ai_credits_compute_cost_usd: aiCreditsComputeCostUsd }
+function runComputeUsage(computeCostUsd: number): TaskRunComputeUsageResponseApi {
+    return {
+        compute_cost_usd: computeCostUsd,
+        billing_meter: computeCostUsd ? ComputeBillingMeterEnumApi.AiCredits : null,
+    }
 }
 
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
@@ -1615,19 +1622,19 @@ describe('runStreamLogic', () => {
         })
     })
 
-    describe('AI credits compute cost', () => {
+    describe('billed compute cost', () => {
         it('loads the compute after the history replay and again after each live turn', async () => {
             jest.mocked(tasksRunsComputeUsageRetrieve).mockResolvedValue(runComputeUsage(0.1))
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             }).toFinishAllListeners()
-            expect(logic.values.aiCreditsComputeCostUsd).toBe(0.1)
+            expect(logic.values.billedComputeCostUsd).toBe(0.1)
 
             jest.mocked(tasksRunsComputeUsageRetrieve).mockResolvedValue(runComputeUsage(0.3))
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
             }).toFinishAllListeners()
-            expect(logic.values.aiCreditsComputeCostUsd).toBe(0.3)
+            expect(logic.values.billedComputeCostUsd).toBe(0.3)
         })
 
         it('drops a compute response that arrives after a reset', async () => {
@@ -1652,7 +1659,7 @@ describe('runStreamLogic', () => {
             resolveUsage(runComputeUsage(0.9))
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.aiCreditsComputeCostUsd).toBe(0)
+            expect(logic.values.billedComputeCostUsd).toBe(0)
         })
     })
 
