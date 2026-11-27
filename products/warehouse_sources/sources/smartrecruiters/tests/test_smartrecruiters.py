@@ -25,6 +25,13 @@ class TestCursorPagination:
             ("users", "/user-api/v201804/users", "nextPageId", "pageId", {"limit": "100"}),
             ("reports", "/reporting-api/v201804/reports", "nextPage", "page", {"limit": "100"}),
             (
+                "audit_events",
+                "/audit-api/v201910/audit-events",
+                "nextPageId",
+                "nextPageId",
+                {"limit": "100", "eventDateAfter": "2010-01-01T00:00:00.000Z"},
+            ),
+            (
                 "predefined_locations",
                 "/configuration/predefined-locations",
                 "nextPageId",
@@ -97,6 +104,27 @@ class TestIncrementalRequests:
         assert result.raised is None
         assert result.params("updatedAfter") == [expected, expected]
 
+    @parameterized.expand(
+        [
+            ("first_incremental_sync", None, "2010-01-01T00:00:00.000Z"),
+            ("watermark", datetime(2026, 3, 4, 2, 58, 14, 5000, tzinfo=UTC), "2026-03-04T02:58:14.005Z"),
+        ]
+    )
+    def test_audit_events_send_the_watermark_as_event_date_after(
+        self, _name: str, last_value: Any, expected: str
+    ) -> None:
+        result = _driver().run(
+            "audit_events",
+            [_page([{"id": "e1"}], nextPageId="c2"), _page([{"id": "e2"}])],
+            incremental_field="eventDate",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.params("eventDateAfter") == [expected, expected]
+        assert result.params("updatedAfter") == [None, None]
+
 
 class TestOffsetPagination:
     def test_walks_offsets_until_total_found(self) -> None:
@@ -153,3 +181,149 @@ class TestJobFanout:
         assert [request.param("pageId") for request in jobs_requests] == [None, "c2"]
         child_requests = [request for request in result.requests if request.path != "/jobs"]
         assert all("limit" not in request.query for request in child_requests)
+
+
+def _candidate(candidate_id: str, *job_ids: str) -> dict[str, Any]:
+    primary, *secondary = job_ids or (None,)
+    row: dict[str, Any] = {
+        "id": candidate_id,
+        "secondaryAssignments": [{"job": {"id": job_id}} for job_id in secondary],
+    }
+    if primary is not None:
+        row["primaryAssignment"] = {"job": {"id": primary}, "status": "NEW"}
+    return row
+
+
+_NOT_FOUND = ScriptedResponse(status=404, json={"message": "Not found"})
+
+# Page one: C1 applied to J1 and J2 (J1 also listed again as a secondary assignment), C2 has no
+# assignment. Page two: C3 applied to J3, which is deleted before its child request.
+_CANDIDATE_PAGES = [
+    _page([_candidate("C1", "J1", "J1", "J2"), _candidate("C2")], nextPageId="c2"),
+    _page([_candidate("C3", "J3")]),
+]
+
+
+class TestPerApplicationEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "candidate_status_history",
+                {
+                    "/candidates/C1/jobs/J1/status/history": [
+                        _page([{"changedOn": "2026-01-02T00:00:00.000Z", "status": "IN_REVIEW"}])
+                    ],
+                    "/candidates/C1/jobs/J2/status/history": [_page([])],
+                    "/candidates/C3/jobs/J3/status/history": [_NOT_FOUND],
+                },
+                [
+                    {
+                        "changedOn": "2026-01-02T00:00:00.000Z",
+                        "status": "IN_REVIEW",
+                        "candidate_id": "C1",
+                        "job_id": "J1",
+                    }
+                ],
+                [
+                    ("/candidates/C1/jobs/J1/status/history", {}),
+                    ("/candidates/C1/jobs/J2/status/history", {}),
+                    ("/candidates/C3/jobs/J3/status/history", {}),
+                ],
+            ),
+            (
+                "reviews",
+                {
+                    "/reviews": [
+                        ScriptedResponse(json=[{"id": "r1", "candidateId": "C1", "jobId": "J1", "overallRating": 4}]),
+                        ScriptedResponse(json=[]),
+                        _NOT_FOUND,
+                    ],
+                },
+                [{"id": "r1", "candidateId": "C1", "jobId": "J1", "overallRating": 4}],
+                [
+                    ("/reviews-api/v201910/reviews", {"candidateId": "C1", "jobId": "J1"}),
+                    ("/reviews-api/v201910/reviews", {"candidateId": "C1", "jobId": "J2"}),
+                    ("/reviews-api/v201910/reviews", {"candidateId": "C3", "jobId": "J3"}),
+                ],
+            ),
+            (
+                "interviews",
+                {
+                    "/candidates/C1/jobs/J1": [ScriptedResponse(json={"applicationId": "A1", "status": "INTERVIEW"})],
+                    "/candidates/C1/jobs/J2": [ScriptedResponse(json={"applicationId": "A2", "status": "NEW"})],
+                    "/candidates/C3/jobs/J3": [_NOT_FOUND],
+                    "/interviews": [_page([{"id": "i1", "jobId": "J1", "candidate": {"id": "C1"}}]), _page([])],
+                },
+                [{"id": "i1", "jobId": "J1", "candidate": {"id": "C1"}}],
+                [
+                    ("/candidates/C1/jobs/J1", {}),
+                    ("/interviews-api/v201904/interviews", {"applicationId": "A1"}),
+                    ("/candidates/C1/jobs/J2", {}),
+                    ("/interviews-api/v201904/interviews", {"applicationId": "A2"}),
+                    ("/candidates/C3/jobs/J3", {}),
+                ],
+            ),
+        ]
+    )
+    def test_reads_each_job_application_of_every_candidate_page(
+        self,
+        endpoint: str,
+        children: dict[str, list[ScriptedResponse]],
+        expected_rows: list[dict[str, Any]],
+        expected_child_requests: list[tuple[str, dict[str, str]]],
+    ) -> None:
+        result = _driver().run(endpoint, route({"/candidates": _CANDIDATE_PAGES, **children}))
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        candidate_requests = [request for request in result.requests if request.path == "/candidates"]
+        assert [request.param("pageId") for request in candidate_requests] == [None, "c2"]
+        assert [request.param("limit") for request in candidate_requests] == ["100", "100"]
+        child_requests = [
+            (request.path, {name: request.param(name) or "" for name in expected})
+            for request, (_, expected) in zip(
+                [request for request in result.requests if request.path != "/candidates"], expected_child_requests
+            )
+        ]
+        assert child_requests == expected_child_requests
+        assert len(result.requests) == 2 + len(expected_child_requests)
+        assert result.saved_states == [
+            SmartRecruitersResumeConfig(candidate_page_id=None, pair_index=1),
+            SmartRecruitersResumeConfig(candidate_page_id=None, pair_index=2),
+            SmartRecruitersResumeConfig(candidate_page_id="c2", pair_index=1),
+        ]
+
+    def test_resumes_at_the_saved_pair_of_the_saved_candidate_page(self) -> None:
+        result = _driver().run(
+            "reviews",
+            route(
+                {
+                    "/candidates": [_page([_candidate("C3", "J3", "J4")])],
+                    "/reviews": [ScriptedResponse(json=[{"id": "r4", "candidateId": "C3", "jobId": "J4"}])],
+                }
+            ),
+            resume_state=SmartRecruitersResumeConfig(candidate_page_id="c2", pair_index=1),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "r4", "candidateId": "C3", "jobId": "J4"}]
+        assert result.paths == ["/candidates", "/reviews-api/v201910/reviews"]
+        assert result.params("pageId") == ["c2", None]
+        assert result.params("jobId") == [None, "J4"]
+
+    def test_resume_past_the_last_pair_of_a_page_moves_to_the_next_page(self) -> None:
+        result = _driver().run(
+            "reviews",
+            route(
+                {
+                    "/candidates": [_page([_candidate("C3", "J3")], nextPageId="c3"), _page([_candidate("C4", "J4")])],
+                    "/reviews": [ScriptedResponse(json=[{"id": "r4", "candidateId": "C4", "jobId": "J4"}])],
+                }
+            ),
+            resume_state=SmartRecruitersResumeConfig(candidate_page_id="c2", pair_index=1),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "r4", "candidateId": "C4", "jobId": "J4"}]
+        assert result.params("pageId") == ["c2", "c3", None]
+        assert result.params("jobId") == [None, None, "J4"]

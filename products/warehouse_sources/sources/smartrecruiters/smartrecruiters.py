@@ -1,18 +1,21 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
     BasePaginator,
     ClientConfig,
     Endpoint,
     JSONResponseCursorPaginator,
     OffsetPaginator,
     RESTAPIConfig,
+    RESTClient,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    create_response_hooks,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -39,6 +42,10 @@ class SmartRecruitersResumeConfig:
     completed: list[str] | None = None
     current: str | None = None
     child_state: dict[str, Any] | None = None
+    # Per-application endpoints resume by candidate page (None for the first page) and the index of
+    # the next (candidate, job) pair on it.
+    candidate_page_id: str | None = None
+    pair_index: int | None = None
 
 
 def format_updated_after(value: Any) -> str:
@@ -77,7 +84,9 @@ def _build_params(
     if config.page_size_param is not None:
         params[config.page_size_param] = config.page_size
     if config.incremental_fields and should_use_incremental_field and db_incremental_field_last_value:
-        params["updatedAfter"] = format_updated_after(db_incremental_field_last_value)
+        params[config.incremental_param] = format_updated_after(db_incremental_field_last_value)
+    elif config.initial_start is not None:
+        params[config.incremental_param] = config.initial_start
     return params
 
 
@@ -204,6 +213,98 @@ def _fanout_source(
     return _make_source_response(config, lambda: dependent_resource)
 
 
+def _application_pairs(candidates: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """List the (candidate id, job id) pair of each job application on a candidate listing page."""
+    pairs: list[tuple[str, str]] = []
+    for candidate in candidates:
+        assignments = [candidate.get("primaryAssignment"), *(candidate.get("secondaryAssignments") or [])]
+        job_ids: list[str] = []
+        for assignment in assignments:
+            job_id = ((assignment or {}).get("job") or {}).get("id")
+            if job_id and job_id not in job_ids:
+                job_ids.append(job_id)
+        pairs.extend((candidate["id"], job_id) for job_id in job_ids)
+    return pairs
+
+
+def _single_page(client: RESTClient, path: str, hooks: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    return next(client.paginate(path=path, paginator=SinglePagePaginator(), hooks=hooks, **kwargs), [])
+
+
+def _application_rows(
+    client: RESTClient, config: SmartRecruitersEndpointConfig, candidate_id: str, job_id: str, hooks: Any
+) -> list[dict[str, Any]]:
+    if config.name == "candidate_status_history":
+        path = config.path.format(candidate_id=candidate_id, job_id=job_id)
+        rows = _single_page(client, path, hooks, data_selector="content")
+        return [{**row, "candidate_id": candidate_id, "job_id": job_id} for row in rows]
+
+    if config.name == "reviews":
+        return _single_page(client, config.path, hooks, params={"candidateId": candidate_id, "jobId": job_id})
+
+    # The Interviews API takes the application id, which only the application details carry.
+    applications = _single_page(client, f"/candidates/{candidate_id}/jobs/{job_id}", hooks)
+    application_id = applications[0].get("applicationId") if applications else None
+    if not application_id:
+        return []
+    return _single_page(client, config.path, hooks, params={"applicationId": application_id}, data_selector="content")
+
+
+def _per_application_source(
+    config: SmartRecruitersEndpointConfig,
+    api_key: str,
+    resumable_source_manager: ResumableSourceManager[SmartRecruitersResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read an endpoint once for each job application, walking the candidate listing page by page.
+
+    SmartRecruiters has no account-wide listing for status history, reviews or interviews. Each one
+    takes a candidate and a job, so the job applications come from the candidate assignments.
+    """
+    client = RESTClient(
+        base_url=BASE_URL,
+        headers={"Accept": "application/json"},
+        auth=APIKeyAuth(api_key=api_key, name="X-SmartToken", location="header"),
+    )
+    # A candidate or application deleted between the listing and its child request has nothing to read.
+    skip_deleted = create_response_hooks([{"status_code": 404, "action": "ignore"}])
+
+    page_id: Optional[str] = None
+    start = 0
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.pair_index is not None:
+            page_id, start = resume.candidate_page_id, resume.pair_index
+
+    next_page: dict[str, Optional[str]] = {"cursor": None}
+
+    def capture_next_page(state: Optional[dict[str, Any]], has_next_page: bool) -> None:
+        next_page["cursor"] = state.get("cursor") if state and has_next_page else None
+
+    for candidates in client.paginate(
+        path="/candidates",
+        params={"limit": PAGE_SIZE},
+        paginator=JSONResponseCursorPaginator(cursor_path="nextPageId", cursor_param="pageId"),
+        data_selector="content",
+        initial_paginator_state={"cursor": page_id} if page_id else None,
+        page_state_hook=capture_next_page,
+    ):
+        pairs = _application_pairs(candidates)
+        for index in range(start, len(pairs)):
+            rows = _application_rows(client, config, *pairs[index], skip_deleted)
+            resumable_source_manager.save_state(
+                SmartRecruitersResumeConfig(candidate_page_id=page_id, pair_index=index + 1)
+            )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+        # The staged state still points at this page, past its last pair, so a resume reads this page
+        # again and skips to the next one.
+        resumable_source_manager.safe_point()
+        page_id, start = next_page["cursor"], 0
+
+
 def smartrecruiters_source(
     api_key: str,
     endpoint: str,
@@ -217,6 +318,9 @@ def smartrecruiters_source(
 
     if config.fanout is not None:
         return _fanout_source(config, api_key, team_id, job_id, resumable_source_manager)
+
+    if config.per_application:
+        return _make_source_response(config, lambda: _per_application_source(config, api_key, resumable_source_manager))
 
     return _top_level_source(
         config,
