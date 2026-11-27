@@ -206,6 +206,13 @@ That message changes as the pull request does: a person's approval of the curren
 Each pull request has at most one active request, so asking again returns it.
 When the requester caused two or more messages in the last 7 days, the message says so, such as "5th this week". It matches the requester by PostHog account, Slack user or GitHub login, counts only messages that were posted, and keeps the number it was posted with.
 The note is shown in Slack only, because pull request comments are public.
+
+A person can also post a pull request link as a new message in the repository's Broadcast channel, for example when the pull request is too big for Stamphog.
+Stamphog starts no review for it.
+The PostHog Slack app posts the request's message, with its "I'll take a look" button, as a reply in the thread of that post, and the reply follows the pull request like any other request's message.
+Only the first link in the post counts, and only a member of the project who could ask with `@posthog stamp` gets an answer.
+If the pull request already has an active request, the reply links to that request's message.
+If Stamphog already approved the current commit, the reply says so and nobody is asked.
 The logic is in `backend/logic/broadcast_requests.py`, and the events are `stamphog_broadcast_request_created`, `stamphog_broadcast_card_posted`, `stamphog_broadcast_look_clicked` and `stamphog_broadcast_request_status_changed`.
 
 ## Daily digest

@@ -345,15 +345,22 @@ def _slack(team_id: int, integration_id: int) -> SlackIntegration:
     return SlackIntegration(integration, source=_SOURCE)
 
 
-def post_card(card: BroadcastRequestCard, channel_id: str, channel_name: str) -> str:
-    """Post the card and return its ts.
+def post_card(card: BroadcastRequestCard, channel_id: str, channel_name: str, *, thread_ts: str = "") -> str:
+    """Post the card and return its ts. With ``thread_ts``, the card is a reply in that post's thread.
 
     Raises ``BroadcastRequestSlackError`` when Slack cannot take it, and lets a transient Slack error through
     so the task retries.
     """
     slack = _slack(card.team_id, card.integration_id)
     try:
-        ts = post_with_join(slack, channel_id, card_blocks(card), card_text(card), channel_name=channel_name or None)
+        if thread_ts:
+            # Slack sent the app the post in this channel, so the app is a member and needs no join.
+            response = post_message(slack, channel_id, card_blocks(card), card_text(card), thread_ts=thread_ts)
+            ts = response.get("ts")
+        else:
+            ts = post_with_join(
+                slack, channel_id, card_blocks(card), card_text(card), channel_name=channel_name or None
+            )
     except SlackPostRefused as e:
         raise BroadcastRequestSlackError(str(e)) from e
     except SlackApiError as e:
@@ -362,6 +369,14 @@ def post_card(card: BroadcastRequestCard, channel_id: str, channel_name: str) ->
     if not ts:
         raise BroadcastRequestSlackError(f"Slack returned no ts for the card in {channel_id}")
     return ts
+
+
+def post_thread_reply(team_id: int, integration_id: int, channel_id: str, thread_ts: str, text: str) -> None:
+    """Reply in a thread with fixed text. Never raises, because nothing depends on the reply."""
+    try:
+        post_message(_slack(team_id, integration_id), channel_id, [section_block(text)], text, thread_ts=thread_ts)
+    except Exception as e:
+        logger.warning("stamphog_broadcast_thread_reply_failed", slack_channel_id=channel_id, error=str(e))
 
 
 def card_permalink(card: BroadcastRequestCard, channel_id: str, ts: str) -> str:

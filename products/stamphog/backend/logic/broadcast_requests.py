@@ -1,7 +1,8 @@
 """Requests for a person to review a pull request that stamphog did not approve.
 
-A request starts with a manual review request that sets ``allow_broadcast``. It follows the pull request
-until a person or stamphog approves it, or the pull request merges or closes. ``refresh`` decides
+A request starts with a manual review request that sets ``allow_broadcast``, or with a pull request link
+that a person posts in the repository's Broadcast channel. It follows the pull request until a person or
+stamphog approves it, or the pull request merges or closes. ``refresh`` decides
 the request's state from the database and GitHub, then posts or edits its Slack card, so every
 change to a request goes through one idempotent path.
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -172,6 +174,118 @@ def open_broadcast_request(
         using=using,
     )
     return OpenedBroadcastRequest(request=request, created=True)
+
+
+class LinkAskOutcome(StrEnum):
+    CREATED = "created"
+    # A retry of the task for the post that already opened the active request.
+    REPEATED = "repeated"
+    ALREADY_ASKED = "already_asked"
+    STAMPHOG_APPROVED = "stamphog_approved"
+
+
+@frozen
+class LinkAsk:
+    """What a pull request link posted in a Broadcast channel did."""
+
+    outcome: LinkAskOutcome
+    request: BroadcastRequest | None = None
+    # The link to the card of the request that was already active, or "" when it has no posted card.
+    permalink: str = ""
+
+
+def stamphog_approved_head(pull_request: PullRequest, head_sha: str, *, using: str) -> bool:
+    """Whether GitHub shows a standing stamphog approval of ``head_sha``.
+
+    Only the newest verdict at the head that GitHub shows decides, so a withheld verdict never counts.
+    A head that approval retention kept counts too, because the earlier approval stands over it.
+    """
+    runs = ReviewRun.objects.for_team(pull_request.team_id).using(using).filter(pull_request=pull_request)
+    published = (
+        runs.filter(head_sha=head_sha, verdict_posted_at__isnull=False)
+        .exclude(status=ReviewRunStatus.SUPERSEDED)
+        .order_by("-created_at")
+        .first()
+    )
+    if published is not None:
+        return published.verdict == ReviewVerdict.APPROVED and published.approval_dismissed_at is None
+    return runs.filter(retained_at_head(head_sha)).exists()
+
+
+def open_link_request(
+    pull_request: PullRequest,
+    head_sha: str,
+    ask: BroadcastRequestAsk,
+    *,
+    channel_id: str,
+    thread_ts: str,
+    using: str,
+) -> LinkAsk:
+    """Open an OPEN request for a pull request link that a person posted, with its card due in the post's thread.
+
+    No review starts, so the request waits for nobody. It is not opened when the pull request already
+    has an active request, or when stamphog already approved ``head_sha``. The delivery row records the
+    post before the card exists, so a retry for the same post finds its own request.
+    """
+    team_id = pull_request.team_id
+    active = (
+        BroadcastRequest.objects.for_team(team_id)
+        .using(using)
+        .filter(pull_request=pull_request, status__in=ACTIVE_BROADCAST_REQUEST_STATUSES)
+    )
+    deliveries = BroadcastRequestDelivery.objects.for_team(team_id).using(using)
+    kind = BroadcastRequestDeliveryKind.SLACK_MESSAGE
+
+    def asked_before() -> LinkAsk | None:
+        existing = active.first()
+        if existing is None:
+            return None
+        delivery = deliveries.filter(broadcast_request=existing, kind=kind).first()
+        if delivery is not None and (delivery.channel_id, delivery.thread_ts) == (channel_id, thread_ts):
+            return LinkAsk(outcome=LinkAskOutcome.REPEATED, request=existing)
+        permalink = delivery.permalink if delivery and delivery.state == BroadcastRequestDelivery.State.POSTED else ""
+        return LinkAsk(outcome=LinkAskOutcome.ALREADY_ASKED, request=existing, permalink=permalink)
+
+    earlier = asked_before()
+    if earlier is not None:
+        return earlier
+    if stamphog_approved_head(pull_request, head_sha, using=using):
+        return LinkAsk(outcome=LinkAskOutcome.STAMPHOG_APPROVED)
+    try:
+        # The savepoint keeps the outer transaction usable when a concurrent ask wins the unique constraint.
+        with transaction.atomic(using=using):
+            request = (
+                BroadcastRequest.objects.for_team(team_id)
+                .using(using)
+                .create(
+                    team_id=team_id,
+                    pull_request=pull_request,
+                    status=BroadcastRequestStatus.OPEN,
+                    head_sha=head_sha,
+                    requested_by_user_id=ask.requested_by_user_id,
+                    requested_via=ask.requested_via,
+                    requester_slack_user_id=ask.requester_slack_user_id,
+                    requester_github_login=ask.requester_github_login,
+                    note=ask.note,
+                )
+            )
+            deliveries.create(
+                team_id=team_id, broadcast_request=request, kind=kind, channel_id=channel_id, thread_ts=thread_ts
+            )
+    except IntegrityError:
+        concurrent = asked_before()
+        if concurrent is None:
+            raise
+        return concurrent
+    transaction.on_commit(
+        lambda: _capture(
+            request,
+            REQUEST_CREATED_EVENT,
+            {"stamphog_broadcast_request_status": str(request.status), "stamphog_broadcast_request_has_note": False},
+        ),
+        using=using,
+    )
+    return LinkAsk(outcome=LinkAskOutcome.CREATED, request=request)
 
 
 # The review states that replace a person's earlier review. A COMMENTED review leaves an approval standing.
@@ -397,9 +511,14 @@ def _next_state(
     pull_request = request.pull_request
     head_sha = pr["head"]["sha"]
     status, run = stamphog_status_at_head(pull_request, head_sha, using=using)
+    if request.requested_via == BroadcastRequestSource.SLACK_LINK:
+        # The person asked people directly, so nobody waits for stamphog. A review that has not decided yet
+        # neither holds the card back nor shows on it. Only its approval changes the request.
+        if status == BroadcastRequestStatus.PENDING:
+            status, run = BroadcastRequestStatus.OPEN, None
     # Other GitHub deliveries for a push, such as review_requested, can refresh before the review path creates
     # the new head's run. That missing run does not mean that no review is coming, so the request waits.
-    if (
+    elif (
         run is None
         and status == BroadcastRequestStatus.OPEN
         and head_sha != request.head_sha
@@ -466,6 +585,11 @@ def _post_once(request: BroadcastRequest, card: BroadcastRequestCard, head_sha: 
         delivery = deliveries.select_for_update().get(broadcast_request=request, kind=kind)
         if delivery.state == BroadcastRequestDelivery.State.POSTED:
             return
+        # A card in a thread belongs to the post that asked. Once Broadcast moves to another channel, that
+        # post is not there.
+        if delivery.thread_ts and delivery.channel_id != repo_config.broadcast_slack_channel_id:
+            logger.info("stamphog_broadcast_request_thread_in_another_channel", broadcast_request_id=str(request.id))
+            return
         _lock_requester_cards(request, using=using)
         posted_at = timezone.now()
         card_count = requester_card_count(request, at=posted_at, using=using)
@@ -473,7 +597,12 @@ def _post_once(request: BroadcastRequest, card: BroadcastRequestCard, head_sha: 
         # When Slack accepts the post and the commit then fails, the retry posts one more card. That is accepted,
         # because recording the post before Slack accepts it could leave a card that never posts.
         try:
-            ts = post_card(card, repo_config.broadcast_slack_channel_id, repo_config.broadcast_slack_channel_name)
+            ts = post_card(
+                card,
+                repo_config.broadcast_slack_channel_id,
+                repo_config.broadcast_slack_channel_name,
+                thread_ts=delivery.thread_ts,
+            )
         except BroadcastRequestSlackError as e:
             # A missing integration, a channel the app cannot join, or a Slack refusal such as a revoked token needs a
             # person, so a retry would fail the same way. The next refresh tries again.
@@ -646,8 +775,12 @@ def _refresh_locked(request: BroadcastRequest, *, decided_head_sha: str, using: 
         pinged_head_sha=head_sha, updated_at=timezone.now()
     )
     if lookers and state.status in _REVIEWABLE_STATUSES:
+        # Slack threads a reply under the post that opened the thread, so a card that is itself a reply pings there.
         ping_lookers(
-            card, delivery.channel_id, delivery.message_ts, reviewing=state.status == BroadcastRequestStatus.PENDING
+            card,
+            delivery.channel_id,
+            delivery.thread_ts or delivery.message_ts,
+            reviewing=state.status == BroadcastRequestStatus.PENDING,
         )
 
 
