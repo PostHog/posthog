@@ -43,6 +43,18 @@ describe('push send redaction', () => {
         expect(requestsOf(event)).toEqual([{ name, responseBody: REDACTED }])
     })
 
+    it('removes the searched recipient from a push log request', () => {
+        const event = redactPushSendsInReplay(
+            recorded([
+                { name: '/api/projects/1/transactional_push_log/?limit=50&search=ada%40example.com&status=sent' },
+            ])
+        )
+
+        expect(requestsOf(event)).toEqual([
+            { name: '/api/projects/1/transactional_push_log/?limit=50&search=[redacted]&status=sent' },
+        ])
+    })
+
     it('leaves an event without a push send as it is', () => {
         const event = recorded([
             { name: '/api/projects/1/insights/', requestBody: BODY },
