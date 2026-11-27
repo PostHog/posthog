@@ -16,7 +16,7 @@ import { ScopeIcon } from './ScopeIcon'
 
 export function AccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
-    const { defaults, resourceKeys, loading, accessDetailPanelEnabled, terraformDisabledReason } = useValues(logic)
+    const { defaults, resourceKeys, loading, terraformDisabledReason } = useValues(logic)
     const { updateAccessControlDefault, updateResourceAccessControls } = useActions(logic)
 
     const {
@@ -189,26 +189,22 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                     ]}
                 />
 
-                {accessDetailPanelEnabled && (
-                    <>
-                        <ObjectAccessRules
-                            projectId={projectId}
-                            scopeType="default"
-                            subjectId="default"
-                            subjectNoun="project"
-                            canEdit={canEdit}
-                            cannotEditReason={terraformDisabledReason}
-                        />
+                <ObjectAccessRules
+                    projectId={projectId}
+                    scopeType="default"
+                    subjectId="default"
+                    subjectNoun="project"
+                    canEdit={canEdit}
+                    cannotEditReason={terraformDisabledReason}
+                />
 
-                        <PropertyAccessRules
-                            projectId={projectId}
-                            scopeType="default"
-                            subjectId="default"
-                            subjectNoun="project"
-                            canEdit={canEdit}
-                        />
-                    </>
-                )}
+                <PropertyAccessRules
+                    projectId={projectId}
+                    scopeType="default"
+                    subjectId="default"
+                    subjectNoun="project"
+                    canEdit={canEdit}
+                />
             </div>
         </PayGateMini>
     )

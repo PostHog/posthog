@@ -80,7 +80,7 @@ const COLUMNS = productAccessColumns(AccessCell)
 
 export function QuillAccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
-    const { defaults, resourceKeys, loading, accessDetailPanelEnabled, terraformDisabledReason } = useValues(logic)
+    const { defaults, resourceKeys, loading, terraformDisabledReason } = useValues(logic)
     const { updateAccessControlDefault } = useActions(logic)
 
     const { can_edit: canEdit = false, available_project_levels: projectLevels = [] } = defaults ?? {}
@@ -127,26 +127,22 @@ export function QuillAccessControlDefaultSettings({ projectId }: { projectId: st
                     </BindLogic>
                 )}
 
-                {accessDetailPanelEnabled && (
-                    <>
-                        <QuillObjectAccessRules
-                            projectId={projectId}
-                            scopeType="default"
-                            subjectId="default"
-                            subjectNoun="project"
-                            canEdit={canEdit}
-                            cannotEditReason={terraformDisabledReason}
-                        />
+                <QuillObjectAccessRules
+                    projectId={projectId}
+                    scopeType="default"
+                    subjectId="default"
+                    subjectNoun="project"
+                    canEdit={canEdit}
+                    cannotEditReason={terraformDisabledReason}
+                />
 
-                        <QuillPropertyAccessRules
-                            projectId={projectId}
-                            scopeType="default"
-                            subjectId="default"
-                            subjectNoun="project"
-                            canEdit={canEdit}
-                        />
-                    </>
-                )}
+                <QuillPropertyAccessRules
+                    projectId={projectId}
+                    scopeType="default"
+                    subjectId="default"
+                    subjectNoun="project"
+                    canEdit={canEdit}
+                />
             </div>
         </PayGateMini>
     )

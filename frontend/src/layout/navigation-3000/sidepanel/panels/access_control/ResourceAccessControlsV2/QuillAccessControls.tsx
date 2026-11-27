@@ -8,7 +8,6 @@ import { QuillAccessControlDefaultSettings } from './QuillAccessControlDefaultSe
 import { QuillAccessControlFilters } from './QuillAccessControlFilters'
 import { QuillAccessControlTable } from './QuillAccessControlTable'
 import { QuillAccessDetailDialog } from './QuillAccessDetailDialog'
-import { QuillGroupedAccessControlRuleModal } from './QuillGroupedAccessControlRuleModal'
 import type { AccessControlSettingsEntry, AccessControlsTab } from './types'
 
 export function QuillAccessControls({
@@ -41,7 +40,6 @@ export function QuillAccessControls({
         loading,
         visibleResourceKeySet,
         filteredResourceKeySet,
-        ruleModalState,
         accessDetailInDialog,
     } = useValues(logic)
 
@@ -101,7 +99,6 @@ export function QuillAccessControls({
                 </AccessControlTabContainer>
             </div>
 
-            {ruleModalState && <QuillGroupedAccessControlRuleModal state={ruleModalState} />}
             {accessDetailInDialog && <QuillAccessDetailDialog projectId={projectId} />}
         </>
     )

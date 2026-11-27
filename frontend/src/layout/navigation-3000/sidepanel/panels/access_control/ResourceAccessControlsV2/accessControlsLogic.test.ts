@@ -342,15 +342,16 @@ describe('accessControlsLogic', () => {
         })
 
         it('shows the member picked in the dialog over a stale panel link', async () => {
-            featureFlagLogic.actions.setFeatureFlags(
-                [FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL, FEATURE_FLAGS.TODAY_RAIL_NAV],
-                { [FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL]: true, [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }
-            )
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
             sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, 'member:member-1')
 
             logic.actions.openAccessDetail('member', 'member-2')
 
             await expectLogic(logic).toMatchValues({
+                accessDetailInDialog: true,
+                accessDetailDialogOpen: true,
                 activePanelSubject: { scopeType: 'member', subjectId: 'member-2' },
             })
         })

@@ -54,9 +54,6 @@ import {
     AccessControlRoleEntry,
     AccessControlSettingsEntry,
     AccessControlsTab,
-    EntryData,
-    GroupedAccessControlRuleModalLogicProps,
-    ScopeType,
 } from './types'
 
 export interface AccessControlsLogicProps {
@@ -122,7 +119,6 @@ export interface accessControlsLogicValues {
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     accessDetailDialogOpen: boolean
     accessDetailInDialog: boolean
-    accessDetailPanelEnabled: boolean
     activePanelSubject: AccessDetailSubject | null
     activeTab: AccessControlsTab
     allMembers: OrganizationMemberType[]
@@ -163,7 +159,6 @@ export interface accessControlsLogicValues {
     }[]
     rolesData: AccessControlRolesResponse | null
     rolesDataLoading: boolean
-    ruleModalState: GroupedAccessControlRuleModalLogicProps | null
     ruleOptions: {
         key: AccessControlLevel
         label: string
@@ -320,9 +315,6 @@ export interface accessControlsLogicActions {
     closeAccessDetailDialog: () => {
         value: true
     }
-    closeRuleModal: () => {
-        value: true
-    }
     loadDefaults: () => any
     loadDefaultsFailure: (
         error: string,
@@ -396,20 +388,6 @@ export interface accessControlsLogicActions {
         scopeType: AccessDetailSubjectScope
         subjectId: string
     }
-    openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => {
-        state: GroupedAccessControlRuleModalLogicProps
-    }
-    saveGroupedRules: (params: {
-        projectLevel: AccessControlLevel | null
-        resourceLevels: Record<APIScopeObject, AccessControlLevel | null>
-        scopeId: string
-        scopeType: ScopeType
-    }) => {
-        projectLevel: AccessControlLevel | null
-        resourceLevels: Record<APIScopeObject, AccessControlLevel | null>
-        scopeId: string
-        scopeType: ScopeType
-    }
     setActiveTab: (activeTab: AccessControlsTab) => {
         activeTab: AccessControlsTab
     }
@@ -449,8 +427,7 @@ export interface accessControlsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         allMembers: (sortedMembers: OrganizationMemberType[] | null) => OrganizationMemberType[]
-        accessDetailPanelEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        accessDetailInDialog: (accessDetailPanelEnabled: boolean, featureFlags: FeatureFlagsSet) => boolean
+        accessDetailInDialog: (featureFlags: FeatureFlagsSet) => boolean
         openDetailSubject: (
             accessDetailInDialog: boolean,
             accessDetailDialogOpen: boolean,
@@ -599,8 +576,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         setActiveTab: (activeTab: AccessControlsTab) => ({ activeTab }),
         setFilters: (filters: Partial<AccessControlFilters>) => ({ filters }),
         setSearchText: (searchText: string) => ({ searchText }),
-        openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => ({ state }),
-        closeRuleModal: true,
         openAccessDetail: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
         closeAccessDetailDialog: true,
         loadPanelEntry: (subject: AccessDetailSubject) => ({ subject }),
@@ -620,12 +595,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             resource: APIScopeObject,
             level: AccessControlLevel | null
         ) => ({ scopeType, subjectId, resource, level }),
-        saveGroupedRules: (params: {
-            scopeType: ScopeType
-            scopeId: string
-            projectLevel: AccessControlLevel | null
-            resourceLevels: Record<APIScopeObject, AccessControlLevel | null>
-        }) => params,
     }),
 
     loaders(({ props }) => ({
@@ -696,16 +665,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 setSearchText: (_, { searchText }) => searchText,
             },
         ],
-        ruleModalState: [
-            null as GroupedAccessControlRuleModalLogicProps | null,
-            {
-                openRuleModal: (
-                    _: GroupedAccessControlRuleModalLogicProps | null,
-                    { state }: { state: GroupedAccessControlRuleModalLogicProps }
-                ) => state,
-                closeRuleModal: () => null,
-            },
-        ],
         /**
          * Who the access detail side panel is showing. Kept here rather than in the side panel's own
          * `selectedTabOptions`, which is cleared whenever any other panel tab is opened — switching to
@@ -741,17 +700,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (sortedMembers: OrganizationMemberType[] | null): OrganizationMemberType[] => sortedMembers ?? [],
         ],
 
-        /** The member and role detail panel is opt-in while the new UI rolls out. */
-        accessDetailPanelEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL],
-        ],
-
         /** The Today layout has no side panel tab for the detail, so it opens in a dialog over the list. */
         accessDetailInDialog: [
-            (s) => [s.accessDetailPanelEnabled, s.featureFlags],
-            (accessDetailPanelEnabled: boolean, featureFlags: FeatureFlagsSet): boolean =>
-                accessDetailPanelEnabled && !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
         ],
 
         /** The subject whose detail is on screen, in the dialog or the side panel, or null when neither shows one. */
@@ -1020,13 +972,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             }
         },
 
-        openRuleModal: ({ state }) => {
-            captureAccessControlEvent('access_control_rule_modal_opened', {
-                scope_type: state.scopeType,
-                ui_version: 'v2',
-            })
-        },
-
         setSubjectProjectAccess: ({ scopeType, subjectId, level }) => {
             if (scopeType === 'role') {
                 actions.updateAccessControlRoles([{ role: subjectId, level }], 'v2')
@@ -1061,116 +1006,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             if (!values.accessDetailInDialog) {
                 actions.openSidePanel(SidePanelTab.AccessDetail, `${scopeType}:${subjectId}`)
             }
-        },
-
-        saveGroupedRules: async ({ scopeType, scopeId, projectLevel, resourceLevels }) => {
-            // If the selected level equals the inherited level, we save null (clear override)
-            // If the selected level differs from inherited, we save it as an override
-
-            let entryData: EntryData | null = null
-
-            if (scopeType === 'default' && values.defaults) {
-                // For defaults, there's no inheritance
-                entryData = {
-                    project: {
-                        access_level: values.defaults.project_access_level,
-                        effective_access_level: values.defaults.project_access_level,
-                        inherited_access: null,
-                    },
-                    resources: Object.fromEntries(
-                        Object.entries(values.defaults.resource_access_levels).map(([k, v]) => [
-                            k,
-                            {
-                                access_level: v.access_level,
-                                effective_access_level: v.access_level,
-                                inherited_access: null,
-                            },
-                        ])
-                    ),
-                }
-            } else if (scopeType === 'role') {
-                const role = values.rolesData?.results.find((r) => r.role_id === scopeId)
-                if (role) {
-                    entryData = { project: role.project, resources: role.resources }
-                }
-            } else if (scopeType === 'member') {
-                const member = values.membersData?.results.find((m) => m.organization_membership_id === scopeId)
-                if (member) {
-                    entryData = { project: member.project, resources: member.resources }
-                }
-            }
-
-            if (!entryData) {
-                actions.closeRuleModal()
-                return
-            }
-
-            const updates: { resource: APIScopeObject; level: AccessControlLevel | null }[] = []
-
-            // Process project
-            const currentProjectEffective = entryData.project.effective_access_level
-            const currentProjectSaved = entryData.project.access_level
-            const projectInherited = entryData.project.inherited_access?.access_level ?? null
-
-            if (projectLevel !== currentProjectEffective) {
-                // User changed the level - determine what to save
-                // If new level equals inherited, save null (clear override)
-                // Otherwise save the new level
-                const levelToSave = projectLevel === projectInherited ? null : projectLevel
-                if (levelToSave !== currentProjectSaved) {
-                    updates.push({ resource: 'project' as APIScopeObject, level: levelToSave })
-                }
-            }
-
-            // Process resources
-            const allResourceKeys = new Set<APIScopeObject>([
-                ...(Object.keys(entryData.resources) as APIScopeObject[]),
-                ...(Object.keys(resourceLevels) as APIScopeObject[]),
-            ])
-
-            for (const resourceKey of allResourceKeys) {
-                const resourceEntry = entryData.resources[resourceKey]
-                const newLevel = resourceLevels[resourceKey] ?? null
-                const currentEffective = resourceEntry?.effective_access_level ?? null
-                const currentSaved = resourceEntry?.access_level ?? null
-                const inherited = resourceEntry?.inherited_access?.access_level ?? null
-
-                if (newLevel !== currentEffective) {
-                    // If new level equals inherited (or both null), save null (clear override)
-                    // Otherwise save the new level
-                    const levelToSave = newLevel === inherited ? null : newLevel
-                    if (levelToSave !== currentSaved) {
-                        updates.push({ resource: resourceKey, level: levelToSave })
-                    }
-                }
-            }
-
-            const projectUpdate = updates.find((u) => u.resource === 'project')
-            const otherUpdates = updates.filter((u) => u.resource !== 'project')
-
-            if (projectUpdate) {
-                if (scopeType === 'default') {
-                    actions.updateAccessControlDefault(projectUpdate.level ?? AccessControlLevel.None, 'v2')
-                } else if (scopeType === 'role') {
-                    actions.updateAccessControlRoles([{ role: scopeId, level: projectUpdate.level }], 'v2')
-                } else if (scopeType === 'member') {
-                    actions.updateAccessControlMembers([{ member: scopeId, level: projectUpdate.level }], 'v2')
-                }
-            }
-
-            if (otherUpdates.length > 0) {
-                actions.updateResourceAccessControls(
-                    otherUpdates.map((u) => ({
-                        resource: u.resource,
-                        access_level: u.level,
-                        role: scopeType === 'role' ? scopeId : null,
-                        organization_member: scopeType === 'member' ? scopeId : null,
-                    })),
-                    scopeType
-                )
-            }
-
-            actions.closeRuleModal()
         },
 
         updateAccessControlDefaultSuccess: () => {
