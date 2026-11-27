@@ -16,7 +16,7 @@ from django.utils import timezone
 from clickhouse_driver import Client
 from pydantic import BaseModel, Field
 
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole, Workload
@@ -24,6 +24,7 @@ from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.person_group_membership.sql import (
     DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
@@ -212,9 +213,14 @@ def get_membership_group_column(group_type_index: int, *, native_json: bool) -> 
 
 
 def get_membership_activity_filter(*, native_json: bool) -> str:
-    if native_json:
-        return "ifNull(toJSONString(properties.`$update_person_last_seen_at`), '') != 'false'"
-    return "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'"
+    # Flag calls never count on any flag evaluations mode.
+    # This matches the filter in PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL.
+    last_seen_filter = (
+        "ifNull(toJSONString(properties.`$update_person_last_seen_at`), '') != 'false'"
+        if native_json
+        else "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'"
+    )
+    return f"event != {escape_clickhouse_string(FLAG_EVALUATIONS_SOURCE_EVENT)} AND {last_seen_filter}"
 
 
 def get_membership_batch_sql(*, group_type_index: int, catching_up: bool, native_json: bool = False) -> str:

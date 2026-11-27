@@ -698,16 +698,22 @@ class TestMembershipBackfill(BaseTest):
                 (5, {"$group_0": "account-a", "$update_person_last_seen_at": 0}),
                 (5, {"$group_0": "account-a", "$update_person_last_seen_at": None}),
             ]
-            for minutes, properties in activity_events:
-                create_event(
-                    event_uuid=uuid4(),
-                    event="example_action",
-                    team=self.team,
-                    distinct_id="identified",
-                    person_mode="full",
-                    properties=properties,
-                    timestamp=start + timedelta(minutes=minutes),
-                )
+            flag_calls: list[tuple[int, dict[str, object]]] = [
+                (1, {"$group_0": "account-a"}),
+                (50, {"$group_0": "account-a"}),
+                (50, {"$group_0": "flag-calls-account"}),
+            ]
+            for event, rows in (("example_action", activity_events), ("$feature_flag_called", flag_calls)):
+                for minutes, properties in rows:
+                    create_event(
+                        event_uuid=uuid4(),
+                        event=event,
+                        team=self.team,
+                        distinct_id="identified",
+                        person_mode="full",
+                        properties=properties,
+                        timestamp=start + timedelta(minutes=minutes),
+                    )
             snapshot = timezone.now() + timedelta(minutes=1)
             with patch.object(self.service, "query", wraps=self.service.query) as query:
                 plan = self.service.plan(self.team, 0, snapshot)
@@ -723,9 +729,10 @@ class TestMembershipBackfill(BaseTest):
             absent_account = self.service.get_history_bounds(self.team.id, 0, snapshot, ("absent-account",))
             assert absent_account.start is None
             assert absent_account.end == snapshot
-            suppressed_plan = self.service.plan(self.team, 0, snapshot, ("suppressed-account",))
-            assert suppressed_plan.historical_start is None
-            assert suppressed_plan.estimated_events == 0
+            for account in ("suppressed-account", "flag-calls-account"):
+                excluded_plan = self.service.plan(self.team, 0, snapshot, (account,))
+                assert excluded_plan.historical_start is None
+                assert excluded_plan.estimated_events == 0
             self.process_batch(state)
             first = self.service.query(
                 "SELECT group_type_index, group_key, distinct_id, min(first_seen), max(last_seen) FROM person_group_membership WHERE team_id = %(team_id)s GROUP BY group_type_index, group_key, distinct_id",
@@ -757,14 +764,20 @@ class TestMembershipBackfill(BaseTest):
                 properties={"$group_0": "account-a"},
                 timestamp=start + timedelta(minutes=10),
             )
-            for key in ("account-a", "suppressed-account"):
+            late_events: list[tuple[str, dict[str, object]]] = [
+                ("example_action", {"$group_0": "account-a", "$update_person_last_seen_at": False}),
+                ("example_action", {"$group_0": "suppressed-account", "$update_person_last_seen_at": False}),
+                ("$feature_flag_called", {"$group_0": "account-a"}),
+                ("$feature_flag_called", {"$group_0": "flag-calls-account"}),
+            ]
+            for event, properties in late_events:
                 create_event(
                     event_uuid=uuid4(),
-                    event="example_action",
+                    event=event,
                     team=self.team,
                     distinct_id="identified",
                     person_mode="full",
-                    properties={"$group_0": key, "$update_person_last_seen_at": False},
+                    properties=properties,
                     timestamp=start + timedelta(minutes=50),
                 )
             state.catch_up_end = timezone.now() + timedelta(minutes=1)
