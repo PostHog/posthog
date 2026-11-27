@@ -1,5 +1,6 @@
 import json
 from typing import cast
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django import forms
@@ -387,9 +388,8 @@ class DagTiersTool(ConsoleTool):
         report = self.report(request)
         if report is None:
             return None
-        return ToolPlace.under(
-            "team", report.team_id, (RecordLink(label=report.dag_name, href=request.get_full_path()),)
-        )
+        dag_url = f"{reverse('admin_console_tool', kwargs={'tool_key': self.key})}?{urlencode({'dag': report.dag_id})}"
+        return ToolPlace.under("team", report.team_id, (RecordLink(label=report.dag_name, href=dag_url),))
 
     def page(self, request: HttpRequest) -> Page:
         report = self.report(request)
