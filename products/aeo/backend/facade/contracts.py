@@ -74,6 +74,7 @@ class CheckFrequency(LabeledStrEnum):
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 AI_VISIBILITY_ACCESS_FLAG = "web-analytics-content-autopilot"
+AI_VISIBILITY_BILLING_FLAG = "ai-visibility-billing"
 DEFAULT_MAX_ACTIVE_PROMPTS = 100
 PROMPT_LIMIT_ERROR_CODE = "prompt_limit_reached"
 

@@ -179,6 +179,7 @@ def test_answer_reads_as_an_object_or_an_array_even_when_cut_off(_name: str, tex
             team_id=1,
             trace_id="trace",
             aeo_feature="prompt_suggestions",
+            billable=True,
             max_tokens=100,
             max_searches=1,
         )

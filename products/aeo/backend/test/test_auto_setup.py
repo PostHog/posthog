@@ -468,7 +468,7 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
 
         with (
             ai_credits_used_up(self.team) if out_of_credits else nullcontext(),
-            patch.object(credits, "BILLABLE_AI_PRODUCTS", frozenset({"ai_visibility"})),
+            patch.object(credits, "feature_enabled_or_false", return_value=True),
             patch("products.aeo.backend.facade.api.set_up_aeo_task.apply_async") as queued,
         ):
             response = self.client.post(self.url, body, format="json")

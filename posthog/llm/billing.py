@@ -13,6 +13,7 @@ POSTHOG_AI_PRODUCTS = [
     "replay_vision",
     "hogql_decide",
     "error_tracking_issue_summaries",
+    "ai_visibility",
 ]
 
 # ai_product values billed as PostHog Desktop credits.

@@ -1,27 +1,38 @@
 import structlog
 
-from posthog.llm.billing import BILLABLE_AI_PRODUCTS
 from posthog.models.team import Team
+from posthog.ph_client import feature_enabled_or_false
 
-from products.aeo.backend.engines import AI_VISIBILITY_AI_PRODUCT
-from products.aeo.backend.facade.contracts import OUT_OF_AI_CREDITS_MESSAGE, OutOfAICreditsError
+from products.aeo.backend.facade.contracts import (
+    AI_VISIBILITY_BILLING_FLAG,
+    OUT_OF_AI_CREDITS_MESSAGE,
+    OutOfAICreditsError,
+)
 
 logger = structlog.get_logger(__name__)
 
+_BILLING_FIELDS = ("uuid", "organization_id", "api_token")
 
-def ai_visibility_billable() -> bool:
-    return AI_VISIBILITY_AI_PRODUCT in BILLABLE_AI_PRODUCTS
+
+def ai_visibility_billable(team: Team) -> bool:
+    return feature_enabled_or_false(
+        AI_VISIBILITY_BILLING_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+
+def ai_visibility_billable_for_team(team_id: int) -> bool:
+    return ai_visibility_billable(Team.objects.only(*_BILLING_FIELDS).get(id=team_id))
 
 
 def out_of_ai_credits(team: Team) -> bool:
-    return ai_visibility_billable() and _over_ai_credit_budget(team.id, team.api_token)
+    return ai_visibility_billable(team) and _over_ai_credit_budget(team.id, team.api_token)
 
 
 def raise_if_out_of_ai_credits(team_id: int) -> None:
-    if not ai_visibility_billable():
-        return
-    api_token = Team.objects.values_list("api_token", flat=True).get(id=team_id)
-    if _over_ai_credit_budget(team_id, api_token):
+    if out_of_ai_credits(Team.objects.only(*_BILLING_FIELDS).get(id=team_id)):
         raise OutOfAICreditsError(OUT_OF_AI_CREDITS_MESSAGE)
 
 

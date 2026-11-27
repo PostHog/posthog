@@ -29,6 +29,7 @@ from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
 from products.aeo.backend import catalog
 from products.aeo.backend.brand import brand_names
+from products.aeo.backend.credits import ai_visibility_billable_for_team
 from products.aeo.backend.engines import AICreditsExhausted
 from products.aeo.backend.facade.contracts import (
     KEYWORD_MAX_LENGTH,
@@ -258,7 +259,7 @@ def _excluded_terms(request: KeywordSuggestionRequest, context: KeywordContext) 
 
 
 def generate_keyword_suggestions(
-    team_id: int, request: KeywordSuggestionRequest, context: KeywordContext, *, count: int
+    team_id: int, request: KeywordSuggestionRequest, context: KeywordContext, *, count: int, billable: bool
 ) -> list[KeywordSuggestion]:
     gateway = resolve_ai_gateway_config()
     if gateway is None:
@@ -271,6 +272,7 @@ def generate_keyword_suggestions(
             team_id=team_id,
             trace_id=trace_id,
             aeo_feature="keyword_suggestions",
+            billable=billable,
             max_tokens=BASE_KEYWORD_TOKENS + TOKENS_PER_KEYWORD * count,
             max_searches=MAX_KEYWORD_SEARCHES,
         )
@@ -360,7 +362,9 @@ def suggest_keywords(team_id: int, request: KeywordSuggestionRequest) -> list[Ke
     count = suggestion_count(request.count, len(context.existing_keywords))
     if count == 0:
         raise KeywordSuggestionError(NO_ROOM_ERROR)
-    candidates = generate_keyword_suggestions(team_id, request, context, count=count)
+    candidates = generate_keyword_suggestions(
+        team_id, request, context, count=count, billable=ai_visibility_billable_for_team(team_id)
+    )
     # Read the list again, so keywords a person added while the model worked are neither suggested nor overflow the cap.
     existing = existing_keywords(team_id)
     room = suggestion_count(request.count, len(existing))

@@ -27,6 +27,7 @@ from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
 from products.aeo.backend import catalog
 from products.aeo.backend.brand import brand_pattern
+from products.aeo.backend.credits import ai_visibility_billable_for_team
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, AICreditsExhausted
 from products.aeo.backend.facade.contracts import (
     BRAND_NAME_MAX_LENGTH,
@@ -408,6 +409,7 @@ def _ask(
     deadline: float,
     max_tokens: int,
     max_searches: int,
+    billable: bool,
     failure: str = "Prompt suggestions failed. Try again in a minute.",
 ) -> ClaudeAnswer:
     for attempt in (1, 2):
@@ -418,6 +420,7 @@ def _ask(
                 team_id=team_id,
                 trace_id=trace_id,
                 aeo_feature="prompt_suggestions",
+                billable=billable,
                 max_tokens=max_tokens,
                 max_searches=max_searches,
                 deadline=deadline,
@@ -454,6 +457,7 @@ def generate_suggestions(
     *,
     context_prompts: list[str],
     existing_keys: set[str],
+    billable: bool,
     deadline: float | None = None,
     branded_max: int | None = None,
     retry_unreadable: bool = True,
@@ -477,6 +481,7 @@ def generate_suggestions(
             max_tokens=min(BASE_SUGGESTION_TOKENS + TOKENS_PER_SUGGESTION * _count(request), MAX_SUGGESTION_TOKENS),
             # After research the call only writes, but the search tool still needs a use to be offered.
             max_searches=1 if research is not None else MAX_SUGGESTION_SEARCHES,
+            billable=billable,
         )
         try:
             prompts = parse_suggestions(answer.text, count=MAX_SUGGESTIONS, existing_keys=existing_keys)
@@ -527,6 +532,7 @@ def research_site(team_id: int, request: PromptSuggestionRequest, *, deadline: f
     gateway = resolve_ai_gateway_config()
     if gateway is None:
         raise PromptSuggestionError("Prompt suggestions are not available on this instance")
+    billable = ai_visibility_billable_for_team(team_id)
     if deadline is None:
         deadline = time.monotonic() + DEADLINE_SECONDS
     instructions = _RESEARCH_INSTRUCTIONS.format(
@@ -545,6 +551,7 @@ def research_site(team_id: int, request: PromptSuggestionRequest, *, deadline: f
             deadline=deadline,
             max_tokens=RESEARCH_TOKENS,
             max_searches=MAX_SUGGESTION_SEARCHES,
+            billable=billable,
             failure="Reading your site failed. Try again in a minute.",
         )
         try:
@@ -672,10 +679,17 @@ def suggest_prompts(
     )
     # The calls share one deadline, so a retry or a top-up cannot outlast the task's time limit.
     deadline = time.monotonic() + DEADLINE_SECONDS
+    billable = ai_visibility_billable_for_team(team_id)
     if research is not None and not request.competitors:
         request = dataclasses.replace(request, competitors=tuple(c.name for c in research.competitors))
     first = generate_suggestions(
-        team_id, request, context_prompts=prompts, existing_keys=set(), deadline=deadline, research=research
+        team_id,
+        request,
+        context_prompts=prompts,
+        existing_keys=set(),
+        billable=billable,
+        deadline=deadline,
+        research=research,
     )
     found = _cap_branded(_untracked(team_id, first.prompts), limit=limit, pattern=pattern)[:count]
     competitors = research.competitors if research is not None else first.competitors
@@ -690,6 +704,7 @@ def suggest_prompts(
                 ),
                 context_prompts=[*(s.prompt for s in found), *prompts],
                 existing_keys={prompt_key(s.prompt) for s in found},
+                billable=billable,
                 deadline=deadline,
                 branded_max=limit - sum(1 for s in found if s.branded),
                 retry_unreadable=False,
