@@ -1649,6 +1649,104 @@ def test_rejects_excessive_select_alias_expansion() -> None:
         prepare_and_print_ast(parse_select(f"SELECT {', '.join(projections)}"), _context_with_trino_table(), "trino")
 
 
+def test_layers_select_alias_chains_over_a_subquery_instead_of_expanding_them() -> None:
+    projections = ["id AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 18)]]
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"WITH s AS (SELECT 1 AS id) SELECT {', '.join(projections)} FROM s"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql).fetchall() == [tuple(2**i for i in range(18))]
+
+
+_LONG_ALIAS_CHAIN = ", ".join(["id AS a0", *[f"a{i - 1} + 1 AS a{i}" for i in range(1, 60)], "a0 + 1 AS z"])
+_WIDE_SOURCE = ", ".join(f"1 AS c{i}" for i in range(500))
+_ALIAS_LINKS_OVER_WIDE_SOURCE = ", ".join(
+    ["c0 AS a0", *[f"a{i - 1} + 1 AS a{i}" for i in range(1, 22)], "a0 + a0 AS z"]
+)
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("WITH s AS (SELECT 1 AS id, 5 AS A) SELECT id AS a, a + a AS b FROM s", [(1, 2)]),
+        (f"WITH s AS (SELECT 1 AS id) SELECT {_LONG_ALIAS_CHAIN} FROM s", [(*range(1, 61), 2)]),
+        (f"WITH s AS (SELECT {_WIDE_SOURCE}) SELECT {_ALIAS_LINKS_OVER_WIDE_SOURCE} FROM s", [(*range(1, 23), 2)]),
+    ],
+)
+def test_select_alias_chains_the_layering_skips_keep_their_results(query: str, expected: list[tuple]) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql).fetchall() == expected
+
+
+def test_layered_select_aliases_keep_view_columns_the_view_star_omits() -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="v",
+            table=SavedQuery(
+                id="v",
+                name="v",
+                query="SELECT 7 AS secret, 1 AS id",
+                fields={
+                    "secret": IntegerDatabaseField(name="secret", hidden=True),
+                    "id": IntegerDatabaseField(name="id"),
+                },
+            ),
+        )
+    )
+    sql, _ = prepare_and_print_ast(parse_select("SELECT secret, id AS a, a + a AS b FROM v"), context, "trino")
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql).fetchall() == [(7, 1, 2)]
+
+
+@pytest.mark.parametrize(
+    "date_alias",
+    [
+        "toMonday(toDate('2026-11-27'))",
+        "toLastDayOfMonth(toDate('2026-11-27'))",
+        "(SELECT max(d) FROM (SELECT toDate('2026-11-27') AS d))",
+    ],
+)
+def test_layered_select_aliases_keep_the_date_type_the_printer_inferred(date_alias: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"WITH s AS (SELECT 1 AS id) SELECT {date_alias} AS a, a + 1 AS b, a + 2 AS c FROM s"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert sql.count("date_add('day'") == 2
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        (
+            "SELECT id AS a, a + a AS b FROM (SELECT 1 AS id, 2 AS unused, 3 AS UNUSED) AS src",
+            'SELECT "src"."id" AS "a", ("src"."id" + "src"."id") AS "b" FROM',
+        ),
+        (
+            "WITH seed AS (SELECT 1 AS id) SELECT id AS a, arrayMap(a -> a + a, [2]) AS b FROM seed AS src",
+            'transform(ARRAY[2], "a" -> ("a" + "a"))',
+        ),
+        (
+            "WITH s AS (SELECT 1 AS id) SELECT id AS a, arrayMap(x -> a + a, [2]) AS b FROM s",
+            'transform(ARRAY[2], "x" -> ("s"."id" + "s"."id"))',
+        ),
+        (
+            "WITH s AS (SELECT properties FROM users) "
+            "SELECT properties.flag AS a, coalesce(a, true) AS b, coalesce(a, false) AS c FROM s",
+            'coalesce(CAST(json_extract_scalar("s"."properties", \'$["flag"]\') AS BOOLEAN), true)',
+        ),
+    ],
+)
+def test_does_not_layer_select_alias_reads_inside_lambdas_or_over_properties(query: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+    assert expected in sql
+
+
 def test_rejects_excessive_rendered_expression_size() -> None:
     expression = "user_id"
     for _ in range(6):
