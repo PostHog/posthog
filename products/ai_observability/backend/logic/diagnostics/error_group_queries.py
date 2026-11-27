@@ -18,7 +18,7 @@ from ..traces.trace_metrics_queries import last_moment, period_bucket
 from ..traces.trace_selection import TraceSelection, TraceWindow
 from ..traces.trace_selection_queries import counted_events, execute_selection, period_membership
 from .error_groups import DEFAULT_ERROR_ORDER, ErrorCountsRow, ErrorGroupRow, ErrorView, series_of
-from .group_page_queries import groups_to_sort
+from .group_page_queries import groups_to_sort, page_of
 from .trend_queries import trend_expression
 from .trends import Trend
 
@@ -165,7 +165,7 @@ def _errored_events(
         """,
         placeholders={
             "rows": _counted_rows(team, selection, previous, match),
-            "traces": period_membership(team, selection, previous, holding=event_errored(EVENTS_COLUMNS)),
+            "traces": period_membership(team, selection, previous, holding=_errored_matching(match)),
             "current_read_start": ast.Constant(value=selection.window.read_bounds().start),
             "previous_read_end": ast.Constant(value=(previous or selection.window).read_bounds().end),
         },
@@ -276,6 +276,14 @@ def _page_query(
     page: PageRequest,
 ) -> ast.SelectQuery:
     sort_key = ast.Tuple(exprs=[*(parse_expr(key) for key in _ORDER_KEYS[order]), ast.Field(chain=["message"])])
+    sorted_groups = parse_expr(
+        "groupArraySortedIf({take})(tuple({sort_key}, {row}), in_view)",
+        placeholders={
+            "take": ast.Constant(value=groups_to_sort(page)),
+            "sort_key": sort_key,
+            "row": ast.Tuple(exprs=_fields(_GROUP_COLUMNS)),
+        },
+    )
     query = parse_select(
         """
         SELECT
@@ -284,15 +292,13 @@ def _page_query(
             countIf(trend = {decreasing}) AS decreasing,
             max(occurrences) AS max_occurrences,
             countIf(in_view) AS matching,
-            groupArraySortedIf({take})(tuple({sort_key}, {row}), in_view) AS page
+            {page} AS page
         FROM {groups}
         """,
         placeholders={
             "increasing": ast.Constant(value=Trend.INCREASING.value),
             "decreasing": ast.Constant(value=Trend.DECREASING.value),
-            "take": ast.Constant(value=groups_to_sort(page)),
-            "sort_key": sort_key,
-            "row": ast.Tuple(exprs=_fields(_GROUP_COLUMNS)),
+            "page": page_of(sorted_groups, page),
             "groups": _groups(team, selection, size, _searched(search), _in_view(team, selection, view)),
         },
     )
@@ -337,7 +343,7 @@ def load_error_page(
         team, user, selection, query, ERRORS_PAGE_QUERY_NAME
     )
     return ErrorPageRead(
-        rows=tuple(_row(values, starts, has_previous=has_previous) for _, values in rows[page.offset :]),
+        rows=tuple(_row(values, starts, has_previous=has_previous) for _, values in rows),
         count=matching,
         counts=ErrorCountsRow(
             total=total, increasing=increasing, decreasing=decreasing, max_occurrences=max_occurrences
