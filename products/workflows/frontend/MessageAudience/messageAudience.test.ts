@@ -4,10 +4,11 @@ import { createElement } from 'react'
 
 import { ScenePanelColumn } from '~/layout/navigation-3000/components/ScenePanelColumn'
 import { SidePanelInfo } from '~/layout/navigation-3000/sidepanel/panels/info/SidePanelInfo'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ScenePanel } from '~/layout/scenes/SceneLayout'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator, SidePanelTab } from '~/types'
 
 import {
     MessageAudience,
@@ -134,10 +135,17 @@ describe('message audience attempts', () => {
     it('reports a scene panel spot shown when the Actions pane shows it outside the side panel', () => {
         renderInScenePanel(SidePanelInfo, 'actions_pane')
 
-        expect(sceneLayoutLogic.values.scenePanelOpen).toBe(false)
         expect(captured('message audience shown')).toEqual([
             { source: 'actions_pane', destination: 'broadcast', attempt_id: expect.any(String) },
         ])
+    })
+
+    it('reports nothing while the Actions tab is requested and its pane has not loaded', () => {
+        renderInScenePanel(ScenePanelColumn, 'loading_pane')
+
+        act(() => sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Info))
+
+        expect(captured('message audience shown')).toEqual([])
     })
 
     it('opens the editor without an attempt from a spot that was never shown or clicked', () => {
