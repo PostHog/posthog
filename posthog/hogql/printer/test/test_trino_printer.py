@@ -3364,6 +3364,8 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
             "transform(user_id, ['a'], ['A'], 'other')",
             'element_at(transform(ARRAY[ROW("users"."user_id", ARRAY[\'a\'])], __hogql_transform_search -> CASE',
         ),
+        ("transform(0, [1], [2], sum(id))", "CASE WHEN contains(ARRAY[1], 0) THEN"),
+        ("transform(0, [1], [2], (SELECT 3))", "CASE WHEN contains(ARRAY[1], 0) THEN"),
         ("first_value(user_id)", 'arbitrary("users"."user_id")'),
         (
             "toStartOfDay(created_at, 'America/Toronto')",
