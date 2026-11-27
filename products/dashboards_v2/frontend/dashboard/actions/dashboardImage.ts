@@ -83,6 +83,7 @@ export function imageActions({
             group: 'view',
             needsLoaded: true,
             disabledReason: busy,
+            loading: makingImage,
             submenu: IMAGE_FORMATS.filter(({ format }) => canWriteImage(format)).map(({ format, label }) => ({
                 key: format,
                 label,
@@ -100,6 +101,7 @@ export function imageActions({
             group: 'view',
             needsLoaded: true,
             disabledReason: busy,
+            loading: makingImage,
             onSelect: copy,
         })
     }
