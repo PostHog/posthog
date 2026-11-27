@@ -15,6 +15,7 @@ import {
     StoredFile,
     attachmentFile,
     deliveredTo,
+    sesThatRefusesConnectionsAfterItsFirstAnswer,
     sesTransportFor,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
@@ -241,18 +242,22 @@ const emailSeriesCountedFor = async (result: CyclotronJobInvocationResult): Prom
             .filter(([, delta]) => delta !== 0)
     )
 }
-const oneRetryAfter = (delayMs: number): any => {
+const retriesAfter = (...delaysMs: number[]): any => {
     const token = (retries: number): { getRetryCount: () => number; getRetryDelay: () => number } => ({
         getRetryCount: () => retries,
-        getRetryDelay: () => delayMs,
+        getRetryDelay: () => delaysMs[retries - 1] ?? 0,
     })
     return {
         acquireInitialRetryToken: () => Promise.resolve(token(0)),
         refreshRetryTokenForRetry: (previous: ReturnType<typeof token>) =>
-            previous.getRetryCount() > 0 ? Promise.reject(new Error('no retries left')) : Promise.resolve(token(1)),
+            previous.getRetryCount() >= delaysMs.length
+                ? Promise.reject(new Error('no retries left'))
+                : Promise.resolve(token(previous.getRetryCount() + 1)),
         recordSuccess: () => {},
     }
 }
+
+const oneRetryAfter = (delayMs: number): any => retriesAfter(delayMs)
 
 describe('EmailService', () => {
     let service: EmailService
@@ -2574,6 +2579,7 @@ describe('EmailService', () => {
                         }))
                 )
             }
+            const closeAfterTheTest: { close: () => Promise<void> }[] = []
             const untilDue = async (due: DateTime): Promise<void> => {
                 await new Promise((resolve) => setTimeout(resolve, Math.max(0, due.toMillis() - Date.now() + 50)))
             }
@@ -2621,6 +2627,7 @@ describe('EmailService', () => {
                 send([pdf, logo])
             })
             afterEach(async () => {
+                await Promise.all(closeAfterTheTest.splice(0).map((server) => server.close()))
                 await bucket.close()
                 await statusProducer.disconnect()
                 await new Promise((resolve, reject) =>
@@ -3194,7 +3201,7 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each([
+            it.each<[string, (emailService: EmailService) => void | Promise<void>, number]>([
                 [
                     'SES receives the request and does not answer',
                     () => {
@@ -3227,11 +3234,25 @@ describe('EmailService', () => {
                     },
                     1,
                 ],
+                [
+                    'SES records the email, answers 500, then refuses the next connection and the SDK is still backing off',
+                    async (emailService: EmailService) => {
+                        ses.failWith({
+                            acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' },
+                        })
+                        const stopsListening = await sesThatRefusesConnectionsAfterItsFirstAnswer(ses)
+                        closeAfterTheTest.push(stopsListening)
+                        emailService.sesTransport = sesTransportFor(stopsListening, {
+                            retryStrategy: retriesAfter(300, 2_000),
+                        })
+                    },
+                    1,
+                ],
             ])(
                 'when %s past the deadline, fails the send without a retry, because SES may have sent it',
                 async (_name, fault, recorded) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
-                    fault(emailService)
+                    await fault(emailService)
                     const mayHaveSentBefore = await metricValue('cdp_ses_send_results_total', {
                         result: 'may_have_sent',
                     })
