@@ -9,7 +9,12 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import is_service_auth
-from posthog.rate_limit import InvestigationWriteBurstRateThrottle, InvestigationWriteSustainedRateThrottle
+from posthog.rate_limit import (
+    InvestigationSearchBurstRateThrottle,
+    InvestigationSearchSustainedRateThrottle,
+    InvestigationWriteBurstRateThrottle,
+    InvestigationWriteSustainedRateThrottle,
+)
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 
@@ -36,6 +41,8 @@ class InvestigationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         throttles = super().get_throttles()
         if self.action in {"create", "partial_update"}:
             throttles.extend([InvestigationWriteBurstRateThrottle(), InvestigationWriteSustainedRateThrottle()])
+        elif self.action == "list" and self.request.query_params.get("search", "").strip():
+            throttles.extend([InvestigationSearchBurstRateThrottle(), InvestigationSearchSustainedRateThrottle()])
         return throttles
 
     def read_object(self) -> SavedInvestigation | None:

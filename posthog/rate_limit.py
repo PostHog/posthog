@@ -884,6 +884,17 @@ class InvestigationWriteSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = SustainedRateThrottle.rate
 
 
+class InvestigationSearchBurstRateThrottle(_UserBucketRateThrottle):
+    scope = "investigation_search_burst"
+    rate = "60/minute"
+    bucket_per_api_key = False
+
+
+class InvestigationSearchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "investigation_search_sustained"
+    rate = "1200/hour"
+
+
 # A metric write that changes its name, description or unit schedules an embedding call, so writes get
 # the same kind of team bucket. Setting up a catalog creates a few dozen metrics at a time.
 class MetricWriteBurstRateThrottle(_TeamBucketRateThrottle):

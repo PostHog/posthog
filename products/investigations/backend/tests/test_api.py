@@ -9,7 +9,11 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.rate_limit import InvestigationWriteBurstRateThrottle
+from posthog.rate_limit import (
+    InvestigationSearchBurstRateThrottle,
+    InvestigationSearchSustainedRateThrottle,
+    InvestigationWriteBurstRateThrottle,
+)
 
 from products.access_control.backend.facade.testing import create_access_control
 
@@ -127,6 +131,26 @@ class TestInvestigationAPI(APIBaseTest):
             record.refresh_from_db()
             self.assertEqual(record.revision, 1)
             self.assertFalse(record.deleted)
+
+    @parameterized.expand(
+        [
+            ("viewer_burst", InvestigationSearchBurstRateThrottle),
+            ("project_sustained", InvestigationSearchSustainedRateThrottle),
+        ]
+    )
+    def test_search_budget_preserves_browsing_and_detail(self, name, throttle):
+        created = self.client.post(self.url, {"document": document()}, format="json")
+        self.assertEqual(created.status_code, 201)
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
+            patch.object(throttle, "rate", "1/minute"),
+            patch.object(throttle, "cache", LocMemCache(f"investigation-search-{name}", {})),
+        ):
+            self.assertEqual(self.client.get(self.url, {"search": "conversion"}).status_code, 200)
+            self.assertEqual(self.client.get(self.url, {"search": "activation"}).status_code, 429)
+            self.assertEqual(self.client.get(self.url, {"search": " "}).status_code, 200)
+            self.assertEqual(self.client.get(f"{self.url}{created.data['id']}/").status_code, 200)
 
     def test_session_write_budget_applies_to_create_and_patch(self):
         cache = LocMemCache("investigation-write-test", {})
