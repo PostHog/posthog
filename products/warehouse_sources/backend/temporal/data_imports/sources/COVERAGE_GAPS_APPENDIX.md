@@ -12852,7 +12852,7 @@ Note: SafetyCulture's warehouse-oriented surface is the /feed/\* family, and rou
 
 ## Sage Intacct — **thin**
 
-Today (10): `ARPayments`, `BillLines`, `Bills`, `Customers`, `GLAccounts`, `InvoiceLines`, `Invoices`, `JournalEntries`, `JournalEntryLines`, `Vendors`
+Today (14): `APPayments`, `ARPayments`, `BillLines`, `Bills`, `Customers`, `Departments`, `GLAccounts`, `GLBudgets`, `InvoiceLines`, `Invoices`, `JournalEntries`, `JournalEntryLines`, `Locations`, `Vendors`
 
 Diffed against: <https://developer.sage.com/intacct/llms.txt>
 
@@ -12860,12 +12860,12 @@ Diffed against: <https://developer.sage.com/intacct/llms.txt>
 - [x] `Invoice lines (GET /objects/accounts-receivable/invoice-line)` — Line-level revenue per invoice we already sync (high)
 - [x] `Bill lines (GET /objects/accounts-payable/bill-line)` — Line-level spend per bill we already sync (high)
 - [x] `AR payments (GET /objects/accounts-receivable/payment)` — Customer payments, to track cash collected against invoices (high)
-- [ ] `AP payments (GET /objects/accounts-payable/payment)` — Vendor payments, to track cash paid against bills (high)
-- [ ] `Locations (GET /objects/company-config/location)` — Lookup for location dimension IDs on invoices, bills and journal lines (high)
-- [ ] `Departments (GET /objects/company-config/department)` — Lookup for department dimension IDs on transactions (high)
+- [x] `AP payments (GET /objects/accounts-payable/payment)` — Vendor payments, to track cash paid against bills (high)
+- [x] `Locations (GET /objects/company-config/location)` — Lookup for location dimension IDs on invoices, bills and journal lines (high)
+- [x] `Departments (GET /objects/company-config/department)` — Lookup for department dimension IDs on transactions (high)
 - [ ] `Employees (GET /objects/company-config/employee)` — Employee records for expense and timesheet attribution (medium)
 - [ ] `Projects (GET /objects/projects/project)` — Project dimension used on transactions and time (medium)
-- [ ] `GL budgets (GET /objects/general-ledger/budget)` — Budget against actuals for variance reporting (medium)
+- [x] `GL budgets (GET /objects/general-ledger/budget)` — Budget against actuals for variance reporting (medium)
 
 Note: Parsed llms.txt from developer.sage.com (the OpenAPI JSON URL is behind a Cloudflare challenge) and read the route from each of the 540 List pages. Routes sit under https://api.intacct.com/ia/api/v1 and match the style our source uses. Many modules are unsynced (cash management, contracts, expenses, fixed assets, inventory, order entry, purchasing, tax, time, construction); only the core finance gaps are listed. List endpoints return only object references, so an implementer must use the query service for full rows. Modules need the matching Intacct subscription.
 
@@ -13309,7 +13309,7 @@ Note: Fetched the official llms index and parsed the OpenAPI definitions embedde
 
 ## ServiceNow — gaps
 
-Today (19): `assets`, `catalog_requests`, `catalog_tasks`, `change_requests`, `change_tasks`, `choices`, `configuration_items`, `group_members`, `incidents`, `knowledge_articles`, `metric_instances`, `problems`, `requested_items`, `service_offerings`, `services`, `task_slas`, `tasks`, `user_groups`, `users`
+Today (23): `assets`, `catalog_requests`, `catalog_tasks`, `change_requests`, `change_tasks`, `choices`, `ci_relationships`, `companies`, `configuration_items`, `group_members`, `incidents`, `journal_entries`, `knowledge_articles`, `locations`, `metric_instances`, `problems`, `requested_items`, `service_offerings`, `services`, `task_slas`, `tasks`, `user_groups`, `users`
 
 Diffed against: <https://www.servicenow.com/docs/r/zurich/it-service-management/service-level-management/r_TaskSLATable.html (plus https://www.servicenow.com/docs/r/zurich/platform-administration/c_MetricInstance.html, .../system-localization/r_ChoicesTable.html, .../it-service-management/incident-management/itsm-incident-use-case.html)>
 
@@ -13324,12 +13324,12 @@ Note: ServiceNow's Table API is generic — /api/now/table/{table} can query any
 
 Re-audited 2026-11-19 against: <https://www.servicenow.com/docs/api/khub/maps/q4dSP2Icgr1SFv5wanVXvQ/topics/rJ9NSvcVJopY2MEdpkyvcw/content>
 
-- [ ] `Journal entries: comments and work notes (GET /api/now/table/sys_journal_field)` — Comments and work notes on incidents, changes and requested items already synced; join on element_id and element to see the conversation and first-response times (high)
-- [ ] `CI relationships (GET /api/now/table/cmdb_rel_ci)` — Parent and child links between configuration items already synced; needed for impact and dependency analysis across incidents and changes (high)
+- [x] `Journal entries: comments and work notes (GET /api/now/table/sys_journal_field)` — Comments and work notes on incidents, changes and requested items already synced; join on element_id and element to see the conversation and first-response times (high)
+- [x] `CI relationships (GET /api/now/table/cmdb_rel_ci)` — Parent and child links between configuration items already synced; needed for impact and dependency analysis across incidents and changes (high)
 - [ ] `Catalog items (GET /api/now/table/sc_cat_item)` — Lookup for the catalog item referenced on requested_items and catalog_tasks, so request volume can be grouped by item (medium)
 - [ ] `Approvals (GET /api/now/table/sysapproval_approver)` — Approver, state and decision time for change requests and requested items; shows approval delays (medium)
-- [ ] `Locations (GET /api/now/table/cmn_location)` — Lookup for the location field on users, assets and configuration items (medium)
-- [ ] `Companies (GET /api/now/table/core_company)` — Lookup for company references on users, assets and vendors (medium)
+- [x] `Locations (GET /api/now/table/cmn_location)` — Lookup for the location field on users, assets and configuration items (medium)
+- [x] `Companies (GET /api/now/table/core_company)` — Lookup for company references on users, assets and vendors (medium)
 - [ ] `User roles (GET /api/now/table/sys_user_has_role)` — Role grants per user; supports access audits next to the users table (low)
 
 Note (2026-11-19): Used the ServiceNow docs content API (khub) and confirmed each table name in a Zurich or Australia docs page: sys_journal_field (retrieving journal entries), cmdb_rel_ci (CI relationships in the CMDB), sc_cat_item (Service Catalog and CSDM tables), sysapproval_approver (approvals reference), cmn_location, core_company and sys_user_has_role. All use the generic Table API, so each is a one-line settings entry like the existing tables. sys_journal_field can be large, so use the sys_created_on cursor. Field-level audit history (sys_audit) and cmn_department were not confirmed in docs and are left out.
@@ -13531,13 +13531,13 @@ Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api
 
 Re-audited 2026-11-19 against: <https://help.sigmacomputing.com/llms.txt>
 
-- [ ] `Account types (GET /v2/accountTypes)` — Lookup for the account type on each member, for licence and seat reporting (high)
-- [ ] `Team members (GET /v2/teams/{teamId}/members)` — Membership join between teams and members, both already synced (high)
+- [x] `Account types (GET /v2/accountTypes)` — Lookup for the account type on each member, for licence and seat reporting (high, added here)
+- [x] `Team members (GET /v2/teams/{teamId}/members)` — Membership join between teams and members, both already synced (high, added here)
 - [ ] `Workbook schedules (GET /v2/workbooks/{workbookId}/schedules)` — Scheduled exports and alerts per workbook, with owner and cadence (medium)
 - [ ] `Workbook tags (GET /v2/workbooks/{workbookId}/tags)` — Tags per workbook, for governance and certification reporting (medium)
-- [ ] `Workbook sources (GET /v2/workbooks/{workbookId}/sources)` — Which data models and tables each workbook reads, for lineage (medium)
+- [x] `Workbook sources (GET /v2/workbooks/{workbookId}/sources)` — Which data models and tables each workbook reads, for lineage (medium, added here)
 - [ ] `Data model sources (GET /v2/dataModels/{dataModelId}/sources)` — Upstream connections and tables of each data model, for lineage (medium)
-- [ ] `Data model elements (GET /v2/dataModels/{dataModelId}/elements)` — Elements inside each data model, like the workbook elements table (medium)
+- [x] `Data model elements (GET /v2/dataModels/{dataModelId}/elements)` — Elements inside each data model, like the workbook elements table (medium, added here)
 - [ ] `Workbook materialization schedules (GET /v2/workbooks/{workbookId}/materialization-schedules)` — Materialization cadence per workbook, for warehouse cost review (low)
 - [ ] `User attributes (GET /v2/user-attributes)` — Attribute definitions used for row-level security (low)
 - [ ] `Workbook version history (GET /v2/workbooks/{workbookId}/version-history)` — Change history of each workbook, with author and time (low)
@@ -13640,16 +13640,16 @@ Re-audited 2026-11-19 against <https://developer.simplesat.io/api/Simplesat%20AP
 
 ## Simpro — gaps
 
-Today (16): `catalog_items`, `company_customers`, `contacts`, `cost_centers`, `credit_notes`, `customer_payments`, `employees`, `individual_customers`, `invoices`, `jobs`, `leads`, `quotes`, `schedules`, `sites`, `vendor_orders`, `vendors`
+Today (19): `catalog_items`, `company_customers`, `contacts`, `cost_centers`, `credit_notes`, `customer_assets`, `customer_payments`, `employees`, `individual_customers`, `invoices`, `jobs`, `leads`, `payment_methods`, `project_status_codes`, `quotes`, `schedules`, `sites`, `vendor_orders`, `vendors`
 
 Diffed against: <https://raw.githubusercontent.com/jezweb/simpro-api-docs/main/swagger.json>
 
-- [ ] `Project status codes (GET /api/v1.0/companies/{companyID}/setup/statusCodes/projects/)` — Lookup for the status on jobs, quotes and leads, so statuses are readable (high)
-- [ ] `Employee timesheets (GET /api/v1.0/companies/{companyID}/employees/{employeeID}/timesheets/)` — Hours worked per employee, for labour cost and utilisation; fan-out over employees (high)
-- [ ] `Payment methods (GET /api/v1.0/companies/{companyID}/setup/accounts/paymentMethods/)` — Lookup for the payment method on customer payments (medium)
+- [x] `Project status codes (GET /api/v1.0/companies/{companyID}/setup/statusCodes/projects/)` — Lookup for the status on jobs, quotes and leads, so statuses are readable (high) → `project_status_codes` (full refresh)
+- [ ] `Employee timesheets (GET /api/v1.0/companies/{companyID}/employees/{employeeID}/timesheets/)` — Hours worked per employee, for labour cost and utilisation; fan-out over employees (high) Skipped: the scheduled hours per employee are already in `schedules` (Staff, Date, Blocks with start, end and hours). The timesheet route has no row ID and no paging, and its date range defaults to today, so a table needs one request per employee and date window.
+- [x] `Payment methods (GET /api/v1.0/companies/{companyID}/setup/accounts/paymentMethods/)` — Lookup for the payment method on customer payments (medium) → `payment_methods` (full refresh)
 - [ ] `Job notes (GET /api/v1.0/companies/{companyID}/notes/jobs/)` — Notes on jobs; company-wide list, no fan-out needed. Customer notes are at /notes/customers/ (medium)
 - [ ] `Customer contracts (GET /api/v1.0/companies/{companyID}/customerContracts/)` — Service contracts per customer, for recurring revenue questions (medium)
-- [ ] `Customer assets (GET /api/v1.0/companies/{companyID}/customerAssets/)` — Assets installed at customer sites, for maintenance work (medium)
+- [x] `Customer assets (GET /api/v1.0/companies/{companyID}/customerAssets/)` — Assets installed at customer sites, for maintenance work (medium) → `customer_assets` (full refresh, active and archived passes)
 - [ ] `Vendor receipts (GET /api/v1.0/companies/{companyID}/vendorReceipts/)` — Goods received against vendor orders, which pairs with vendor_orders (medium)
 - [ ] `Customer tags and project tags (GET /api/v1.0/companies/{companyID}/setup/tags/customers/; GET /api/v1.0/companies/{companyID}/setup/tags/projects/)` — Tag lookups for segmenting customers and jobs (low)
 - [ ] `Customer groups (GET /api/v1.0/companies/{companyID}/setup/customerGroups/)` — Lookup for the customer group on customers (low)
@@ -14267,15 +14267,15 @@ Note: The swagger.json is public at https://api.stackoverflowteams.com/v3/swagge
 
 ## Statsig — gaps
 
-Today (8): `audit_logs`, `dynamic_configs`, `experiments`, `gates`, `layers`, `metrics`, `segments`, `users`
+Today (12): `audit_logs`, `autotunes`, `dynamic_configs`, `experiments`, `gates`, `holdouts`, `layers`, `metrics`, `param_stores`, `segments`, `teams`, `users`
 
 Diffed against: <https://api.statsig.com/openapi/20240601.json>
 
-- [ ] `Holdouts (GET /console/v1/holdouts)` — holdout definitions and population percentages, to explain why users are excluded from experiments and gates we already sync (high)
-- [ ] `Teams (GET /console/v1/users/teams)` — lookup for team ownership carried on gates, experiments, layers and segments (high)
+- [x] `Holdouts (GET /console/v1/holdouts)` — holdout definitions and population percentages, to explain why users are excluded from experiments and gates we already sync (high)
+- [x] `Teams (GET /console/v1/users/teams)` — lookup for team ownership carried on gates, experiments, layers and segments (high)
 - [ ] `Tags (GET /console/v1/tags)` — lookup for the tags carried on gates, experiments and other entities (medium)
-- [ ] `Param stores (GET /console/v1/param_stores)` — remote parameter stores that map parameters to gates and experiments (medium)
-- [ ] `Autotunes (GET /console/v1/autotunes)` — bandit experiments, a sibling of the experiments table (medium)
+- [x] `Param stores (GET /console/v1/param_stores)` — remote parameter stores that map parameters to gates and experiments (medium)
+- [x] `Autotunes (GET /console/v1/autotunes)` — bandit experiments, a sibling of the experiments table (medium)
 - [ ] `Events (GET /console/v1/events)` — catalog of logged event names, to join metric definitions to event sources (medium)
 - [ ] `Release pipelines (GET /console/v1/release_pipelines)` — staged rollout definitions attached to gates (low)
 - [ ] `Unit ID types (GET /console/v1/unit_id_types)` — lookup for the ID type used by gates, experiments and layers (low)
