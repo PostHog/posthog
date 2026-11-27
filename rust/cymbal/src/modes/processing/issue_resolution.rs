@@ -298,21 +298,15 @@ impl Issue {
         let reopened: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
             r#"
             UPDATE posthog_errortrackingissue AS issue
-            SET status = 'active',
-                auto_resolved = false,
-                auto_resolve_sync_requested_at = CASE WHEN before.auto_resolved
-                    THEN clock_timestamp() ELSE issue.auto_resolve_sync_requested_at END
+            SET status = 'active'
             FROM (
-                SELECT id, status, auto_resolved FROM posthog_errortrackingissue
-                WHERE id = $1 AND team_id = $2 FOR UPDATE
+                SELECT id, status FROM posthog_errortrackingissue WHERE id = $1 FOR UPDATE
             ) AS before
-            WHERE issue.id = before.id AND issue.team_id = $2
-                AND before.status NOT IN ('active', 'suppressed')
+            WHERE issue.id = before.id AND before.status NOT IN ('active', 'suppressed')
             RETURNING before.status, issue.name, issue.severity
             "#,
         )
         .bind(self.id)
-        .bind(self.team_id)
         .fetch_optional(executor)
         .await?;
 
@@ -886,15 +880,11 @@ mod test {
             super::Issue::insert_new(1, "TypeError".to_string(), String::new(), None, &pool)
                 .await
                 .unwrap();
-        sqlx::query(
-            "UPDATE posthog_errortrackingissue
-             SET status = 'resolved', name = 'Updated issue', severity = 'high', auto_resolved = true
-             WHERE id = $1",
-        )
-        .bind(issue.id)
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved', name = 'Updated issue', severity = 'high' WHERE id = $1")
+            .bind(issue.id)
+            .execute(&pool)
+            .await
+            .unwrap();
         issue.status = super::IssueStatus::Resolved;
         // A second writer that read the issue before the first reopened it.
         let mut stale = issue.clone();
@@ -907,17 +897,6 @@ mod test {
         assert_eq!(issue.name.as_deref(), Some("Updated issue"));
         assert_eq!(issue.severity.as_deref(), Some("high"));
         assert_eq!(stale.reopen(&pool).await.unwrap(), None);
-        let (received, auto_resolved, sync_requested): (bool, bool, bool) = sqlx::query_as(
-            "SELECT last_received_at IS NOT NULL, auto_resolved, auto_resolve_sync_requested_at IS NOT NULL
-             FROM posthog_errortrackingissue WHERE id = $1",
-        )
-        .bind(issue.id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert!(!received);
-        assert!(!auto_resolved);
-        assert!(sync_requested);
 
         sqlx::query("UPDATE posthog_errortrackingissue SET status = 'suppressed' WHERE id = $1")
             .bind(issue.id)

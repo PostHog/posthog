@@ -521,11 +521,7 @@ async fn issue_receipt_reopens_after_sweep_wins_issue_lock(db: PgPool) {
         .fetch_one(&mut *sweep)
         .await
         .unwrap();
-    sqlx::query(
-        "UPDATE posthog_errortrackingissue
-         SET status = 'resolved', auto_resolved = true, auto_resolve_sync_requested_at = clock_timestamp()
-         WHERE id = $1",
-    )
+    sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved' WHERE id = $1")
         .bind(issue_id)
         .execute(&mut *sweep)
         .await
@@ -564,14 +560,8 @@ async fn issue_receipt_reopens_after_sweep_wins_issue_lock(db: PgPool) {
     assert!(status.is_success());
     assert_eq!(body.take_properties().issue_id(), issue_id);
 
-    let (status, receipt, auto_resolved, sync_requested_at): (
-        String,
-        DateTime<Utc>,
-        bool,
-        DateTime<Utc>,
-    ) = sqlx::query_as(
-        "SELECT status, last_received_at, auto_resolved, auto_resolve_sync_requested_at
-         FROM posthog_errortrackingissue WHERE id = $1",
+    let (status, receipt): (String, DateTime<Utc>) = sqlx::query_as(
+        "SELECT status, last_received_at FROM posthog_errortrackingissue WHERE id = $1",
     )
     .bind(issue_id)
     .fetch_one(&db)
@@ -579,8 +569,6 @@ async fn issue_receipt_reopens_after_sweep_wins_issue_lock(db: PgPool) {
     .unwrap();
     assert_eq!(status, "active");
     assert!(receipt >= sweep_commit_starts_at);
-    assert!(!auto_resolved);
-    assert!(sync_requested_at >= receipt);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
