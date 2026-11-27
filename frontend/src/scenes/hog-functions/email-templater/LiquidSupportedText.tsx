@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { editor } from 'monaco-editor'
 
 import {
     CyclotronJobTemplateSuggestionsButton,
@@ -19,13 +20,16 @@ export function LiquidSupportedText({
     globals,
     placeholder,
     plain,
+    onEditorMount: onEditorMountProp,
 }: {
     value: string
     onChange: (value?: string) => void
     globals: any
     placeholder?: string
-    /** Shows the value in the page font, so it reads as a text field rather than code. */
+    /** Shows the value in the page font, so it reads as a text field rather than code. The caller renders the variable button. */
     plain?: boolean
+    /** Lets a caller that renders its own variable button track where the cursor is. */
+    onEditorMount?: (editorInstance: editor.IStandaloneCodeEditor) => void
 }): JSX.Element {
     const { templatingEngine } = useValues(emailTemplaterLogic)
     const { setTemplatingEngine } = useActions(emailTemplaterLogic)
@@ -35,7 +39,6 @@ export function LiquidSupportedText({
 
     const suggestions = (
         <CyclotronJobTemplateSuggestionsButton
-            size={plain ? 'xsmall' : 'small'}
             templating={templatingEngine}
             setTemplatingEngine={setTemplatingEngine}
             value={value}
@@ -48,7 +51,7 @@ export function LiquidSupportedText({
     )
 
     return (
-        <span className={clsx('flex grow group relative justify-between', plain && 'items-center gap-1')}>
+        <span className={clsx('flex grow group relative justify-between', plain && 'items-center')}>
             {plain ? null : (
                 <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
                     {suggestions}
@@ -79,7 +82,7 @@ export function LiquidSupportedText({
                     value={value}
                     language={templating === 'hog' ? 'hogTemplate' : 'liquid'}
                     onChange={onChange}
-                    onMount={onEditorMount}
+                    onMount={onEditorMountProp ?? onEditorMount}
                     allowManualResize={!plain}
                     {...(plain ? { minHeight: '34px', maxHeight: '34px' } : {})}
                     options={
@@ -103,11 +106,6 @@ export function LiquidSupportedText({
                     }
                 />
             </div>
-            {plain ? (
-                <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                    {suggestions}
-                </span>
-            ) : null}
         </span>
     )
 }
