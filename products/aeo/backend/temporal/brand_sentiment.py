@@ -43,6 +43,7 @@ from products.aeo.backend.sentiment import (
     UNSCORABLE,
     AnswerSentiment,
     BrandSentence,
+    MentionSpan,
     SentenceSentiment,
     aggregate_sentiment,
     brand_sentences,
@@ -182,14 +183,14 @@ class _PendingBrands:
     unscorable: list[str]
 
 
-def _mention_spans(answer_text: str, mentions: list[dict[str, Any]]) -> list[tuple[int, int]]:
+def _mention_spans(answer_text: str, mentions: list[dict[str, Any]]) -> list[MentionSpan]:
     """The mentions the row stored, as spans of the answer. A span whose text no longer reads as the stored
     surface is left out, so a sentence is never picked for a mention it does not hold."""
-    spans = []
+    spans: list[MentionSpan] = []
     for mention in mentions:
         start, surface = mention.get("start"), mention.get("surface")
         if isinstance(start, int) and surface and answer_text[start : start + len(surface)] == surface:
-            spans.append((start, start + len(surface)))
+            spans.append(MentionSpan(start=start, end=start + len(surface)))
     return spans
 
 

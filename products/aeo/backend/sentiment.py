@@ -43,6 +43,14 @@ class BrandSentence:
 
 
 @frozen
+class MentionSpan:
+    """Where a stored mention sits in the answer text, as offsets in Unicode code points."""
+
+    start: int
+    end: int
+
+
+@frozen
 class SentenceSentiment:
     start: int
     end: int
@@ -55,24 +63,22 @@ def brand_sentences(answer_text: str | None, target_domains: list[str]) -> list[
     return matching_sentences(answer_text, brand_pattern(target_domains))
 
 
-def mention_sentences(answer_text: str | None, spans: Iterable[tuple[int, int]]) -> list[BrandSentence]:
+def mention_sentences(answer_text: str | None, spans: Iterable[MentionSpan]) -> list[BrandSentence]:
     """The sentences of an answer that hold one of the mention spans, in order, trimmed and bounded.
 
-    `spans` are (start, end) offsets in Unicode code points, as `AEOCheckBrand.mentions` stores them. A break
+    `spans` come from the offsets `AEOCheckBrand.mentions` stores. A break
     inside a mention, or right after punctuation that ends one, does not end the sentence, so `Dr. Martens is
     fast.` and `Yahoo! is fast.` each stay one sentence with their brand in it."""
-    mentions = sorted(spans)
+    mentions = sorted(spans, key=lambda span: (span.start, span.end))
     if not answer_text or not mentions:
         return []
 
     def in_mention(position: int) -> bool:
-        return any(start <= position < end for start, end in mentions)
+        return any(span.start <= position < span.end for span in mentions)
 
     return _sentences(
         answer_text,
-        wanted=lambda start, end: any(
-            start < mention_end and mention_start < end for mention_start, mention_end in mentions
-        ),
+        wanted=lambda start, end: any(start < span.end and span.start < end for span in mentions),
         # The break's first character follows the punctuation that ends the sentence.
         breaks_at=lambda break_start, break_end: not in_mention(break_start - 1) and not in_mention(break_start),
     )

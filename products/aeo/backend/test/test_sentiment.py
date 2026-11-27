@@ -6,6 +6,7 @@ from products.aeo.backend.sentiment import (
     MAX_SENTENCE_CHARS,
     AnswerSentiment,
     BrandSentence,
+    MentionSpan,
     SentenceSentiment,
     aggregate_sentiment,
     brand_sentences,
@@ -97,8 +98,8 @@ def test_sentence_sentiment_keeps_the_span_and_labels_with_the_neutral_margin(
     assert sentence_sentiment(sentence, scores) == SentenceSentiment(start=4, end=20, label=label, score=score)
 
 
-def _spans(answer: str, *surfaces: str) -> list[tuple[int, int]]:
-    return [(answer.index(surface), answer.index(surface) + len(surface)) for surface in surfaces]
+def _spans(answer: str, *surfaces: str) -> list[MentionSpan]:
+    return [MentionSpan(start=answer.index(surface), end=answer.index(surface) + len(surface)) for surface in surfaces]
 
 
 @pytest.mark.parametrize(
