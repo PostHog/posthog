@@ -16085,10 +16085,10 @@ Today (12): `account_stats_by_date`, `captions`, `channel_episodes`, `channels`,
 
 Diffed against: <https://docs.wistia.com/llms.txt>
 
-- [ ] `Webinar registrations (GET /webinars/{webinarId}/registrations)` — who registered for each synced webinar; fan-out under webinars (high)
-- [ ] `Media stats by date (GET /stats/medias/{mediaId}/by_date)` — daily plays, load and hours watched per video; media_stats only has lifetime totals (high)
-- [ ] `Media analytics timeseries (GET /analytics/medias/{mediaId}/timeseries)` — newer analytics API time series per video (medium)
-- [ ] `Speakers (GET /speakers)` — speakers detected in media transcripts (medium)
+- [x] `Webinar registrations (GET /webinars/{webinarId}/registrations)` — who registered for each synced webinar; fan-out under webinars (high)
+- [x] `Media stats by date (GET /stats/medias/{mediaId}/by_date)` — daily plays, load and hours watched per video; media_stats only has lifetime totals (high)
+- [x] `Media analytics timeseries (GET /analytics/medias/{mediaId}/timeseries)` — newer analytics API time series per video (medium)
+- [x] `Speakers (GET /speakers)` — speakers detected in media transcripts (medium)
 - [ ] `Folder sharings (GET /folders/{folderId}/sharings)` — who has access to each synced folder; fan-out under folders (medium)
 - [ ] `Brands (GET /brands)` — saved branding sets on the account (low)
 - [ ] `Deleted media (GET /deleted_media)` — media removed from the account, useful for audit (low)
