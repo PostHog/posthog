@@ -78200,6 +78200,46 @@ export namespace Schemas {
       layout: NotebookAppLayout;
     }
 
+    export interface NotebookAppRefreshHistory {
+      revision: number;
+      due_at: string;
+      /** @nullable */
+      finished_at: string | null;
+      status: string;
+      detail: string;
+      output_count: number;
+    }
+
+    export interface NotebookAppRefreshedOutput {
+      /** @nullable */
+      columns?: string[] | null;
+      results: unknown[][];
+      /** @nullable */
+      types?: string[][] | null;
+      /** @nullable */
+      hasMore?: boolean | null;
+    }
+
+    export type NotebookAppRefreshOutputsOutputs = {[key: string]: NotebookAppRefreshedOutput};
+
+    export interface NotebookAppRefreshOutputs {
+      revision: number;
+      outputs: NotebookAppRefreshOutputsOutputs;
+    }
+
+    export interface NotebookAppRefreshStatus {
+      published_revision: number;
+      enabled: boolean;
+      revision?: number;
+      interval_minutes?: number;
+      freshness_minutes?: number;
+      next_due_at?: string;
+      /** @nullable */
+      last_success_at?: string | null;
+      stale?: boolean;
+      history: NotebookAppRefreshHistory[];
+    }
+
     export interface NotebookAppRelease {
       revision: number;
       /** @nullable */
@@ -78219,6 +78259,28 @@ export namespace Schemas {
       problems: string[];
       /** @nullable */
       results_as_of: string | null;
+    }
+
+    export interface NotebookAppScheduleSettings {
+      /**
+         * Published revision to refresh.
+         * @minimum 0
+         */
+      revision: number;
+      /** Whether this schedule runs. */
+      enabled: boolean;
+      /**
+         * Minutes between scheduled refreshes.
+         * @minimum 60
+         * @maximum 10080
+         */
+      interval_minutes?: number;
+      /**
+         * Maximum acceptable result age, in minutes.
+         * @minimum 60
+         * @maximum 43200
+         */
+      freshness_minutes?: number;
     }
 
     export interface NotebookAppWidgetSlot {

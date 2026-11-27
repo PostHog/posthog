@@ -11,10 +11,11 @@ import { cn } from 'lib/utils/css-classes'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
-import type { NotebookAppReleaseApi } from '../generated/api.schemas'
+import type { NotebookAppRefreshOutputsApiOutputs, NotebookAppReleaseApi } from '../generated/api.schemas'
 import { WidgetFrameSessionContext } from '../NotebookNodeGeneratedWidget/widgetFrameSession'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { appSourceCells } from './notebookAppLayout'
+import { NotebookAppRefreshPanel } from './NotebookAppRefreshPanel'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
@@ -51,6 +52,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
     const { variables, results, nativeOutputIds, publishedResults, refreshFailed: error } = useValues(logic)
     const { changeInput } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
+    const [scheduled, setScheduled] = useState<NotebookAppRefreshOutputsApiOutputs>({})
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
     const chartInputFilters = Object.fromEntries(
         variables.map((v) => [
@@ -70,6 +72,9 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
         >
             <h1>{layout.title || release.title || 'Untitled app'}</h1>
             {layout.description && <p>{layout.description}</p>}
+            {!viewer.draft && (
+                <NotebookAppRefreshPanel shortId={shortId} revision={release.revision} onOutputs={setScheduled} />
+            )}
             <PublishedNotebookAppControls viewer={viewer} release={release} cells={cells} />
             {results?.variables.some(
                 (variable) =>
@@ -125,6 +130,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                                 draft={!!viewer.draft}
                                 current={results?.outputs[cell.id]}
                                 pinned={publishedResults[cell.id]}
+                                scheduled={scheduled[cell.id]}
                                 chartInputFilters={chartInputFilters}
                             />
                         ) : (

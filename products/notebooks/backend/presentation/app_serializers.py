@@ -153,3 +153,59 @@ class NotebookAppLayoutField(serializers.JSONField):
         serializer = NotebookAppLayoutSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
+
+
+class NotebookAppScheduleSettingsSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(min_value=0, help_text="Published revision to refresh.")
+    enabled = serializers.BooleanField(help_text="Whether this schedule runs.")
+    interval_minutes = serializers.IntegerField(
+        min_value=60, max_value=10080, default=1440, help_text="Minutes between scheduled refreshes."
+    )
+    freshness_minutes = serializers.IntegerField(
+        min_value=60, max_value=43200, default=1440, help_text="Maximum acceptable result age, in minutes."
+    )
+
+    def validate(self, attrs):
+        if attrs["freshness_minutes"] < attrs["interval_minutes"]:
+            raise serializers.ValidationError(
+                {"freshness_minutes": "Choose a maximum age at least as long as the refresh interval."}
+            )
+        return attrs
+
+
+class NotebookAppRefreshHistorySerializer(serializers.Serializer):
+    revision = serializers.IntegerField()
+    due_at = serializers.DateTimeField()
+    finished_at = serializers.DateTimeField(allow_null=True)
+    status = serializers.CharField()
+    detail = serializers.CharField(allow_blank=True)
+    output_count = serializers.IntegerField()
+
+
+class NotebookAppRefreshStatusSerializer(serializers.Serializer):
+    published_revision = serializers.IntegerField()
+    enabled = serializers.BooleanField()
+    revision = serializers.IntegerField(required=False)
+    interval_minutes = serializers.IntegerField(required=False)
+    freshness_minutes = serializers.IntegerField(required=False)
+    next_due_at = serializers.DateTimeField(required=False)
+    last_success_at = serializers.DateTimeField(required=False, allow_null=True)
+    stale = serializers.BooleanField(required=False)
+    history = NotebookAppRefreshHistorySerializer(many=True)
+
+    def to_representation(self, instance):
+        return {key: value for key, value in super().to_representation(instance).items() if value is not None}
+
+
+class NotebookAppRefreshedOutputSerializer(serializers.Serializer):
+    columns = serializers.ListField(child=serializers.CharField(), allow_null=True, required=False)
+    results = serializers.ListField(child=serializers.ListField(child=serializers.JSONField()))
+    types = serializers.ListField(
+        child=serializers.ListField(child=serializers.CharField()), allow_null=True, required=False
+    )
+    hasMore = serializers.BooleanField(required=False, allow_null=True)
+
+
+class NotebookAppRefreshOutputsSerializer(serializers.Serializer):
+    revision = serializers.IntegerField()
+    outputs = serializers.DictField(child=NotebookAppRefreshedOutputSerializer())

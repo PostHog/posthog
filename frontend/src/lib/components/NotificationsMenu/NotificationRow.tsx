@@ -33,6 +33,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Approvals resolved',
         description: 'When an approval you requested is decided',
     },
+    notebook_app_refresh: {
+        label: 'Notebook app refreshes',
+        description: 'A scheduled notebook app refresh failed or its results are stale.',
+    },
     pipeline_failure: {
         label: 'Pipeline failures',
         description: 'When a data pipeline or batch export fails',

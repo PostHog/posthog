@@ -98,6 +98,52 @@ class NotebookAppRelease(TeamScopedRootMixin, UUIDModel):
         constraints = [models.UniqueConstraint(fields=["notebook", "revision"], name="notebook_app_release_revision")]
 
 
+class NotebookAppSchedule(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    notebook = models.OneToOneField(Notebook, on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    owner = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    revision = models.PositiveIntegerField()
+    enabled = models.BooleanField(default=True)
+    interval_minutes = models.PositiveIntegerField()
+    freshness_minutes = models.PositiveIntegerField()
+    configured_at = models.DateTimeField(default=timezone.now)
+    next_due_at = models.DateTimeField()
+    last_success_at = models.DateTimeField(null=True)
+    stale_at = models.DateTimeField(null=True, db_index=True)
+    stale_notified = models.BooleanField(default=False)
+    outputs = models.JSONField(default=dict)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["next_due_at"], condition=models.Q(enabled=True), name="notebook_app_schedule_due")
+        ]
+
+
+class NotebookAppRefreshRun(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    schedule = models.ForeignKey(NotebookAppSchedule, on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    revision = models.PositiveIntegerField()
+    due_at = models.DateTimeField()
+    started_at = models.DateTimeField(null=True)
+    finished_at = models.DateTimeField(null=True)
+    owner_id = models.BigIntegerField(null=True)
+    dispatched_at = models.DateTimeField(null=True)
+    failure_notification_pending = models.BooleanField(default=False)
+    status = models.CharField(max_length=12, choices=Status, default=Status.QUEUED)
+    detail = models.CharField(max_length=200, blank=True)
+    output_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["schedule", "due_at"], name="notebook_app_refresh_slot")]
+        indexes = [models.Index(fields=["status", "due_at"], name="notebook_app_run_dispatch")]
+
+
 RELATED_OBJECTS = ("group", "account")
 
 
