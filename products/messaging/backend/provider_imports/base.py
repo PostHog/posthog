@@ -153,6 +153,7 @@ class SavedPage:
     people_imports: tuple[PeopleImportPlan, ...] = ()
     # Fails the step after the page's own writes commit, and leaves the step's progress as it was.
     error: str | None = None
+    skipped: bool = False
 
 
 @frozen
