@@ -101,7 +101,12 @@ function headline(door: AdventDoor): { title: string; detail: string | null } {
 function AdventCardText({ door, withRaffle }: { door: AdventDoor; withRaffle: boolean }): JSX.Element {
     const { title, detail } = headline(door)
     return (
-        <div className="AdventCard__fade flex min-w-0 flex-1 flex-col gap-0.5">
+        <div
+            className={cn(
+                'AdventCard__fade flex min-w-0 flex-1 flex-col gap-0.5',
+                withRaffle && 'max-h-full self-stretch overflow-y-auto'
+            )}
+        >
             {door.day !== ADVENT_LAST_DAY && (
                 <span className="text-[11px] text-secondary" translate="no">
                     {adventWeekday(door.day)}
@@ -151,7 +156,12 @@ export function AdventDoorCard({
             onMouseLeave={onMouseLeave}
         >
             <div
-                className={cn('flex gap-3', isLeftward && 'flex-row-reverse', facesDown ? 'items-end' : 'items-start')}
+                className={cn(
+                    'flex gap-3',
+                    isLeftward && 'flex-row-reverse',
+                    facesDown ? 'items-end' : 'items-start',
+                    detailsBesideFace && 'min-h-0'
+                )}
             >
                 <AdventDoorFace
                     door={door}
