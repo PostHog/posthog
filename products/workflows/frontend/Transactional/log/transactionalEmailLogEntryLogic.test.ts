@@ -38,6 +38,7 @@ const CLICK = {
     session: null,
     no_session_reason: 'not_found',
 }
+const UNLINKED_CLICK = { ...CLICK, link_url: null, event_uuid: null, no_session_reason: 'link_unknown' }
 const ACTIVITY = {
     before: [{ uuid: 'ev-1' }],
     after: [],
@@ -56,6 +57,7 @@ describe('transactionalEmailLogEntryLogic', () => {
     let failing: Set<Endpoint>
     let served: Endpoint[]
     let othersQuery: Record<string, string> | null
+    let activity: [number, unknown]
 
     const serve = (endpoint: Endpoint, answer: () => [number, unknown]): [number, unknown] => {
         served.push(endpoint)
@@ -77,12 +79,13 @@ describe('transactionalEmailLogEntryLogic', () => {
         failing = new Set()
         served = []
         othersQuery = null
+        activity = [200, ACTIVITY]
         useMocks({
             get: {
                 [`${LOG}:id/`]: ({ params }) =>
                     serve('detail', () => (sends[params.id as string] ? [200, sends[params.id as string]] : [404, {}])),
                 [`${LOG}:id/activity/`]: ({ params }) =>
-                    serve('activity', () => (sends[params.id as string] ? [200, ACTIVITY] : [404, {}])),
+                    serve('activity', () => (sends[params.id as string] ? activity : [404, {}])),
                 [LOG]: ({ request }) => {
                     othersQuery = Object.fromEntries(new URL(request.url).searchParams)
                     return serve('otherEmails', () => [200, { has_more: false, results: OTHERS }])
@@ -123,6 +126,25 @@ describe('transactionalEmailLogEntryLogic', () => {
         expect(logic.values.afterExpanded).toBe(true)
     })
 
+    const timelineFlag = (on: boolean): void => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(on ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] : [], {
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE]: on,
+        })
+    }
+
+    const sendWithoutPerson = (clicked: boolean): void => {
+        sends['msg-9'] = {
+            ...SEND,
+            message_id: 'msg-9',
+            distinct_id: '',
+            recipient: '',
+            clicked,
+            timeline: clicked ? [{ kind: 'clicked', at: SENT, reason: null }] : [],
+        } as TransactionalEmailLogDetailApi
+        activity = [200, { ...ACTIVITY, before: [], has_more_before: false, clicks: clicked ? [UNLINKED_CLICK] : [] }]
+    }
+
     it.each([
         ['an unclicked send', false, true, ['detail'], []],
         ['a clicked send without the timeline', true, false, ['detail'], null],
@@ -130,23 +152,42 @@ describe('transactionalEmailLogEntryLogic', () => {
     ])(
         'loads for %s with no distinct id or recipient only what its clicks need',
         async (_name, clicked, timeline, endpoints, outcomeKinds) => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags(timeline ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] : [], {
-                [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE]: timeline,
-            })
-            sends['msg-9'] = {
-                ...SEND,
-                message_id: 'msg-9',
-                distinct_id: '',
-                recipient: '',
-                clicked,
-                timeline: [],
-            }
+            timelineFlag(timeline)
+            sendWithoutPerson(clicked)
             await open('msg-9')
             expect(served).toEqual(endpoints)
             expect(logic.values.outcomeRows?.map((row) => row.kind) ?? null).toEqual(outcomeKinds)
         }
     )
+
+    it('loads the clicks of a send with no distinct id once the timeline turns on', async () => {
+        timelineFlag(false)
+        sendWithoutPerson(true)
+        await open('msg-9')
+        timelineFlag(true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(served).toEqual(['detail', 'activity'])
+        expect(logic.values.outcomeRows?.map((row) => row.kind)).toEqual(['click'])
+    })
+
+    it.each([
+        ['a click that came after the send loaded', false, ACTIVITY, ['click']],
+        ['an activity response that predates clicks', true, { before: [], after: [] }, []],
+    ])('lists what the activity found for %s', async (_name, clicked, response, outcomeKinds) => {
+        sends['msg-1'] = { ...SEND, clicked, timeline: [] } as TransactionalEmailLogDetailApi
+        activity = [200, response]
+        await open('msg-1')
+        expect(logic.values.outcomeRows?.map((row) => row.kind)).toEqual(outcomeKinds)
+    })
+
+    it.each([
+        [403, true],
+        [500, false],
+    ])('marks an activity answered with %s as denied: %s', async (status, denied) => {
+        activity = [status, { detail: 'no' }]
+        await open('msg-1')
+        expect(logic.values).toMatchObject({ activityFailed: true, activityDenied: denied })
+    })
 
     it('tells a send that does not exist apart from one that failed to load', async () => {
         await open('missing')

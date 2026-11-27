@@ -49,28 +49,61 @@ describe('emailClicks', () => {
         expect(rows[2]).toMatchObject({ link: click.link_url, session: SESSION })
     })
 
-    it.each([
-        ['went out without a stored copy', ['queued', 'sent', 'clicked'], true],
-        ['failed before it went out', ['queued', 'failed'], false],
-    ])('shows what a send led to when it %s', (_name, kinds, shown) => {
+    it('puts each step in time order and links only the event at its time', () => {
         const email = {
-            timeline: kinds.map((kind) => ({ kind, at: '2026-06-15T09:00:00Z', reason: null })),
-            action_id: '',
-        } as TransactionalEmailLogDetailApi
+            timeline: [
+                { kind: 'delivered', at: '2026-06-15T09:00:02Z', reason: null },
+                { kind: 'clicked', at: '2026-06-15T09:05:00Z', reason: null },
+                { kind: 'opened', at: '2026-06-15T09:30:00Z', reason: null },
+            ],
+        } satisfies Pick<TransactionalEmailLogDetailApi, 'timeline'>
+        const click = {
+            at: '2026-06-15T09:05:00Z',
+            link_url: null,
+            event_uuid: null,
+            session: null,
+            no_session_reason: 'link_unknown' as const,
+        }
 
-        expect(emailWentOut(email)).toBe(shown)
+        const rows = emailOutcomeRows(
+            email,
+            [click],
+            [
+                { uuid: 'delivered-event', event: '$workflows_email_delivered', timestamp: '2026-06-15T09:00:02.000Z' },
+                { uuid: 'later-open', event: '$workflows_email_opened', timestamp: '2026-06-15T09:40:00Z' },
+            ]
+        )
+
+        expect(rows.map((row) => [row.kind, row.eventUuid])).toEqual([
+            ['delivered', 'delivered-event'],
+            ['click', null],
+            ['opened', null],
+        ])
+    })
+
+    it.each([
+        ['went out without a stored copy', ['queued', 'sent', 'clicked'] as const, true],
+        ['failed before it went out', ['queued', 'failed'] as const, false],
+    ])('shows what a send led to when it %s', (_name, kinds, shown) => {
+        const timeline = kinds.map((kind) => ({ kind, at: '2026-06-15T09:00:00Z', reason: null }))
+
+        expect(emailWentOut({ timeline })).toBe(shown)
     })
 
     it.each([
         ['https://app.example.com/billing?tab=plans', 'app.example.com/billing?tab=plans'],
         ['https://app.example.com', 'app.example.com'],
+        ['https://app.example.com/#/settings', 'app.example.com/#/settings'],
         ['not a url', 'not a url'],
     ])('labels the link %s as %s', (link, label) => {
         expect(linkLabel(link)).toBe(label)
     })
 
-    it('shows the landing page without the run tag', () => {
-        expect(landingPath(SESSION)).toBe('/billing?tab=plans')
+    it.each([
+        [SESSION.landing_url, '/billing?tab=plans'],
+        ['https://app.example.com/?ph_workflow_run=msg-1#/billing', '/#/billing'],
+    ])('shows the landing page %s without the run tag as %s', (landingUrl, path) => {
+        expect(landingPath({ ...SESSION, landing_url: landingUrl })).toBe(path)
     })
 
     it.each([

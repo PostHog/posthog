@@ -54,7 +54,7 @@ LIMIT 1`,
 
 export async function fetchSendActivity(projectId: number, messageId: string): Promise<SendActivity> {
     const activity = await transactionalEmailLogActivityRetrieve(String(projectId), messageId)
-    return { ...toPersonActivity(activity), clicks: activity.clicks, emailEvents: activity.email_events }
+    return { ...toPersonActivity(activity), clicks: activity.clicks ?? [], emailEvents: activity.email_events ?? [] }
 }
 
 export function toPersonActivity(activity: TransactionalEmailActivityApi): PersonActivity {

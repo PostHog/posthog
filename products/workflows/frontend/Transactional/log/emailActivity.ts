@@ -42,7 +42,6 @@ export interface PersonActivity {
     hasMoreAfter: boolean
 }
 
-/** A send's activity: the person's events, and each click on the email's links with the session it started. */
 export interface SendActivity extends PersonActivity {
     clicks: TransactionalEmailClickApi[]
     emailEvents: TransactionalEmailOwnEventApi[]

@@ -35,8 +35,17 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const showTimeline = useFeatureFlag('WORKFLOWS_EMAIL_SEND_TIMELINE')
     // The scene binds the logic to the message ID in the URL.
-    const { email, emailLoading, emailFailed, emailPageUrl, impactUrl, outcomeRows, activityFailed, activityLoading } =
-        useValues(transactionalEmailLogEntryLogic)
+    const {
+        email,
+        emailLoading,
+        emailFailed,
+        emailPageUrl,
+        impactUrl,
+        outcomeRows,
+        activityFailed,
+        activityDenied,
+        activityLoading,
+    } = useValues(transactionalEmailLogEntryLogic)
     const { loadEmail, loadActivity } = useActions(transactionalEmailLogEntryLogic)
 
     if (!showTransactional) {
@@ -103,6 +112,7 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                                 <TransactionalEmailClickTimeline
                                     rows={outcomeRows}
                                     failed={activityFailed && !activityLoading}
+                                    denied={activityDenied && !activityLoading}
                                     onRetry={loadActivity}
                                     clickTracking={email.tracking.clicks}
                                 />

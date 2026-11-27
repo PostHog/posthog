@@ -9,22 +9,28 @@ import { TransactionalEmailEventLink } from './TransactionalEmailEventLink'
 const STEP_LABEL = { delivered: 'Delivered', opened: 'Opened' }
 
 export interface TransactionalEmailClickTimelineProps {
-    /** Null while the clicks load. */
     rows: EmailOutcomeRow[] | null
     failed: boolean
+    denied: boolean
     onRetry: () => void
-    /** False when the email went out with click tracking off. */
     clickTracking: boolean
 }
 
 export function TransactionalEmailClickTimeline({
     rows,
     failed,
+    denied,
     onRetry,
     clickTracking,
 }: TransactionalEmailClickTimelineProps): JSX.Element {
     let content: JSX.Element
-    if (failed) {
+    if (rows === null && denied) {
+        content = (
+            <p className="text-sm text-secondary m-0">
+                You need access to persons and to querying events to see each click and the visit it started.
+            </p>
+        )
+    } else if (rows === null && failed) {
         content = (
             <LemonBanner
                 type="error"

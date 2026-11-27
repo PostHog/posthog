@@ -34,14 +34,16 @@ const OWN_EVENT: Record<'delivered' | 'opened', string> = {
     opened: '$workflows_email_opened',
 }
 
-/** Clicks and visits come from events, so a send that went out has them even when no copy of the email was kept. */
-export function emailWentOut(email: TransactionalEmailLogDetailApi): boolean {
+export function emailWentOut(email: Pick<TransactionalEmailLogDetailApi, 'timeline'>): boolean {
     return email.timeline.some((step) => step.kind === 'sent')
 }
 
-/** When the email was delivered and first opened, then each click with the session it started, oldest first. */
+function sameInstant(a: string, b: string): boolean {
+    return Date.parse(a) === Date.parse(b)
+}
+
 export function emailOutcomeRows(
-    email: TransactionalEmailLogDetailApi,
+    email: Pick<TransactionalEmailLogDetailApi, 'timeline'>,
     clicks: TransactionalEmailClickApi[],
     emailEvents: TransactionalEmailOwnEventApi[]
 ): EmailOutcomeRow[] {
@@ -49,7 +51,9 @@ export function emailOutcomeRows(
     for (const kind of ['delivered', 'opened'] as const) {
         const step = email.timeline.find((event) => event.kind === kind)
         if (step) {
-            const event = emailEvents.find((own) => own.event === OWN_EVENT[kind])
+            const event = emailEvents.find(
+                (own) => own.event === OWN_EVENT[kind] && sameInstant(own.timestamp, step.at)
+            )
             rows.push({ kind, key: kind, at: step.at, eventUuid: event?.uuid ?? null })
         }
     }
@@ -64,21 +68,19 @@ export function emailOutcomeRows(
             noSessionReason: click.no_session_reason,
         })
     )
-    return rows
+    return rows.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
 }
 
-/** The link without its scheme, such as `app.example.com/billing`. */
 export function linkLabel(link: string): string {
     try {
         const url = new URL(link)
-        const path = url.pathname === '/' ? '' : url.pathname
-        return `${url.host}${path}${url.search}`
+        const path = url.pathname === '/' && !url.search && !url.hash ? '' : url.pathname
+        return `${url.host}${path}${url.search}${url.hash}`
     } catch {
         return link
     }
 }
 
-/** What the session looked like, such as "Desktop · Chrome · Berlin · 4m 10s · 3 pages". */
 export function sessionSummary(session: TransactionalEmailClickSessionApi): string {
     return [
         session.device_type,
@@ -91,12 +93,11 @@ export function sessionSummary(session: TransactionalEmailClickSessionApi): stri
         .join(' · ')
 }
 
-/** The page the click landed on, without the run tag the link carried. */
 export function landingPath(session: TransactionalEmailClickSessionApi): string {
     try {
         const url = new URL(session.landing_url)
         url.searchParams.delete('ph_workflow_run')
-        return `${url.pathname}${url.search}`
+        return `${url.pathname}${url.search}${url.hash}`
     } catch {
         return session.landing_url
     }
