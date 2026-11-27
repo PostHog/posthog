@@ -430,56 +430,68 @@ describe('measurements', () => {
         const journal = [
             sent('plain-1', 1000, []),
             sent('files-1', 1000, ['a1b2c3']),
+            { ...offered('hook-1', 1000), expect: { deliveries: ['webhook'] } },
             sent('plain-2', 11_000, []),
             sent('files-2', 11_000, ['d4e5f6']),
         ]
         const truth = [
             record(1, 'plain-1', 1100),
             record(2, 'files-1', 3000),
-            record(3, 'plain-2', 11_250),
-            record(4, 'files-2', 17_000),
+            { ...webhook(3, 'hook-1'), at: new Date(FROM + 6000).toISOString() },
+            record(4, 'plain-2', 11_250),
+            record(5, 'files-2', 17_000),
         ]
-        const samples = [-5, 0, 5, 10, 15, 20].map((second, i) =>
-            withGauges(sample(second, -60, 1), 1, { deferrals: { at_cap: [0, 0, 0, 0, 2, 6][i], over_budget: 0 } })
+        const atCap = [0, 0, 0, 4, 4, 4, 8]
+        const overBudget = [0, 0, 0, 0, 1, 1, 1]
+        const samples = [-1, 3, 7, 11, 15, 19, 23].map((second, i) =>
+            withGauges(sample(second, -60, 1), 1, { deferrals: { at_cap: atCap[i], over_budget: overBudget[i] } })
         )
-        const ramp = evidence({
-            journal,
-            truth,
-            samples,
-            drive: { startedAt: atS(0), endedAt: atS(20) },
-            steps: [
-                { scale: 1, fromMs: 0, toMs: 10_000 },
-                { scale: 4, fromMs: 10_000, toMs: 20_000, only: ['transactional_email_files'] },
-            ],
-        })
+        const ramp = (rampJournal: JournalEntry[], rampTruth: TruthRecord[]): MeasureEvidence =>
+            evidence({
+                journal: rampJournal,
+                truth: rampTruth,
+                samples,
+                drive: { startedAt: atS(0), endedAt: atS(20) },
+                steps: [
+                    { scale: 1, fromMs: 0, toMs: 10_000 },
+                    { scale: 4, fromMs: 10_000, toMs: 20_000, only: ['transactional_email_files'] },
+                ],
+            })
         const names = ['step_delivery_latency_ms', 'step_attachment_deferrals_per_second', 'ramp_onset_scale']
-
-        expect(
+        const read = (rampEvidence: MeasureEvidence): object[] =>
             measure(
                 names.map((name) => ({ name, params: {} })),
-                ramp
+                rampEvidence
             ).map(({ unit: _unit, ...value }) => value)
-        ).toEqual([
+
+        expect(read(ramp(journal, truth))).toEqual([
             ...[
                 ['plain_p50_1x', 100],
-                ['plain_p99_1x', 100],
+                ['plain_p95_1x', 100],
                 ['files_p50_1x', 2000],
-                ['files_p99_1x', 2000],
+                ['files_p95_1x', 2000],
                 ['plain_p50_4x', 250],
-                ['plain_p99_4x', 250],
+                ['plain_p95_4x', 250],
                 ['files_p50_4x', 6000],
-                ['files_p99_4x', 6000],
+                ['files_p95_4x', 6000],
             ].map(([key, value]) => ({ name: 'step_delivery_latency_ms', key, value })),
             ...[
-                ['at_cap_1x', 0],
+                ['at_cap_1x', 0.3],
                 ['over_budget_1x', 0],
-                ['at_cap_4x', 0.6],
-                ['over_budget_4x', 0],
+                ['at_cap_4x', 0.2],
+                ['over_budget_4x', 0.1],
             ].map(([key, value]) => ({ name: 'step_attachment_deferrals_per_second', key, value })),
-            { name: 'ramp_onset_scale', key: 'at_cap', value: 4 },
-            { name: 'ramp_onset_scale', key: 'over_budget', value: null, censored: true },
-            { name: 'ramp_onset_scale', key: 'plain_p99_doubled', value: 4 },
+            { name: 'ramp_onset_scale', key: 'at_cap', value: 1, incomplete: true },
+            { name: 'ramp_onset_scale', key: 'over_budget', value: 4 },
+            { name: 'ramp_onset_scale', key: 'plain_p95_doubled', value: 4 },
         ])
+        expect(read(ramp(journal.slice(1), truth.slice(1))).at(-1)).toEqual({
+            name: 'ramp_onset_scale',
+            key: 'plain_p95_doubled',
+            value: null,
+            censored: true,
+            unmeasured: 'the first step delivered no plain send to compare the later steps with',
+        })
     })
 
     it('samples the process metrics a role serves at start and at stop', async () => {

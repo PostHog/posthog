@@ -26,8 +26,8 @@ const CALL_TIMEOUT_MS = 500
 
 type TestFile = { bytes: Buffer; sha256: string; sizeBytes: number; filename: string; contentType: string }
 
-const file = (): TestFile => {
-    const bytes = randomBytes(FILE_BYTES)
+const file = (sizeBytes = FILE_BYTES): TestFile => {
+    const bytes = randomBytes(sizeBytes)
     return {
         bytes,
         sha256: createHash('sha256').update(bytes).digest('hex'),
@@ -131,12 +131,14 @@ describe('the edge in front of the attachment store', () => {
     })
 
     test('holds one download for edge_accepted, says the store took it, and passes uploads and the next download', async () => {
-        const uploaded = file()
+        const uploaded = file(256 * 1024)
         const hold = edge.hold(heldAnswerRule({ channel: 's3' }))
         await upload(uploaded)
 
-        const held = load(uploaded, AbortSignal.timeout(CALL_TIMEOUT_MS)).catch((error: unknown) => error)
+        const abort = new AbortController()
+        const held = load(uploaded, abort.signal).catch((error: unknown) => error)
         const accepted = await hold.accepted!(AbortSignal.timeout(10_000))
+        abort.abort()
 
         expect(accepted).toBe(true)
         expect(await held).toBeInstanceOf(AttachmentStoreUnavailableError)
@@ -185,26 +187,34 @@ describe('the edge in front of the attachment store', () => {
         }
     )
 
-    test('releases a paced body one slice a tenth of a second, and leaves no timer once its reader hangs up', async () => {
-        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
-        try {
-            const pace = paced(1000, () => undefined)
-            const received: number[] = []
-            pace.on('data', (slice: Buffer) => received.push(slice.length))
+    test.each<[string, number, number[], number[], number]>([
+        ['one slice a tenth of a second', 0, [], [100, 100, 100], 4],
+        ['its free bytes at once, then one slice a tenth of a second', 150, [150], [150, 100, 100], 2],
+    ])(
+        'releases a paced body %s, and leaves no timer once its reader hangs up',
+        async (_story, freeBytes, atOnce, sent, delays) => {
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+            try {
+                let delayed = 0
+                const pace = paced(1000, () => (delayed += 1), freeBytes)
+                const received: number[] = []
+                pace.on('data', (slice: Buffer) => received.push(slice.length))
 
-            pace.write(Buffer.alloc(350))
-            await jest.advanceTimersByTimeAsync(100)
-            const afterOneTenth = [...received]
-            await jest.advanceTimersByTimeAsync(200)
-            pace.destroy()
+                pace.write(Buffer.alloc(350))
+                await jest.advanceTimersByTimeAsync(0)
+                const beforeAnyDelay = [...received]
+                await jest.advanceTimersByTimeAsync(300)
+                pace.destroy()
 
-            expect({ afterOneTenth, received, timers: jest.getTimerCount() }).toEqual({
-                afterOneTenth: [100],
-                received: [100, 100, 100],
-                timers: 0,
-            })
-        } finally {
-            jest.useRealTimers()
+                expect({ beforeAnyDelay, received, delayed, timers: jest.getTimerCount() }).toEqual({
+                    beforeAnyDelay: atOnce,
+                    received: sent,
+                    delayed: delays,
+                    timers: 0,
+                })
+            } finally {
+                jest.useRealTimers()
+            }
         }
-    })
+    )
 })

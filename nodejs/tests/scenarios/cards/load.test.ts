@@ -45,6 +45,18 @@ const emailRamp = {
 
 const emailLoad = { targets: { claimsPerSecond: { email: 4 } }, tolerance: 0.1 }
 
+const rampingTransactionalOnly = {
+    ...overTheLimit,
+    drive: {
+        ...overTheLimit.drive,
+        traffic: [{ name: 'event_email' }, { name: 'transactional_email' }],
+        ramp: overTheLimit.drive.ramp.map((step) => ({ ...step, only: ['transactional_email'] })),
+    },
+    invariants: [...overTheLimit.invariants, { name: 'refused_at_intake' }],
+}
+
+const bothTraffic = { ...profile, traffic: { ...profile.traffic, transactional_email: { ratePerSecond: 2 } } }
+
 const sesSettings = { CDP_SES_RATE_LIMIT_CAPACITY: '500' }
 
 const TWICE_DECLARED_BARS = [
@@ -607,6 +619,12 @@ describe('load', () => {
             'setup.teams: event_email sends 82 units a second to each team',
         ],
         [
+            'a step with only on a profile whose load admission scales every target',
+            rampingTransactionalOnly,
+            { ...bothTraffic, settings: { ...sesSettings, CDP_RATE_LIMITER_REFILL_RATE: '1000' }, load: emailLoad },
+            'drive.ramp: a step with only scales part of the traffic',
+        ],
+        [
             'an event kind listed twice, which seeds two workflows that both match its events',
             {
                 ...card,
@@ -906,6 +924,11 @@ describe('load', () => {
 
     it.each<[string, object, object]>([
         ['an event load spread over enough teams', { ...overTheLimit, setup: { teams: 2 } }, profile],
+        [
+            'an event load that its ramp holds at 1x while it scales other traffic',
+            rampingTransactionalOnly,
+            { ...bothTraffic, settings: { CDP_RATE_LIMITER_REFILL_RATE: '5' } },
+        ],
         [
             'an event load under a rate limit the profile raises',
             overTheLimit,

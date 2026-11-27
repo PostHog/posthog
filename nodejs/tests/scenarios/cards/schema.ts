@@ -159,6 +159,9 @@ export type Card = z.infer<typeof Card>
 
 export type Step = { scale: number; fromMs: number; toMs: number; only?: string[] }
 
+export const scaleOf = ({ scale, only }: Pick<Step, 'scale' | 'only'>, kind: string): number =>
+    only === undefined || only.includes(kind) ? scale : 1
+
 export function stepsOf(drive: Card['drive']): Step[] {
     let fromMs = 0
     return (drive.ramp ?? [{ scale: 1, for: drive.for }]).map(({ scale, for: lasts, only }) => {

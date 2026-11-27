@@ -1,4 +1,6 @@
 import { createHash } from 'crypto'
+import { totalmem } from 'os'
+import { getHeapStatistics } from 'v8'
 import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
@@ -208,11 +210,44 @@ export function roleSpecs(
 
 export type AttachmentBudget = RoleId & ({ budgetBytes: number } | { refusal: string })
 
-export function attachmentBudgetsOf(specs: RoleSpec[], machine?: MachineMemory): AttachmentBudget[] {
+const NODE_ENV_KEYS = ['NODE_ENV', 'DEBUG'] as const
+
+function defaultsUnder(env: NodeJS.ProcessEnv): ReturnType<typeof getDefaultCdpConfig> {
+    const runner = NODE_ENV_KEYS.map((key) => [key, process.env[key]] as const)
+    const put = (key: string, value: string | undefined): void => {
+        if (value === undefined) {
+            delete process.env[key]
+        } else {
+            process.env[key] = value
+        }
+    }
+    NODE_ENV_KEYS.forEach((key) => put(key, env[key]))
+    try {
+        return getDefaultCdpConfig()
+    } finally {
+        runner.forEach(([key, value]) => put(key, value))
+    }
+}
+
+const MAX_OLD_SPACE_MIB = /--max-old-space-size=(\d+)/
+const MIB = 1024 * 1024
+
+const runnerMemory = (): MachineMemory => ({
+    constrainedBytes: process.constrainedMemory(),
+    totalBytes: totalmem(),
+    heapLimitBytes: getHeapStatistics().heap_size_limit,
+})
+
+function workerMemory(env: NodeJS.ProcessEnv, machine: MachineMemory): MachineMemory {
+    const oldSpaceMib = MAX_OLD_SPACE_MIB.exec(env.NODE_OPTIONS ?? '')?.[1]
+    return oldSpaceMib === undefined ? machine : { ...machine, heapLimitBytes: Number(oldSpaceMib) * MIB }
+}
+
+export function attachmentBudgetsOf(specs: RoleSpec[], machine: MachineMemory = runnerMemory()): AttachmentBudget[] {
     return specs
         .filter(({ role }) => role === 'cdp-cyclotron-worker-email')
         .map(({ role, replica, env }) => {
-            const config = overrideConfigWithEnv(getDefaultCdpConfig(), env)
+            const config = overrideConfigWithEnv(defaultsUnder(env), env)
             const admission = inFlightLimitsFor(
                 {
                     memoryFraction: config.CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION,
@@ -220,7 +255,7 @@ export function attachmentBudgetsOf(specs: RoleSpec[], machine?: MachineMemory):
                     heartbeatIntervalMs: config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS,
                     attachmentStoreBucket: config.CDP_EMAIL_ATTACHMENTS_S3_BUCKET,
                 },
-                machine
+                workerMemory(env, machine)
             )
             return 'refusal' in admission
                 ? { role, replica, refusal: admission.refusal }

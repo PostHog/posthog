@@ -26,13 +26,19 @@ function opOf(req: http.IncomingMessage): S3Op | undefined {
     }
 }
 
-export function paced(bytesPerSecond: number, onDelay: () => void): Transform {
+export function paced(bytesPerSecond: number, onDelay: () => void, freeBytes = 0): Transform {
     const sliceBytes = Math.max(1, Math.floor(bytesPerSecond / PACE_SLICES_PER_SECOND))
+    let free = freeBytes
     let pending: NodeJS.Timeout | undefined
     return new Transform({
         transform(chunk: Buffer, _encoding, done) {
+            const passing = Math.min(free, chunk.length)
+            free -= passing
+            if (passing > 0) {
+                this.push(chunk.subarray(0, passing))
+            }
             const slices: Buffer[] = []
-            for (let at = 0; at < chunk.length; at += sliceBytes) {
+            for (let at = passing; at < chunk.length; at += sliceBytes) {
                 slices.push(chunk.subarray(at, at + sliceBytes))
             }
             const next = (): void => {
@@ -60,12 +66,12 @@ export function paced(bytesPerSecond: number, onDelay: () => void): Transform {
     })
 }
 
-type Pace = { bytesPerSecond: number; onDelay: () => void }
+type Pace = { bytesPerSecond: number; onDelay: () => void; freeBytes?: number }
 
 const carry = (from: Readable, to: Writable, pace: Pace | undefined): void =>
     pace === undefined
         ? void pipeline(from, to, () => undefined)
-        : void pipeline(from, paced(pace.bytesPerSecond, pace.onDelay), to, () => undefined)
+        : void pipeline(from, paced(pace.bytesPerSecond, pace.onDelay, pace.freeBytes), to, () => undefined)
 
 function serverError(res: http.ServerResponse, status: number, method: string | undefined): void {
     const code = status === 503 ? 'SlowDown' : 'InternalError'
@@ -119,7 +125,9 @@ export async function startS3Proxy(upstream: string, faults: S3Faults): Promise<
                 target,
                 req,
                 res,
-                answer?.kind === 's3-slow' ? { bytesPerSecond: answer.bytesPerSecond, onDelay: answered } : undefined
+                answer?.kind === 's3-slow'
+                    ? { bytesPerSecond: answer.bytesPerSecond, onDelay: answered, freeBytes: answer.freeBytes }
+                    : undefined
             )
         }
     })

@@ -7,7 +7,7 @@ import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
-import { LoadedCard, stepsOf } from '../cards'
+import { LoadedCard, scaleOf, stepsOf } from '../cards'
 import { pause } from '../duration'
 import type { FollowUpAnswer, Judge } from '../judge/judge'
 import { OfferAnswer, OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
@@ -124,7 +124,7 @@ function stepScheduleOf({ card, profile }: Pick<LoadedCard, 'card' | 'profile'>)
     return stepsOf(card.drive).map(({ scale, fromMs, toMs, only }) =>
         kinds
             .flatMap(({ name, kind, ratePerSecond }) => {
-                const rate = ratePerSecond * (only === undefined || only.includes(name) ? scale : 1)
+                const rate = ratePerSecond * scaleOf({ scale, only }, name)
                 const units = Math.round((rate * (toMs - fromMs)) / 1000)
                 return Array.from({ length: units }, (_, i) => ({ kind, atMs: (i * 1000) / rate }))
             })

@@ -384,21 +384,19 @@ export const stepDeliveryLatencyMs: MeasurementDefinition = {
                 ? []
                 : [
                       { key: `${part}_p50_${step.scale}x`, value: nearestRank(sorted, 0.5) },
-                      { key: `${part}_p99_${step.scale}x`, value: nearestRank(sorted, 0.99) },
+                      { key: `${part}_p95_${step.scale}x`, value: nearestRank(sorted, 0.95) },
                   ]
         ),
 }
 
-function stepDeferrals(
-    evidence: MeasureEvidence
-): { step: StepWindow; reason: string; increase: ReturnType<typeof phaseIncrease> }[] {
+function stepDeferrals(evidence: MeasureEvidence): { step: StepWindow; reason: string; increase: StepIncrease }[] {
     const samples = evidence.samples.filter(({ attachments }) => attachments !== undefined)
     const reasons = [...new Set(samples.flatMap(({ attachments }) => Object.keys(attachments!.deferrals)))].sort()
     return stepWindowsOf(evidence).flatMap((step) =>
         reasons.map((reason) => ({
             step,
             reason,
-            increase: phaseIncrease(samples, evidence.missed, deferredFor(reason), step),
+            increase: stepIncrease(samples, evidence.missed, deferredFor(reason), step),
         }))
     )
 }
@@ -420,34 +418,48 @@ const PLAIN_SLOWDOWN = 2
 const onsetOf = (key: string, scales: readonly number[]): Measured =>
     scales.length === 0 ? { key, value: null, censored: true } : { key, value: scales[0] }
 
+// A token counted only in the scrape interval that crosses the step's end may have been spent in the next step.
+function deferralOnsetOf(reason: string, deferrals: ReturnType<typeof stepDeferrals>): Measured {
+    const first = deferrals.find((deferral) => deferral.reason === reason && deferral.increase.value > 0)
+    return first === undefined
+        ? { key: reason, value: null, censored: true }
+        : { key: reason, value: first.step.scale, ...(first.increase.risesBeforeEnd ? {} : { incomplete: true }) }
+}
+
+function plainSlowdownOf(evidence: MeasureEvidence): Measured[] {
+    const [opening, ...later] = stepLatencies(evidence).filter(({ part }) => part === 'plain')
+    const p95Of = ({ sorted }: { sorted: number[] }): number => nearestRank(sorted, 0.95)
+    if (opening === undefined || later.length === 0) {
+        return []
+    }
+    return opening.sorted.length === 0
+        ? [
+              {
+                  key: 'plain_p95_doubled',
+                  value: null,
+                  censored: true,
+                  unmeasured: 'the first step delivered no plain send to compare the later steps with',
+              },
+          ]
+        : [
+              onsetOf(
+                  'plain_p95_doubled',
+                  later
+                      .filter((step) => step.sorted.length > 0 && p95Of(step) > PLAIN_SLOWDOWN * p95Of(opening))
+                      .map(({ step }) => step.scale)
+              ),
+          ]
+}
+
 export const rampOnsetScale: MeasurementDefinition = {
     name: 'ramp_onset_scale',
     params: z.object({}).strict(),
     unit: 'x',
     measure: (evidence) => {
         const deferrals = stepDeferrals(evidence)
-        const plain = stepLatencies(evidence).filter(({ part, sorted }) => part === 'plain' && sorted.length > 0)
-        const p99Of = ({ sorted }: { sorted: number[] }): number => nearestRank(sorted, 0.99)
         return [
-            ...[...new Set(deferrals.map(({ reason }) => reason))].map((reason) =>
-                onsetOf(
-                    reason,
-                    deferrals
-                        .filter((deferral) => deferral.reason === reason && deferral.increase.value > 0)
-                        .map(({ step }) => step.scale)
-                )
-            ),
-            ...(plain.length < 2
-                ? []
-                : [
-                      onsetOf(
-                          'plain_p99_doubled',
-                          plain
-                              .slice(1)
-                              .filter((step) => p99Of(step) > PLAIN_SLOWDOWN * p99Of(plain[0]))
-                              .map(({ step }) => step.scale)
-                      ),
-                  ]),
+            ...[...new Set(deferrals.map(({ reason }) => reason))].map((reason) => deferralOnsetOf(reason, deferrals)),
+            ...plainSlowdownOf(evidence),
         ]
     },
 }
@@ -660,6 +672,42 @@ function phaseIncrease(
             )
     }
     return { value, ...(incomplete ? { incomplete: true as const } : {}) }
+}
+
+type StepIncrease = { value: number; incomplete?: true; risesBeforeEnd: boolean }
+
+const share = (a: MetricSample, b: MetricSample, outside: number): number => outside / (b.at - a.at)
+
+// Scrapes do not fall on step edges, so each step reads the counter interpolated at its edges, as openedAt does for
+// the baseline, and the interval that crosses an edge splits between the two steps. Across a restart nothing can be
+// interpolated, and the step keeps the whole interval, which phaseIncrease already marks incomplete.
+function stepIncrease(
+    samples: readonly MetricSample[],
+    missed: readonly MissedScrape[],
+    read: Counter,
+    step: Phase
+): StepIncrease {
+    const { value, incomplete } = phaseIncrease(samples, missed, read, step)
+    let trimmed = value
+    let risesBeforeEnd = false
+    for (const window of replicasOf(samples).map((ofReplica) => bracketing(ofReplica, step))) {
+        const intervals = window.slice(1).map((to, i) => ({ from: window[i], to }))
+        intervals.forEach(({ from, to }, i) => {
+            const rise = from.startedAt === to.startedAt ? read(to) - read(from) : read(to)
+            const crossesEnd = i === intervals.length - 1 && to.at > step.to
+            risesBeforeEnd ||= rise > 0 && !crossesEnd
+            if (from.startedAt !== to.startedAt) {
+                return
+            }
+            if (from.at < step.from) {
+                trimmed -= rise * share(from, to, step.from - from.at)
+            }
+            if (crossesEnd) {
+                trimmed -= rise * share(from, to, to.at - step.to)
+            }
+        })
+    }
+    return { value: trimmed, ...(incomplete ? { incomplete } : {}), risesBeforeEnd }
 }
 
 const spanOf = (window: readonly { at: number }[]): number => (window.length < 2 ? 0 : window.at(-1)!.at - window[0].at)

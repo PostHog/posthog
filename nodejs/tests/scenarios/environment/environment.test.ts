@@ -466,12 +466,35 @@ describe('scenario environment', () => {
                 { CDP_EMAIL_ATTACHMENTS_S3_BUCKET: '' },
                 { refusal: expect.any(String) },
             ],
+            [
+                "the worker's dev defaults, which name an attachment store a production runner does not",
+                { CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: '0.25' },
+                { budgetBytes: 1024 * MIB },
+            ],
+            [
+                'the heap that NODE_OPTIONS gives the worker, not the heap of the runner',
+                { CDP_EMAIL_ATTACHMENTS_S3_BUCKET: 'scenario-files', NODE_OPTIONS: '--max-old-space-size=64' },
+                { refusal: `the heap limit of ${64 * MIB} bytes cannot hold one message at the size limit` },
+            ],
         ])('computes the email worker budget as the worker does, from %s', (_story, settings, budget) => {
             const machine = { constrainedBytes: 0, totalBytes: 4608 * MIB, heapLimitBytes: 4096 * MIB }
-
-            expect(
-                attachmentBudgetsOf(roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings, undefined, {}), machine)
-            ).toEqual([{ role: 'cdp-cyclotron-worker-email', replica: 0, ...budget }])
+            const { NODE_ENV: runnerNodeEnv, DEBUG: runnerDebug } = process.env
+            process.env.NODE_ENV = 'production'
+            delete process.env.DEBUG
+            try {
+                expect(
+                    attachmentBudgetsOf(
+                        roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings, undefined, {}),
+                        machine
+                    )
+                ).toEqual([{ role: 'cdp-cyclotron-worker-email', replica: 0, ...budget }])
+                expect([process.env.NODE_ENV, process.env.DEBUG]).toEqual(['production', undefined])
+            } finally {
+                Object.assign(process.env, { NODE_ENV: runnerNodeEnv })
+                if (runnerDebug !== undefined) {
+                    process.env.DEBUG = runnerDebug
+                }
+            }
         })
 
         it('refuses fetch retries that never run out', () => {
