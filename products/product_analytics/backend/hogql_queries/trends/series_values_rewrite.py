@@ -14,7 +14,7 @@ the query around the rewrite still gets one row per bucket.
 
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import field
 from datetime import UTC, datetime, timedelta
@@ -541,6 +541,13 @@ def rewriting_series_values(
     finally:
         hogql_select_rewrite.reset(token)
         series_values_cache_variant.reset(variant)
+
+
+def calculate_with_ready_series_values[T](calculate: Callable[[], T]) -> tuple[T, bool]:
+    """Return the calculation result and whether its queries read any stored values."""
+    with rewriting_series_values("serve", build_on_miss=False) as request:
+        result = calculate()
+    return result, bool(request.built)
 
 
 def precomputed_series_values(
