@@ -358,8 +358,8 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
-                              |NotebookModel
                               |NotebookNodeRun
+                              |NotebookModel
                               |NotebookRun
                               |ObjectMediaPreview
                               |OfflineEvaluationResult
@@ -908,8 +908,8 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
-                        |NotebookModel
                         |NotebookNodeRun
+                        |NotebookModel
                         |NotebookRun
                         |ObjectMediaPreview
                         |OfflineEvaluationResult
