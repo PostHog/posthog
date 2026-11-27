@@ -1,10 +1,30 @@
-"""Request checks of the dashboard widget actions."""
+"""Request checks of the dashboard widget actions: the API key scopes of a widget run, and the catalog's `widget_type` filter."""
 
 from collections.abc import Sequence
 
 from rest_framework import exceptions
+from rest_framework.request import Request
+
+from posthog.permissions import get_authenticator_scopes
 
 from products.dashboards.backend.facade.widgets import EXPECTED_WIDGET_TYPES
+
+
+def get_widget_api_scope_error(required_scopes: Sequence[str], request: Request) -> str | None:
+    key_scopes = get_authenticator_scopes(request.successful_authenticator)
+    if key_scopes is None:
+        return None
+
+    if "*" in key_scopes:
+        return None
+
+    for required_scope in required_scopes:
+        valid_scopes = [required_scope]
+        if required_scope.endswith(":read"):
+            valid_scopes.append(required_scope.replace(":read", ":write"))
+        if not any(scope in key_scopes for scope in valid_scopes):
+            return f"API key missing required scope '{required_scope}'"
+    return None
 
 
 def parse_widget_type_filter(raw_values: Sequence[str]) -> list[str]:

@@ -1498,6 +1498,71 @@ def query_batch_stream(
     return batch.astream() if asynchronous else batch.stream()
 
 
+def widget_product_access_error(*, widget_type: str, user_access_control: UserAccessControl) -> str | None:
+    """Why the user may not use widgets of this type, or None when they may. An unregistered type is refused."""
+    # Imported at call time: the widget registry loads every widget spec, and the specs import the facades of the
+    # products they show, some of which import this module.
+    from products.dashboards.backend.widget_access import widget_product_access_error as access_error  # noqa: PLC0415
+
+    return access_error(widget_type, user_access_control)
+
+
+def validate_new_widget(
+    *, team: "Team", user: User, user_access_control: UserAccessControl, widget_type: str, config: JsonValue
+) -> contracts.ValidatedWidget:
+    """Check that the user may add a widget of this type with this config, and return the validated config.
+
+    Raises DRF `ValidationError` for an unknown type, a type not enabled for the project or an invalid config,
+    and DRF `PermissionDenied` when the user lacks the product access that the type needs.
+    """
+    from products.dashboards.backend.widget_create import prepare_widget_tile_create  # noqa: PLC0415
+
+    validated_type, validated_config = prepare_widget_tile_create(
+        team=team, widget_type=widget_type, config=config, user=user, user_access_control=user_access_control
+    )
+    return contracts.ValidatedWidget(widget_type=validated_type, config=validated_config)
+
+
+def create_widget_tiles(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    user: User,
+    user_access_control: UserAccessControl,
+    tiles: Sequence[contracts.NewWidgetTile],
+) -> tuple[int, ...]:
+    """Add widget tiles to a dashboard in one transaction. Returns the tile ids in the order of `tiles`.
+
+    Raises the DRF errors of `validate_new_widget` for the first tile that fails its checks, and no tile is added.
+    """
+    from products.dashboards.backend.logic import widgets as widgets_logic  # noqa: PLC0415
+
+    return tuple(
+        widgets_logic.create_widget_tiles(
+            team_id=team_id,
+            dashboard_id=dashboard_id,
+            user=user,
+            user_access_control=user_access_control,
+            tiles=tiles,
+        )
+    )
+
+
+def update_widget(
+    *, team_id: int, widget_id: UUID, user: User, user_access_control: UserAccessControl, patch: contracts.WidgetPatch
+) -> contracts.UpdatedWidget:
+    """Apply a settings patch to a widget. Run inside the caller's transaction.
+
+    Raises DRF `PermissionDenied` when the user lacks the product access of the widget type, and DRF
+    `ValidationError` when the patch changes the widget type or the merged config is invalid.
+    """
+    from products.dashboards.backend.logic import widgets as widgets_logic  # noqa: PLC0415
+
+    return widgets_logic.update_widget(
+        team_id=team_id, widget_id=widget_id, user=user, user_access_control=user_access_control, patch=patch
+    )
+
+
 # `dashboard-v2` boards. Each is one row that holds the whole version 2 document.
 
 
