@@ -168,6 +168,79 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     },
 }
 
+type FeedbackPost = { durationMs: number; status: number }
+
+function feedbackPostsByStep({ journal, truth, drive, steps }: MeasureEvidence): [Step, FeedbackPost[]][] {
+    const units = new Set(journal.map(({ unitId }) => unitId))
+    const reached = steps.filter(({ fromMs }) => drive.startedAt + fromMs < drive.endedAt)
+    const byStep = new Map(reached.map((step) => [step, [] as FeedbackPost[]]))
+    for (const { kind, unitId, at, status, detail } of truth) {
+        if (kind !== 'ses.feedback' || detail.feedback === undefined || unitId === undefined || !units.has(unitId)) {
+            continue
+        }
+        const postedAt = Date.parse(at) - detail.feedback.durationMs
+        const step = reached.findLast(({ fromMs }) => drive.startedAt + fromMs <= postedAt)
+        if (step !== undefined) {
+            byStep.get(step)!.push({ durationMs: detail.feedback.durationMs, status })
+        }
+    }
+    return [...byStep]
+}
+
+const truthUnread = (unread: string): Measured[] => [
+    { value: null, censored: true, unmeasured: `the truth could not be read (${unread})` },
+]
+
+export const sesFeedbackMs: MeasurementDefinition = {
+    name: 'ses_feedback_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: (evidence) =>
+        evidence.unread !== undefined
+            ? truthUnread(evidence.unread)
+            : feedbackPostsByStep(evidence).flatMap(([{ scale }, posts]) => {
+                  const answered = posts
+                      .filter(({ status }) => status !== 0)
+                      .map(({ durationMs }) => durationMs)
+                      .sort((a, b) => a - b)
+                  return (
+                      [
+                          ['p50', 0.5],
+                          ['p99', 0.99],
+                      ] as const
+                  ).map(([percentile, share]) => ({
+                      key: `${percentile}_${scale}x`,
+                      ...(answered.length === 0
+                          ? {
+                                value: null,
+                                censored: true as const,
+                                unmeasured: 'the edge posted no SES feedback in this step',
+                            }
+                          : { value: nearestRank(answered, share) }),
+                  }))
+              }),
+}
+
+export const sesFeedbackPosts: MeasurementDefinition = {
+    name: 'ses_feedback_posts',
+    params: z.object({}).strict(),
+    unit: 'posts',
+    measure: (evidence) =>
+        evidence.unread !== undefined
+            ? truthUnread(evidence.unread)
+            : feedbackPostsByStep(evidence).flatMap(([{ scale }, posts]) => [
+                  { key: `posted_${scale}x`, value: posts.length },
+                  {
+                      key: `errors_${scale}x`,
+                      value: posts.filter(({ status }) => status === 0 || status >= 500).length,
+                  },
+                  {
+                      key: `rejected_${scale}x`,
+                      value: posts.filter(({ status }) => status >= 400 && status < 500).length,
+                  },
+              ]),
+}
+
 export type Phase = { from: number; to: number }
 
 export type Phases = { baseline: Phase; valve?: Phase; failback?: Phase }
@@ -596,6 +669,8 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    sesFeedbackMs,
+    sesFeedbackPosts,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]

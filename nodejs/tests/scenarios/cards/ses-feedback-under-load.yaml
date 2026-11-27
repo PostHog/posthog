@@ -1,0 +1,41 @@
+id: ses-feedback-under-load
+version: 1
+clock: real
+profile: synthetic-ses-feedback
+seed: 11
+setup:
+    teams: 1
+drive:
+    for: 8m
+    traffic:
+        - name: event_email
+        - name: transactional_email
+    ramp:
+        - scale: 1
+          for: 2m
+        - scale: 2
+          for: 2m
+        - scale: 5
+          for: 2m
+        - scale: 10
+          for: 2m
+valves:
+    - valve: role.freeze
+      target: cdp-ses-webhooks
+      dose: {}
+      at: 4m
+      for: 2m
+convergeWithin: 10m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: ses_feedback_ms
+    - name: ses_feedback_posts
+    - name: delivery_latency_ms
+    - name: counter_drift
+unpaired: it judges no no_loss, so --pair would end both runs unjudged
