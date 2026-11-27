@@ -1549,8 +1549,10 @@ class TestMarketingRecommendations(SimpleTestCase):
     def test_keyword_tracking_needs_search_ads_sessions_without_utm_term(
         self, _name: str, tracking: dict[str, object], campaign: dict[str, object], expected: bool
     ) -> None:
-        values: dict = {"account_name": "Acme Ads", "sessions": 400, "sessions_with_keyword": 4, **tracking}
-        inputs = replace(_inputs((_campaign(**campaign),)), keyword_tracking=KeywordTracking(**values))
+        values: dict = {"sessions": 400, "sessions_with_keyword": 4, **tracking}
+        inputs = replace(
+            _inputs((_campaign(**campaign),)), account_name="Acme Ads", keyword_tracking=KeywordTracking(**values)
+        )
 
         rows = [rec for rec in recommend(inputs) if rec.rule == "keyword_tracking"]
 
@@ -1560,6 +1562,57 @@ class TestMarketingRecommendations(SimpleTestCase):
         if expected:
             assert [step.copyValue for step in rows[0].steps or [] if step.copyValue] == ["utm_term={keyword}"]
             assert [step.linkText for step in rows[0].steps or []] == ["Account settings", None, "Campaigns"]
+
+    @parameterized.expand(
+        [
+            (
+                "google_counts_six_times",
+                {"google_conversions": 60.0},
+                {},
+                ("60 conversions in Generic, where your PostHog goals count 10", "Goals"),
+            ),
+            (
+                "posthog_counts_none",
+                {"google_conversions": 30.0, "conversions": 0.0},
+                {},
+                ("30 conversions in Generic, and your PostHog goals count none from them", "Account settings"),
+            ),
+            ("under_three_times", {"google_conversions": 25.0}, {}, None),
+            ("too_few_google_conversions", {"google_conversions": 18.0, "conversions": 0.0}, {}, None),
+            ("google_count_unknown", {}, {}, None),
+            ("not_search", {"google_conversions": 60.0, "channel_type": "PERFORMANCE_MAX"}, {}, None),
+            (
+                "fractional_posthog_count",
+                {"google_conversions": 60.0, "conversions": 0.4},
+                {},
+                ("60 conversions in Generic, and your PostHog goals count none from them", "Account settings"),
+            ),
+            ("under_five_percent_of_spend", {"google_conversions": 60.0, "cost": 40.0}, {}, None),
+            (
+                "posthog_conversions_unmatched",
+                {"google_conversions": 60.0},
+                {"posthog_conversions_unmatched": True},
+                None,
+            ),
+        ]
+    )
+    def test_conversion_mismatch_needs_google_ads_to_count_far_more_than_posthog(
+        self, _name: str, campaign: dict[str, object], inputs: dict[str, object], expected: tuple[str, str] | None
+    ) -> None:
+        campaigns = (
+            _campaign(id="c1", name="Generic", **campaign),
+            _campaign(id="c2", name="Docs", cost=960.0, google_conversions=10.0),
+        )
+
+        rows = [
+            rec
+            for rec in recommend(replace(_inputs(campaigns), account_name="Acme Ads", **inputs))
+            if rec.rule == "conversion_mismatch"
+        ]
+
+        assert [(rec.level, rec.subject, rec.reason.split(". ")[0], (rec.steps or [])[0].linkText) for rec in rows] == (
+            [("account", "Acme Ads", f"Google Ads counts {expected[0]}", expected[1])] if expected else []
+        )
 
 
 class TestHiddenSearchSpend(SimpleTestCase):

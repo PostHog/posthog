@@ -2301,6 +2301,7 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
     STRIKING_DISTANCE = "striking_distance"
     KEYWORD_TRACKING = "keyword_tracking"
+    CONVERSION_MISMATCH = "conversion_mismatch"
 
 
 class MarketingAnalyticsRecommendationsConversionSourceKind(StrEnum):

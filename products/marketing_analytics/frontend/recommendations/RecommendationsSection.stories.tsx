@@ -282,6 +282,27 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         reason: "98% of the project's 4,310 Google Ads sessions in the selected dates have no utm_term, so PostHog conversion goals cannot be tied to the keyword that brought each visitor.",
         impactDirection: 'gain',
     }),
+    recommendation({
+        rule: 'conversion_mismatch',
+        level: 'account',
+        subject: 'Acme Ads',
+        action: 'Check which conversion actions Google Ads bids on',
+        reason: 'Google Ads counts 240 conversions in Generic search, Competitors, where your PostHog goals count 42. If these campaigns bid on conversions, smart bidding learns from the Google Ads count, so it can spend on clicks that never reach your goals.',
+        impactDirection: 'gain',
+        steps: [
+            {
+                text: 'In Google Ads, open Goals and select View all conversion actions.',
+                url: 'https://ads.google.com/aw/conversions',
+                linkText: 'Goals',
+            },
+            {
+                text: 'Check which actions the Action optimization column marks as primary, including in campaigns that use their own goals instead of the account defaults. Set steps that are not outcomes, such as page views or clicks, to secondary. Keep proxies you bid on deliberately and imported offline conversions. Changing primary actions restarts bid learning.',
+            },
+            {
+                text: 'For lead actions such as sign-ups, set Count to One, and check that no goal is counted twice, for example by both the Google tag and an imported GA4 event.',
+            },
+        ],
+    }),
 ]
 
 const QUERY_URL = '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/'

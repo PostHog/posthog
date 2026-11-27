@@ -130,8 +130,10 @@ ADS_ASSET_GROUPS_URL = "https://ads.google.com/aw/assetgroup"
 ADS_POLICY_ISSUES_URL = "https://ads.google.com/aw/policy/ads/issues"
 ADS_NEGATIVE_KEYWORDS_URL = "https://ads.google.com/aw/keywords/negative"
 ADS_SEARCH_TERMS_URL = "https://ads.google.com/aw/keywords/searchterms"
+ADS_CONVERSIONS_URL = "https://ads.google.com/aw/conversions"
 SEARCH_CONSOLE_PERFORMANCE_URL = "https://search.google.com/search-console/performance/search-analytics"
 SEARCH_CONSOLE_URL = "https://search.google.com/search-console"
+MARKETING_ANALYTICS_DOCS_URL = "https://posthog.com/docs/web-analytics/marketing-analytics"
 REVIEW_TERMS_SHOWN = 3
 # A non-brand campaign is up for review when its cost per conversion reaches this multiple of its CPA benchmark.
 # Without conversions, spend alone must reach that multiple: even one conversion would leave its CPA at or above it.
@@ -155,6 +157,13 @@ MIN_KEYWORD_TRACKING_SESSIONS = 30
 # Performance Max and Display clicks have no keyword, so even a configured account leaves some sessions without it.
 MAX_KEYWORD_TRACKING_SHARE = 0.05
 KEYWORD_PARAMETER = "utm_term={keyword}"
+# A bid strategy that uses conversions learns from the Google Ads count, so a count this many times PostHog's means
+# it may optimize for actions other than the goals the project measures.
+CONVERSION_MISMATCH_MULTIPLE = 3
+MIN_CONVERSION_MISMATCH_GOOGLE_CONVERSIONS = 20
+MIN_CONVERSION_MISMATCH_SPEND_SHARE = 0.05
+CONVERSION_MISMATCH_CAMPAIGNS_SHOWN = 3
+GOOGLE_ADS_ACCOUNT_LABEL = "Google Ads account"
 CAMPAIGN_PARAMETERS = frozenset(CAMPAIGN_PROPERTIES)
 BENCHMARK_LABELS = {
     BenchmarkSource.TARGET_CPA: "the campaign's target CPA",
@@ -182,6 +191,8 @@ class CampaignStats:
     tracking_url_template: str | None = None
     # False when its zero conversions may only mean that PostHog could not tie its visits to it.
     conversions_measured: bool = True
+    # Set only when `conversions` counts PostHog goals, to compare with what Google Ads bids on.
+    google_conversions: float | None = None
 
 
 @frozen
@@ -238,7 +249,6 @@ class Keyword:
 
 @frozen
 class KeywordTracking:
-    account_name: str
     sessions: int
     sessions_with_keyword: int
     account_tracking_url_template: str | None = None
@@ -286,6 +296,7 @@ class RecommendationInputs:
     term_keywords: tuple[TermKeywordStats, ...] = ()
     ranking_pages: tuple[RankingPage, ...] = ()
     customer_id: str | None = None
+    account_name: str = GOOGLE_ADS_ACCOUNT_LABEL
     keyword_tracking: KeywordTracking | None = None
     ads: tuple[Ad, ...] = ()
     keywords: tuple[Keyword, ...] = ()
@@ -295,6 +306,8 @@ class RecommendationInputs:
     # False when campaign conversions come from PostHog goals: search terms then carry Google Ads conversions,
     # which cannot be compared with or subtracted from the campaign's.
     search_term_conversions: bool = True
+    # PostHog conversions from utm_campaign values that match no campaign belong to campaigns that show fewer.
+    posthog_conversions_unmatched: bool = False
 
 
 @frozen
@@ -648,8 +661,13 @@ class _Recommender:
     # Account rules
 
     def _account_rules(self) -> list[MarketingAnalyticsRecommendation]:
+        recommendations = []
         tracking = self.inputs.keyword_tracking
-        return [self._keyword_tracking(tracking)] if tracking and self._lacks_keyword_tracking(tracking) else []
+        if tracking and self._lacks_keyword_tracking(tracking):
+            recommendations.append(self._keyword_tracking(tracking))
+        if overcounted := self._overcounted_campaigns():
+            recommendations.append(self._conversion_mismatch(overcounted))
+        return recommendations
 
     def _lacks_keyword_tracking(self, tracking: KeywordTracking) -> bool:
         if (
@@ -678,7 +696,7 @@ class _Recommender:
         return self._recommendation(
             MarketingAnalyticsRecommendationRule.KEYWORD_TRACKING,
             "account",
-            tracking.account_name,
+            self.inputs.account_name,
             f"Add {KEYWORD_PARAMETER} to the account's Final URL suffix",
             f"{missing:.0%} of the project's {tracking.sessions:,} Google Ads sessions in the selected dates have no "
             "utm_term, so PostHog conversion goals cannot be tied to the keyword that brought each visitor.",
@@ -705,6 +723,89 @@ class _Recommender:
                     linkText="Campaigns",
                 ),
             ),
+        )
+
+    def _overcounted_campaigns(self) -> list[CampaignStats]:
+        if self.inputs.posthog_conversions_unmatched:
+            return []
+        overcounted = [
+            campaign
+            for campaign in self.campaigns.values()
+            # Other campaign types count conversions from ads that were only seen, which no visit carries to PostHog.
+            if campaign.channel_type == "SEARCH"
+            and campaign.google_conversions is not None
+            and campaign.google_conversions >= MIN_CONVERSION_MISMATCH_GOOGLE_CONVERSIONS
+            and campaign.google_conversions >= CONVERSION_MISMATCH_MULTIPLE * campaign.conversions
+        ]
+        account_cost = sum(campaign.cost for campaign in self.campaigns.values())
+        if sum(campaign.cost for campaign in overcounted) < MIN_CONVERSION_MISMATCH_SPEND_SHARE * account_cost:
+            return []
+        return sorted(overcounted, key=lambda campaign: -campaign.cost)
+
+    def _conversion_mismatch(self, overcounted: list[CampaignStats]) -> MarketingAnalyticsRecommendation:
+        google = sum(campaign.google_conversions or 0 for campaign in overcounted)
+        posthog = sum(campaign.conversions for campaign in overcounted)
+        shown = ", ".join(campaign.name for campaign in overcounted[:CONVERSION_MISMATCH_CAMPAIGNS_SHOWN])
+        rest = len(overcounted) - CONVERSION_MISMATCH_CAMPAIGNS_SHOWN
+        counted = f"Google Ads counts {google:,.0f} conversions in {shown}{f' and {rest} more' if rest > 0 else ''}"
+        if round(posthog):
+            action = "Check which conversion actions Google Ads bids on"
+            reason = (
+                f"{counted}, where your PostHog goals count {posthog:,.0f}. If these campaigns bid on conversions, "
+                "smart bidding learns from the Google Ads count, so it can spend on clicks that never reach your goals."
+            )
+            steps = (
+                Step(
+                    text="In Google Ads, open Goals and select View all conversion actions.",
+                    url=ADS_CONVERSIONS_URL,
+                    linkText="Goals",
+                ),
+                Step(
+                    text="Check which actions the Action optimization column marks as primary, including in "
+                    "campaigns that use their own goals instead of the account defaults. Set steps that are not "
+                    "outcomes, such as page views or clicks, to secondary. Keep proxies you bid on deliberately and "
+                    "imported offline conversions. Changing primary actions restarts bid learning.",
+                ),
+                Step(
+                    text="For lead actions such as sign-ups, set Count to One, and check that no goal is counted "
+                    "twice, for example by both the Google tag and an imported GA4 event.",
+                ),
+            )
+        else:
+            action = "Check that PostHog can tie visits to these campaigns"
+            reason = (
+                f"{counted}, and your PostHog goals count none from them. PostHog ties a conversion to a campaign "
+                "through the utm_source and utm_campaign of the visit, so these visits likely arrive without them."
+            )
+            steps = (
+                Step(
+                    text="In Google Ads, open Account settings and expand Tracking. Check that the Final URL suffix "
+                    "or the tracking template sets utm_source and utm_campaign.",
+                    url=ADS_ACCOUNT_SETTINGS_URL,
+                    linkText="Account settings",
+                ),
+                Step(
+                    text="Open your site from a link with those parameters and check that the address still has "
+                    "them after any redirect.",
+                ),
+                Step(
+                    text="See which utm_source and utm_campaign values PostHog matches in the marketing analytics "
+                    "docs.",
+                    url=MARKETING_ANALYTICS_DOCS_URL,
+                    linkText="marketing analytics docs",
+                ),
+            )
+        return self._recommendation(
+            MarketingAnalyticsRecommendationRule.CONVERSION_MISMATCH,
+            "account",
+            self.inputs.account_name,
+            action,
+            reason,
+            None,
+            "gain",
+            "measured",
+            recommendation_identity(MarketingAnalyticsRecommendationRule.CONVERSION_MISMATCH, self.inputs.customer_id),
+            steps=steps,
         )
 
     # Campaign rules

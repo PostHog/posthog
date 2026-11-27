@@ -41077,7 +41077,8 @@
                 "keyword_gap",
                 "spend_without_conversions",
                 "striking_distance",
-                "keyword_tracking"
+                "keyword_tracking",
+                "conversion_mismatch"
             ],
             "type": "string"
         },

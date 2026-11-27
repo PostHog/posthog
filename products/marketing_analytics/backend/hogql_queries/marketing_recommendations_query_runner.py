@@ -55,6 +55,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_tabl
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     DISAPPROVED,
+    GOOGLE_ADS_ACCOUNT_LABEL,
     LIMITED_APPROVALS,
     RECOMMENDATION_SOURCE_TYPES,
     Ad,
@@ -428,7 +429,9 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         policy_ads=tuple(self._policy_ads(source)),
                         flagged_ads=tuple(self._flagged_ads(source)),
                         customer_id=self._customer_id(source),
+                        account_name=self._account_name(source),
                         search_term_conversions=posthog_by_campaign is None,
+                        posthog_conversions_unmatched=bool(posthog and posthog.unmatched_campaigns),
                     )
                 )
             )
@@ -543,10 +546,11 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         selected = self._selected_campaign_conversions(source.campaignConversionActionTable, actions)
         performance_max_terms = self._readable(source.performanceMaxSearchTermTable)
         campaigns = []
-        for campaign_id, (_, cost, conversions) in spend.items():
+        for campaign_id, (_, cost, google_conversions) in spend.items():
             definition = definitions.get(campaign_id)
             if not definition or not cost:
                 continue
+            conversions = google_conversions
             if posthog_by_campaign is not None:
                 conversions = posthog_by_campaign.get(campaign_id, 0.0)
             # Performance Max search terms count primary actions, and its brand leak subtracts them from the campaign.
@@ -574,6 +578,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     tracking_url_template=definition[10] or None,
                     # With conversions that match no campaign, a campaign without any may own some of them.
                     conversions_measured=not (has_unmatched_conversions and not conversions),
+                    google_conversions=float(google_conversions or 0) if posthog_by_campaign is not None else None,
                 )
             )
         return campaigns
@@ -606,32 +611,38 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         sessions = self._google_ads_sessions
         if not sessions.total:
             return None
-        name, template, suffix = None, None, None
+        template, suffix = None, None
         table = source.customerTable
         if self._readable(table):
             assert table
             rows = self._select(
-                "SELECT any(toString({name})), any(toString({template})), any(toString({suffix})) FROM {table}",
+                "SELECT any(toString({template})), any(toString({suffix})) FROM {table}",
                 table,
-                name=self._field(table, "customer_descriptive_name"),
                 template=self._field(table, "customer_tracking_url_template"),
                 suffix=self._field(table, "customer_final_url_suffix"),
             )
             if rows:
-                name, template, suffix = rows[0]
+                template, suffix = rows[0]
         return KeywordTracking(
-            account_name=name or self._account_label(source),
             sessions=sessions.total,
             sessions_with_keyword=sessions.with_keyword,
             account_tracking_url_template=template or None,
             account_final_url_suffix=suffix or None,
         )
 
-    def _account_label(self, source: MarketingAnalyticsRecommendationsSource) -> str:
+    def _account_name(self, source: MarketingAnalyticsRecommendationsSource) -> str:
+        table = source.customerTable
+        if self._readable(table):
+            assert table
+            rows = self._select(
+                "SELECT any(toString({name})) FROM {table}", table, name=self._field(table, "customer_descriptive_name")
+            )
+            if rows and rows[0][0]:
+                return rows[0][0]
         customer_id = self._customer_id(source)
         if customer_id and len(customer_id) == 10:
             customer_id = f"{customer_id[:3]}-{customer_id[3:6]}-{customer_id[6:]}"
-        return f"Google Ads account {customer_id}" if customer_id else "Google Ads account"
+        return f"{GOOGLE_ADS_ACCOUNT_LABEL} {customer_id}" if customer_id else GOOGLE_ADS_ACCOUNT_LABEL
 
     def _impression_shares(self, table: str | None) -> dict[str, tuple[float | None, ...]]:
         if not table or not self._readable(table):
