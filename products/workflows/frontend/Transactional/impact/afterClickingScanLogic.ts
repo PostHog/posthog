@@ -121,13 +121,8 @@ function sessionFate(session: ObservationRequestSessionApi): SessionFate {
         case 'failed':
             return 'unscannable'
     }
-    // These settle without being watched: no recording to watch, a scan the worker dropped before it began,
-    // or a scan that never got an outcome.
-    if (
-        session.state === 'ineligible' ||
-        session.state === 'lost' ||
-        (session.scan_outcome === null && session.state === 'failed')
-    ) {
+    // A session with no recording to watch, or whose scan failed or was dropped, ends without an answer to count.
+    if (session.state === 'ineligible' || session.state === 'lost' || session.state === 'failed') {
         return 'unscannable'
     }
     return 'scanned'

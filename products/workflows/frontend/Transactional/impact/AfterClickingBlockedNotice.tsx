@@ -7,7 +7,8 @@ export function AfterClickingBlockedNotice({ state }: { state: ScanBlockedState 
             return (
                 <AfterClickingNotice title="Replay vision scans run in the main environment">
                     <span className="text-secondary text-sm">
-                        Switch to this project's main environment to ask about these sessions.
+                        Replay vision can only scan sessions recorded in a project's main environment, so it can't scan
+                        the sessions from this environment.
                     </span>
                 </AfterClickingNotice>
             )

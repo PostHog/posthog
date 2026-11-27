@@ -85,6 +85,7 @@ function scanRequest(
 }
 
 const SUCCEEDED = { state: 'succeeded', observation_id: '01a21d52-3c4d-7e5f-8a9b-0c1d2e3f4a5b' } as const
+const OTHER_OBSERVATION_ID = '01a21d52-9e8d-7c6b-8a59-4f3e2d1c0b0a'
 
 describe('afterClickingScanLogic', () => {
     let logic: ReturnType<typeof afterClickingScanLogic.build>
@@ -132,8 +133,8 @@ describe('afterClickingScanLogic', () => {
             },
             post: {
                 '/api/projects/:team_id/vision/requests/': async ({ request }) => {
-                    createBodies.push((await request.json()) as Record<string, unknown>)
                     const answer = createAnswer
+                    createBodies.push((await request.json()) as Record<string, unknown>)
                     await createGate
                     return answer
                 },
@@ -196,7 +197,12 @@ describe('afterClickingScanLogic', () => {
             expect(logic.values.scanState).toEqual({ kind: 'scanning', done: 1, total: 2, skipped: NO_SKIPS })
 
             await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
-            expect(logic.values.scanState).toEqual({ kind: 'finished', withResult: 1, scanned: 2, skipped: NO_SKIPS })
+            expect(logic.values.scanState).toEqual({
+                kind: 'finished',
+                withResult: 1,
+                scanned: 1,
+                skipped: { ...NO_SKIPS, unscannable: 1 },
+            })
 
             // The plugin restarts registered timers when the tab comes back; a finished scan polls no more.
             setTabHidden(true)
@@ -207,7 +213,7 @@ describe('afterClickingScanLogic', () => {
                 expect.objectContaining({ source, question_key: questionKey }),
             ])
             expect(captured('transactional email impact scan finished')).toEqual([
-                { sessions: 2, sessions_with_result: 1, sessions_skipped: 0, credits_used_up: false },
+                { sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false },
             ])
         }
     )
@@ -288,7 +294,7 @@ describe('afterClickingScanLogic', () => {
                 202,
                 scanRequest('completed', [
                     scanSession('session-a', SUCCEEDED),
-                    scanSession('session-b', { state: 'ineligible', observation_id: 'observation-b' }),
+                    scanSession('session-b', { state: 'ineligible', observation_id: OTHER_OBSERVATION_ID }),
                 ]),
             ],
             state: {
@@ -358,7 +364,13 @@ describe('afterClickingScanLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         retrieveAnswers = [
             ...Array(6).fill([503, { detail: 'Service unavailable' }]),
-            [200, scanRequest('completed', [scanSession('session-a', SUCCEEDED), scanSession('session-b', SUCCEEDED)])],
+            [
+                200,
+                scanRequest('completed', [
+                    scanSession('session-a', SUCCEEDED),
+                    scanSession('session-b', { ...SUCCEEDED, observation_id: OTHER_OBSERVATION_ID }),
+                ]),
+            ],
         ]
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
         logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
@@ -491,6 +503,7 @@ describe('afterClickingScanLogic', () => {
         createGate = new Promise((resolve) => (failOldScan = resolve))
         createAnswer = [500, {}]
         logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
+        await waitFor(() => expect(createBodies).toHaveLength(1))
 
         logic.actions.setDays(1)
         await waitFor(() =>
@@ -539,6 +552,7 @@ describe('afterClickingScanLogic', () => {
             },
             access: AccessControlLevel.Editor,
             sensitive: false,
+            sessions: { sessions: [], has_more: false },
             state: { kind: 'link-tagging-off' },
         },
         {
@@ -548,8 +562,16 @@ describe('afterClickingScanLogic', () => {
             sensitive: true,
             state: { kind: 'sensitive-email' },
         },
-    ])('offers no questions $name', async ({ team, access, sensitive, state }) => {
+    ] as {
+        name: string
+        team: unknown
+        access: AccessControlLevel
+        sensitive: boolean
+        sessions?: TransactionalEmailImpactSessionsApi
+        state: unknown
+    }[])('offers no questions $name', async ({ team, access, sensitive, sessions, state }) => {
         logic.unmount()
+        sessionsAnswer = [200, sessions ?? SESSIONS]
         setScannerAccess(access)
         teamLogic.actions.loadCurrentTeamSuccess(team as typeof MOCK_DEFAULT_TEAM)
         logic = afterClickingScanLogic({ workflowId: WORKFLOW_ID, alwaysSensitive: sensitive })
