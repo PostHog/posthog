@@ -359,8 +359,9 @@ class TransactionalEmailClickSerializer(serializers.Serializer):
     at = serializers.DateTimeField(help_text="When the recipient clicked.")
     link_url = serializers.CharField(
         allow_null=True,
-        help_text="The link that was clicked, with no path for an email marked sensitive. Null when the project "
-        "doesn't capture email engagement events, or the send named no distinct ID.",
+        help_text="The link that was clicked, with no path for an email marked sensitive. Null when no engagement "
+        "event recorded the click: the project or the send turned engagement events off, or the send named no "
+        "distinct ID.",
     )
 
 

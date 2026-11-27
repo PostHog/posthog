@@ -25,8 +25,8 @@ tools:
             Pass a session_id to the session recording tools to watch it. The lists are empty when the send named no
             distinct ID. Pass expand to get the element each autocaptured click happened on. clicks lists the newest 200
             clicks on the email's links, oldest first, each with its link_url, and has_more_clicks is true when it left
-            older clicks out. link_url is missing when the project doesn't capture email engagement events or the send
-            named no distinct ID.
+            older clicks out. link_url is missing when no engagement event recorded the click: the project or the send
+            turned engagement events off, or the send named no distinct ID.
         feature_flag: workflows-transactional-email-api
         response:
             strip_nulls: true

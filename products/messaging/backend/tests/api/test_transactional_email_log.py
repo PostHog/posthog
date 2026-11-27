@@ -90,7 +90,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self,
         minutes_ago: int,
         recipient: str,
-        statuses: list[tuple[str, int, str]],
+        statuses: list[tuple[str, float, str]],
         *,
         team: Team | None = None,
         workflow_id: str | None = None,
@@ -580,10 +580,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             (
                 "every click with its link",
                 200,
-                [(1200, "https://example.com/billing"), (1500, None), (1800, "https://example.com/docs")],
+                [(1200, "https://example.com/billing"), (1500, None), (1800.57, "https://example.com/docs")],
                 False,
             ),
-            ("the newest clicks", 2, [(1500, None), (1800, "https://example.com/docs")], True),
+            ("the newest clicks", 2, [(1500, None), (1800.57, "https://example.com/docs")], True),
         ]
     )
     def test_lists_the_newest_clicks_with_their_links(
@@ -592,14 +592,16 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         message_id = self._send(
             3 * 24 * 60,
             "jane@example.com",
-            [("sent", 1, ""), ("clicked", 1200, ""), ("clicked", 1500, ""), ("clicked", 1800, "")],
+            [("sent", 1, ""), ("clicked", 1200, ""), ("clicked", 1500, ""), ("clicked", 1800.57, "")],
         )
         queued_at = NOW - timedelta(days=3)
         self._record_distinct_id(message_id, "jane", "jane@example.com", queued_at + timedelta(seconds=1))
         for invocation_id, seconds, link_url in [
             (message_id, 1200, "https://example.com/billing"),
+            (message_id, 1200, "https://example.com/billing"),
+            (message_id, 1200, "https://example.com/billing"),
             (str(UUIDT()), 1500, "https://example.com/other-send"),
-            (message_id, 1800, "https://example.com/docs"),
+            (message_id, 1800.57, "https://example.com/docs"),
         ]:
             _create_event(
                 team=self.team,
