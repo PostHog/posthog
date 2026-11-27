@@ -6,7 +6,7 @@ const { compileString }: { compileString: (source: string) => { css: string } } 
 
 const CONTAINER_UNIT = /\d(cq[whib]|cqmin|cqmax)\b/
 const COMPOSITED_PROPERTIES = new Set(['transform', 'opacity'])
-const EXPENSIVE_PROPERTIES = new Set(['mix-blend-mode', 'filter', 'backdrop-filter'])
+const FORBIDDEN_PROPERTIES = new Set(['mix-blend-mode', 'filter', 'backdrop-filter', 'animation-iteration-count'])
 
 function stylesheets(directory: string): string[] {
     return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -18,36 +18,36 @@ function stylesheets(directory: string): string[] {
     })
 }
 
-function oneShotAnimationNames(root: Root): Set<string> {
-    const named = new Map<string, boolean>()
-    let anyEndlessCount = false
-    root.walkDecls(/^animation(-name|-iteration-count)?$/, (declaration) => {
-        if (declaration.prop === 'animation-iteration-count') {
-            anyEndlessCount ||= declaration.value.includes('infinite')
-            return
-        }
-        const finite = declaration.prop === 'animation' && !declaration.value.includes('infinite')
-        declaration.value.split(/[\s,]+/).forEach((token) => named.set(token, (named.get(token) ?? true) && finite))
-    })
-    return new Set(anyEndlessCount ? [] : [...named].filter(([, finite]) => finite).map(([name]) => name))
+function loopingAnimationNames(roots: Root[]): Set<string> {
+    const names = new Set<string>()
+    for (const root of roots) {
+        root.walkDecls(/^animation(-name)?$/, (declaration) => {
+            if (declaration.prop === 'animation-name' || declaration.value.includes('infinite')) {
+                declaration.value.split(/[\s,]+/).forEach((token) => names.add(token))
+            }
+        })
+    }
+    return names
 }
 
-const files = stylesheets(__dirname)
+const sheets = stylesheets(__dirname).map((file) => ({
+    name: path.relative(__dirname, file),
+    root: postcss.parse(compileString(fs.readFileSync(file, 'utf8')).css),
+}))
+const looping = loopingAnimationNames(sheets.map(({ root }) => root))
 
 describe('advent calendar styles', () => {
-    test.each(files.map((file) => [path.relative(__dirname, file), file]))(
-        '%s uses no blend mode or filter, and its keyframes animate only transform and opacity, read no container unit, and read a var() only when they run once',
-        (_, file) => {
-            const root = postcss.parse(compileString(fs.readFileSync(file, 'utf8')).css)
+    test.each(sheets.map((sheet) => [sheet.name, sheet.root]))(
+        '%s uses no blend mode, filter or separate iteration count, and its keyframes animate only transform and opacity, read no container unit, and read a var() only when no calendar stylesheet loops them',
+        (_, root) => {
             const problems: string[] = []
 
             root.walkDecls((declaration) => {
-                if (EXPENSIVE_PROPERTIES.has(declaration.prop)) {
+                if (FORBIDDEN_PROPERTIES.has(declaration.prop)) {
                     problems.push(`${declaration.prop} on ${(declaration.parent as { selector?: string }).selector}`)
                 }
             })
 
-            const oneShot = oneShotAnimationNames(root)
             root.walkAtRules('keyframes', (keyframes: AtRule) => {
                 keyframes.walkDecls((declaration) => {
                     if (!COMPOSITED_PROPERTIES.has(declaration.prop)) {
@@ -56,8 +56,8 @@ describe('advent calendar styles', () => {
                     if (CONTAINER_UNIT.test(declaration.value)) {
                         problems.push(`@keyframes ${keyframes.params} reads a container unit`)
                     }
-                    if (!oneShot.has(keyframes.params) && declaration.value.includes('var(')) {
-                        problems.push(`@keyframes ${keyframes.params} may loop and reads a var()`)
+                    if (looping.has(keyframes.params) && declaration.value.includes('var(')) {
+                        problems.push(`@keyframes ${keyframes.params} loops and reads a var()`)
                     }
                 })
             })
