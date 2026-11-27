@@ -2714,10 +2714,24 @@ describe('EmailService', () => {
                             message_id: invocation.id,
                             status: 'sent',
                             reason,
+                            provider_message_id: ses.sent.at(-1)?.messageId,
                         }),
                     ])
                 }
             )
+
+            it('publishes the SES message id on the sent row of a send with files', async () => {
+                sendAsTransactionalEmail()
+                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+
+                const result = await sender().executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(ses.sent.at(-1)?.attachments).toHaveLength(2)
+                expect(await recordedEmailStatuses()).toEqual([
+                    expect.objectContaining({ status: 'sent', provider_message_id: ses.sent.at(-1)?.messageId }),
+                ])
+            })
 
             it.each([
                 ['with files that SES accepts', (): StoredFile[] => [pdf], sesAccepts, 'success', 'true', 'false'],
@@ -3579,6 +3593,7 @@ describe('EmailService', () => {
                       ]
                     : []
             )
+            expect(rows.filter((row) => row.status === 'failed' && 'provider_message_id' in row)).toEqual([])
         })
 
         const skipGates = {
