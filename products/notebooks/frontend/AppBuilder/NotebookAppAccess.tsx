@@ -13,16 +13,27 @@ import { userLogic } from 'scenes/userLogic'
 import { notebooksAppViewGrantsActiveList, notebooksAppViewGrantsCreate } from '../generated/api'
 import type { ActiveAppViewGrantApi } from '../generated/api.schemas'
 
-export function NotebookAppAccess({
-    project,
-    shortId,
-    revision,
-}: {
+interface NotebookAppAccessProps {
     project: string
     shortId: string
     revision: number
-}): JSX.Element | null {
+}
+
+export function NotebookAppAccess(props: NotebookAppAccessProps): JSX.Element | null {
     const { user } = useValues(userLogic)
+    if (!user || (user.organization?.membership_level ?? 0) < OrganizationMembershipLevel.Admin) {
+        return null
+    }
+
+    return (
+        <NotebookAppAccessControls
+            key={[user.uuid, props.project, props.shortId, props.revision].join(':')}
+            {...props}
+        />
+    )
+}
+
+function NotebookAppAccessControls({ project, shortId, revision }: NotebookAppAccessProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const [email, setEmail] = useState('')
     const [busy, setBusy] = useState(false)
@@ -31,9 +42,6 @@ export function NotebookAppAccess({
     const [grants, setGrants] = useState<ActiveAppViewGrantApi[]>([])
     const [hasMore, setHasMore] = useState(false)
     const [listError, setListError] = useState(false)
-    if ((user?.organization?.membership_level ?? 0) < OrganizationMembershipLevel.Admin) {
-        return null
-    }
 
     async function loadGrants(offset = 0): Promise<void> {
         setListError(false)
