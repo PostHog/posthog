@@ -208,7 +208,9 @@ jobs:
                   release-name: posthog
                   release-version: ${{ github.sha }}
 
-            # The same frontend build the image build runs, from the shared Depot layer cache.
+            # The only frontend build of the run when the upload works: the image build below then reads
+            # the processed tree for both platforms and skips its own frontend build. The JS and
+            # products.json do not depend on the platform, so one linux/amd64 build serves both.
             - name: Export the frontend build
               id: frontend
               if: steps.release.outputs.hog-path != ''
@@ -251,7 +253,8 @@ jobs:
                       COMMIT_HASH=${{ github.sha }}
                       POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
                   # Replaces the Dockerfile's frontend-dist stage with the processed frontend, once
-                  # the upload above worked. Without it the image keeps the .map files.
+                  # the upload above worked. Without it each platform builds the frontend itself, and
+                  # the image keeps the .map files.
                   build-contexts: ${{ steps.sourcemaps.outcome == 'success' && format('frontend-dist={0}/sourcemap-upload', runner.temp) || '' }}
 
             - name: Re-login to DockerHub (retry)
