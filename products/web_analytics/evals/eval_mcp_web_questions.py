@@ -11,6 +11,7 @@ from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool
+from products.web_analytics.evals.offline_config import offline_suite
 from products.web_analytics.evals.scorers import WebAnswerCorrectness
 from products.web_analytics.evals.seeders import (
     MIN_LANDING_PAGE_VISITORS,
@@ -137,8 +138,12 @@ CASES = [
 async def eval_mcp_web_questions(ctx: EvalContext) -> None:
     await SandboxedEval(
         experiment_name="sandboxed-web-analytics-mcp-questions-cli",
+        offline_suite=offline_suite(
+            "web_analytics/eval_mcp_web_questions::eval_mcp_web_questions",
+            metrics=["first_relevant_tool", "web_answer_correctness"],
+        ),
         cases=CASES,
         scorers=[FirstRelevantTool(relevant_tools=WEB_TOOLS), WebAnswerCorrectness()],
         ctx=ctx,
-        send_to_posthog=False,
+        send_to_posthog=True,
     )
