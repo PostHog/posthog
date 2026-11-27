@@ -291,6 +291,8 @@ class TestPostHogConnectionForward:
                 True,
             ),
             (["task:read", "task:write", "inbox:read", "inbox:write"], ["integration:write", "inbox:write"], False),
+            (["query:read"], ["integration:write", "query:write"], True),
+            (["query:write"], ["integration:write", "query:read"], False),
         ],
     )
     def test_forward_requires_caller_token_to_cover_connection_scopes(
