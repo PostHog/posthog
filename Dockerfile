@@ -11,8 +11,7 @@
 # - node-base: shared Node.js base with pnpm already provisioned
 # - product-manifests: collect the package.json of each products/* workspace package
 # - frontend-build: build the frontend (static assets)
-# - frontend-dist: the frontend build alone, which CI exports to upload its sourcemaps
-# - sourcemap-upload: the frontend/dist that ships, which CI replaces once it uploaded the sourcemaps
+# - frontend-dist: the frontend/dist that ships, which CI replaces once it uploaded the sourcemaps
 # - node-scripts-build: build plugin transpiler and other Node.js build artifacts
 # - cli-catalog-build: build the API tool catalog that hog downloads from /api/cli/catalog.json
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
@@ -88,23 +87,14 @@ RUN bin/turbo --filter=@posthog/frontend build
 #
 # ---------------------------------------------------------
 #
-# The frontend build alone, so CI can export it with `--target frontend-dist --output type=local` and
-# upload its sourcemaps from the job (see .github/scripts/upload-frontend-sourcemaps.sh).
+# The frontend/dist that ships. This build uploads nothing and keeps the .map files. CI exports this
+# stage with `--target frontend-dist --output type=local` and uploads the sourcemaps from the job, where
+# its credentials never enter a build (see .github/scripts/upload-frontend-sourcemaps.sh). hog deletes
+# each map it uploaded and the reference to it, and CI passes that tree back as a build context named
+# frontend-dist, which replaces this stage.
 #
 FROM scratch AS frontend-dist
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
-
-
-#
-# ---------------------------------------------------------
-#
-# The frontend/dist that ships, and whether its sourcemaps reached error tracking. This build uploads
-# nothing and keeps the .map files. CI uploads from the job instead, where its credentials never enter
-# a build, and replaces this whole stage with a build context named sourcemap-upload. That context holds
-# the processed frontend/dist and a status of "uploaded", so the posthog-build stage strips the maps.
-#
-FROM frontend-build AS sourcemap-upload
-RUN echo retained > /tmp/.sourcemaps-status && touch /tmp/.sourcemaps-processed
 
 
 #
@@ -224,9 +214,9 @@ COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
 
-# Copy the sourcemap-processed frontend assets and also the products.json file. The CLI injects
-# chunk IDs into JS before uploading maps, so the runtime JS must come from the same processed tree.
-COPY --from=sourcemap-upload /code/frontend/dist /code/frontend/dist
+# Copy the frontend assets and also the products.json file. hog injects chunk IDs into the JS before it
+# uploads the maps, so the runtime JS must come from the same processed tree.
+COPY --from=frontend-dist /code/frontend/dist /code/frontend/dist
 COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Make sure we build the static files
@@ -235,19 +225,6 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 # Render the wizard tool catalog from the warehouse source declarations. Web workers serve this file,
 # so they never import every source module, and a source module that fails to import fails the build.
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py render_wizard_tool_catalog
-
-# Strip JS sourcemaps (~2.8GB) from the artifacts that ship in the final image, but ONLY when the
-# sourcemap-upload stage says CI uploaded them to error tracking (status "uploaded"). Otherwise the
-# .map files are kept so the only remaining copy isn't lost. Done here (not in the final stage) so the
-# bytes never enter the COPYed layers.
-COPY --from=sourcemap-upload /tmp/.sourcemaps-status /tmp/.sourcemaps-status
-RUN if [ "$(cat /tmp/.sourcemaps-status)" = uploaded ]; then \
-        echo "sourcemaps uploaded — stripping .map files from the image"; \
-        find /code/staticfiles /code/frontend/dist \( -name '*.map' -o -name '*.map.gz' -o -name '*.map.br' \) -delete; \
-    else \
-        echo "sourcemaps NOT uploaded — retaining .map files in the image"; \
-    fi
-
 
 
 #
@@ -369,11 +346,8 @@ COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/static
 
 # frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
 # fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
-# where the JS sourcemaps have already been stripped.
+# so it is the tree collectstatic read.
 COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
-
-# Keeps the sourcemap-upload stage in the build (the file itself is not needed in the final image).
-COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
 
 # Copy products.json from the frontend-build stage
 COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
