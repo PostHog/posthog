@@ -2,6 +2,7 @@ use std::{collections::HashMap, time::Duration};
 
 use common_types::{GroupType, Team, TeamId};
 use moka::sync::{Cache, CacheBuilder};
+use sqlx::PgPool;
 use tracing::warn;
 
 use crate::{
@@ -26,6 +27,7 @@ pub struct TeamManager {
     pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
     pub spike_detection_configs: Cache<TeamId, Option<SpikeDetectionConfig>>,
     pub rate_limit_settings: Cache<TeamId, Option<RateLimitSettings>>,
+    auto_resolve_enabled: moka::future::Cache<TeamId, bool>,
 }
 
 impl TeamManager {
@@ -102,7 +104,30 @@ impl TeamManager {
             group_type_indices,
             spike_detection_configs,
             rate_limit_settings,
+            auto_resolve_enabled: moka::future::Cache::builder()
+                .max_capacity(config.max_team_cache_size)
+                .time_to_live(Duration::from_secs(60))
+                .build(),
         }
+    }
+
+    pub(crate) async fn tracks_issue_receipts(
+        &self,
+        pool: &PgPool,
+        team_id: TeamId,
+    ) -> Result<bool, UnhandledError> {
+        self.auto_resolve_enabled
+            .try_get_with(team_id, async {
+                sqlx::query_scalar(
+                    "SELECT EXISTS (SELECT 1 FROM posthog_errortrackingsettings \
+                     WHERE team_id = $1 AND auto_resolve_after_days IS NOT NULL)",
+                )
+                .bind(team_id)
+                .fetch_one(pool)
+                .await
+            })
+            .await
+            .map_err(|error| UnhandledError::Other(error.to_string()))
     }
 
     pub async fn get_team<'c, E>(

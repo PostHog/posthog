@@ -250,6 +250,30 @@ impl Issue {
         Ok(())
     }
 
+    pub(crate) async fn record_receipt(
+        &mut self,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        // Lock before sampling the receipt time or reading status. The sweep takes this
+        // same lock, which we hold through any reopen.
+        let status: String = sqlx::query_scalar(
+            "WITH locked_issue AS MATERIALIZED (
+                 SELECT id FROM posthog_errortrackingissue WHERE team_id = $1 AND id = $2 FOR UPDATE
+             )
+             UPDATE posthog_errortrackingissue AS issue
+             SET last_received_at = GREATEST(issue.last_received_at, clock_timestamp())
+             FROM locked_issue
+             WHERE issue.id = locked_issue.id AND issue.team_id = $1
+             RETURNING issue.status",
+        )
+        .bind(self.team_id)
+        .bind(self.id)
+        .fetch_one(&mut **txn)
+        .await?;
+        self.status = IssueStatus::from(status);
+        Ok(())
+    }
+
     pub fn can_reopen(&self) -> bool {
         !matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed)
     }
@@ -274,15 +298,21 @@ impl Issue {
         let reopened: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
             r#"
             UPDATE posthog_errortrackingissue AS issue
-            SET status = 'active'
+            SET status = 'active',
+                auto_resolved = false,
+                auto_resolve_sync_requested_at = CASE WHEN before.auto_resolved
+                    THEN clock_timestamp() ELSE issue.auto_resolve_sync_requested_at END
             FROM (
-                SELECT id, status FROM posthog_errortrackingissue WHERE id = $1 FOR UPDATE
+                SELECT id, status, auto_resolved FROM posthog_errortrackingissue
+                WHERE id = $1 AND team_id = $2 FOR UPDATE
             ) AS before
-            WHERE issue.id = before.id AND before.status NOT IN ('active', 'suppressed')
+            WHERE issue.id = before.id AND issue.team_id = $2
+                AND before.status NOT IN ('active', 'suppressed')
             RETURNING before.status, issue.name, issue.severity
             "#,
         )
         .bind(self.id)
+        .bind(self.team_id)
         .fetch_optional(executor)
         .await?;
 
@@ -856,11 +886,15 @@ mod test {
             super::Issue::insert_new(1, "TypeError".to_string(), String::new(), None, &pool)
                 .await
                 .unwrap();
-        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved', name = 'Updated issue', severity = 'high' WHERE id = $1")
-            .bind(issue.id)
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "UPDATE posthog_errortrackingissue
+             SET status = 'resolved', name = 'Updated issue', severity = 'high', auto_resolved = true
+             WHERE id = $1",
+        )
+        .bind(issue.id)
+        .execute(&pool)
+        .await
+        .unwrap();
         issue.status = super::IssueStatus::Resolved;
         // A second writer that read the issue before the first reopened it.
         let mut stale = issue.clone();
@@ -873,6 +907,17 @@ mod test {
         assert_eq!(issue.name.as_deref(), Some("Updated issue"));
         assert_eq!(issue.severity.as_deref(), Some("high"));
         assert_eq!(stale.reopen(&pool).await.unwrap(), None);
+        let (received, auto_resolved, sync_requested): (bool, bool, bool) = sqlx::query_as(
+            "SELECT last_received_at IS NOT NULL, auto_resolved, auto_resolve_sync_requested_at IS NOT NULL
+             FROM posthog_errortrackingissue WHERE id = $1",
+        )
+        .bind(issue.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!received);
+        assert!(!auto_resolved);
+        assert!(sync_requested);
 
         sqlx::query("UPDATE posthog_errortrackingissue SET status = 'suppressed' WHERE id = $1")
             .bind(issue.id)
