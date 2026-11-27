@@ -4,6 +4,7 @@ import uuid
 import functools
 from collections import defaultdict
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
@@ -985,8 +986,8 @@ class EventDefinitionViewSet(
     def _log_bulk_state_change(
         self,
         definition: EventDefinition,
-        before: dict[str, bool],
-        after: dict[str, bool],
+        before: dict[str, bool | datetime | None],
+        after: dict[str, bool | datetime | None],
         *,
         user: User,
         was_impersonated: bool,
@@ -1161,6 +1162,7 @@ class EventDefinitionViewSet(
                 enterprise = cast(
                     EnterpriseEventDefinition, self._get_event_definition(id=obj_id, team__project_id=self.project_id)
                 )
+                before_scheduled_deletion_at = enterprise.scheduled_deletion_at
                 enterprise.hidden = hidden
                 if hidden:
                     enterprise.verified = False  # an event cannot be both hidden and verified
@@ -1172,8 +1174,16 @@ class EventDefinitionViewSet(
 
                 self._log_bulk_state_change(
                     enterprise,
-                    {"hidden": before_hidden, "verified": before_verified},
-                    {"hidden": hidden, "verified": bool(enterprise.verified)},
+                    {
+                        "hidden": before_hidden,
+                        "verified": before_verified,
+                        "scheduled_deletion_at": before_scheduled_deletion_at,
+                    },
+                    {
+                        "hidden": hidden,
+                        "verified": bool(enterprise.verified),
+                        "scheduled_deletion_at": enterprise.scheduled_deletion_at,
+                    },
                     user=user,
                     was_impersonated=was_impersonated,
                 )

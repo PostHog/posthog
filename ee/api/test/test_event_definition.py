@@ -502,19 +502,36 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert first.verified is False
         assert second.verified is False
 
-    @parameterized.expand([("hide", True), ("unhide", False)])
-    def test_bulk_update_hidden_flips_state_and_skips_noops(self, _name, target):
+    @parameterized.expand(
+        [
+            # Ingestion creates base rows without the enterprise extension, so hiding has to promote one.
+            ("hide_base_row", True, {}, [("hidden", False, True)]),
+            (
+                "hide_verified",
+                True,
+                {"hidden": False, "verified": True},
+                [("hidden", False, True), ("verified", True, False)],
+            ),
+            (
+                "unhide_scheduled_for_deletion",
+                False,
+                {"hidden": True, "scheduled_deletion_at": datetime(2500, 1, 1, tzinfo=UTC)},
+                [("hidden", True, False), ("scheduled_deletion_at", "2500-01-01T00:00:00+00:00", None)],
+            ),
+        ]
+    )
+    def test_bulk_update_hidden_flips_state_and_skips_noops(self, _name, target, enterprise_fields, expected_changes):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         already = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_already", hidden=target)
-        to_change = EnterpriseEventDefinition.objects.create(
-            team=self.demo_team,
-            name="bulk_hide_change",
-            hidden=not target,
-            verified=not target,
-            scheduled_deletion_at=None if target else datetime(2500, 1, 1, tzinfo=UTC),
-        )
+        if enterprise_fields:
+            to_change: EventDefinition = EnterpriseEventDefinition.objects.create(
+                team=self.demo_team, name="bulk_hide_change", **enterprise_fields
+            )
+        else:
+            to_change = EventDefinition.objects.create(team=self.demo_team, name="bulk_hide_change")
+        ActivityLog.objects.filter(team_id=self.demo_team.pk, scope="EventDefinition").delete()
 
         response = self.client.post(
             f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
@@ -526,13 +543,16 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert data["updated"] == [{"id": str(to_change.id), "hidden": target}]
         assert data["skipped"] == []
 
-        to_change.refresh_from_db()
-        assert to_change.hidden is target
-        if target:
-            # Hiding unverifies, since an event cannot be both hidden and verified.
-            assert to_change.verified is False
-        else:
-            assert to_change.scheduled_deletion_at is None
+        changed = EnterpriseEventDefinition.objects.get(pk=to_change.pk)
+        assert changed.hidden is target
+        # An event cannot be both hidden and verified, and a scheduled delete only applies to hidden events.
+        assert changed.verified is False
+        assert changed.scheduled_deletion_at is None
+
+        log = ActivityLog.objects.get(team_id=self.demo_team.pk, scope="EventDefinition")
+        assert (log.item_id, log.activity) == (str(to_change.id), "changed")
+        assert log.detail is not None
+        assert sorted((c["field"], c["before"], c["after"]) for c in log.detail["changes"]) == expected_changes
 
     def test_bulk_update_hidden_ignores_event_definitions_in_other_project(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
