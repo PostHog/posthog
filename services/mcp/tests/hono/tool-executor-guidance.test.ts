@@ -326,7 +326,6 @@ describe('ToolExecutor guidance notices', () => {
     it.each([
         { status: 'not_started', mode: 'exec', flag: true, request: () => ({ setup_state: 'not_started' }) },
         { status: 'not_started', mode: 'tools', flag: true, request: () => ({ setup_state: 'not_started' }) },
-        // Onboarding still answers completed_at: null, so this row is a project that watches without having completed onboarding.
         { status: 'active', mode: 'exec', flag: true, request: () => ({ setup_state: 'active' }) },
         { status: 'in_progress', mode: 'exec', flag: true, request: () => ({ setup_state: 'in_progress' }) },
         {

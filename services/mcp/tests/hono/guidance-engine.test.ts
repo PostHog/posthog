@@ -10,7 +10,7 @@ import { MCPClientProfile } from '@/lib/client-detection'
 
 import { makeToolExecutorState } from '../shared/test-utils'
 import { makeGuidanceRedis } from './helpers/guidance-redis-stubs'
-import { inboxStatusReads, stubSelfDrivingRequests, type SelfDrivingResponses } from './helpers/self-driving-api-stubs'
+import { inboxStatusReads, stubSelfDrivingRequests } from './helpers/self-driving-api-stubs'
 
 const rule: GuidanceRule = {
     id: 'test-rule',
@@ -587,54 +587,46 @@ describe('Self-driving activation guidance', () => {
     })
 
     it.each([
-        [issueCall, true, false],
-        [issueCall, true, true],
-        [issueCall, true, undefined],
-        [issueCall, false, true],
-        [listCall, true, false],
-        [listCall, true, true],
-        [listCall, false, true],
-    ] as const)(
-        'records exposure for %j with experiment flag %s and GitHub-optional setup %s',
-        async (call, enabled, githubOptional) => {
-            const state = activationState({
-                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled },
-            })
-            state.context.api.request = stubSelfDrivingRequests({
-                onboarding: () => ({ completed_at: null, draft: null, github_optional_available: githubOptional }),
-            }) as ApiClient['request']
-            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)
+        [issueCall, true],
+        [issueCall, false],
+        [listCall, true],
+        [listCall, false],
+    ] as const)('records exposure for %j with experiment flag %s', async (call, enabled) => {
+        const state = activationState({
+            toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled },
+        })
+        const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)
 
-            expect(notice).toMatchObject({
-                ruleId: 'error-tracking-sd-activation',
-                outcome: enabled ? 'shown' : 'flag_off',
-            })
-            expect(notice?.text).toEqual(
-                enabled ? expect.stringContaining('https://example.com/project/2/inbox/activate') : undefined
+        expect(notice).toMatchObject({
+            ruleId: 'error-tracking-sd-activation',
+            outcome: enabled ? 'shown' : 'flag_off',
+        })
+        expect(notice?.text).toEqual(
+            enabled ? expect.stringContaining('https://example.com/project/2/inbox/activate') : undefined
+        )
+        if (enabled) {
+            expect(notice?.text).toContain('`self-driving-status-get` returns its setup state')
+            expect(notice?.text).toContain(
+                'Agents triaged errors in this project via the MCP on 29 of the past 30 days.'
             )
-            if (enabled) {
-                expect(notice?.text).toContain('`self-driving-status-get` returns its setup state')
-                expect(notice?.text).toContain(
-                    'Agents triaged errors in this project via the MCP on 29 of the past 30 days.'
-                )
-                expect(notice?.text).toContain("Answer the user's current question first")
-                expect(notice?.text).toContain('PostHog Self-driving can investigate new errors in the background')
-                expect(notice?.text).not.toContain('poll')
-                expect(notice?.text).not.toContain('inbox-reports-list')
-                // The start-without-GitHub page comes from self-driving-status-get, not from the notice.
-                expect(notice?.text).not.toContain('/inbox/activate/without-github')
-                expect(notice?.text).not.toContain('api.example.com')
-                expect(notice?.text).not.toContain('self-driving-activate')
-            }
-            for (const path of ['/api/projects/2/signals/inbox_status/', '/api/projects/2/signals/onboarding/']) {
-                expect(state.context.api.request).toHaveBeenCalledWith({
-                    method: 'GET',
-                    path,
-                    signal: expect.any(AbortSignal),
-                })
-            }
+            expect(notice?.text).toContain("Answer the user's current question first")
+            expect(notice?.text).toContain('PostHog Self-driving can investigate new errors in the background')
+            expect(notice?.text).not.toContain('poll')
+            expect(notice?.text).not.toContain('inbox-reports-list')
+            // The start-without-GitHub page comes from self-driving-status-get, not from the notice.
+            expect(notice?.text).not.toContain('/inbox/activate/without-github')
+            expect(notice?.text).not.toContain('api.example.com')
+            expect(notice?.text).not.toContain('self-driving-activate')
         }
-    )
+        expect(state.context.api.request).toHaveBeenCalledWith({
+            method: 'GET',
+            path: '/api/projects/2/signals/inbox_status/',
+            signal: expect.any(AbortSignal),
+        })
+        expect(state.context.api.request).not.toHaveBeenCalledWith(
+            expect.objectContaining({ path: '/api/projects/2/signals/onboarding/' })
+        )
+    })
 
     it.each(['production', 'staging', undefined])('does not offer simulated guidance in %s', async (environment) => {
         vi.stubEnv('NODE_ENV', environment)
@@ -720,7 +712,6 @@ describe('Self-driving activation guidance', () => {
         expect(state.context.api.request).not.toHaveBeenCalled()
     })
 
-    // Onboarding answers completed_at: null in both rows, so an active project that never completed onboarding gets no notice.
     it.each(['active', 'in_progress'])(
         'briefly caches existing setup without consuming the session allowance: %s',
         async (setupState) => {
@@ -769,28 +760,18 @@ describe('Self-driving activation guidance', () => {
         }
     )
 
-    it.each([
-        { status: undefined },
-        { status: {} },
-        { status: { setup_state: null } },
-        { onboarding: undefined },
-        { onboarding: { completed_at: null, draft: null, github_optional_available: 'true' } },
-    ])('does not cache malformed readiness: %j', async (preview) => {
-        const state = activationState()
-        const once = (response: unknown, fallback: unknown): (() => unknown) =>
-            vi.fn().mockReturnValueOnce(response).mockReturnValue(fallback)
-        const responses: SelfDrivingResponses = {}
-        if ('status' in preview) {
-            responses.status = once(preview.status, { setup_state: 'not_started' })
+    it.each([{ status: undefined }, { status: {} }, { status: { setup_state: null } }])(
+        'does not cache malformed readiness: %j',
+        async ({ status }) => {
+            const state = activationState()
+            state.context.api.request = stubSelfDrivingRequests({
+                status: vi.fn().mockReturnValueOnce(status).mockReturnValue({ setup_state: 'not_started' }),
+            }) as ApiClient['request']
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
         }
-        if ('onboarding' in preview) {
-            responses.onboarding = once(preview.onboarding, { github_optional_available: false })
-        }
-        state.context.api.request = stubSelfDrivingRequests(responses) as ApiClient['request']
-        const engine = new GuidanceEngine(makeGuidanceRedis())
-        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
-        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
-    })
+    )
 
     it('offers once across list/detail tools and projects, reserving concurrent eligible calls atomically', async () => {
         const state = activationState()
@@ -859,28 +840,23 @@ describe('Self-driving activation guidance', () => {
         expect(await engine.evaluate(state, listCall)).toMatchObject({ outcome: 'shown' })
     })
 
-    it.each(['status', 'onboarding', 'redis'] as const)(
-        'silently leaves the tool result alone after %s fails',
-        async (failure) => {
-            vi.spyOn(console, 'warn').mockImplementation(() => {})
-            const state = activationState()
-            if (failure !== 'redis') {
-                const fallback =
-                    failure === 'status' ? { setup_state: 'not_started' } : { github_optional_available: false }
-                state.context.api.request = stubSelfDrivingRequests({
-                    [failure]: vi
-                        .fn()
-                        .mockRejectedValueOnce(new Error(`${failure} unavailable`))
-                        .mockReturnValue(fallback),
-                }) as ApiClient['request']
-            }
-            const engine = new GuidanceEngine(makeGuidanceRedis(failure === 'redis'))
-            expect(await engine.evaluate(state, issueCall)).toBeUndefined()
-            if (failure !== 'redis') {
-                expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
-            }
+    it.each(['status', 'redis'] as const)('silently leaves the tool result alone after %s fails', async (failure) => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const state = activationState()
+        if (failure === 'status') {
+            state.context.api.request = stubSelfDrivingRequests({
+                status: vi
+                    .fn()
+                    .mockRejectedValueOnce(new Error('status unavailable'))
+                    .mockReturnValue({ setup_state: 'not_started' }),
+            }) as ApiClient['request']
         }
-    )
+        const engine = new GuidanceEngine(makeGuidanceRedis(failure === 'redis'))
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        if (failure !== 'redis') {
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        }
+    })
 
     it.each([
         ['redis', true],
