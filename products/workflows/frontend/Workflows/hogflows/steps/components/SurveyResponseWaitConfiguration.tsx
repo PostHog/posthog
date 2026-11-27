@@ -65,8 +65,8 @@ function RetargetWaitBanner({
                 'data-attr': 'workflow-survey-retarget-answer-wait',
             }}
         >
-            The next step waits for an answer to a different survey. People already waiting keep waiting for the old
-            one.
+            The next step waits for an answer to a different survey. If you switch it, people already waiting will wait
+            for this survey too, and the old survey keeps showing to them.
         </LemonBanner>
     )
 }
