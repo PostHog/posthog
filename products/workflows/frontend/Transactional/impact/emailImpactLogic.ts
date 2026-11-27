@@ -13,6 +13,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -368,7 +369,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setEvent(event)
         },
         setDays: () => actions.loadImpact(),
-        turnOnLinkTrackingSuccess: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
             if (!values.impact && !values.impactLoading) {
                 actions.loadImpact()
@@ -384,6 +384,15 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     shows_link_tracking_prompt: values.showsLinkTrackingPrompt,
                     has_clicks_untracked_sends: (impact.clicks_untracked ?? 0) > 0,
                 })
+            }
+        },
+    })),
+    // Every open Impact tab counts sessions once the project turns link tracking on, whichever tab or
+    // settings page turned it on.
+    subscriptions(({ actions }) => ({
+        linkTagging: (linkTagging: LinkTagging, previous: LinkTagging | undefined) => {
+            if (linkTagging === 'on' && previous === 'off') {
+                actions.loadImpact()
             }
         },
     })),

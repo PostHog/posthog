@@ -271,6 +271,39 @@ describe('emailImpactLogic', () => {
         expect(logic.values.impact?.sent).toBe(4)
     })
 
+    it("reloads another email's open tab when one email turns link tracking on", async () => {
+        const team: TeamType = {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { email_workflow_run_link_tag_enabled: false },
+        }
+        useMocks({
+            patch: {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
+                    const patch = (await request.json()) as Partial<TeamType>
+                    return [200, { ...team, workflows_config: { ...team.workflows_config, ...patch.workflows_config } }]
+                },
+            },
+        })
+        initKeaTests(true, team)
+        const otherWorkflowId = `${workflowId}-other`
+        const otherLogic = emailImpactLogic({ workflowId: otherWorkflowId })
+        otherLogic.mount()
+        logic = emailImpactLogic({ workflowId })
+        logic.mount()
+        await expectLogic(otherLogic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+        requestedParams = []
+
+        logic.actions.turnOnLinkTracking()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(otherLogic).toFinishAllListeners()
+
+        expect(requestedParams.map((params) => params.get('workflow_id')).sort()).toEqual(
+            [workflowId, otherWorkflowId].sort()
+        )
+        otherLogic.unmount()
+    })
+
     it('asks for the last 24 hours, not one calendar day, the day after the clocks change', async () => {
         // Jest gives each test file its own copy of process.env, so the time zone has to change on Node's process.
         const nodeProcess = runInThisContext('process') as NodeJS.Process
