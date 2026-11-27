@@ -537,6 +537,13 @@ class TestNotebookAppViewAccess(APIBaseTest):
             detail__contains={"changes": [{"field": "app_view_grant"}]},
         ).values_list("pk", flat=True)
         assert len(audit_ids) == 2
+        audit_id = audit_ids[0]
+        ActivityLog.objects.filter(pk=audit_id).update(
+            credential_type="personal_api_key",
+            credential_id="sample-key-id",
+            ip_address="192.0.2.10",
+            client="audit-test",
+        )
         outside = Organization.objects.create(name="Separate organization")
         outside_team = Team.objects.create(organization=outside, name="Separate project")
         outside_record = ActivityLog.objects.create(
@@ -560,8 +567,11 @@ class TestNotebookAppViewAccess(APIBaseTest):
             f"{project}/advanced_activity_logs/?is_csv_export=1",
         ]
         org_audit = f"/api/organizations/{self.organization.pk}/advanced_activity_logs/"
+        project_audit = f"{project}/advanced_activity_logs/"
+        lookup_routes = [project_audit]
         if level >= OrganizationMembership.Level.ADMIN:
             routes.append(org_audit)
+            lookup_routes.append(org_audit)
         else:
             assert self.client.get(org_audit).status_code == 403
         for route in routes:
@@ -571,3 +581,17 @@ class TestNotebookAppViewAccess(APIBaseTest):
                 self.assertNotContains(response, str(outside_record.pk))
                 for row_id in audit_ids:
                     self.assertContains(response, str(row_id))
+
+        for route in lookup_routes:
+            with self.subTest(lookup=route):
+                lookup = self.client.get(route, {"entry_ids": [str(audit_id), str(outside_record.pk)]})
+                self.assertEqual(lookup.status_code, 200)
+                (row,) = lookup.json()["results"]
+                assert row["id"] == str(audit_id)
+                assert (row["credential_type"], row["credential_id"]) == ("personal_api_key", "sample-key-id")
+                assert (row["ip_address"], row["client"]) == ("192.0.2.10", "audit-test")
+
+        self.client.force_login(self.recipient)
+        lookup = self.client.get(project_audit, {"entry_ids": str(audit_id)})
+        assert lookup.status_code == 200
+        assert lookup.json()["results"] == []

@@ -2037,6 +2037,11 @@
                     "csv": false
                 },
                 {
+                    "param": "entry_ids",
+                    "key": "entry_ids",
+                    "csv": false
+                },
+                {
                     "param": "follow",
                     "key": "follow",
                     "csv": false

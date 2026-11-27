@@ -268,10 +268,6 @@ class ActivityLogSerializer(serializers.ModelSerializer):
                     "user",
                     "created_at",
                     "was_impersonated",
-                    "ip_address",
-                    "client",
-                    "credential_type",
-                    "credential_id",
                     "team_id",
                     "organization_id",
                     "scope",
@@ -519,6 +515,13 @@ def _validate_ip_or_wildcard(value: str) -> None:
 
 
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
+    entry_ids = JSONTolerantListField(
+        child=serializers.UUIDField(),
+        required=False,
+        allow_empty=False,
+        max_length=100,
+        help_text="Filter by up to 100 activity log entry UUIDs, such as the id from an activity log event.",
+    )
     start_date = serializers.DateTimeField(
         required=False,
         help_text=(

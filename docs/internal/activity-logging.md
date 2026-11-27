@@ -364,7 +364,7 @@ Organization IP restriction configuration logs initial creation and changes to t
   The Activity page reads times and days without an offset in the project timezone, as insights do.
 - Access control: resource `activity_log`, default level `viewer`.
 - Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
-- Destinations receive a summary when a notebook grant changes. The audit row ID links the actor and action to the detailed record. Destinations also receive the recorded source IP, client, credential type and customer-visible credential ID. The event omits the notebook ID, title, recipient and release revision.
+- Destinations receive a summary when a notebook grant changes. The audit row ID links the actor and action to the detailed record. An authorized audit integration can request `GET /api/projects/{project_id}/advanced_activity_logs/?entry_ids={event_id}` with an `activity_log:read` credential to retrieve the source IP, client, credential type and customer-visible credential ID. The API applies the caller’s current permissions and audit log retention window. Project destinations receive no source or credential details, notebook ID, title, recipient or release revision.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
 
 Scheduled scouts already carry `activity_log:read`. MCP hides `advanced-activity-logs-list` when the Cloud organization lacks the Audit Logs entitlement.
