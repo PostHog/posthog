@@ -12,7 +12,6 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import type { TrafficDefinition } from '../cards/definitions'
-import { mayHaveQueued } from '../judge/invariants'
 import type { FollowUpAnswer, IntakeAnswer, JournalEntry } from '../judge/judge'
 import { UNIT_EMAIL_DOMAIN, WEBHOOK_HOST } from '../provider-edge'
 import type { SesFeedback } from './ses-feedback'
@@ -48,6 +47,8 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
 }
 
 export const SENDER = { email: 'flows@www.example.com', name: 'Scenario runner', domain: 'www.example.com' }
+
+export const WEBHOOK_TRIGGER_TEMPLATE = 'template-source-webhook'
 
 export const EMAIL_ACTION = 'email'
 export const WEBHOOK_ACTION = 'webhook'
@@ -163,8 +164,8 @@ function localOnly<T>(part: T | undefined, name: string): T {
 
 function errorOf(body: string): string | undefined {
     try {
-        const { error, status } = parseJSON(body) as { error?: unknown; status?: unknown }
-        return typeof error === 'string' ? error : typeof status === 'string' ? status : undefined
+        const { error } = parseJSON(body) as { error?: unknown }
+        return typeof error === 'string' ? error : undefined
     } catch {
         return undefined
     }
@@ -258,8 +259,6 @@ export const bounceFollowup: TrafficKind = {
 
 const SEND_RETRY = { backoffMs: 500, maxWaitMs: 5_000, deadlineMs: 60_000 }
 
-export const INTAKE_ANSWER_TIMEOUT_MS = 10_000
-
 export const REAL_CLOCK: SendClock = {
     now: () => performance.now(),
     wait: async (ms, signal) => {
@@ -267,16 +266,10 @@ export const REAL_CLOCK: SendClock = {
     },
 }
 
-const withRetries = (
-    answer: IntakeAnswer,
-    retries: number,
-    attemptsMs: number[],
-    unconfirmedAttempt: boolean
-): JournalEntry['answer'] => ({
+const withRetries = (answer: IntakeAnswer, retries: number, attemptsMs: number[]): JournalEntry['answer'] => ({
     ...answer,
     ...(retries === 0 ? {} : { retries }),
     ...(attemptsMs.length === 0 ? {} : { attemptsMs }),
-    ...(unconfirmedAttempt && !answer.accepted ? { unconfirmedAttempt: true as const } : {}),
 })
 
 function sendTransactional(
@@ -296,7 +289,6 @@ async function sendWithRetries(
     const { backoffMs, maxWaitMs, deadlineMs } = SEND_RETRY
     const deadline = clock.now() + deadlineMs
     const attemptsMs: number[] = []
-    let unconfirmedAttempt = false
     for (let retry = 0; ; retry += 1) {
         const postedAt = clock.now()
         const answer = await post()
@@ -305,14 +297,13 @@ async function sendWithRetries(
         }
         const waitMs = Math.min(backoffMs * 2 ** retry, maxWaitMs)
         if (!('status' in answer) || answer.status < 500 || clock.now() + waitMs > deadline) {
-            return withRetries(answer, retry, attemptsMs, unconfirmedAttempt)
+            return withRetries(answer, retry, attemptsMs)
         }
         await clock.wait(waitMs, signal)
         signal.throwIfAborted()
         if (clock.now() > deadline) {
-            return withRetries(answer, retry, attemptsMs, unconfirmedAttempt)
+            return withRetries(answer, retry, attemptsMs)
         }
-        unconfirmedAttempt ||= mayHaveQueued(answer)
     }
 }
 
@@ -334,7 +325,6 @@ async function postToIntake(requestOf: () => IntakeRequest): Promise<IntakeAnswe
     try {
         const { url, headers, body } = requestOf()
         const response = await internalFetch(url, {
-            timeoutMs: INTAKE_ANSWER_TIMEOUT_MS,
             method: 'POST',
             headers: { 'content-type': 'application/json', ...headers },
             body: JSON.stringify(body),
@@ -357,7 +347,7 @@ const fromRequest = async (template: string): Promise<CyclotronInputType> => ({
 
 const webhookTrigger = async (): Promise<object> => ({
     type: 'webhook',
-    template_id: 'template-source-webhook',
+    template_id: WEBHOOK_TRIGGER_TEMPLATE,
     inputs: {
         event: await fromRequest(WEBHOOK_TRIGGER_EVENT),
         distinct_id: await fromRequest('{request.body.unit_id}'),

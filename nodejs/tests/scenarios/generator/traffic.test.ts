@@ -8,7 +8,6 @@ import express from 'ultimate-express'
 import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
-import { INTAKE_ACK_DEADLINE_MS } from '~/cdp/intake/intake-producer'
 import { HogFlowSchema } from '~/cdp/schema/hogflow'
 import {
     TEMPLATE_SEND_TOKEN_CLAIMS,
@@ -27,7 +26,6 @@ import { Hub } from '~/types'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
 import {
-    INTAKE_ANSWER_TIMEOUT_MS,
     OfferContext,
     REAL_CLOCK,
     SendClock,
@@ -168,10 +166,14 @@ describe('traffic', () => {
                     ...context,
                     cdpApi: {
                         ...context.cdpApi!,
-                        jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, ''),
+                        jwt: {
+                            mint: () => {
+                                throw new Error('signing key unavailable')
+                            },
+                        } as unknown as ScopedServiceJwt,
                     },
                 }),
-                'no signing key configured',
+                'signing key unavailable',
             ],
         ])('journals a transport error when %s', async (_story, contextOf, error) => {
             const cdpApi = await startCdpApi([{ status: 202, body: {} }])
@@ -222,33 +224,6 @@ describe('traffic', () => {
                 }
             })
 
-            it("waits for cdp-api's answer past its broker's ack deadline, so a refusal it retries is not cut off", () => {
-                expect(INTAKE_ANSWER_TIMEOUT_MS).toBeGreaterThan(INTAKE_ACK_DEADLINE_MS)
-            })
-
-            it.each<[string, Answer, object]>([
-                [
-                    'an attempt cdp-api could not confirm',
-                    UNAVAILABLE,
-                    { accepted: false, status: 429, outcome: 'quota_limited', retries: 1, unconfirmedAttempt: true },
-                ],
-                [
-                    'a failure that queued nothing',
-                    { status: 500, body: { error: 'internal_error' } },
-                    { accepted: false, status: 429, outcome: 'quota_limited', retries: 1 },
-                ],
-            ])('journals a refusal on a retry after %s', async (_story, first, journaled) => {
-                const clock = controlledClock()
-                const cdpApi = await startCdpApi([first, { status: 429, body: { error: 'quota_limited' } }], clock)
-                try {
-                    expect(
-                        await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
-                    ).toEqual({ ...journaled, attemptsMs: [0, 0] })
-                } finally {
-                    await cdpApi.close()
-                }
-            })
-
             it('backs off from half a second to five, retries until a minute after the first send, then journals the last refusal', async () => {
                 const clock = controlledClock()
                 const cdpApi = await startCdpApi(
@@ -265,7 +240,6 @@ describe('traffic', () => {
                         outcome: 'intake_unavailable',
                         retries: backoffs.length,
                         attemptsMs: [0, ...backoffs.map(() => 0)],
-                        unconfirmedAttempt: true,
                     })
                     expect(cdpApi.receivedAt).toEqual(
                         backoffs.reduce((sentAt, backoff) => [...sentAt, sentAt[sentAt.length - 1] + backoff], [0])
@@ -377,26 +351,6 @@ describe('traffic', () => {
             mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
                 .map((message) => message.value as never)
-
-        it("journals cdp-api's reason when it refuses a webhook it could not queue", async () => {
-            const flow = await insertHogFlow(hub.postgres, await workflowWebhook.flow(teamId, 0, 1))
-            let now = 0
-            mockProducerObserver.produceSpy.mockImplementationOnce(() => {
-                now = 120_000
-                return Promise.reject(new Error('Broker: Not enough in-sync replicas'))
-            })
-            const pastTheDeadline: SendClock = { now: () => now, wait: () => Promise.resolve() }
-            const context = contextFor(url, undefined, pastTheDeadline)
-
-            expect(
-                await workflowWebhook.offer({ unitId: 'run-w-1', teamId, flowId: flow.id }, context, NEVER_ABORTED)
-            ).toEqual({
-                accepted: false,
-                status: 503,
-                outcome: 'intake_unavailable',
-                attemptsMs: [120_000],
-            })
-        })
 
         it("retries its seeded flow's webhook under the unit's key, so the retried runs share one id and the next unit gets its own", async () => {
             const flow = await insertHogFlow(hub.postgres, await workflowWebhook.flow(teamId, 0, 1))

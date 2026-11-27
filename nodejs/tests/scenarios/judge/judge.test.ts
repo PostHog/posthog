@@ -10,47 +10,14 @@ import { internalFetch } from '~/common/utils/request'
 
 import type { ResidentBacklog } from '../backlog/backlog'
 import type { Backlog } from '../cards'
-import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
+import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
 import { TRUTH_PAGE_LIMIT, Truth } from '../provider-edge/truth'
-import { atLeastOnce, noLoss } from './invariants'
+import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, RunEvidence, createJudge } from './judge'
 import { TruthSource, edgeTruth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
-
-const UNCONFIRMED_ANSWERS: [string, JournalEntry['answer'], number, object][] = [
-    [
-        'cdp-api could not confirm, never accepted',
-        { accepted: false, status: 503, outcome: 'intake_unavailable' },
-        0,
-        { passed: true, observed: 0 },
-    ],
-    [
-        'cdp-api could not confirm, yet accepted once',
-        { accepted: false, status: 503, outcome: 'intake_unavailable' },
-        1,
-        { passed: true, observed: 0 },
-    ],
-    [
-        'cdp-api could not confirm, yet accepted twice',
-        { accepted: false, status: 503, outcome: 'intake_unavailable' },
-        2,
-        { passed: false, observed: 1, extra: [UNIT] },
-    ],
-    [
-        'cdp-api refused on a retry after an attempt it could not confirm, yet accepted once',
-        { accepted: false, status: 429, retries: 1, unconfirmedAttempt: true },
-        1,
-        { passed: true, observed: 0 },
-    ],
-    [
-        'cdp-api failed with a 500 that queued nothing, yet accepted once',
-        { accepted: false, status: 500, outcome: 'error' },
-        1,
-        { passed: false, observed: 1, extra: [UNIT] },
-    ],
-]
 const NO_RESETS: RunEvidence = { janitorResets: 0, unobserved: [] }
 const SEED = { teamIds: [7] }
 const NEVER_ABORTED = new AbortController().signal
@@ -358,41 +325,6 @@ describe('judge', () => {
         expect(result.passed).toBe(passed)
     })
 
-    it.each(UNCONFIRMED_ANSWERS)('no_loss for an incoming webhook %s', (_story, answer, accepted, expected) => {
-        const calls = Array.from(
-            { length: accepted },
-            (_, i): TruthRecord => ({
-                seq: i + 1,
-                at: new Date().toISOString(),
-                kind: 'webhook',
-                status: 200,
-                unitId: UNIT,
-                actionId: 'webhook',
-                detail: { request: { method: 'POST', host: WEBHOOK_HOST, path: `/u/${UNIT}/webhook` } },
-            })
-        )
-
-        const result = noLoss.check(
-            {
-                journal: [{ ...offered(answer), kind: 'webhook', expect: { deliveries: ['webhook'] } }],
-                truth: calls,
-                fetchRetries: 3,
-                janitorResets: 0,
-                boundary: { truthFrom: 0, horizon: { seq: accepted, at: Date.now() }, unobserved: [] },
-            },
-            undefined,
-            {}
-        )
-
-        expect(result).toMatchObject(expected)
-    })
-
-    const deliverTimes = async (times: number): Promise<void> => {
-        for (let i = 0; i < times; i++) {
-            await deliver(UNIT)
-        }
-    }
-
     const deliverTwice = async (unitId: string): Promise<void> => {
         await deliver(unitId)
         await deliver(unitId)
@@ -565,14 +497,7 @@ describe('judge', () => {
     const CC = 'manager@example.com'
     const SCHEDULED_PAST_THE_HORIZON = 1_000_000
 
-    type NoLossRow = [string, JournalEntry, () => Promise<unknown>, Record<string, unknown>, object]
-
-    const transactional = (answer: JournalEntry['answer']): JournalEntry => ({
-        ...offered(answer),
-        kind: 'transactional',
-    })
-
-    it.each<NoLossRow>([
+    it.each<[string, JournalEntry, () => Promise<unknown>, Record<string, unknown>, object]>([
         ['delivered once', offered(), () => deliver(UNIT), {}, { passed: true, observed: 0, missing: [], extra: [] }],
         [
             'resent: accepted twice with no valve applied',
@@ -701,9 +626,6 @@ describe('judge', () => {
                 extra: [UNIT],
             },
         ],
-        ...UNCONFIRMED_ANSWERS.flatMap(([story, answer, accepted, expected]): NoLossRow[] => [
-            [`whose transactional email ${story}`, transactional(answer), () => deliverTimes(accepted), {}, expected],
-        ]),
         [
             'that expects no email and was sent none',
             { ...offered(), expect: { deliveries: [] } },
