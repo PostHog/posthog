@@ -872,6 +872,11 @@ def _looks_like_uuid(value: str) -> bool:
         return False
 
 
+def _entry_attempt_id(result: WorkflowWriteResult) -> Optional[str]:
+    entry_attempt_id = result.current.get("entry_attempt_id")
+    return str(entry_attempt_id) if entry_attempt_id else None
+
+
 def _parse_uuid_or_none(value: Any) -> Optional[uuid_mod.UUID]:
     try:
         return uuid_mod.UUID(str(value))
@@ -3597,8 +3602,9 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "Sending health across every project in this PostHog region over the last 30 whole days, which "
-            "all send through the same infrastructure. Null when AWS is unreachable or has no data, or "
-            "while the feature is not yet released to this project."
+            "all send through the same infrastructure. Null when AWS is unreachable or has no data, when "
+            "the region sent too few emails for its totals to stay private, or while the feature is not "
+            "yet released to this project."
         ),
     )
 
@@ -3933,6 +3939,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         write_only=True,
         help_text="The record another product's entry point started this workflow from, as '<kind>:<id>'. "
         "Set only when creating a workflow. Filter the list with `?source_record=`.",
+    )
+    entry_attempt_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="The call-to-action impression this workflow started from. Set only when creating a workflow.",
     )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
@@ -4298,6 +4310,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "status",
             "origin_product",
             "source_record",
+            "entry_attempt_id",
             "created_at",
             "created_by",
             "updated_at",
@@ -4603,7 +4616,9 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
 
     class Meta(HogFlowSerializer.Meta):
         # Set on create only.
-        fields = [field for field in HogFlowSerializer.Meta.fields if field != "source_record"]
+        fields = [
+            field for field in HogFlowSerializer.Meta.fields if field not in ("source_record", "entry_attempt_id")
+        ]
 
     def validate(self, data: dict) -> dict:
         instance = cast(Optional[WorkflowEditState], self.instance)
@@ -5052,7 +5067,7 @@ class HogFlowTestConfigurationSerializer(HogFlowSerializer):
     # Generated clients validate this override against its schema, and a response-only field there would
     # make them reject an override that omits it.
     class Meta(HogFlowSerializer.Meta):
-        fields = [name for name in HogFlowSerializer.Meta.fields if name != "warnings"]
+        fields = [name for name in HogFlowSerializer.Meta.fields if name not in ("warnings", "entry_attempt_id")]
 
 
 class HogFlowInvocationSerializer(serializers.Serializer):
@@ -6533,6 +6548,7 @@ class HogFlowViewSet(
             {
                 "edges_count": len(serializer.instance.edges or []),
                 "actions_count": len(serializer.instance.actions or []),
+                "entry_attempt_id": _entry_attempt_id(result),
             },
         )
 
@@ -6624,6 +6640,7 @@ class HogFlowViewSet(
                 {
                     "edges_count": len(serializer.instance.edges or []),
                     "actions_count": len(serializer.instance.actions or []),
+                    "entry_attempt_id": _entry_attempt_id(result),
                 },
             )
 

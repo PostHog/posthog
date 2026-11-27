@@ -630,6 +630,8 @@ export interface ImportStepProgressApi {
     warnings_omitted: number
     /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
     items_omitted: number
+    /** True when the step completed without reading anything, because the key can't read it. `warnings` says why. */
+    skipped: boolean
 }
 
 export interface ProviderImportRunApi {

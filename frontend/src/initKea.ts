@@ -138,7 +138,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadImportRuns: 'products.workflows.providerImportLogic',
     fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
-    loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadSiteSnapshot: 'products.surveys.draftReview.surveySiteSnapshotLogic', // The preview falls back to its generic frame
     // The prompts view shows its own error
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',

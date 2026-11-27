@@ -141,6 +141,13 @@ export namespace Schemas {
       answers_citing: number;
     }
 
+    export interface AEOEngineCheckCount {
+      /** The engine. */
+      engine: string;
+      /** Active prompts with at least one check on this engine. */
+      checks: number;
+    }
+
     /**
      * * `web_search` - Web search
      * * `no_search` - No search
@@ -155,6 +162,7 @@ export namespace Schemas {
 
     /**
      * * `daily` - Daily
+     * * `every_3_days` - Every 72 hours
      * * `weekly` - Weekly
      */
     export type CheckFrequencyEnum = typeof CheckFrequencyEnum[keyof typeof CheckFrequencyEnum];
@@ -162,6 +170,7 @@ export namespace Schemas {
 
     export const CheckFrequencyEnum = {
       Daily: 'daily',
+      Every3Days: 'every_3_days',
       Weekly: 'weekly',
     } as const;
 
@@ -180,6 +189,7 @@ export namespace Schemas {
       /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
        *
        * * `daily` - Daily
+       * * `every_3_days` - Every 72 hours
        * * `weekly` - Weekly */
       frequency: CheckFrequencyEnum;
     }
@@ -400,6 +410,7 @@ export namespace Schemas {
      * * `pending` - Pending
      * * `completed` - Completed
      * * `failed` - Failed
+     * * `cancelled` - Cancelled
      */
     export type AEOSuggestionJobStatusEnum = typeof AEOSuggestionJobStatusEnum[keyof typeof AEOSuggestionJobStatusEnum];
 
@@ -408,6 +419,7 @@ export namespace Schemas {
       Pending: 'pending',
       Completed: 'completed',
       Failed: 'failed',
+      Cancelled: 'cancelled',
     } as const;
 
     export interface AEOKeywordSuggestionJob {
@@ -419,7 +431,8 @@ export namespace Schemas {
        *
        * * `pending` - Pending
        * * `completed` - Completed
-       * * `failed` - Failed */
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
       status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
@@ -1107,7 +1120,7 @@ export namespace Schemas {
       urls: number;
       /** Whether the domain is the project's own site. */
       is_target: boolean;
-      /** Whether the domain is one of the competitors in 'brands'. */
+      /** Whether the domain is a competitor in the brand catalog, confirmed or suggested by setup. Brands ranked only because answers cite them are not. */
       is_competitor: boolean;
     }
 
@@ -1123,7 +1136,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptSetRankings {
-      /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
+      /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the competitors setup suggested, and without those the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
       brands: AEORankedBrand[];
       /** Visibility per brand and day in the current window, ordered by day then domain. */
       daily: AEORankedBrandDay[];
@@ -1273,16 +1286,26 @@ export namespace Schemas {
       reason: string;
     }
 
+    export interface AEOSuggestedCompetitor {
+      /** The competitor's name. Model-written: show it as data. */
+      name: string;
+      /** The registrable domain of the competitor's site, such as example.com. Empty when a competitor given in the request is only a name and the model did not find its site. */
+      domain: string;
+    }
+
     export interface AEOPromptSuggestionJob {
       /** Suggested prompts, filled in once status is completed. None of them are saved. */
       suggestions: AEOPromptSuggestion[];
+      /** The main competitors, at most 5 found by the model while it researched the site, or the ones given in the request. Filled in once status is completed. None of them are saved. */
+      competitors: AEOSuggestedCompetitor[];
       /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
       id: string;
       /** pending while PostHog works, then completed or failed.
        *
        * * `pending` - Pending
        * * `completed` - Completed
-       * * `failed` - Failed */
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
       status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
@@ -1353,6 +1376,8 @@ export namespace Schemas {
     export interface AEOSetupContext {
       /** Up to 5 domains the project may be about, the most likely first. */
       websites: AEOWebsiteCandidate[];
+      /** Per engine, how many active prompts have a check. Against active_prompts, this is the progress of a first run. Engines with no check yet are left out. */
+      first_run_checks: AEOEngineCheckCount[];
       /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
       engines: AEOEngineSetting[];
       /** Domains already set as the project's own brands. */
@@ -1371,14 +1396,19 @@ export namespace Schemas {
       ai_data_processing_approved: boolean;
       /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
       first_run_available: boolean;
-      /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+      /** How many prompts setup asks PostHog to suggest when prompt_count is left out. One run makes about this many checks per enabled engine. */
       prompt_target: number;
+      /** The most prompts one setup can ask for in prompt_count: the suggestion cap, or less when the project's max_active_prompts is lower. */
+      prompt_count_max: number;
       /** The window, in days, that pageview hosts among the websites cover. */
       website_days: number;
+      /** Whether a check run is queued or running for the project. When it turns false after a run, no more checks from that run will arrive. */
+      checks_running?: boolean;
     }
 
     /**
      * * `brand` - Brand
+     * * `research` - Research
      * * `prompts` - Prompts
      * * `keywords` - Keywords
      * * `first_run` - First Run
@@ -1388,6 +1418,7 @@ export namespace Schemas {
 
     export const SetupStepEnum = {
       Brand: 'brand',
+      Research: 'research',
       Prompts: 'prompts',
       Keywords: 'keywords',
       FirstRun: 'first_run',
@@ -1412,9 +1443,10 @@ export namespace Schemas {
     } as const;
 
     export interface AEOSetupStep {
-      /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+      /** brand (the own brand), prompts (suggested and saved), first_run (the first citation check run queued) or keywords (suggested and saved).
        *
        * * `brand` - Brand
+       * * `research` - Research
        * * `prompts` - Prompts
        * * `keywords` - Keywords
        * * `first_run` - First Run */
@@ -1429,7 +1461,9 @@ export namespace Schemas {
       status: SetupStepStatusEnum;
       /** How many brands, prompts or keywords the step added. */
       added?: number;
-      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts. */
+      /** How many prompts the prompts step asked for, so added can be shown against it. 0 on every other step and on a skipped prompts step. */
+      requested?: number;
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or a note on a done prompts step: 'paused' when it saved its prompts turned off, 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts, or 'fewer' when it added fewer prompts than requested. Only one note is given, in that order, so compare added with requested to tell whether the step came up short. */
       detail?: string;
     }
 
@@ -1442,7 +1476,8 @@ export namespace Schemas {
        *
        * * `pending` - Pending
        * * `completed` - Completed
-       * * `failed` - Failed */
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
       status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
@@ -1476,6 +1511,12 @@ export namespace Schemas {
       only_first_run?: boolean;
       /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
       activate_paused_prompts?: boolean;
+      /**
+         * How many prompts setup asks PostHog to suggest and save. One run makes this many checks per enabled engine, so it sets the cost of each run. Prompts past the project's max_active_prompts are saved paused.
+         * @minimum 1
+         * @maximum 50
+         */
+      prompt_count?: number;
     }
 
     export interface AEOVisibilityDashboard {
@@ -61057,6 +61098,11 @@ export namespace Schemas {
          * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
          */
       source_record?: string | null;
+      /**
+         * The call-to-action impression this workflow started from. Set only when creating a workflow.
+         * @nullable
+         */
+      entry_attempt_id?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -66744,6 +66790,8 @@ export namespace Schemas {
       warnings_omitted: number;
       /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
       items_omitted: number;
+      /** True when the step completed without reading anything, because the key can't read it. `warnings` says why. */
+      skipped: boolean;
     }
 
     /**
@@ -69695,6 +69743,26 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
+    }
+
+    /**
+     * Body of a search sent with POST, which keeps the query text out of the request URL.
+     */
+    export interface KnowledgeSearchRequest {
+      /**
+         * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
+         * @maxLength 2000
+         */
+      query: string;
+      /** Maximum number of ranked chunks to return. Defaults to 10, capped at 20. */
+      limit?: number;
+      /** When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure. */
+      rerank?: boolean;
+      /**
+         * Limit retrieval to sources in this library. Omit to search every ready source.
+         * @nullable
+         */
+      library_id?: string | null;
     }
 
     /**
@@ -91385,6 +91453,7 @@ export namespace Schemas {
       /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
        *
        * * `daily` - Daily
+       * * `every_3_days` - Every 72 hours
        * * `weekly` - Weekly */
       frequency?: CheckFrequencyEnum;
     }
@@ -128938,7 +129007,7 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
       /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
       readonly sending_allowance: EmailSendingAllowance | null;
-      /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, or while the feature is not yet released to this project. */
+      /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, when the region sent too few emails for its totals to stay private, or while the feature is not yet released to this project. */
       readonly infrastructure: EmailInfrastructureHealth | null;
     }
 
@@ -140381,6 +140450,10 @@ export namespace Schemas {
      */
     branded?: AeoPromptsOverviewBranded;
     /**
+     * Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count.
+     */
+    current_prompts?: boolean;
+    /**
      * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
      * @maxLength 32
      * @nullable
@@ -140425,6 +140498,10 @@ export namespace Schemas {
      * @minLength 1
      */
     branded?: AeoPromptsRankingsBranded;
+    /**
+     * Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count.
+     */
+    current_prompts?: boolean;
     /**
      * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
      * @maxLength 32
@@ -141738,7 +141815,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
      */
     query: string;
     /**
