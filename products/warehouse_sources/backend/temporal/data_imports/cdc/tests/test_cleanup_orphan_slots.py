@@ -403,7 +403,7 @@ def test_sweeper_marks_a_lost_posthog_managed_slot_broken(
 
     schema.refresh_from_db()
     assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") == expected_reason
-    assert mock_pause.called is (expected_reason != existing_reason)
+    mock_pause.assert_not_called()
 
 
 def _job(team, source, schema, status, age, workflow_id=None):

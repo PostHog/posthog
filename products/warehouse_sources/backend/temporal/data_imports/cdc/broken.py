@@ -187,8 +187,10 @@ def tables_wait_for_repair(source: ExternalDataSource) -> bool:
     """Whether a broken marker holds this source's CDC table schedules paused, for Repair CDC to unpause.
 
     A marker set with `pause=False` leaves the schedules running, so it does not count: self-managed
-    critical lag, and a billing stop that kept the slot. A table with sync off counts, because every
-    path that lifts a marker lifts it from those tables too.
+    critical lag, and a billing stop that kept the slot. A lost slot found after capture stopped is
+    marked without a pause too, but still counts, because a restored schedule would recreate the slot and
+    resnapshot without a person. A table with sync off counts, because every path that lifts a marker
+    lifts it from those tables too.
     """
     return (
         ExternalDataSchema.objects.filter(
@@ -233,7 +235,9 @@ def mark_lost_slot_broken(source: ExternalDataSource, adapter: CDCSourceAdapter[
             if adapter.stream_exists(conn, source):
                 return False
         category = CDCErrorCategory.SLOT_MISSING
-        mark_cdc_broken(source, category.value, cdc_error_info(category).friendly_message)
+        # Capture has already stopped, so pausing gains nothing, and a capture run that recovers the slot later
+        # lifts the marker with no paused schedule left behind.
+        mark_cdc_broken(source, category.value, cdc_error_info(category).friendly_message, pause=False)
     return True
 
 
