@@ -10256,9 +10256,9 @@ Diffed against: <https://raw.githubusercontent.com/n8n-io/n8n/master/packages/cl
 - [x] `/projects/{projectId}/users` — project membership join table with roles — resolves who owns which project (medium)
 - [x] `/projects/{projectId}/folders` — folder hierarchy workflows are organized into; lookup for workflow parentFolder ids (medium)
 - [x] `/workflows/{id}/test-runs (+ /test-runs/{runId}/test-cases)` — evaluation run results per workflow — pass/fail history for AI workflow testing (medium)
-- [ ] `/data-tables and /data-tables/{dataTableId}/rows` — user-defined data tables and their rows, queried as ordinary warehouse tables (medium)
-- [ ] `/data-tables/{dataTableId}/columns` — column metadata needed to type the data-table rows (low)
-- [ ] `/community-packages` — installed community node inventory for auditing what workflows depend on (low)
+- [x] `/data-tables and /data-tables/{dataTableId}/rows` — user-defined data tables and their rows, queried as ordinary warehouse tables (medium)
+- [x] `/data-tables/{dataTableId}/columns` — column metadata needed to type the data-table rows (low)
+- [x] `/community-packages` — installed community node inventory for auditing what workflows depend on (low)
 
 Note: Spec is served from the n8n repo (docs.n8n.io/api/v1/openapi.yml 404s). Credentials, source-control, SSO/OTel/security-policy settings and log-streaming destinations were excluded as config/secret plumbing.
 
