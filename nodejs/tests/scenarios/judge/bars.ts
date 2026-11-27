@@ -70,7 +70,7 @@ const PickupParams = z.object({ seconds: z.number().positive(), queues: z.array(
 
 const CYCLOTRON_WRITER = 'db:cyclotron'
 
-const WORKER_OF = {
+export const WORKER_OF = {
     hogflow: 'cdp-cyclotron-worker-hogflow',
     email: 'cdp-cyclotron-worker-email',
 } as const satisfies Record<z.infer<typeof Queue>, z.infer<typeof CdpRole>>
@@ -123,7 +123,7 @@ function add(
     }
 }
 
-function pickupsBetween(
+export function pickupsBetween(
     samples: readonly MetricSample[],
     roles: readonly string[],
     { from, to }: Pick<Window, 'from' | 'to'>
@@ -156,7 +156,7 @@ function pickupsBetween(
     return { picked }
 }
 
-function p99Of(buckets: Buckets): { value: number; beyond: boolean } {
+export function p99Of(buckets: Buckets): { value: number; beyond: boolean } {
     const total = buckets['+Inf'] ?? 0
     const bounds = Object.keys(buckets)
         .filter((le) => le !== '+Inf')

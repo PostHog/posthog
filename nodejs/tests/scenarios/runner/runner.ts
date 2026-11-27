@@ -13,7 +13,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { AlertCoverage, Alerts, AlertsRead, startAlerts } from '../alerts/alerts'
 import { residentBacklogOf } from '../backlog/backlog'
-import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, Step, Target, stepsOf } from '../cards'
+import { Card, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Step, Target, stepsOf } from '../cards'
 import { runManifestOf } from '../cloud/lease'
 import { durationMs } from '../duration'
 import { Environment, RunConfig, defaultStateDir } from '../environment/environment'
@@ -187,6 +187,9 @@ type Outcome = Pick<
 >
 
 export type Probes = { commits(): readonly WriterSample[]; queue(): readonly QueueSample[]; stop(): Promise<Probed> }
+
+const readsWriterCpu = ({ bars, measure }: Card): boolean =>
+    bars.some(({ name }) => name === 'writer_cpu_under') || measure.some(({ name }) => name === 'writer_cpu_percent')
 
 async function startProbes(
     cyclotronUrl: string,
@@ -539,8 +542,8 @@ export function createRunner(
         }
     }
 
-    const writerCpuFor = async (bars: Named[], window: DriveWindow, signal: AbortSignal): Promise<WriterCpu> => {
-        if (!bars.some(({ name }) => name === 'writer_cpu_under')) {
+    const writerCpuFor = async (card: Card, window: DriveWindow, signal: AbortSignal): Promise<WriterCpu> => {
+        if (!readsWriterCpu(card)) {
             return []
         }
         if (manifest === undefined) {
@@ -623,8 +626,8 @@ export function createRunner(
                 live.write({ type: 'phase', at, phase: next, ...(driveForMs !== undefined && { driveForMs }) })
             }
             const readWriterCpu = async (window: DriveWindow, readSignal: AbortSignal): Promise<WriterCpu> => {
-                const read = await writerCpuFor(card.bars, window, readSignal)
-                if (card.bars.some(({ name }) => name === 'writer_cpu_under')) {
+                const read = await writerCpuFor(card, window, readSignal)
+                if (readsWriterCpu(card)) {
                     writerCpuReads.push({ startedAt: window.startedAt, endedAt: window.endedAt, read })
                 }
                 return read
@@ -809,6 +812,7 @@ export function createRunner(
                     drive: driveWindow,
                     steps,
                     timeline: valves.timeline(),
+                    writerCpu: await readWriterCpu(driveWindow, signal),
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
@@ -819,7 +823,6 @@ export function createRunner(
                 const barEvidence = {
                     ...evidence,
                     hostCpuCeiling: profile.host?.cpuCeiling,
-                    writerCpu: await readWriterCpu(driveWindow, signal),
                     settled: watch?.settled(),
                 }
                 const bars = judgeBars(card.bars, barEvidence)

@@ -12,9 +12,11 @@ import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { VacuumRead, VacuumSettingsRead } from '../probe/vacuum-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
+import type { WriterCpu } from './bars'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
+import { SOAK_MEASUREMENTS } from './vacuum'
 
 export type MetricSample = {
     role: string
@@ -65,11 +67,12 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         horizonAt?: number
         converged?: boolean
         unsettled?: string
+        writerCpu?: WriterCpu
     }
 
 export type MeasurementDefinition = Definition & {
     unit: string
-    measure(evidence: MeasureEvidence): Measured[]
+    measure(evidence: MeasureEvidence, params: unknown): Measured[]
 }
 
 export const SAMPLE_INTERVAL_MS = 5000
@@ -604,15 +607,16 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     deliveryLatencyMs,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
+    ...SOAK_MEASUREMENTS,
 ]
 
 export function measure(measurements: Named[], evidence: MeasureEvidence): Measurement[] {
-    return measurements.flatMap(({ name }) => {
+    return measurements.flatMap(({ name, params }) => {
         const definition = MEASUREMENTS.find((measurement) => measurement.name === name)
         if (!definition) {
             throw new Error(`No measurement ${name}`)
         }
-        return definition.measure(evidence).map((value) => ({ name, unit: definition.unit, ...value }))
+        return definition.measure(evidence, params).map((value) => ({ name, unit: definition.unit, ...value }))
     })
 }
 
