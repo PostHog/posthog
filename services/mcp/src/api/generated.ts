@@ -99919,6 +99919,55 @@ export namespace Schemas {
       hog_function_id: string;
     }
 
+    /**
+     * * `slack_dm` - Slack direct message
+     * * `slack_channel` - Slack channel
+     */
+    export type SignalScoutMessageDeliveryTargetTypeEnum = typeof SignalScoutMessageDeliveryTargetTypeEnum[keyof typeof SignalScoutMessageDeliveryTargetTypeEnum];
+
+
+    export const SignalScoutMessageDeliveryTargetTypeEnum = {
+      SlackDm: 'slack_dm',
+      SlackChannel: 'slack_channel',
+    } as const;
+
+    export interface SignalScoutMessageTarget {
+      type: SignalScoutMessageDeliveryTargetTypeEnum;
+      /**
+         * Slack member ID, for `slack_dm`.
+         * @maxLength 255
+         */
+      user?: string;
+      /**
+         * Slack channel ID, for `slack_channel`. Never a shared channel.
+         * @maxLength 255
+         */
+      channel?: string;
+    }
+
+    export interface SignalScoutMessageRoute {
+      /**
+         * Slug the scout names to send on this route.
+         * @maxLength 64
+         * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * When the scout should send, shown in its run prompt.
+         * @maxLength 300
+         */
+      when: string;
+      /**
+         * @minItems 1
+         * @maxItems 5
+         */
+      to: SignalScoutMessageTarget[];
+    }
+
+    /**
+     * Output destinations plus message routes. Only the config create and update paths take routes, so the
+     * scout and source-product create tools keep their schemas small.
+     */
     export interface SignalScoutOutputDestinationsUpdate {
       /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
       slack?: SignalScoutSlackDestinationUpdate | null;
@@ -99926,6 +99975,11 @@ export namespace Schemas {
       webhook?: SignalScoutWebhookDestination | null;
       /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
       inbox?: boolean;
+      /**
+         * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+         * @maxItems 10
+         */
+      messages?: SignalScoutMessageRoute[];
     }
 
     /**
@@ -117679,6 +117733,24 @@ export namespace Schemas {
       Background: 'background',
     } as const;
 
+    /**
+     * Output destinations plus message routes. Only the config create and update paths take routes, so the
+     * scout and source-product create tools keep their schemas small.
+     */
+    export interface SignalScoutRoutedOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+      /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+      webhook?: SignalScoutWebhookDestination | null;
+      /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
+      inbox?: boolean;
+      /**
+         * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+         * @maxItems 10
+         */
+      messages?: SignalScoutMessageRoute[];
+    }
+
     export type ScoutPrecheckQuerySourceEnum = typeof ScoutPrecheckQuerySourceEnum[keyof typeof ScoutPrecheckQuerySourceEnum];
 
 
@@ -117770,7 +117842,7 @@ export namespace Schemas {
          */
       readonly run_cron_schedule: string | null;
       /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
-      readonly output_destinations: SignalScoutOutputDestinations;
+      readonly output_destinations: SignalScoutRoutedOutputDestinations;
       /**
          * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
          * @nullable
@@ -120342,6 +120414,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `replaced` - Replaced
+     * * `duplicate` - Duplicate
+     * * `over_cap` - Over Cap
+     * * `dry_run` - Dry Run
+     */
+    export type SendMessageOutcomeEnum = typeof SendMessageOutcomeEnum[keyof typeof SendMessageOutcomeEnum];
+
+
+    export const SendMessageOutcomeEnum = {
+      Queued: 'queued',
+      Replaced: 'replaced',
+      Duplicate: 'duplicate',
+      OverCap: 'over_cap',
+      DryRun: 'dry_run',
+    } as const;
+
+    /**
+     * Request body for `scout-send-message`: one message on an owner-set route.
+     */
+    export interface SendScoutMessageRequest {
+      /**
+         * Key of the route to send on, from the scout config's `output_destinations.messages`. The route decides who receives the message; the scout never names a recipient.
+         * @maxLength 64
+         */
+      route: string;
+      /**
+         * Id of the report this message is about. Required unless the scout is on a dry run. The report must belong to this project and must have been written or edited by this run.
+         * @maxLength 64
+         * @nullable
+         */
+      report_id?: string | null;
+      /**
+         * Short plain-text title. At most 150 characters.
+         * @maxLength 150
+         */
+      title: string;
+      /**
+         * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
+         * @maxLength 3000
+         */
+      body: string;
+      /**
+         * Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route and key replaces the queued message.
+         * @maxLength 200
+         */
+      dedupe_key: string;
+    }
+
+    /**
+     * Outcome of a `scout-send-message` call.
+     */
+    export interface SendScoutMessageResponse {
+      /** `queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this route and key, and it now holds this content. `duplicate`: the route and key were sent in the last 30 days, so nothing was queued. `over_cap`: the scout reached its message limit, so nothing was queued. `dry_run`: recorded for review and never sent.
+       *
+       * * `queued` - Queued
+       * * `replaced` - Replaced
+       * * `duplicate` - Duplicate
+       * * `over_cap` - Over Cap
+       * * `dry_run` - Dry Run */
+      outcome: SendMessageOutcomeEnum;
+      /**
+         * Id of the queued message, or null when nothing was queued.
+         * @nullable
+         */
+      message_id: string | null;
+      /** On `duplicate`: the keys recently sent on this route, newest first. Empty otherwise. */
+      recent_dedupe_keys: string[];
+    }
+
+    /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
     export type SendTransactionalEmailMessageData = {[key: string]: unknown};
@@ -122579,7 +122722,7 @@ export namespace Schemas {
          */
       run_interval_minutes?: number;
       /** Destinations that receive each finding or report this scout emits. Empty by default. */
-      output_destinations?: SignalScoutOutputDestinations;
+      output_destinations?: SignalScoutRoutedOutputDestinations;
       /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
        *
        * * `trusted` - Trusted domains only
