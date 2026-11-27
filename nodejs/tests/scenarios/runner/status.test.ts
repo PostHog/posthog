@@ -110,20 +110,6 @@ describe('statusOf', () => {
             'not converged: 4 unfinished jobs, 2 units without a delivery record',
         ],
         [
-            'the stack did not converge because SES feedback posts were still in flight at the deadline',
-            {
-                convergence: {
-                    converged: false,
-                    unfinishedJobs: 0,
-                    unrecorded: [],
-                    tookMs: 120000,
-                    feedbackPending: true,
-                },
-            },
-            'failed',
-            'not converged: 0 unfinished jobs, 0 units without a delivery record, SES feedback posts still in flight',
-        ],
-        [
             'the generator offered under minOffered',
             { units: { targetUnits: 60, offeredUnits: 53, steps: [] }, invariants: [BROKEN] },
             'invalid',

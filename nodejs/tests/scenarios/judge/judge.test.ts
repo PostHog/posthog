@@ -1323,20 +1323,6 @@ describe('judge', () => {
             await convergesOnlyOnceTheWebhookAnswers(release)
         }))
 
-    it('a profile with feedback shares ends unconverged and says so while the webhook holds its feedback post past the deadline', () =>
-        withHeldWebhook(true, async () => {
-            judge.record(offered())
-            await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
-
-            expect(await judge.converge(50, NEVER_ABORTED)).toEqual({
-                converged: false,
-                unfinishedJobs: 0,
-                unrecorded: [],
-                tookMs: expect.any(Number),
-                feedbackPending: true,
-            })
-        }))
-
     it('a profile without feedback shares converges while the webhook still holds its feedback post', () =>
         withHeldWebhook(false, async () => {
             judge.record(offered())

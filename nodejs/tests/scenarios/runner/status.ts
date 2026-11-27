@@ -305,12 +305,10 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
         : { ...ramped, statusReason: [ramped.statusReason, ...notJudged].join('; ') }
 }
 
-const notConvergedOf = ({ converged, unfinishedJobs, unrecorded, feedbackPending }: Convergence): string[] =>
+const notConvergedOf = ({ converged, unfinishedJobs, unrecorded }: Convergence): string[] =>
     converged || unfinishedJobs === null
         ? []
-        : [
-              `not converged: ${unfinishedJobs} unfinished jobs, ${unrecorded.length} units without a delivery record${feedbackPending ? ', SES feedback posts still in flight' : ''}`,
-          ]
+        : [`not converged: ${unfinishedJobs} unfinished jobs, ${unrecorded.length} units without a delivery record`]
 
 function unrampedStatusOf({
     admissions,

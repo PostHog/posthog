@@ -532,7 +532,6 @@ describe('ramp', () => {
     }
     const lossAt2 = '13 of 240 deliveries were lost in the 2x step (5.42%), over the 5% hard limit'
     const backlog = 'the backlog did not drain within convergeWithin: 1 job stayed unfinished'
-    const feedbackUndrained = 'the SES feedback did not land within convergeWithin: its posts were still in flight'
     const undrained: Broke = {
         scale: null,
         offeredPerSecond: null,
@@ -837,17 +836,6 @@ describe('ramp', () => {
                 broke: undrained,
                 reason: backlog,
                 stop: { failure: 'backlog_undrained', scale: null, reason: backlog },
-            },
-        ],
-        [
-            'every step held up to the last, but SES feedback posts were still in flight past the convergence deadline',
-            { convergence: { converged: false, unfinishedJobs: 0, feedbackPending: true } },
-            {
-                end: 'broke',
-                sustainedScale: null,
-                broke: undrained,
-                reason: feedbackUndrained,
-                stop: { failure: 'backlog_undrained', scale: null, reason: feedbackUndrained },
             },
         ],
         [

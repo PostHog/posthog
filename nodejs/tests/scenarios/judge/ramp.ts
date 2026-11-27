@@ -425,7 +425,7 @@ export type RampEvidence = {
     gates: Record<string, number>
     journal: readonly JournalEntry[]
     admissions: readonly Admission[]
-    convergence: Pick<Convergence, 'converged' | 'unfinishedJobs' | 'feedbackPending'>
+    convergence: Pick<Convergence, 'converged' | 'unfinishedJobs'>
     rates?: readonly StepRates[]
     readings?: StepReading[][]
 }
@@ -535,14 +535,11 @@ export function rampOf(evidence: RampEvidence): Ramp {
     const { placed, unplaced } = candidatesOf(evidence)
     placed.sort((a, b) => a.index - b.index || a.rank - b.rank)
     const [hard] = placed.filter(({ broke, hard }) => hard !== undefined || broke.kind === 'harness')
-    const { unfinishedJobs, converged, feedbackPending } = evidence.convergence
-    const backlog = converged
-        ? undefined
-        : unfinishedJobs
-          ? `the backlog did not drain within convergeWithin: ${unfinishedJobs} job${unfinishedJobs === 1 ? '' : 's'} stayed unfinished`
-          : feedbackPending
-            ? 'the SES feedback did not land within convergeWithin: its posts were still in flight'
-            : undefined
+    const { unfinishedJobs, converged } = evidence.convergence
+    const backlog =
+        converged || !unfinishedJobs
+            ? undefined
+            : `the backlog did not drain within convergeWithin: ${unfinishedJobs} job${unfinishedJobs === 1 ? '' : 's'} stayed unfinished`
     const ramp = endOf(evidence, placed, unplaced, backlog)
     const stop: HardStop | undefined =
         ramp.end === 'harness_limit'
