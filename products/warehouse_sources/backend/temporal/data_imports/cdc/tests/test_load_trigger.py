@@ -96,6 +96,20 @@ class TestLoadTrigger(BaseTest):
         [
             ("quiet", {}, {}, True, False),
             ("unread_writes", {}, _UNREAD, True, True),
+            (
+                "unread_writes_triggered_earlier_in_this_capture_run",
+                {},
+                {**_UNREAD, LOAD_TRIGGERED_AT_KEY: _ago(minutes=2)},
+                True,
+                False,
+            ),
+            (
+                "unread_writes_triggered_by_the_last_capture_run",
+                {},
+                {**_UNREAD, LOAD_TRIGGERED_AT_KEY: _ago(minutes=5)},
+                True,
+                True,
+            ),
             ("last_load_failed", {"status": ExternalDataSchema.Status.FAILED}, {}, True, True),
             ("full_run_due", {}, {"last_full_run_at": _ago(hours=7)}, True, True),
             ("snapshotting", {}, {"cdc_mode": "snapshot", **_UNREAD}, True, False),
@@ -172,9 +186,9 @@ class TestLoadTrigger(BaseTest):
 
         assert sorted(triggered) == sorted([str(owed.id), str(hourly.id)])
         assert self._fresh(owed).schedule_interval_override == dt.timedelta(hours=6)
-        # Only a table slower than capture needs the stamp that spaces its triggers out.
+        # The stamp is what spaces a table's triggers out, and a skipped trigger must not count.
         assert LOAD_TRIGGERED_AT_KEY in self._fresh(hourly).sync_type_config
-        assert LOAD_TRIGGERED_AT_KEY not in self._fresh(owed).sync_type_config
+        assert LOAD_TRIGGERED_AT_KEY not in self._fresh(paused).sync_type_config
 
     @parameterized.expand(
         [
@@ -200,6 +214,21 @@ class TestLoadTrigger(BaseTest):
 
         assert triggered == [str(schema.id)]
         assert self._fresh(schema).schedule_interval_override == dt.timedelta(hours=6)
+
+    def test_slowdowns_that_fail_still_count_against_the_cap(self) -> None:
+        for name in ("a", "b", "c"):
+            self._schema(name)
+        attempts: list = []
+
+        with (
+            patch(f"{_TRIGGER}.MAX_SCHEDULE_SLOWDOWNS_PER_RUN", 2),
+            patch(
+                f"{_TRIGGER}.reconcile_schedule", side_effect=lambda schema, **_: attempts.append(schema.name) or 1 / 0
+            ),
+        ):
+            self._trigger_loads()
+
+        assert len(attempts) == 2
 
     def test_restores_are_never_held_back_by_the_cap_on_slowdowns(self) -> None:
         restored = self._schema("a_reset", config={"cdc_mode": "snapshot", **_SLOWED})

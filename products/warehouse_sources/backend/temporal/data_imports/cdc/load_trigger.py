@@ -37,16 +37,18 @@ if TYPE_CHECKING:
 
 CDC_LOAD_TRIGGER_FLAG = "warehouse-cdc-load-trigger"
 
-# On the schema's `sync_type_config`: when capture last triggered a table that syncs less often
-# than capture runs. A run that fails or is billing-limited leaves no other trace on the schema.
+# On the schema's `sync_type_config`: when capture last triggered the table. A run that fails or
+# is billing-limited leaves no other trace on the schema.
 LOAD_TRIGGERED_AT_KEY = "cdc_load_triggered_at"
 
 # Turning the flag on changes one schedule per streaming table. The cap spreads a large source's
 # changes over several capture runs. Giving a table its own cadence back is never capped.
 MAX_SCHEDULE_SLOWDOWNS_PER_RUN = 50
 
-# Triggers run inside the capture activity, after the slot advanced. A table left out stays owed,
-# so the next capture run triggers it.
+# Both steps run inside the capture activity, which must get back to reading the change stream
+# also when Temporal is slow or down. A table left out is picked up by the next capture run: one
+# that owes a load stays owed, and one still on a slowed schedule keeps being triggered.
+RECONCILE_BUDGET_SECONDS = 60.0
 TRIGGER_BUDGET_SECONDS = 120.0
 
 
@@ -144,22 +146,15 @@ def _triggered_at(schema: ExternalDataSchema) -> dt.datetime | None:
     return stamped if stamped is not None and stamped.tzinfo is not None else None
 
 
-def _slower_than_capture(schema: ExternalDataSchema, capture_interval: dt.timedelta) -> bool:
-    interval = schema.sync_frequency_interval
-    return interval is not None and interval > capture_interval
-
-
 def _due(schema: ExternalDataSchema, now: dt.datetime, capture_interval: dt.timedelta) -> bool:
     """Whether the table's sync frequency has passed since capture last triggered it.
 
-    Capture runs at the fastest table's frequency, so a table at that frequency is always due. The
-    half-interval tolerance keeps a slower table on its cadence when a capture run ends a little early.
+    The tolerance of half a capture interval keeps a table on its cadence when a capture run ends a
+    little early. It still spaces out two triggers of one long capture run.
     """
     interval = schema.sync_frequency_interval
-    if interval is None or not _slower_than_capture(schema, capture_interval):
-        return True
     triggered_at = _triggered_at(schema)
-    return triggered_at is None or now - triggered_at >= interval - capture_interval / 2
+    return interval is None or triggered_at is None or now - triggered_at >= interval - capture_interval / 2
 
 
 def tables_to_trigger(
@@ -174,22 +169,29 @@ def tables_to_trigger(
             schema.schedule_interval_override is not None
             or wanted_schedule_interval(schema, enabled=enabled) is not None
         )
-        and tick_decision(schema, now) != TickDecision.STOOD_DOWN
+        # Before the decision, which can read the table's jobs.
         and _due(schema, now, capture_interval)
+        and tick_decision(schema, now) != TickDecision.STOOD_DOWN
     ]
 
 
-def _reconcile_all(schemas: list[ExternalDataSchema], logger: Any, *, enabled: bool) -> None:
+def _reconcile_all(
+    schemas: list[ExternalDataSchema], logger: Any, *, enabled: bool, heartbeat: Callable[[], None] | None
+) -> None:
     """Restores first and without a cap: a table waiting for its own cadence back has no other tick."""
-    restores = [s for s in schemas if wanted_schedule_interval(s, enabled=enabled) is None]
-    slowdowns = [s for s in schemas if wanted_schedule_interval(s, enabled=enabled) is not None]
-    slowed = 0
+    pending = [s for s in schemas if wanted_schedule_interval(s, enabled=enabled) != s.schedule_interval_override]
+    restores = [s for s in pending if s.schedule_interval_override is not None]
+    # A failed slowdown counts too, so a Temporal outage costs a bounded number of calls per run.
+    slowdowns = [s for s in pending if s.schedule_interval_override is None][:MAX_SCHEDULE_SLOWDOWNS_PER_RUN]
+    started = time.monotonic()
     for schema in [*restores, *slowdowns]:
-        if schema in slowdowns and slowed >= MAX_SCHEDULE_SLOWDOWNS_PER_RUN:
+        if time.monotonic() - started >= RECONCILE_BUDGET_SECONDS:
+            logger.warning("cdc_load_trigger_reconcile_budget_spent", pending=len(pending))
             break
+        if heartbeat is not None:
+            heartbeat()
         try:
-            if reconcile_schedule(schema, enabled=enabled) and schema in slowdowns:
-                slowed += 1
+            reconcile_schedule(schema, enabled=enabled)
         except Exception as e:
             logger.warning("cdc_load_trigger_reconcile_failed", schema_id=str(schema.id), error=str(e))
 
@@ -226,7 +228,7 @@ def trigger_loads(
         )
         .exclude(deleted=True)
     )
-    _reconcile_all(schemas, logger, enabled=enabled)
+    _reconcile_all(schemas, logger, enabled=enabled, heartbeat=heartbeat)
 
     now = dt.datetime.now(dt.UTC)
     capture_interval = data_warehouse_api.cdc_min_interval(
@@ -250,10 +252,9 @@ def trigger_loads(
             else:
                 trigger_schedule(temporal, schedule_id=str(schema.id))
                 outcome = "triggered"
-                if _slower_than_capture(schema, capture_interval):
-                    update_sync_type_config_keys(
-                        schema.id, schema.team_id, updates={LOAD_TRIGGERED_AT_KEY: now.isoformat()}
-                    )
+                update_sync_type_config_keys(
+                    schema.id, schema.team_id, updates={LOAD_TRIGGERED_AT_KEY: now.isoformat()}
+                )
         except temporalio.service.RPCError as e:
             outcome = "missing" if e.status == temporalio.service.RPCStatusCode.NOT_FOUND else "failed"
             logger.warning("cdc_load_trigger_failed", schema_id=str(schema.id), error=str(e))
