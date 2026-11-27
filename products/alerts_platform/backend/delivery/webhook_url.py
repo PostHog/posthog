@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from typing import Any, ClassVar
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, FailureReason, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest, post_json
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData
 
@@ -25,6 +25,7 @@ class WebhookUrlTransport(ABC):
     headers: ClassVar[dict[str, str]] = {}
     # None fits a URL that points at the customer's own endpoint, where every refusal is theirs.
     owner_refusals: ClassVar[Mapping[int, bytes | None] | None] = None
+    rejected_certificate: ClassVar[FailureReason] = "unreachable"
 
     def channel_target(self, target: AlertDestinationData) -> str:
         # Some Teams URLs are longer than the column, which a digest also avoids. A changed URL
@@ -51,6 +52,7 @@ class WebhookUrlTransport(ABC):
             display_name=self.display_name,
             headers=self.headers_for(target),
             owner_refusals=self.owner_refusals,
+            rejected_certificate=self.rejected_certificate,
         )
         return None
 

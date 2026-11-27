@@ -1,3 +1,4 @@
+import ssl
 import socket
 import struct
 import threading
@@ -12,7 +13,8 @@ from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
-from urllib3.exceptions import ProtocolError
+from urllib3.exceptions import MaxRetryError, ProtocolError, SSLError
+from urllib3.util.ssl_match_hostname import CertificateError
 
 from posthog.models.scoping import team_scope
 from posthog.security.pinned_requests import SSRFBlockedError
@@ -22,7 +24,7 @@ from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryAmbiguous, DeliveryError, DestinationRefused
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
-from products.alerts_platform.backend.delivery.wire import credential_digest
+from products.alerts_platform.backend.delivery.wire import credential_digest, post_json
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -40,6 +42,13 @@ from products.alerts_platform.backend.tests.delivery_messages import (
 
 SECRET_URL = "https://hooks.example.com/services/T000/B000/not-a-real-token"
 TARGET = cast(AlertDestinationData, {"type": "webhook", "webhook_url": SECRET_URL})
+
+_UNTRUSTED_CERTIFICATE = ssl.SSLCertVerificationError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] self-signed certificate")
+
+
+def _tls_failure(cause: Exception) -> requests.exceptions.SSLError:
+    # The chain `requests` raises for a failed handshake.
+    return requests.exceptions.SSLError(MaxRetryError(None, SECRET_URL, SSLError(cause)))
 
 
 class TestAlertmanagerBody(SimpleTestCase):
@@ -292,6 +301,9 @@ class TestAmbiguousSend(SimpleTestCase):
             ("unreachable", requests.ConnectionError(f"Max retries exceeded with url: {SECRET_URL}"), "unreachable"),
             ("blocked", SSRFBlockedError(f"{SECRET_URL} resolves to a private address"), "blocked_address"),
             ("unresolved", SSRFBlockedError(UNRESOLVED_HOST_REASON), "unreachable"),
+            ("untrusted_certificate", _tls_failure(_UNTRUSTED_CERTIFICATE), "destination_config"),
+            ("certificate_for_another_host", _tls_failure(CertificateError("hostname mismatch")), "destination_config"),
+            ("tls_cut_short", _tls_failure(ssl.SSLEOFError(8, "EOF occurred in violation of protocol")), "unreachable"),
         ]
     )
     def test_connect_timeout_is_not_ambiguous(self, _name: str, error: Exception, reason: str) -> None:
@@ -301,6 +313,13 @@ class TestAmbiguousSend(SimpleTestCase):
 
         assert not isinstance(raised.value, DeliveryAmbiguous)
         assert raised.value.reason == reason
+
+    def test_a_rejected_certificate_on_a_provider_endpoint_is_unreachable(self) -> None:
+        with pinned_post(error=_tls_failure(_UNTRUSTED_CERTIFICATE)):
+            with pytest.raises(DeliveryError) as raised:
+                post_json(SECRET_URL, {}, display_name="PagerDuty")
+
+        assert raised.value.reason == "unreachable"
 
     def test_an_unresolved_host_reads_as_a_blocked_address(self) -> None:
         messages = []

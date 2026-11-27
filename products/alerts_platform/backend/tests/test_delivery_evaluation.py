@@ -757,11 +757,16 @@ class TestDeliverEvaluation(APIBaseTest):
             patch(f"{_MODULE}.record_delivery") as recorded,
         ):
             if header is None:
-                with pytest.raises(DeliveryError):
+                with recorded_metrics() as metrics, pytest.raises(DeliveryError):
                     deliver_evaluation(_request(self.team.id))
                 post.assert_not_called()
                 # Each blocked webhook still counts as a failed delivery.
                 assert [c.kwargs["succeeded"] for c in recorded.call_args_list] == [False, False]
+                assert [
+                    (m.attributes["outcome"], m.attributes["reason"], m.attributes["owner"], m.value)
+                    for m in metrics
+                    if m.name == "alerts_platform_deliveries_total"
+                ] == [("failed", "platform_read", "posthog", 1)] * 2
                 # One failed lookup per evaluation, however many webhooks it has.
                 assert flag_reads.count(LEGACY_WEBHOOK_BODY_FLAG) == 1
                 return
@@ -1160,12 +1165,31 @@ class TestDeliveryPath(APIBaseTest):
         def refuse(**_kwargs: Any) -> None:
             raise RuntimeError("not acknowledged")
 
-        with pytest.raises(DeliveryError):
+        with recorded_metrics() as metrics, pytest.raises(DeliveryError):
             self._run(
                 _announcement(_transition(AlertEventKind.FIRING, episode_started_at=None)),
                 self._chooses(DeliveryPath.HOG_FUNCTION),
                 emitter=refuse,
             )
+
+        assert [
+            (m.attributes, m.value)
+            for m in metrics
+            if m.name == "alerts_platform_deliveries_total" and m.attributes["path"] == "hog_function"
+        ] == [
+            (
+                {
+                    "source": SourceKind.LOGS.value,
+                    "provider": "hog_function",
+                    "path": "hog_function",
+                    "outcome": "failed",
+                    "reason": "unexpected",
+                    "owner": "posthog",
+                    "final": "true",
+                },
+                1,
+            )
+        ]
 
     def test_a_rerun_after_a_refused_subscriber_send_emits_once(self) -> None:
         with recorded_metrics() as metrics:

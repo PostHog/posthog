@@ -431,7 +431,13 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
                 failures.append(f"legacy events: {type(error).__name__}")
                 retryable = True
-                _count_emissions(request, "failed", len(emissions))
+                count_failed_send(
+                    request.source.value,
+                    DeliveryPath.HOG_FUNCTION.value,
+                    error,
+                    len(emissions),
+                    path=DeliveryPath.HOG_FUNCTION,
+                )
             else:
                 thread_store.delivered(emission, None)
                 emitted = emissions

@@ -258,8 +258,17 @@ def _send(
     return sent
 
 
-def count_failed_send(source: str, provider: str, error: Exception, count: int = 1) -> None:
-    """`final` is true when this activity run will not retry this error. The send can still go again:
+def count_failed_send(
+    source: str,
+    provider: str,
+    error: Exception,
+    count: int = 1,
+    *,
+    path: DeliveryPath = DeliveryPath.NATIVE,
+) -> None:
+    """`final` is true when, judged as the send fails, this activity run will not retry this error.
+    Sends to other destinations after it can still push the run past its schedule-to-close deadline,
+    so a failure that turns out to be the run's last can read false. The send can still go again:
     a retry after a held thread runs with fresh attempts, a run retried for another destination
     sends a misconfigured one again, and a failed inline hand-over is handed to its workflow.
     """
@@ -276,7 +285,7 @@ def count_failed_send(source: str, provider: str, error: Exception, count: int =
         increment_deliveries,
         source,
         provider,
-        DeliveryPath.NATIVE.value,
+        path.value,
         outcome,
         count,
         reason=reason,
