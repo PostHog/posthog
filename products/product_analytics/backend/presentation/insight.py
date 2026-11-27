@@ -2716,7 +2716,7 @@ class InsightViewSet(
                     dashboards_ids = [int(dashboard_id) for dashboard_id in dashboards_ids]
                     if dashboards_ids:
                         # An insight must be on every listed dashboard, so the filter is AND, not OR.
-                        insight_ids_by_dashboard = insight_ids_on_dashboards(dashboards_ids)
+                        insight_ids_by_dashboard = insight_ids_on_dashboards(dashboards_ids, team_id=self.team.id)
                         queryset = queryset.filter(id__in=frozenset.intersection(*insight_ids_by_dashboard.values()))
             elif key == "tags":
                 tags_filter = request.GET["tags"]

@@ -325,6 +325,19 @@ class TestInsightTileReads(APIBaseTest):
 
         assert api.insight_tiles(dashboard_id=self.dashboard) == []
 
+    def test_insight_ids_on_dashboards_reads_only_the_teams_dashboards(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        theirs = create_dashboard(team_id=other_team.id)
+        create_insight_tile(dashboard_id=theirs, insight_id=self.first.id)
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team)
+
+        by_dashboard = api.insight_ids_on_dashboards([self.dashboard, theirs, self.dashboard], team_id=environment.id)
+
+        assert by_dashboard == {
+            self.dashboard: frozenset({self.first.id, self.second.id, self.deleted.id}),
+            theirs: frozenset(),
+        }
+
     def test_insight_ids_on_dashboard_with_removed_tiles_matches_the_insight_dashboards_relation(self) -> None:
         relation = Insight.objects_including_soft_deleted.filter(dashboards__in=[self.dashboard])
         on_dashboard = Insight.objects_including_soft_deleted.filter(
