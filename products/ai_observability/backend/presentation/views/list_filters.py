@@ -10,8 +10,7 @@ from posthog.permissions import scopes_caller_lacks
 from ...facade import api
 from .property_filters import QUERY_SCOPE, QUERY_SCOPE_REQUIRED, PropertyFiltersField, filters_need_query_scope
 
-# Bounds the text a request can embed in a ClickHouse query, while any real error message, tool name or key of one
-# still fits.
+# Bounds the text a request embeds in a ClickHouse query, while any real error message, tool name or key still fits.
 MAX_SCOPE_TEXT_LENGTH = 65_536
 
 
