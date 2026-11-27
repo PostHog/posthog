@@ -16,6 +16,7 @@ import { useEmailConfigContent } from '../../scenes/settings/useEmailConfigConte
 import { QuillDnsRecordsTable } from '../QuillDnsRecordsTable/QuillDnsRecordsTable'
 import { QuillEmailDisplayNameSettings } from '../QuillEmailDisplayNameSettings/QuillEmailDisplayNameSettings'
 import { QuillEmailForwardingAddress } from '../QuillEmailForwardingAddress/QuillEmailForwardingAddress'
+import { QuillSenderNameModeSettings } from '../QuillSenderNameModeSettings/QuillSenderNameModeSettings'
 import { QuillTrustedRelaySenderSettings } from '../QuillTrustedRelaySenderSettings/QuillTrustedRelaySenderSettings'
 
 export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
@@ -34,6 +35,17 @@ export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus 
                 onChange={email.setDisplayNameDraft}
                 onSave={email.saveDisplayName}
             />
+
+            {config.sender_name_mode !== undefined && (
+                <QuillSenderNameModeSettings
+                    configId={config.id}
+                    value={config.sender_name_mode}
+                    displayName={config.from_name}
+                    restrictionReason={email.adminRestrictionReason}
+                    savingConfigId={email.emailSenderNameModeSavingConfigId}
+                    onChange={email.saveSenderNameMode}
+                />
+            )}
 
             <Separator />
 

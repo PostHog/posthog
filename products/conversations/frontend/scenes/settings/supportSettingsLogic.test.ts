@@ -243,6 +243,35 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('email sender name mode', () => {
+        it('saves the mode and updates the channel', async () => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': {
+                        configs: [{ id: 'email-config', from_name: 'Acme Support', sender_name_mode: 'channel' }],
+                    },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/email/set_sender_name_mode': async ({ request }) => {
+                        expect(await request.json()).toEqual({ config_id: 'email-config', sender_name_mode: 'agent' })
+                        return [200, { ok: true }]
+                    },
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.saveEmailSenderNameMode('email-config', 'agent')
+
+            expect(logic.values.emailSenderNameModeSavingConfigId).toBe('email-config')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.emailConfigs[0].sender_name_mode).toBe('agent')
+            expect(logic.values.emailSenderNameModeSavingConfigId).toBeNull()
+        })
+    })
+
     describe('aiResolutionChannels selector', () => {
         it('drops flag-gated channels that are no longer available', async () => {
             initKeaTests(true, {

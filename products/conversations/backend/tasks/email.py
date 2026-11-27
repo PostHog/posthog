@@ -202,7 +202,8 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     if is_reply and not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
 
-    from_email = formataddr((config.from_name or author_name, config.from_email))
+    author_first_name = comment.created_by.first_name if comment.created_by else ""
+    from_email = formataddr((config.sender_name_for(author_first_name) or author_name, config.from_email))
 
     # Tickets created before To/Cc participant filtering may still have the requester
     # persisted in cc_participants; drop them here so they aren't delivered to twice.

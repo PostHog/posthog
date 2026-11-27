@@ -29,6 +29,8 @@ const SLACK_FILE_SCOPES = ['files:read', 'files:write']
 const TRUSTED_RELAY_UPDATE_EVENT = 'support trusted relay update'
 // Pinned analytics event schema because dashboards and funnels depend on its name and status values.
 const EMAIL_DISPLAY_NAME_UPDATE_EVENT = 'support email display name update'
+// Pinned analytics event schema because dashboards and funnels depend on its name, status and mode values.
+const EMAIL_SENDER_NAME_MODE_UPDATE_EVENT = 'support email sender name mode update'
 
 export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolean | string>): TicketChannel[] {
     const channels: TicketChannel[] = [...BASE_AI_CHANNELS]
@@ -41,10 +43,13 @@ export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolea
     return channels
 }
 
+export type EmailSenderNameMode = 'channel' | 'agent'
+
 export interface EmailConfigStatus {
     id: string
     from_email: string
     from_name: string
+    sender_name_mode?: EmailSenderNameMode
     forwarding_address: string | null
     domain: string
     domain_verified: boolean
@@ -99,6 +104,7 @@ export interface supportSettingsLogicValues {
     emailConnecting: boolean
     emailDisplayNameDrafts: Record<string, string>
     emailDisplayNameSavingConfigId: string | null
+    emailSenderNameModeSavingConfigId: string | null
     emailTestingConfigId: string | null
     emailVerifyingConfigId: string | null
     githubConnected: boolean
@@ -463,6 +469,23 @@ export interface supportSettingsLogicActions {
         fromName: string
     }
     saveEmailDisplayNameFailed: () => {
+        value: true
+    }
+    saveEmailSenderNameMode: (
+        configId: string,
+        mode: EmailSenderNameMode
+    ) => {
+        configId: string
+        mode: EmailSenderNameMode
+    }
+    saveEmailSenderNameModeDone: (
+        configId: string,
+        mode: EmailSenderNameMode
+    ) => {
+        configId: string
+        mode: EmailSenderNameMode
+    }
+    saveEmailSenderNameModeFailed: () => {
         value: true
     }
     saveGreetingText: () => {
@@ -835,6 +858,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         saveEmailDisplayName: (configId: string) => ({ configId }),
         saveEmailDisplayNameDone: (configId: string, fromName: string) => ({ configId, fromName }),
         saveEmailDisplayNameFailed: true,
+        saveEmailSenderNameMode: (configId: string, mode: EmailSenderNameMode) => ({ configId, mode }),
+        saveEmailSenderNameModeDone: (configId: string, mode: EmailSenderNameMode) => ({ configId, mode }),
+        saveEmailSenderNameModeFailed: true,
         // GitHub Issues channel settings
         connectGithub: (integrationId: number) => ({ integrationId }),
         disconnectGithub: true,
@@ -953,6 +979,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     ),
                 saveEmailDisplayNameDone: (state, { configId, fromName }) =>
                     state.map((config) => (config.id === configId ? { ...config, from_name: fromName } : config)),
+                saveEmailSenderNameModeDone: (state, { configId, mode }) =>
+                    state.map((config) => (config.id === configId ? { ...config, sender_name_mode: mode } : config)),
                 verifyEmailDomainDone: (state, { configId, verified, dnsRecords }) => {
                     const targetDomain = state.find((t) => t.id === configId)?.domain
                     if (!targetDomain) {
@@ -1051,6 +1079,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 saveEmailDisplayName: (_, { configId }) => configId,
                 saveEmailDisplayNameDone: () => null,
                 saveEmailDisplayNameFailed: () => null,
+            },
+        ],
+        emailSenderNameModeSavingConfigId: [
+            null as string | null,
+            {
+                saveEmailSenderNameMode: (_, { configId }) => configId,
+                saveEmailSenderNameModeDone: () => null,
+                saveEmailSenderNameModeFailed: () => null,
             },
         ],
         teamsInstallStatus: [
@@ -1848,6 +1884,23 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 actions.saveEmailDisplayNameFailed()
                 posthog.capture(EMAIL_DISPLAY_NAME_UPDATE_EVENT, { status: 'failed' })
                 lemonToast.error(emailSettingsErrorMessage(error, "Couldn't save the display name. Try again."))
+            }
+        },
+        saveEmailSenderNameMode: async ({ configId, mode }) => {
+            posthog.capture(EMAIL_SENDER_NAME_MODE_UPDATE_EVENT, { status: 'started', mode })
+            try {
+                // nosemgrep: prefer-codegen-api -- Conversations email settings endpoints are absent from generated clients.
+                await api.create('api/conversations/v1/email/set_sender_name_mode', {
+                    config_id: configId,
+                    sender_name_mode: mode,
+                })
+                actions.saveEmailSenderNameModeDone(configId, mode)
+                posthog.capture(EMAIL_SENDER_NAME_MODE_UPDATE_EVENT, { status: 'completed', mode })
+                lemonToast.success('Sender name saved')
+            } catch (error) {
+                actions.saveEmailSenderNameModeFailed()
+                posthog.capture(EMAIL_SENDER_NAME_MODE_UPDATE_EVENT, { status: 'failed', mode })
+                lemonToast.error(emailSettingsErrorMessage(error, "Couldn't save the sender name. Try again."))
             }
         },
         disconnectSlack: async () => {

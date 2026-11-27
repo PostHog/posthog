@@ -19,6 +19,11 @@ class EmailChannelConnectionStatus(models.TextChoices):
     CONFIRMATION_EXPIRED = "confirmation_expired", "Confirmation expired"
 
 
+class EmailSenderNameMode(models.TextChoices):
+    CHANNEL = "channel", "Channel display name"
+    AGENT = "agent", "Agent first name and channel display name"
+
+
 class EmailChannel(UUIDModel):
     """An inbound forwarding address and outbound sender identity for a team."""
 
@@ -49,6 +54,19 @@ class EmailChannel(UUIDModel):
 
     from_email = models.EmailField()
     from_name = models.CharField(max_length=255)
+    sender_name_mode = models.CharField(
+        max_length=16,
+        choices=EmailSenderNameMode.choices,
+        default=EmailSenderNameMode.CHANNEL,
+        db_default=EmailSenderNameMode.CHANNEL,
+    )
+
+    def sender_name_for(self, author_first_name: str) -> str:
+        """Return the From display name for a reply written by a person with this first name."""
+        author_first_name = author_first_name.strip()
+        if self.sender_name_mode == EmailSenderNameMode.AGENT and author_first_name and self.from_name:
+            return f"{author_first_name} from {self.from_name}"
+        return self.from_name
 
     domain = models.CharField(max_length=255)
     domain_verified = models.BooleanField(default=False)

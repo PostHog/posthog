@@ -4,7 +4,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { DnsRecord, trustedRelaySenderValue } from './emailSettingsHelpers'
-import { EmailConfigStatus, supportSettingsLogic } from './supportSettingsLogic'
+import { EmailConfigStatus, EmailSenderNameMode, supportSettingsLogic } from './supportSettingsLogic'
 
 export interface EmailConfigContent {
     adminRestrictionReason: string | null
@@ -17,6 +17,7 @@ export interface EmailConfigContent {
     trustedRelaySavingConfigId: string | null
     displayName: string
     emailDisplayNameSavingConfigId: string | null
+    emailSenderNameModeSavingConfigId: string | null
     verifyEmail: () => void
     sendTestEmail: () => void
     setDefaultEmail: () => void
@@ -25,6 +26,7 @@ export interface EmailConfigContent {
     saveTrustedRelaySender: () => void
     setDisplayNameDraft: (value: string) => void
     saveDisplayName: () => void
+    saveSenderNameMode: (mode: EmailSenderNameMode) => void
 }
 
 export function useEmailConfigContent(config: EmailConfigStatus): EmailConfigContent {
@@ -36,6 +38,7 @@ export function useEmailConfigContent(config: EmailConfigStatus): EmailConfigCon
         trustedRelaySavingConfigId,
         emailDisplayNameDrafts,
         emailDisplayNameSavingConfigId,
+        emailSenderNameModeSavingConfigId,
     } = useValues(supportSettingsLogic)
     const actions = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
@@ -54,6 +57,7 @@ export function useEmailConfigContent(config: EmailConfigStatus): EmailConfigCon
         trustedRelaySavingConfigId,
         displayName: emailDisplayNameDrafts[config.id] ?? config.from_name,
         emailDisplayNameSavingConfigId,
+        emailSenderNameModeSavingConfigId,
         verifyEmail: () => actions.verifyEmailDomain(config.id),
         sendTestEmail: () => actions.sendTestEmail(config.id),
         setDefaultEmail: () => actions.setDefaultEmail(config.id),
@@ -62,5 +66,6 @@ export function useEmailConfigContent(config: EmailConfigStatus): EmailConfigCon
         saveTrustedRelaySender: () => actions.saveTrustedRelaySender(config.id),
         setDisplayNameDraft: (value: string) => actions.setEmailDisplayNameDraft(config.id, value),
         saveDisplayName: () => actions.saveEmailDisplayName(config.id),
+        saveSenderNameMode: (mode: EmailSenderNameMode) => actions.saveEmailSenderNameMode(config.id, mode),
     }
 }

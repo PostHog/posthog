@@ -1,5 +1,6 @@
 from datetime import timedelta
 from email import message_from_bytes
+from email.utils import parseaddr
 from io import BytesIO
 
 from posthog.test.base import BaseTest
@@ -35,6 +36,7 @@ from products.conversations.backend.models import (
     EmailChannelSetupProvider,
     EmailMessageMapping,
     EmailOutboxMessage,
+    EmailSenderNameMode,
 )
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.email_thread_ingestion import EmailAddress
@@ -143,6 +145,12 @@ class TestEmailChannelPermissions(BaseTest):
                 "post",
                 "/api/conversations/v1/email/set_display_name",
                 {"config_id": "00000000-0000-0000-0000-000000000999", "from_name": "Support"},
+            ),
+            (
+                "set-sender-name-mode",
+                "post",
+                "/api/conversations/v1/email/set_sender_name_mode",
+                {"config_id": "00000000-0000-0000-0000-000000000999", "sender_name_mode": "agent"},
             ),
             (
                 "set-trusted-relay",
@@ -1741,6 +1749,74 @@ class TestEmailDisplayNameSettings(BaseTest):
         assert (other_config.from_name, config.from_name) == ("Other", "Support")
 
 
+class TestEmailSenderNameMode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("channel_mode_ignores_the_agent", "channel", "Lisa", "Acme Support", "Acme Support"),
+            ("agent_mode_adds_the_first_name", "agent", " Lisa ", "Acme Support", "Lisa from Acme Support"),
+            ("agent_mode_without_an_author", "agent", "", "Acme Support", "Acme Support"),
+            ("agent_mode_without_a_channel_name", "agent", "Lisa", "", ""),
+        ]
+    )
+    def test_sender_name_for(self, _name, mode, first_name, from_name, expected):
+        config = EmailChannel(from_name=from_name, sender_name_mode=mode)
+
+        assert config.sender_name_for(first_name) == expected
+
+
+class TestEmailSenderNameModeSettings(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.force_login(self.user)
+
+    def _set_mode(self, config: EmailChannel, mode: str):
+        return self.client.post(
+            "/api/conversations/v1/email/set_sender_name_mode",
+            {"config_id": str(config.id), "sender_name_mode": mode},
+            content_type="application/json",
+        )
+
+    def test_admin_sets_the_mode_on_a_support_channel_of_the_current_team_only(self):
+        config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="sender-mode",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+        )
+        other_config = EmailChannel.objects.create(
+            team=Team.objects.create(organization=self.organization),
+            inbound_token="other-sender-mode",
+            from_email="other@example.com",
+            from_name="Other",
+            domain="example.com",
+        )
+        personal_config = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            inbound_token="personal-sender-mode",
+            from_email="me@example.com",
+            from_name="Me",
+            domain="example.com",
+        )
+
+        assert self._set_mode(config, "agent").status_code == 200
+        assert self._set_mode(config, "nickname").status_code == 400
+        assert self._set_mode(other_config, "agent").status_code == 404
+        assert self._set_mode(personal_config, "agent").status_code == 400
+
+        modes = {
+            channel.from_email: channel.sender_name_mode
+            for channel in EmailChannel.objects.filter(id__in=[config.id, other_config.id, personal_config.id])
+        }
+        assert modes == {"support@example.com": "agent", "other@example.com": "channel", "me@example.com": "channel"}
+        status_response = self.client.get("/api/conversations/v1/email/status")
+        assert status_response.json()["configs"][0]["sender_name_mode"] == "agent"
+
+
 class TestEmailInboundRegionRouting(MailgunWebhookTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -2161,6 +2237,19 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         assert outbox.status == EmailOutboxMessage.Status.SENT
         assert outbox.sent_at is not None
+
+    @patch("products.conversations.backend.tasks.email.send_mime")
+    def test_send_email_reply_names_the_agent_when_the_channel_asks_for_it(self, mock_send_mime: MagicMock):
+        config = self._create_config("support@example.com", "agentname")
+        config.sender_name_mode = EmailSenderNameMode.AGENT
+        config.save(update_fields=["sender_name_mode"])
+        self.user.first_name = "Lisa"
+        self.user.save(update_fields=["first_name"])
+
+        self._run_reply(self._create_ticket(config))
+
+        message = message_from_bytes(mock_send_mime.call_args.args[1])
+        assert parseaddr(message["From"]) == ("Lisa from Test", "support@example.com")
 
     @parameterized.expand(
         [

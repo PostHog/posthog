@@ -51,6 +51,7 @@ from products.conversations.backend.models import (
     EmailChannelKind,
     EmailChannelSetup,
     EmailChannelSetupProvider,
+    EmailSenderNameMode,
 )
 from products.conversations.backend.models.team_conversations_email_config import (
     MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM,
@@ -231,6 +232,7 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "owner_id": config.owner_id,
         "from_email": config.from_email,
         "from_name": config.from_name,
+        "sender_name_mode": config.sender_name_mode,
         "forwarding_address": forwarding_address,
         "domain": config.domain,
         "domain_verified": config.domain_verified,
@@ -453,6 +455,18 @@ class EmailSetDisplayNameSerializer(ConfigIdSerializer):
         return _clean_from_name(value)
 
 
+class EmailSetSenderNameModeSerializer(ConfigIdSerializer):
+    sender_name_mode = serializers.ChoiceField(
+        choices=EmailSenderNameMode.choices,
+        help_text=(
+            "Which name customers see as the sender of a reply. "
+            "`channel` always uses the channel display name. "
+            "`agent` uses the first name of the person who replied, followed by the channel display name, "
+            "and falls back to the channel display name for replies no person wrote."
+        ),
+    )
+
+
 class EmailDnsRecordSerializer(serializers.Serializer):
     record_type = serializers.CharField(required=False, allow_blank=True, help_text="DNS record type.")
     name = serializers.CharField(required=False, allow_blank=True, help_text="DNS record hostname.")
@@ -482,6 +496,11 @@ class EmailChannelConfigSerializer(serializers.Serializer):
     )
     from_email = serializers.EmailField(read_only=True, help_text="Sender and forwarding source email address.")
     from_name = serializers.CharField(read_only=True, help_text="Outbound sender display name.")
+    sender_name_mode = serializers.ChoiceField(
+        choices=EmailSenderNameMode.choices,
+        read_only=True,
+        help_text="Whether replies show the channel display name alone, or the replying person's first name with it.",
+    )
     forwarding_address = serializers.EmailField(
         read_only=True,
         allow_null=True,
@@ -1041,6 +1060,39 @@ class EmailSetDisplayNameView(APIView):
         config.save(update_fields=["from_name"])
 
         logger.info("email_channel_display_name_updated", team_id=team.id, config_id=config.id, user_id=user.id)
+        return Response({"ok": True})
+
+
+class EmailSetSenderNameModeView(APIView):
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+
+    @validated_request(
+        tags=["conversations"],
+        request_serializer=EmailSetSenderNameModeSerializer,
+        responses={
+            200: EmailChannelOperationResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        result = _resolve_config(request, request.validated_data["config_id"])
+        if isinstance(result, Response):
+            return result
+        user, team, config = result.user, result.team, result.config
+        if config.kind != EmailChannelKind.SUPPORT:
+            return Response({"error": "Only support email channels can show the agent's name."}, status=400)
+
+        config.sender_name_mode = request.validated_data["sender_name_mode"]
+        config.save(update_fields=["sender_name_mode"])
+
+        logger.info(
+            "email_channel_sender_name_mode_updated",
+            team_id=team.id,
+            config_id=config.id,
+            sender_name_mode=config.sender_name_mode,
+            user_id=user.id,
+        )
         return Response({"ok": True})
 
 
