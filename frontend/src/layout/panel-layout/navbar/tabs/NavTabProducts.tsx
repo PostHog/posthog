@@ -5,6 +5,7 @@ import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShad
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { cn } from 'lib/utils/css-classes'
 
+import { CustomCategorySuffix } from '../../ProjectTree/CustomCategorySuffix'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { CustomizeSidebarModal } from './CustomizeSidebarModal'
@@ -94,9 +95,12 @@ export function NavTabProducts(): JSX.Element {
                         >
                             {groupedItems.map((group) => (
                                 <section key={group.label} aria-label={group.label} className="flex flex-col gap-0.5">
-                                    <h3 className="px-2 mb-0 text-xs leading-4 font-semibold text-secondary">
-                                        {group.label}
-                                    </h3>
+                                    <div className="flex items-center justify-between pr-1">
+                                        <h3 className="px-2 mb-0 text-xs leading-4 font-semibold text-secondary">
+                                            {group.label}
+                                        </h3>
+                                        <CustomCategorySuffix category={group.label} nav="classic" />
+                                    </div>
                                     <div className="flex flex-col gap-px">
                                         {group.items.map((item) => (
                                             <NavProductRow key={`${item.path}-${item.href}`} item={item} />

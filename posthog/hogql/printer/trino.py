@@ -23,7 +23,7 @@ from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.postgres import PostgresPrinter
-from posthog.hogql.printer.trino_date_arithmetic import DateOffset, date_offset
+from posthog.hogql.printer.trino_date_arithmetic import DateOffset, date_moved_by_whole_days, date_offset
 from posthog.hogql.printer.trino_functions import (
     TRINO_AGGREGATE_COMBINATORS,
     TRINO_ARRAY_INSERT_AGGREGATES,
@@ -43,6 +43,7 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_WINDOW_ONLY_FUNCTIONS,
     array_indexes,
     bounded_sequence,
+    ipv6_cidr_range_bound,
 )
 from posthog.hogql.printer.trino_json import keys_and_values, keys_and_values_path, parse_keys_and_values_type
 from posthog.hogql.printer.trino_lambda_aggregates import aggregates_to_hoist
@@ -221,6 +222,19 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 # Printed as a Trino date, though the function registry declares no return type for them.
 _DATE_FUNCTIONS = frozenset({"tomonday", "tolastdayofmonth", "tolastdayofweek"})
+_BOOLEAN_PRINTED_FUNCTIONS = frozenset(
+    {
+        "bittest",
+        "bittestall",
+        "bittestany",
+        "empty",
+        "isvalidjson",
+        "isvalidutf8",
+        "jsonhas",
+        "multisearchanycaseinsensitive",
+        "notempty",
+    }
+)
 _ANY_HEAVY_CAPACITY = 10
 _SCALAR_ARRAY_ITEM_TYPES = (
     ast.BooleanType,
@@ -1683,7 +1697,7 @@ class TrinoPrinter(PostgresPrinter):
             if node.name.lower() == "tuplehammingdistance":
                 return ast.IntegerType()
             return self._tuple_arithmetic_type(node)
-        if isinstance(node, ast.Call) and node.name.lower() in {"jsonhas", "multisearchanycaseinsensitive"}:
+        if isinstance(node, ast.Call) and node.name.lower() in _BOOLEAN_PRINTED_FUNCTIONS:
             return ast.BooleanType()
         offset = self._date_offset_of(node)
         if offset is not None:
@@ -1691,6 +1705,9 @@ class TrinoPrinter(PostgresPrinter):
             return replace(
                 offset.date_type, nullable=offset.date_type.nullable or bool(amount_type and amount_type.nullable)
             )
+        moved_date_type = date_moved_by_whole_days(node, resolve_type=self._resolve_type)
+        if moved_date_type is not None:
+            return moved_date_type
         if isinstance(node, ast.Call) and node.name.lower() in _DATE_FUNCTIONS and node.args:
             argument_type = self._resolve_type(node.args[0])
             return ast.DateType(nullable=argument_type is None or argument_type.nullable)
@@ -1801,6 +1818,9 @@ class TrinoPrinter(PostgresPrinter):
                     and isinstance(table_type, ast.SelectViewType)
                     and table_type.select_query_type.has_child(value_type.name, self.context)
                 ):
+                    printed_body_type = self._projected_column_type(table_type.select_query_type, value_type.name)
+                    if isinstance(printed_body_type, ast.IntegerType):
+                        return printed_body_type
                     # An inlined view prints its body. ClickHouse types a comparison or AND there as UInt8, so the
                     # view's saved columns record an integer, but Trino types the same expression as boolean.
                     body_type = table_type.select_query_type.resolve_column_constant_type(value_type.name, self.context)
@@ -1828,6 +1848,11 @@ class TrinoPrinter(PostgresPrinter):
                             and self._is_boolean_column(column_scope, value_type.name)
                         ):
                             return ast.BooleanType(nullable=column_constant_type.nullable)
+                        if isinstance(column_constant_type, ast.UnknownType) and not via_set_query:
+                            projected = self._projected_expression(select_type, value_type.name)
+                            projected_type = self._resolve_type(projected) if projected is not None else None
+                            if projected_type is not None and not isinstance(projected_type, ast.UnknownType):
+                                return projected_type
                         # The first branch's column stands for the set query only when all branches agree with it.
                         via_set_query = via_set_query or isinstance(column_scope, ast.SelectSetQueryType)
                         value_type = column_type
@@ -1873,8 +1898,15 @@ class TrinoPrinter(PostgresPrinter):
             return bool(select_type.types) and all(
                 self._is_boolean_column(branch, name) for branch in select_type.types
             )
+        return isinstance(self._projected_column_type(select_type, name), ast.BooleanType)
+
+    def _projected_column_type(
+        self, select_type: ast.SelectQueryType | ast.SelectSetQueryType, name: str
+    ) -> ast.ConstantType | None:
+        if not isinstance(select_type, ast.SelectQueryType):
+            return None
         projected = self._projected_expression(select_type, name)
-        return projected is not None and isinstance(self._resolve_type(projected), ast.BooleanType)
+        return self._resolve_type(projected) if projected is not None else None
 
     def _projected_expression(self, select_type: ast.SelectQueryType, name: str) -> ast.Expr | None:
         query = self._select_query_node(select_type)
@@ -3894,6 +3926,8 @@ class TrinoPrinter(PostgresPrinter):
                     node,
                 )
             return self.visit(source.args[index.value - 1])
+        if isinstance(source, ast.Call) and source.name.lower() == "ipv6cidrtorange" and index.value <= 2:
+            return ipv6_cidr_range_bound([self.visit(arg) for arg in source.args], index.value)
         return f"({self.visit(source)})[{index.value}]"
 
     def _visit_tuple_to_name_value_pairs(self, node: ast.Call) -> str:

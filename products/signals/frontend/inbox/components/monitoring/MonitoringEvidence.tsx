@@ -1,17 +1,24 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
-import type { ReportMonitoringSummaryApi, SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ReportMonitoringSummaryApi,
+    SignalReportCheckApi,
+    SignalReportListApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
+import { monitoringRowLogic } from '../../logics/monitoringRowLogic'
 import { monitoringTabLogic } from '../../logics/monitoringTabLogic'
-import { monitoringEvidence, monitoringReadingOverdue } from '../../utils/monitoringTimeline'
-import { monitoringDisplayState, monitoringFigures } from '../../utils/reportMonitoringSummary'
-import { MonitoringEvidenceChart } from './MonitoringEvidenceChart'
-import { MonitoringTime } from './MonitoringTime'
+import { monitoringReadingOverdue } from '../../utils/monitoringTimeline'
+import { asReportMetricSeriesQuery } from '../../utils/reportMetrics'
+import { monitoringFigures, monitoringSummaryTimeline } from '../../utils/reportMonitoringSummary'
+import { ReportCheckMetricChart } from '../detail/ReportCheckMetricChart'
+import { reportCheckMetric } from '../detail/reportCheckPresentation'
 import { MonitoringWaitingNote } from './MonitoringWaitingNote'
 
 function FiguresLine({
@@ -40,6 +47,93 @@ function FiguresLine({
     )
 }
 
+interface MonitoringMetricChart {
+    check: SignalReportCheckApi
+    checkMetric: NonNullable<ReturnType<typeof reportCheckMetric>>
+    query: NonNullable<ReturnType<typeof asReportMetricSeriesQuery>>
+    timeline: ReturnType<typeof monitoringSummaryTimeline>
+}
+
+function monitoringMetricChart(
+    summary: ReportMonitoringSummaryApi,
+    reportChecks: SignalReportCheckApi[] | null,
+    now: number
+): MonitoringMetricChart | null {
+    const lead = summary.lead_check
+    if (!lead || !reportChecks) {
+        return null
+    }
+    const check = reportChecks.find((candidate) => candidate.id === lead.check_id)
+    const checkMetric = check ? reportCheckMetric(check) : null
+    const query = checkMetric ? asReportMetricSeriesQuery(checkMetric.metric) : null
+    if (!check || !checkMetric || !query) {
+        return null
+    }
+    return {
+        check,
+        checkMetric,
+        query,
+        timeline: monitoringSummaryTimeline({ ...summary, ends_at: lead.ends_at }, now),
+    }
+}
+
+function MonitoringMetricEvidence({
+    report,
+    summary,
+    now,
+}: {
+    report: SignalReportListApi
+    summary: ReportMonitoringSummaryApi
+    now: number
+}): JSX.Element {
+    const lead = summary.lead_check
+    const { currentProjectId } = useValues(projectLogic)
+    const logic = monitoringRowLogic({ reportId: report.id, loadChecks: lead != null })
+    const { reportChecks, reportChecksLoadFailed } = useValues(logic)
+    const { loadReportChecks } = useActions(logic)
+
+    if (lead && reportChecks === null && !reportChecksLoadFailed) {
+        return <LemonSkeleton className="h-36 w-full" />
+    }
+    if (reportChecksLoadFailed) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadReportChecks() }}>
+                Couldn't load the monitoring chart.
+            </LemonBanner>
+        )
+    }
+    const chart = monitoringMetricChart(summary, reportChecks, now)
+    if (!chart) {
+        return <MonitoringWaitingNote summary={summary} now={now} />
+    }
+
+    const { check, checkMetric, query, timeline } = chart
+    return (
+        <ReportCheckMetricChart
+            reportId={report.id}
+            metric={checkMetric.metric}
+            query={query.source}
+            goalGrain="whole_window"
+            goalBounds={
+                checkMetric.config.comparison.operator === 'between' ? checkMetric.config.comparison.bounds : null
+            }
+            version={`${check.id}.monitoring-tab`}
+            timeline={timeline}
+            queryTeamId={currentProjectId ?? undefined}
+            monitoring={
+                checkMetric.config.monitoring
+                    ? {
+                          referencePeriodMinutes: checkMetric.config.monitoring.reference_period_minutes,
+                          thresholdScaling: checkMetric.config.monitoring.threshold_scaling,
+                          startedAt: timeline.startedAt,
+                          endsAt: timeline.endsAt,
+                      }
+                    : undefined
+            }
+        />
+    )
+}
+
 /** The lead check's evidence for a fix still being checked: its chart when one can be drawn, otherwise the window. */
 export function MonitoringEvidence({
     report,
@@ -50,27 +144,13 @@ export function MonitoringEvidence({
     summary: ReportMonitoringSummaryApi
     now: number
 }): JSX.Element {
-    const { timezone } = useValues(teamLogic)
     const { loadedAt } = useValues(monitoringTabLogic)
     const lead = summary.lead_check
-    const evidence =
-        monitoringDisplayState(summary, now) === 'readings_hidden' ? null : monitoringEvidence(report, timezone)
     const nextReading = lead?.next_measurement_at
     return (
         <div className="flex flex-col gap-2">
             {lead ? <div className="text-xs font-semibold text-secondary">{lead.title}</div> : null}
-            {evidence ? (
-                <>
-                    <MonitoringEvidenceChart summary={summary} evidence={evidence} now={now} />
-                    {evidence.metric.value_at ? (
-                        <div className="text-xs text-tertiary">
-                            Measured <MonitoringTime iso={evidence.metric.value_at} />
-                        </div>
-                    ) : null}
-                </>
-            ) : (
-                <MonitoringWaitingNote summary={summary} now={now} />
-            )}
+            <MonitoringMetricEvidence report={report} summary={summary} now={now} />
             <FiguresLine report={report} summary={summary} />
             {nextReading && loadedAt != null && monitoringReadingOverdue(report, loadedAt) ? (
                 <div className="flex items-center gap-1.5 text-xs text-warning">

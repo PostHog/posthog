@@ -11,6 +11,7 @@ import { RERUN_PAGE_ERROR_BACKOFF_MAX_MS, RERUN_QUEUE_NAME, RerunJobState } from
 import { RerunJobQueues, RerunPaginatorService } from '../rerun/rerun-paginator.service'
 import { CyclotronV2Worker } from '../services/cyclotron-v2'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
+import { CYCLOTRON_QUEUE_ROLES } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Heartbeat interval — the cyclotron-v2 lock timeout is 30s by default, send
@@ -108,6 +109,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
         this.worker = new CyclotronV2Worker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: RERUN_QUEUE_NAME,
+            fairDequeueQueues: CYCLOTRON_QUEUE_ROLES.fairDequeueQueues,
             // Rerun jobs are heavy (each runs a full ClickHouse query) — the
             // default of 1 pulls them one at a time so a single replica can be
             // deployed at high concurrency without overwhelming ClickHouse.

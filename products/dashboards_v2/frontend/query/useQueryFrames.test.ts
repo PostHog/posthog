@@ -1,4 +1,4 @@
-import { type QueryFrames, afterRequestChange, carryOverResults } from './useQueryFrames'
+import { type QueryFrames, afterRequestChange, carryOverResults, withShownFrames } from './useQueryFrames'
 
 const lastWeek: QueryFrames = { status: 'ready', refreshing: false, frames: [{ name: 'week', fields: [] }] }
 const lastMonth: QueryFrames = { status: 'ready', refreshing: false, frames: [{ name: 'month', fields: [] }] }
@@ -51,5 +51,25 @@ describe('carryOverResults', () => {
         },
     ])('$name', ({ previousKeys, previous, keys, expected }) => {
         expect(carryOverResults(previousKeys, previous, keys, loading)).toEqual(expected)
+    })
+})
+
+describe('withShownFrames', () => {
+    const ready = (hash?: string): Extract<QueryFrames, { status: 'ready' }> => ({
+        status: 'ready',
+        refreshing: false,
+        frames: [{ hash, fields: [] }],
+    })
+
+    it.each([
+        { name: 'keeps the shown frames when a refresh returns the same hashes', shown: 'a', next: 'a', kept: true },
+        { name: 'takes the new frames when their content changed', shown: 'a', next: 'b', kept: false },
+        { name: 'takes the new frames when the runner sends no hash', shown: undefined, next: undefined, kept: false },
+    ])('$name', ({ shown, next, kept }) => {
+        const previous = ready(shown)
+        const fresh = ready(next)
+        const result = withShownFrames(previous, fresh)
+
+        expect(result.status === 'ready' && result.frames).toBe(kept ? previous.frames : fresh.frames)
     })
 })

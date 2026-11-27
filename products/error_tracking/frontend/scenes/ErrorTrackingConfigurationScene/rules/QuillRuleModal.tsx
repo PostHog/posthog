@@ -43,6 +43,7 @@ export interface QuillRuleModalProps {
     saveDisabledReason?: string
     suffix?: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
     filterLabels?: ReactNode
+    leadingFields?: ReactNode
     extraFields?: ReactNode
     footerExtra?: ReactNode
     samplingRate?: number
@@ -63,6 +64,7 @@ export function QuillRuleModal({
     saveDisabledReason,
     suffix,
     filterLabels,
+    leadingFields,
     extraFields,
     footerExtra,
     samplingRate,
@@ -102,6 +104,7 @@ export function QuillRuleModal({
                 <DialogBody>
                     <div className="flex flex-col gap-4">
                         {rule.disabled_data && <DisabledRuleBanner rule={rule} onClose={closeModal} />}
+                        {leadingFields}
                         <div className="flex flex-col gap-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex flex-wrap items-center gap-3">

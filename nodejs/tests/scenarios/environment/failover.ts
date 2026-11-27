@@ -5,6 +5,7 @@ import type { RunManifest } from '../cloud/lease'
 import { RUN_TAG } from '../cloud/stack'
 import type { WriterSample } from '../probe/writer-probe'
 import { seriesOf } from './metric-data'
+import { CapacityMinute, CapacityRule, capacityMinutesOf, capacityProblems } from './reader-capacity'
 import { SCENARIO_SESSION_PREFIX } from './roles'
 import { withPostgres } from './stack'
 
@@ -39,6 +40,7 @@ export type FailoverOptions = {
     pollMs?: number
     observeWithinMs?: number
     signal?: AbortSignal
+    warmReader?: boolean
 }
 
 const POLL_MS = 1000
@@ -106,6 +108,7 @@ export async function failOver({
     pollMs = POLL_MS,
     observeWithinMs = OBSERVE_WITHIN_MS,
     signal,
+    warmReader = false,
 }: FailoverOptions): Promise<FailoverActuation> {
     const cluster = manifest.stackName
     const writer = `${cluster}-writer`
@@ -376,10 +379,12 @@ export async function failOver({
             refuse(`the run manifest names no idle limit for ${reader}, so set readerAcu.idleMax in the cloud profile`)
         const floor =
             manifest.readerMinAcu ?? refuse(`the run manifest names no minimum for ${reader}, so lease the run again`)
+        const ceiling =
+            manifest.readerMaxAcu ?? refuse(`the run manifest names no maximum for ${reader}, so lease the run again`)
         const startedAt = Date.now()
         const until = startedAt - (startedAt % MINUTE_MS)
-        const query = {
-            Id: 'acu',
+        const queryOf = (Id: string, Stat: string): object => ({
+            Id,
             MetricStat: {
                 Metric: {
                     Namespace: 'AWS/RDS',
@@ -387,16 +392,16 @@ export async function failOver({
                     Dimensions: [{ Name: 'DBInstanceIdentifier', Value: reader }],
                 },
                 Period: 60,
-                Stat: 'Average',
+                Stat,
             },
-        }
+        })
         const from = until - 2 * CAPACITY_MINUTES * MINUTE_MS
         const answer = await required(
             aws.call([
                 'cloudwatch',
                 'get-metric-data',
                 '--metric-data-queries',
-                JSON.stringify([query]),
+                JSON.stringify([queryOf('acu', 'Average'), queryOf('peak', 'Maximum')]),
                 '--start-time',
                 new Date(from).toISOString(),
                 '--end-time',
@@ -405,23 +410,24 @@ export async function failOver({
                 'TimestampAscending',
             ])
         )
-        let sorted: { at: number; acu: number }[] = []
+        let read: CapacityMinute[] = []
         try {
-            sorted = seriesOf(answer, {
-                ids: ['acu'],
+            const { acu, peak } = seriesOf(answer, {
+                ids: ['acu', 'peak'],
                 from,
                 to: until,
                 periodMs: MINUTE_MS,
                 floor,
                 subject: () => `${reader}'s capacity read`,
-            }).acu.map(({ at, value }) => ({ at, acu: value }))
+            })
+            read = capacityMinutesOf({ avg: acu, max: peak })
         } catch (error) {
             refuse(messageOf(error))
         }
-        let consecutive = sorted.length > 0 ? 1 : 0
+        let consecutive = read.length > 0 ? 1 : 0
         while (
-            consecutive < Math.min(sorted.length, CAPACITY_MINUTES) &&
-            sorted.at(-consecutive)!.at - sorted.at(-consecutive - 1)!.at === MINUTE_MS
+            consecutive < Math.min(read.length, CAPACITY_MINUTES) &&
+            read.at(-consecutive)!.at - read.at(-consecutive - 1)!.at === MINUTE_MS
         ) {
             consecutive++
         }
@@ -430,17 +436,33 @@ export async function failOver({
                 `${reader} has ${consecutive} consecutive complete capacity minutes, under the ${CAPACITY_MINUTES} it needs`
             )
         }
-        const minutes = sorted.slice(-CAPACITY_MINUTES)
+        const minutes = read.slice(-CAPACITY_MINUTES)
         const newestEnd = minutes.at(-1)!.at + MINUTE_MS
         if (Date.now() - newestEnd > CAPACITY_FRESH_WITHIN_MS) {
             refuse(`${reader}'s newest capacity minute ended ${Math.floor((Date.now() - newestEnd) / 1000)}s ago`)
         }
         const since = new Date().setUTCSeconds(0, 0) - CAPACITY_MINUTES * MINUTE_MS
-        const busy = minutes.filter(({ at, acu }) => at >= since && acu > idleMax)
-        if (busy.length > 0) {
-            refuse(
-                `${reader} was above its ${idleMax} ACU idle limit in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, acu }) => `${acu} at ${new Date(at).toISOString()}`).join(', ')}`
-            )
+        const at = ({ at: minute }: CapacityMinute): string => new Date(minute).toISOString()
+        const last = `in its last ${CAPACITY_MINUTES} minutes`
+        const phrased: Record<CapacityRule, (found: CapacityMinute[]) => string> = {
+            unread: (found) => `${reader}'s capacity read has no average or no maximum for ${found.map(at).join(', ')}`,
+            over: (found) =>
+                `${reader} was above its ${ceiling} ACU maximum ${last}: ${found.map((minute) => `${Math.max(minute.max ?? -Infinity, minute.avg ?? -Infinity)} at ${at(minute)}`).join(', ')}`,
+            idle: (found) =>
+                `${reader} was above its ${idleMax} ACU idle limit ${last}: ${found.map((minute) => `${minute.avg} at ${at(minute)}`).join(', ')}`,
+            under: (found) => `${reader}'s capacity read has a value below ${floor} at ${found.map(at).join(', ')}`,
+            inverted: (found) =>
+                `${reader}'s capacity read has an average above its maximum at ${found.map(at).join(', ')}`,
+            unshown: (found) =>
+                `${reader}'s capacity read has no average to show it idle at ${found.map(at).join(', ')}`,
+        }
+        const problems = capacityProblems(
+            minutes,
+            { min: floor, max: ceiling, idleMax },
+            { idleSince: warmReader ? undefined : since, bothReadings: true }
+        )
+        if (problems.length > 0) {
+            refuse(problems.map(({ rule, minutes: found }) => phrased[rule](found)).join('; '))
         }
     }
 }

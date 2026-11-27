@@ -10,7 +10,7 @@ export function TodayNewAnalyticsButton(): JSX.Element {
             trigger={
                 <Button
                     size="icon"
-                    className="-me-2 text-muted-foreground"
+                    variant="outline"
                     aria-label="New analytics"
                     data-attr="today-new-analytics-header"
                 />

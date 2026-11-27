@@ -1,13 +1,16 @@
 import type {
     MonitoringCheckSummaryApi,
     MonitoringLeadCheckApi,
+    ReportMetricApi,
     ReportMetricListApi,
     ReportMonitoringOutcomeApi,
     ReportMonitoringSummaryApi,
+    SignalReportCheckApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReport, SignalReportStatus } from '../types'
 import { makeReport, myClaim } from './inboxMocks'
+import { reportMetricsFixture } from './reportMetricMocks'
 
 /** Every relative time in these fixtures is measured from here; pin stories to it with `mockDate`. */
 export const MONITORING_MOCK_NOW = '2026-11-18T17:00:00Z'
@@ -262,3 +265,102 @@ export const monitoringRows: MonitoringRow[] = [
         }
     ),
 ]
+
+export function monitoringChecksForReport(report: {
+    metrics?: readonly (ReportMetricApi | ReportMetricListApi)[]
+    monitoring_summary?: ReportMonitoringSummaryApi | null
+}): SignalReportCheckApi[] {
+    const summary = report.monitoring_summary
+    const lead = summary?.lead_check
+    if (!summary || !lead?.metric_id) {
+        return []
+    }
+    const metric = report.metrics?.find((candidate) => candidate.metric_id === lead.metric_id)
+    if (!metric) {
+        return []
+    }
+    const queryTemplate = (lead.metric_kind === 'conversion_rate' || lead.metric_kind === 'error_rate'
+        ? reportMetricsFixture[2].query
+        : reportMetricsFixture[3].query) as unknown as {
+        source: { interval?: string; series: Record<string, unknown>[]; [key: string]: unknown }
+        [key: string]: unknown
+    } | null
+    const query = queryTemplate
+        ? {
+              ...queryTemplate,
+              source: {
+                  ...queryTemplate.source,
+                  interval: 'interval' in metric ? metric.interval : 'day',
+                  series: queryTemplate.source.series.map((series, index) =>
+                      index === 0
+                          ? {
+                                ...series,
+                                event: lead.metric_id,
+                                name: lead.metric_id,
+                                custom_name: metric.title,
+                            }
+                          : series
+                  ),
+              },
+          }
+        : null
+    return [
+        {
+            id: lead.check_id,
+            title: lead.title,
+            rationale: lead.title,
+            kind: 'metric_threshold',
+            status: 'active',
+            config: {
+                metric_id: lead.metric_id,
+                query: query as Record<string, unknown>,
+                metric_kind: lead.metric_kind,
+                value_format: lead.value_format,
+                unit: lead.unit,
+                comparison: lead.comparison,
+                monitoring: lead.monitoring,
+                baseline_value: lead.baseline_value,
+            },
+            approved_at: summary.started_at,
+            next_run_at: lead.next_measurement_at ?? lead.ends_at,
+            soak_minutes: (Date.parse(lead.ends_at) - Date.parse(summary.started_at)) / 60_000,
+            run_interval_minutes: 360,
+            runs_remaining: 1,
+            expires_at: lead.ends_at,
+            last_run_at: null,
+            last_outcome: null,
+            last_outcome_reason: null,
+            dispatched_at: null,
+            consecutive_errors: 0,
+            created_at: summary.started_at,
+            updated_at: summary.started_at,
+        },
+    ]
+}
+
+export async function monitoringMetricQueryHandler({ request }: { request: Request }): Promise<[number, unknown]> {
+    const body = (await request.json()) as { query?: { series?: Array<{ event?: string }> } }
+    const metricId = body.query?.series?.[0]?.event
+    const metric = monitoringRows
+        .flatMap((report) => report.metrics ?? [])
+        .find((candidate) => candidate.metric_id === metricId)
+    if (!metric?.series || !metric.series_buckets) {
+        return [400, { detail: 'Unknown monitoring metric' }]
+    }
+    return [
+        200,
+        {
+            result: [
+                {
+                    order: 0,
+                    label: metric.title,
+                    count: metric.series.at(-1) ?? 0,
+                    data: metric.series,
+                    days: metric.series_buckets,
+                    labels: metric.series_buckets,
+                    aggregated_value: metric.value,
+                },
+            ],
+        },
+    ]
+}

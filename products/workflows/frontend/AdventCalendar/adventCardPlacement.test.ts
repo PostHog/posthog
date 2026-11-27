@@ -26,9 +26,10 @@ describe('adventCardPlacement', () => {
         [1, 520],
         [2, 520],
     ])(
-        'keeps the card inside the stage and its copy of the door on the door and inside the card, row %s on a %spx stage',
+        'keeps the card inside the stage and its copy of the door on the visible door and inside the card, row %s on a %spx stage',
         (row, stageWidth) => {
-            for (let left = 0; left <= stageWidth - FACE_SIZE; left += 4) {
+            for (let left = 4 - FACE_SIZE; left <= stageWidth - 4; left += 4) {
+                const shownLeft = Math.min(Math.max(left, 0), stageWidth - FACE_SIZE)
                 const card = adventCardPlacement({ left, size: FACE_SIZE }, stageWidth, row)
 
                 const faceCopyLeft = card.isLeftward
@@ -41,7 +42,7 @@ describe('adventCardPlacement', () => {
 
                 expect(card.left).toBeGreaterThanOrEqual(gap)
                 expect(card.left + card.width).toBeLessThanOrEqual(stageWidth - gap)
-                expect(faceCopyLeft).toBe(left)
+                expect(faceCopyLeft).toBe(shownLeft)
                 expect(card.faceInset).toBeGreaterThanOrEqual(0)
                 expect(card.faceInset + FACE_SIZE).toBeLessThanOrEqual(card.width)
             }

@@ -18,7 +18,13 @@ from products.warehouse_sources.sources.power_bi_admin.settings import (
     TOKEN_SCOPE,
     PowerBiAdminEndpointConfig,
 )
-from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    raise_for_retryable_status,
+    raise_for_status_redacted,
+)
 
 REQUEST_TIMEOUT_SECONDS = 120
 VALIDATE_TIMEOUT_SECONDS = 30
@@ -149,7 +155,9 @@ class PowerBiAdminClient:
             self._logger.error(
                 f"Power BI admin API error: status={response.status_code}, body={response.text[:500]}, url={url}"
             )
-            response.raise_for_status()
+            # The request URL can carry a continuation token, so neither error puts the query string in its message.
+            raise_for_retryable_status(response, vendor="Power BI admin")
+            raise_for_status_redacted(response)
 
         return response.json()
 

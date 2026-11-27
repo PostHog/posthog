@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { type FilterSpec, findFilterType, hasFilterOn } from '../../filters/filterSpec'
+import { sharedPanelSchema, type SavedPanel } from '../../panels/core/panelSchema'
 import { type PanelTypeSpec, findPanel, sizeOfPanels } from '../../panels/core/panelSpec'
 import {
     dashboardDocumentSchema,
@@ -9,11 +10,10 @@ import {
     linkTabSchema,
     ONE_GRID_TAB,
     sectionPanelSchema,
-    sharedPanelSchema,
     tileSchema,
     panelRefSchema,
 } from './dashboardSchema'
-import { type DashboardDocument, type SavedPanel, type SavedFilter, GRID } from './dashboardTypes'
+import { type DashboardDocument, type SavedFilter, GRID } from './dashboardTypes'
 
 // Deeper than anyone builds by hand, and shallow enough that walking a hostile document cannot overflow the stack.
 export const MAX_SECTION_DEPTH = 10

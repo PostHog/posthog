@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
 
+import { shouldReportApiFailure } from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { tasksRunsCancelCreate, tasksWarmCreate, tasksWarmResumeCreate } from 'products/tasks/frontend/generated/api'
@@ -339,7 +340,9 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                     actions.releaseWarm()
                 }
             } catch (error) {
-                posthog.captureException(error)
+                if (shouldReportApiFailure(error)) {
+                    posthog.captureException(error)
+                }
             } finally {
                 cache.warming = false
                 cache.warmingKey = null

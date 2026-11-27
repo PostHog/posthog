@@ -5573,6 +5573,16 @@ class TestPrinter(BaseTest):
                 "SELECT distinct_id FROM posthog.flag_evaluations WHERE distinct_id NOT IN (SELECT distinct_id FROM posthog.flag_evaluations WHERE flag_key = 'beta')",
                 "globalNotIn(",
             ),
+            (
+                "in_document_embeddings_subquery",
+                "SELECT document_id FROM document_embeddings WHERE model_name = 'text-embedding-3-small-1536' AND document_id IN (SELECT document_id FROM document_embeddings WHERE model_name = 'text-embedding-3-small-1536' AND product = 'signals')",
+                "globalIn(",
+            ),
+            (
+                "in_model_specific_embeddings_subquery",
+                "SELECT document_id FROM document_embeddings_text_embedding_3_small_1536 WHERE document_id IN (SELECT document_id FROM document_embeddings_text_embedding_3_small_1536 WHERE product = 'signals')",
+                "globalIn(",
+            ),
         ]
     )
     def test_sharded_in_subqueries_promoted_to_global(self, _name, select, expected):
@@ -5853,6 +5863,33 @@ class TestPrinter(BaseTest):
         with self.assertRaises(QueryError) as ctx:
             self._expr("accurateCast('1', concat('Int', '64'))")
         self.assertIn("constant string type name", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("json_extract_nested", "JSONExtract(properties, 'content', 1, 'Array(Int64)')"),
+            ("json_extract_no_path", "JSONExtract('[1]', 'Array(Nullable(Int64))')"),
+            ("json_extract_keys_and_values", "JSONExtractKeysAndValues(properties, 'content', 'String')"),
+        ]
+    )
+    def test_json_extract_type_names_print(self, _name, expr):
+        assert "JSONExtract" in self._expr(expr)
+
+    @parameterized.expand(
+        [
+            ("json_extract_words", "JSONExtract(properties.content, 1, 'content class years')", "JSONExtract"),
+            ("json_extract_empty", "JSONExtract('{}', 'a', '')", "JSONExtract"),
+            ("json_extract_unbalanced", "JSONExtract('{}', 'a', 'Array(Int64')", "JSONExtract"),
+            (
+                "json_extract_keys_and_values_words",
+                "JSONExtractKeysAndValues(properties, 'content', 'key value')",
+                "JSONExtractKeysAndValues",
+            ),
+        ]
+    )
+    def test_json_extract_invalid_type_name_rejected(self, _name, expr, function_name):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr(expr)
+        assert f"The last argument of {function_name} must be a ClickHouse data type" in str(ctx.exception)
 
     def test_cte_materialization_hint_materialized(self):
         self.assertEqual(

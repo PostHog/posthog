@@ -3,6 +3,7 @@ package telemetry
 import (
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -10,11 +11,14 @@ import (
 )
 
 type Metrics struct {
-	registry *prometheus.Registry
-	requests *prometheus.CounterVec
-	duration *prometheus.HistogramVec
-	failures *prometheus.CounterVec
-	reloads  *prometheus.CounterVec
+	registry     *prometheus.Registry
+	requests     *prometheus.CounterVec
+	duration     *prometheus.HistogramVec
+	failures     *prometheus.CounterVec
+	reloads      *prometheus.CounterVec
+	certificates certificateCollector
+	handler      http.Handler
+	adminHandler http.Handler
 }
 
 func NewMetrics() *Metrics {
@@ -25,7 +29,13 @@ func NewMetrics() *Metrics {
 		failures: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "egress_relay_failures_total", Help: "Relay transport failures."}, []string{"kind"}),
 		reloads:  prometheus.NewCounterVec(prometheus.CounterOpts{Name: "egress_reload_total", Help: "Configuration reload attempts."}, []string{"outcome"}),
 	}
-	m.registry.MustRegister(m.requests, m.duration, m.failures, m.reloads)
+	m.certificates.description = prometheus.NewDesc("egress_certificate_expiration_timestamp_seconds", "Earliest expiry of certificates loaded for each TLS role.", []string{"role"}, nil)
+	m.registry.MustRegister(m.requests, m.duration, m.failures, m.reloads, &m.certificates)
+	for _, outcome := range []string{"success", "failure"} {
+		m.reloads.WithLabelValues(outcome)
+	}
+	m.handler = m.scrapeHandler()
+	m.adminHandler = m.scrapeHandler()
 	return m
 }
 
@@ -72,5 +82,64 @@ func (m *Metrics) BindAudit(a *Audit) {
 }
 
 func (m *Metrics) Handler() http.Handler {
-	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{DisableCompression: true})
+	return m.handler
+}
+
+func (m *Metrics) AdminHandler() http.Handler {
+	return m.adminHandler
+}
+
+func (m *Metrics) scrapeHandler() http.Handler {
+	handler := promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{DisableCompression: true, MaxRequestsInFlight: 1})
+	var mu sync.Mutex
+	tokens, updated := float64(5), time.Now()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/metrics" || r.URL.RawPath != "" || r.URL.RawQuery != "" || r.URL.ForceQuery {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		mu.Lock()
+		now := time.Now()
+		tokens = min(5, tokens+now.Sub(updated).Seconds()*5)
+		updated = now
+		allowed := tokens >= 1
+		if allowed {
+			tokens--
+		}
+		mu.Unlock()
+		if !allowed {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
+type certificateCollector struct {
+	mu          sync.RWMutex
+	description *prometheus.Desc
+	current     func() map[string]time.Time
+}
+
+func (c *certificateCollector) Describe(output chan<- *prometheus.Desc) {
+	output <- c.description
+}
+
+func (c *certificateCollector) Collect(output chan<- prometheus.Metric) {
+	c.mu.RLock()
+	current := c.current
+	c.mu.RUnlock()
+	if current == nil {
+		return
+	}
+	for role, expiry := range current() {
+		output <- prometheus.MustNewConstMetric(c.description, prometheus.GaugeValue, float64(expiry.Unix()), role)
+	}
+}
+
+func (m *Metrics) BindCertificates(current func() map[string]time.Time) {
+	m.certificates.mu.Lock()
+	defer m.certificates.mu.Unlock()
+	m.certificates.current = current
 }

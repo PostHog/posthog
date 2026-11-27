@@ -54,7 +54,11 @@ export function shouldUseLogScale(values: number[], referenceLines: AlertThresho
     if (positiveThresholds.length === 0) {
         return false
     }
-    const largestValue = Math.max(...values, ...positiveThresholds)
+    // A loop, because spreading a large metrics preview into Math.max throws a RangeError.
+    let largestValue = Math.max(...positiveThresholds)
+    for (const value of values) {
+        largestValue = Math.max(largestValue, value)
+    }
     const smallestThreshold = Math.min(...positiveThresholds)
     return largestValue / smallestThreshold >= 1000
 }

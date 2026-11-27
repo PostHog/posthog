@@ -6,6 +6,7 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { AiVisibilityTable } from './AiVisibilityTable'
+import { REPORT_TABLE_PAGE_SIZE } from './aiVisibilityTablePaging'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
@@ -28,6 +29,7 @@ export const ContentAutopilotCitedSitesTable = ({
         embedded
         dataSource={domains}
         rowKey="domain"
+        pagination={{ pageSize: REPORT_TABLE_PAGE_SIZE }}
         emptyState="No answer cited a site in this window."
         columns={[
             {

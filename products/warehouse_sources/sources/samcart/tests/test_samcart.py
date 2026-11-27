@@ -37,18 +37,28 @@ def _order_detail(order_id: str) -> ScriptedResponse:
 
 
 class TestListEndpoints:
-    def test_walks_cursor_pages_to_the_end_and_stages_the_next_cursor(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "path"),
+        [
+            ("Charges", "/v2/charges"),
+            ("Customers", "/v2/customers"),
+            ("FailedCharges", "/v2/failed-charges"),
+            ("Products", "/v2/products"),
+            ("Coupons", "/v2/coupons"),
+        ],
+    )
+    def test_walks_cursor_pages_to_the_end_and_stages_the_next_cursor(self, endpoint: str, path: str) -> None:
         result = _driver().run(
-            "Charges",
+            endpoint,
             [
-                _page([{"id": "ch_1", "created_at": "2026-01-01T00:00:00Z"}], next_cursor="cur_2"),
-                _page([{"id": "ch_2", "created_at": "2026-01-02T00:00:00Z"}]),
+                _page([{"id": "row_1", "created_at": "2026-01-01T00:00:00Z"}], next_cursor="cur_2"),
+                _page([{"id": "row_2", "created_at": "2026-01-02T00:00:00Z"}]),
             ],
         )
 
         assert result.raised is None
-        assert [row["id"] for row in result.rows] == ["ch_1", "ch_2"]
-        assert result.paths == ["/v2/charges", "/v2/charges"]
+        assert [row["id"] for row in result.rows] == ["row_1", "row_2"]
+        assert result.paths == [path, path]
         assert result.params("cursor") == [None, "cur_2"]
         assert result.params("limit") == ["100", "100"]
         assert result.params("sort") == ["id", "id"]
@@ -81,10 +91,11 @@ class TestListEndpoints:
             ),
         ],
     )
+    @pytest.mark.parametrize("endpoint", ["Refunds", "Customers", "FailedCharges"])
     def test_sends_the_watermark_only_on_an_incremental_sync(
-        self, inputs: dict[str, Any], expected_created_at_min: str | None
+        self, endpoint: str, inputs: dict[str, Any], expected_created_at_min: str | None
     ) -> None:
-        result = _driver().run("Refunds", [_page([{"id": "re_1"}])], **inputs)
+        result = _driver().run(endpoint, [_page([{"id": "row_1"}])], **inputs)
 
         assert result.raised is None
         assert result.params("created_at_min") == [expected_created_at_min]
