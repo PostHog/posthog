@@ -493,6 +493,8 @@ def _save_page(team_id: int, run_id: UUID, step: str, attempt: int, page: Import
             _add_warnings(progress, saved.warnings)
             _add_counts(progress, saved.counts)
             _add_items(progress, saved.items)
+            if saved.skipped:
+                progress["skipped"] = True
             if saved.people_imports:
                 progress["people_imports"] = progress.get("people_imports", []) + [
                     _stored_plan(replace(plan, created_by_id=run.created_by_id)) for plan in saved.people_imports
