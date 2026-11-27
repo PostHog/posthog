@@ -23,6 +23,14 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC: string
     ERROR_TRACKING_CYMBAL_BASE_URL: string
     ERROR_TRACKING_CYMBAL_TIMEOUT_MS: number
+    /**
+     * On a lane that cannot redirect to overflow, an event that Cymbal asks to retry is resent on
+     * its own, and no resend starts after this much time since the batch reached Cymbal. 0 turns
+     * the resends off. Keep it plus ERROR_TRACKING_CYMBAL_TIMEOUT_MS well under
+     * CONSUMER_LOOP_STALL_THRESHOLD_MS, and under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS for a consumer
+     * on the legacy health check, because the whole batch has to fit in them.
+     */
+    ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS: number
 
     /** Token bucket capacity for rate limiting (events per token:distinct_id) */
     ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY: number
@@ -66,6 +74,7 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC: KAFKA_EVENTS_JSON,
         ERROR_TRACKING_CYMBAL_BASE_URL: 'http://localhost:3302',
         ERROR_TRACKING_CYMBAL_TIMEOUT_MS: 15000,
+        ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS: 0,
         ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY: 1000,
         ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes

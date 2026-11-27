@@ -111,6 +111,8 @@ export interface ErrorTrackingPipelineConfig {
      * hits.
      */
     preservePartitionLocality: boolean
+    /** See ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS. */
+    cymbalRetrySoftDeadlineMs: number
     /** Service for rate limiting and redirecting to overflow (main lane only). */
     overflowRedirectService?: OverflowRedirectService
     /** Service for refreshing TTLs on overflow lane events. */
@@ -164,6 +166,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         eventFilterManager,
         overflowMode,
         preservePartitionLocality,
+        cymbalRetrySoftDeadlineMs,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         topHog,
@@ -217,11 +220,20 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
     const afterCymbal = preCymbal
         // Process through Cymbal as a batch (before enrichment - Cymbal only
         // needs raw exception data, not person/geoip/group data).
-        // softDeadlineMs (10s) + ERROR_TRACKING_CYMBAL_TIMEOUT_MS (15s) stays below
-        // CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s).
-        .pipeChunk(createCymbalProcessingStep(cymbalClient, { overflowMode, preservePartitionLocality }), {
-            retry: { tries: 5, sleepMs: 100, backoffFactor: 4, softDeadlineMs: 10000, name: 'cymbal_processing' },
-        })
+        // The retry wrapper reruns the whole step only when it throws, which is a DNS failure or a
+        // request that Cymbal could not take. softDeadlineMs (10s) + ERROR_TRACKING_CYMBAL_TIMEOUT_MS
+        // (15s) stays below CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s). An event that asks to retry is
+        // handled in the step, within ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS.
+        .pipeChunk(
+            createCymbalProcessingStep(cymbalClient, {
+                overflowMode,
+                preservePartitionLocality,
+                inPlaceRetrySoftDeadlineMs: cymbalRetrySoftDeadlineMs,
+            }),
+            {
+                retry: { tries: 5, sleepMs: 100, backoffFactor: 4, softDeadlineMs: 10000, name: 'cymbal_processing' },
+            }
+        )
 
     return (
         afterCymbal

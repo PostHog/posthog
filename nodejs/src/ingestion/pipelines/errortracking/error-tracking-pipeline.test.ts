@@ -349,6 +349,7 @@ describe('ErrorTrackingPipeline', () => {
             eventFilterManager: mockEventFilterManager,
             overflowMode: 'disabled',
             preservePartitionLocality: false,
+            cymbalRetrySoftDeadlineMs: 0,
             topHog: mockTopHog,
             createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }

@@ -616,6 +616,90 @@ describe('CymbalClient', () => {
         })
     })
 
+    describe('processEachException', () => {
+        const unlimited = { concurrency: 10, startBefore: Number.POSITIVE_INFINITY }
+
+        const answerEachAlone = (statusFor: (uuid: string) => number = () => 200) =>
+            mockFetch.mockImplementation((_url: string, opts: { body: string }) => {
+                const [request] = parseJSON(opts.body) as CymbalRequest[]
+                const status = statusFor(request.uuid)
+                if (status !== 200) {
+                    return Promise.resolve({ status })
+                }
+                return Promise.resolve({
+                    status: 200,
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () => Promise.resolve({ results: toOutcomes([createResponse({ uuid: request.uuid })]) }),
+                })
+            })
+
+        it('sends each event alone to its team pod and gives a failed one its own result', async () => {
+            // Teams 1 and 3 route to 10.0.0.2 and team 2 routes to 10.0.0.1.
+            const client = createRoutedClient()
+            answerEachAlone((uuid) => ({ a: 200, b: 500, c: 429 })[uuid]!)
+
+            const results = await client.processEachException(
+                toItems([
+                    createRequest({ uuid: 'a', team_id: 1 }),
+                    createRequest({ uuid: 'b', team_id: 2 }),
+                    createRequest({ uuid: 'c', team_id: 3 }),
+                ]),
+                unlimited
+            )
+
+            expect(results).toEqual([
+                ...toOutcomes([createResponse({ uuid: 'a' })]),
+                { result: 'retry', error: { code: 'server_error', message: 'Cymbal returned 500' } },
+                { result: 'retry', error: { code: 'unavailable', message: 'Cymbal returned 429' } },
+            ])
+            const requestsSent = mockFetch.mock.calls.map(([url, opts]) => [
+                url,
+                (parseJSON(opts.body) as CymbalRequest[]).map((request) => request.uuid),
+            ])
+            expect(requestsSent).toEqual([
+                ['http://10.0.0.2:8080/process', ['a']],
+                ['http://10.0.0.1:8080/process', ['b']],
+                ['http://10.0.0.2:8080/process', ['c']],
+            ])
+        })
+
+        it('runs at most `concurrency` requests at once and starts none at or after `startBefore`', async () => {
+            jest.useFakeTimers()
+            try {
+                const client = createClient()
+                mockFetch.mockImplementation(
+                    (_url: string, opts: { body: string }) =>
+                        new Promise((resolve) => {
+                            const [request] = parseJSON(opts.body) as CymbalRequest[]
+                            const response = createResponse({ uuid: request.uuid })
+                            setTimeout(
+                                () =>
+                                    resolve({
+                                        status: 200,
+                                        headers: ITEM_RESULTS_HEADERS,
+                                        json: () => Promise.resolve({ results: toOutcomes([response]) }),
+                                    }),
+                                1_000
+                            )
+                        })
+                )
+
+                const pending = client.processEachException(
+                    toItems(['a', 'b', 'c'].map((uuid) => createRequest({ uuid }))),
+                    { concurrency: 1, startBefore: Date.now() + 1_500 }
+                )
+                await jest.runAllTimersAsync()
+
+                expect(await pending).toEqual([
+                    ...toOutcomes([createResponse({ uuid: 'a' }), createResponse({ uuid: 'b' })]),
+                    undefined,
+                ])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+    })
+
     describe('healthCheck', () => {
         it('returns true when health check succeeds', async () => {
             const client = createClient()

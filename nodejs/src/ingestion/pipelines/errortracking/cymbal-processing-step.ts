@@ -1,5 +1,8 @@
+import { Counter } from 'prom-client'
+
 import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
 import { logger } from '~/common/utils/logger'
+import { sleep } from '~/common/utils/utils'
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { toPipelineResults } from '~/ingestion/common/service-response'
@@ -11,8 +14,8 @@ import { PipelineResult, ok, redirect } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { ISOTimestamp, Team } from '~/types'
 
-import { CymbalClient } from './cymbal/client'
-import { CymbalResponse } from './cymbal/types'
+import { CymbalClient, CymbalResult } from './cymbal/client'
+import { CymbalRequest, CymbalResponse } from './cymbal/types'
 
 export interface CymbalProcessingInput {
     event: PluginEvent
@@ -24,6 +27,58 @@ export interface CymbalProcessingInput {
 export interface CymbalRetryOptions {
     overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
+    /** See ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS. */
+    inPlaceRetrySoftDeadlineMs: number
+}
+
+/** The wait before each in-place retry round. Its length is the maximum number of rounds. */
+const IN_PLACE_RETRY_DELAYS_MS = [1_000, 3_000, 9_000]
+
+/** Each wait is shortened by a random part of up to this fraction, so lanes do not resend in step. */
+const IN_PLACE_RETRY_JITTER = 0.5
+
+/** Cymbal rejects requests above a fixed number in flight per pod with a 429. */
+const IN_PLACE_RETRY_CONCURRENCY = 10
+
+const cymbalInPlaceRetries = new Counter({
+    name: 'error_tracking_cymbal_in_place_retries_total',
+    help: 'Events resent to Cymbal on their own after a retry result, by the result of the resend',
+    labelNames: ['result'],
+})
+
+/**
+ * Resends each event that asks to retry in its own request, after a growing wait, until no event
+ * asks or the soft deadline passes. Returns the latest result of every event.
+ */
+async function retryInPlace(
+    cymbalClient: CymbalClient,
+    items: { request: CymbalRequest; estimatedSize: number }[],
+    results: CymbalResult[],
+    softDeadlineMs: number,
+    startedAt: number
+): Promise<CymbalResult[]> {
+    const deadline = startedAt + softDeadlineMs
+    const latest = [...results]
+    for (const delayMs of IN_PLACE_RETRY_DELAYS_MS) {
+        const pending = latest.flatMap((result, index) => (result.result === 'retry' ? [index] : []))
+        const waitMs = delayMs * (1 - IN_PLACE_RETRY_JITTER * Math.random())
+        if (pending.length === 0 || Date.now() + waitMs > deadline) {
+            break
+        }
+        await sleep(waitMs)
+        const retried = await cymbalClient.processEachException(
+            pending.map((index) => items[index]),
+            { concurrency: IN_PLACE_RETRY_CONCURRENCY, startBefore: deadline }
+        )
+        pending.forEach((itemIndex, retriedIndex) => {
+            const result = retried[retriedIndex]
+            if (result) {
+                latest[itemIndex] = result
+                cymbalInPlaceRetries.labels({ result: result.result }).inc()
+            }
+        })
+    }
+    return latest
 }
 
 /**
@@ -71,17 +126,23 @@ function validateEventTimestamp(event: PluginEvent): { timestamp: ISOTimestamp; 
  * if events are suppressed.
  *
  * An event that Cymbal asks to retry gets its next attempt on the overflow lane, so the main lane
- * does not wait for it. The overflow lane, and a consumer without an overflow lane, send it to the
- * DLQ.
+ * does not wait for it. The overflow lane, and a consumer without an overflow lane, have no lane to
+ * hand it to. They resend it on its own after a growing wait, and send it to the DLQ when it still
+ * asks to retry after the last round.
  */
 export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
     cymbalClient: CymbalClient,
-    retryOptions: CymbalRetryOptions = { overflowMode: 'disabled', preservePartitionLocality: true }
+    retryOptions: CymbalRetryOptions = {
+        overflowMode: 'disabled',
+        preservePartitionLocality: true,
+        inPlaceRetrySoftDeadlineMs: 0,
+    }
 ): ChunkProcessingStep<T, T, OverflowOutput> {
     return async function cymbalProcessingStep(inputs: T[]): Promise<PipelineResult<T, OverflowOutput>[]> {
         if (inputs.length === 0) {
             return []
         }
+        const startedAt = Date.now()
 
         // Validate timestamps and collect warnings for each input.
         // This must happen before building Cymbal requests since Cymbal needs valid timestamps.
@@ -108,7 +169,16 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
         }))
 
         try {
-            const results = await cymbalClient.processExceptions(items)
+            let results = await cymbalClient.processExceptions(items)
+            if (retryOptions.overflowMode !== 'redirect') {
+                results = await retryInPlace(
+                    cymbalClient,
+                    items,
+                    results,
+                    retryOptions.inPlaceRetrySoftDeadlineMs,
+                    startedAt
+                )
+            }
 
             return toPipelineResults<CymbalResponse, T, OverflowOutput>(
                 'cymbal',

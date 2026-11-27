@@ -47,6 +47,7 @@ describe('createCymbalProcessingStep', () => {
     beforeEach(() => {
         mockCymbalClient = {
             processExceptions: jest.fn(),
+            processEachException: jest.fn(),
             healthCheck: jest.fn(),
         } as unknown as jest.Mocked<CymbalClient>
         step = createCymbalProcessingStep(mockCymbalClient)
@@ -165,14 +166,43 @@ describe('createCymbalProcessingStep', () => {
     describe('an event Cymbal asks to retry', () => {
         const retry: CymbalResult = { result: 'retry', error: { code: 'deadline_exceeded', message: 'slow' } }
 
+        const runPastRetryWaits = async (inputs: ReturnType<typeof createInput>[]) => {
+            const pending = step(inputs)
+            await jest.runAllTimersAsync()
+            return pending
+        }
+
+        const usesInPlaceRetries = (overflowMode: 'consume' | 'disabled', inPlaceRetrySoftDeadlineMs: number) => {
+            step = createCymbalProcessingStep(mockCymbalClient, {
+                overflowMode,
+                preservePartitionLocality: true,
+                inPlaceRetrySoftDeadlineMs,
+            })
+        }
+
+        const resentUuids = () =>
+            mockCymbalClient.processEachException.mock.calls.map(([items]) => items.map((item) => item.request.uuid))
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            // Without jitter, each wait before a resend is the full delay.
+            jest.spyOn(Math, 'random').mockReturnValue(0)
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
         it('goes to the overflow lane from the main lane, also when the whole batch asks', async () => {
             step = createCymbalProcessingStep(mockCymbalClient, {
                 overflowMode: 'redirect',
                 preservePartitionLocality: false,
+                inPlaceRetrySoftDeadlineMs: 60_000,
             })
             mockCymbalClient.processExceptions.mockResolvedValueOnce([retry, retry])
 
-            const results = await step([createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })])
+            const results = await runPastRetryWaits([createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })])
 
             for (const result of results) {
                 expect(result).toMatchObject({
@@ -182,16 +212,60 @@ describe('createCymbalProcessingStep', () => {
                     preserveKey: false,
                 })
             }
+            expect(mockCymbalClient.processEachException).not.toHaveBeenCalled()
         })
 
-        it.each([
-            ['on the overflow lane', 'consume' as const],
-            ['when the consumer has no overflow lane', 'disabled' as const],
-        ])('goes to the DLQ %s', async (_name, overflowMode) => {
-            step = createCymbalProcessingStep(mockCymbalClient, { overflowMode, preservePartitionLocality: true })
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([retry])
+        it.each(['consume' as const, 'disabled' as const])(
+            'is resent on its own with overflow mode %s until it resolves',
+            async (overflowMode) => {
+                usesInPlaceRetries(overflowMode, 60_000)
+                const resolved = (uuid: string) =>
+                    toOutcomes([createResponse({ uuid, properties: { $exception_fingerprint: `fp-${uuid}` } })])
+                mockCymbalClient.processExceptions.mockResolvedValueOnce([
+                    ...resolved('a'),
+                    retry,
+                    ...resolved('c'),
+                    retry,
+                ])
+                mockCymbalClient.processEachException
+                    .mockResolvedValueOnce([...resolved('b'), retry])
+                    .mockResolvedValueOnce(resolved('d'))
 
-            const results = await step([createInput()])
+                const results = await runPastRetryWaits(['a', 'b', 'c', 'd'].map((uuid) => createInput({ uuid })))
+
+                expect(results).toMatchObject(
+                    ['a', 'b', 'c', 'd'].map((uuid) => ({
+                        type: PipelineResultType.OK,
+                        value: { event: { uuid, properties: { $exception_fingerprint: `fp-${uuid}` } } },
+                    }))
+                )
+                expect(resentUuids()).toEqual([['b', 'd'], ['d']])
+            }
+        )
+
+        it.each([
+            ['after the last resend', 60_000, 0, 3],
+            ['once the soft deadline leaves no time for another resend', 10_000, 0, 2],
+            ['when the first pass used up the soft deadline', 10_000, 9_500, 0],
+        ])('goes to the DLQ when it still asks %s', async (_name, inPlaceRetrySoftDeadlineMs, firstPassMs, resends) => {
+            usesInPlaceRetries('consume', inPlaceRetrySoftDeadlineMs)
+            mockCymbalClient.processExceptions.mockImplementationOnce(
+                () => new Promise((resolve) => setTimeout(() => resolve([retry]), firstPassMs))
+            )
+            mockCymbalClient.processEachException.mockResolvedValue([retry])
+
+            const results = await runPastRetryWaits([createInput()])
+
+            expect(results[0]).toMatchObject({ type: PipelineResultType.DLQ, reason: 'cymbal_item_retry' })
+            expect(mockCymbalClient.processEachException).toHaveBeenCalledTimes(resends)
+        })
+
+        it('keeps an event that was not resent before the soft deadline as a retry', async () => {
+            usesInPlaceRetries('consume', 60_000)
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([retry])
+            mockCymbalClient.processEachException.mockResolvedValue([undefined])
+
+            const results = await runPastRetryWaits([createInput()])
 
             expect(results[0]).toMatchObject({ type: PipelineResultType.DLQ, reason: 'cymbal_item_retry' })
         })

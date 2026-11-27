@@ -297,6 +297,54 @@ export class CymbalClient {
     }
 
     /**
+     * Process each event in its own request, so that one slow or failing event cannot hold back or
+     * fail the others. Each event goes to the pod its team routes to. At most `concurrency`
+     * requests run at once, and no request starts at or after `startBefore` (a `Date.now()` time).
+     *
+     * A request that Cymbal cannot take (a network error, 429 or 503) gives its event a `retry`
+     * result instead of throwing, so that it does not discard the results of the other events.
+     *
+     * @returns One result per input event, in input order, or `undefined` for an event not sent.
+     * @throws a retriable error when DNS resolution fails
+     */
+    async processEachException(
+        items: { request: CymbalRequest; estimatedSize: number }[],
+        { concurrency, startBefore }: { concurrency: number; startBefore: number }
+    ): Promise<(CymbalResult | undefined)[]> {
+        if (items.length === 0) {
+            return []
+        }
+
+        const endpoints = await this.resolveEndpoints()
+        const results: (CymbalResult | undefined)[] = items.map(() => undefined)
+        let next = 0
+        const sendNext = async (): Promise<void> => {
+            while (next < items.length && Date.now() < startBefore) {
+                const index = next++
+                results[index] = await this.processAlone(items[index], endpoints)
+            }
+        }
+        await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, sendNext))
+        return results
+    }
+
+    private async processAlone(
+        item: { request: CymbalRequest; estimatedSize: number },
+        endpoints: string[]
+    ): Promise<CymbalResult> {
+        const endpoint = endpoints[jumpConsistentHash(item.request.team_id, endpoints.length)]
+        try {
+            const [result] = await this.processChunkOrFanOut(`http://${endpoint}:${this.port}`, [item])
+            return result
+        } catch (error) {
+            if (error instanceof CymbalError && error.isRetriable) {
+                return { result: 'retry', error: { code: 'unavailable', message: error.message } }
+            }
+            throw error
+        }
+    }
+
+    /**
      * Process items against a specific Cymbal URL, with size-based chunking.
      */
     private async processExceptionsToUrl(
