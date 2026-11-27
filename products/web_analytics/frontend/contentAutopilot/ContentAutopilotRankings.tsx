@@ -351,6 +351,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                 dateFrom: rankings.window_from,
                                                 dateTo: rankings.window_to,
                                                 branded: rankings.branded,
+                                                isOwnPage: page.is_target,
                                             }}
                                             source="rankings-pages"
                                             title={page.url}

@@ -40,7 +40,7 @@ export const ContentAutopilotPageMoversTable = ({
                         <span className="block truncate font-semibold" title={url}>
                             {answers_citing > 0 ? (
                                 <ContentAutopilotCitationsLink
-                                    lookup={{ kind: 'url', value: url, dateFrom, dateTo, branded }}
+                                    lookup={{ kind: 'url', value: url, dateFrom, dateTo, branded, isOwnPage: true }}
                                     source="overview-movers"
                                     // A button sizes to its text, so it needs the cell's width to truncate.
                                     className="w-full"
