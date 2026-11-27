@@ -88,8 +88,6 @@ type Run = { endedAt: number; seconds?: number }
 
 type Runs = { runs: Run[]; incomplete: boolean }
 
-// Each pair of successful reads brackets the runs that ended between them. Only the last of those has an end time,
-// and only a run that was the sole one to end has a start a read saw.
 function drivenRunsOf(evidence: MeasureEvidence): Runs | undefined {
     const { startedAt, endedAt } = evidence.drive
     const reads = readsOf(evidence.vacuum)
@@ -132,7 +130,6 @@ function drivenRunsOf(evidence: MeasureEvidence): Runs | undefined {
 const workersHidden = ({ vacuumSettings }: MeasureEvidence): boolean =>
     vacuumSettings !== undefined && !('error' in vacuumSettings) && !vacuumSettings.workersVisible
 
-// The start and end of the drive must each have a read near them, so one surviving read never stands for both.
 function endpointsOf(evidence: MeasureEvidence): { reads: Read[]; incomplete?: true } | { unmeasured: string } {
     const reads = inDrive(readsOf(evidence.vacuum), evidence)
     if (reads.length < 2) {
@@ -270,7 +267,6 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                       evidence,
                       params,
                       (window) => {
-                          // Each scrape interval counts once, in the window its closing scrape falls in.
                           const pickups = pickupsBetween(evidence.samples, [role], window, { straddle: false })
                           if ('unread' in pickups) {
                               return unmeasured(pickups.unread)
@@ -301,7 +297,6 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
         const read = new Map(
             writerCpu.filter(({ percent }) => Number.isFinite(percent)).map(({ at, percent }) => [at, percent])
         )
-        // A minute that straddles a window edge counts in both windows, so no peak drops out of the one it fell in.
         return series(evidence, params, ({ from, to }) => {
             const minutes: number[] = []
             for (let minute = Math.floor(from / MINUTE_MS) * MINUTE_MS; minute < to; minute += MINUTE_MS) {
