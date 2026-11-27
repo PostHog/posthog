@@ -19,6 +19,12 @@ drive:
           for: 2m
         - scale: 10
           for: 2m
+valves:
+    - valve: role.freeze
+      target: cdp-ses-webhooks
+      dose: {}
+      at: 4m
+      for: 2m
 convergeWithin: 10m
 invariants:
     - name: at_least_once
@@ -30,6 +36,7 @@ gates:
 measure:
     - name: ses_feedback_ms
     - name: ses_feedback_posts
+    - name: ses_notifications_lost
     - name: delivery_latency_ms
     - name: counter_drift
 unpaired: it judges no no_loss, so --pair would end both runs unjudged
