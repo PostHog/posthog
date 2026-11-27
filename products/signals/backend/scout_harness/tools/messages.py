@@ -193,13 +193,16 @@ def _queue(
         if locked_run is None:
             raise InvalidMessageError("The run row is gone; nothing was queued.")
         existing = SignalScoutMessage.all_teams.filter(
-            team_id=team.id, run_id=run.pk, route_key=route_key, dedupe_key=dedupe_key, status=pending_status
+            team_id=team.id, run_id=run.pk, route_key=route_key, dedupe_key=dedupe_key
         ).first()
         if existing is not None:
+            # The status is rewritten too: the owner can flip `emit` during the run, and the row must
+            # follow the run's current mode rather than collide with the unique constraint.
             existing.report = report
             existing.title = title
             existing.body = body
-            existing.save(update_fields=["report", "title", "body", "updated_at"])
+            existing.status = pending_status
+            existing.save(update_fields=["report", "title", "body", "status", "updated_at"])
             return SendMessageResult(outcome=SendMessageOutcome.REPLACED, message_id=str(existing.id))
 
         lane = SignalScoutMessage.all_teams.filter(team_id=team.id, skill_name=run.skill_name)

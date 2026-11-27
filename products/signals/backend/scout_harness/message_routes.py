@@ -36,6 +36,9 @@ SLACK_CHANNEL_TARGET_RE = r"^[CG][A-Z0-9]{4,}\s*(\|.*)?$"
 MAX_MESSAGES_PER_SCOUT_PER_WINDOW = 5
 MESSAGE_CAP_WINDOW = timedelta(hours=24)
 DEDUPE_WINDOW = timedelta(days=30)
+# How long a message a failed send left behind is still worth sending. Recovery runs at the scout's next
+# run end, so the window must be longer than the default daily schedule or a daily scout recovers nothing.
+MESSAGE_RECOVERY_WINDOW = timedelta(days=3)
 
 # A report the inbox does not show: the safety judge suppressed it, a person deleted it, or it failed.
 UNSENDABLE_REPORT_STATUSES = frozenset(("deleted", "suppressed", "failed"))

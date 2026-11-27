@@ -34,7 +34,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.message_routes import (
     DEDUPE_WINDOW,
-    MESSAGE_CAP_WINDOW,
+    MESSAGE_RECOVERY_WINDOW,
     MESSAGE_TARGET_SLACK_DM,
     UNSENDABLE_REPORT_STATUSES,
     MessageRoute,
@@ -129,7 +129,9 @@ def _recover_lane(run: SignalScoutRun) -> None:
     )
     for stranded_run_id in list(stranded_runs[:_MAX_RECOVERED_RUNS]):
         expired = lane.filter(
-            run_id=stranded_run_id, status=SignalScoutMessage.Status.QUEUED, created_at__lt=now - MESSAGE_CAP_WINDOW
+            run_id=stranded_run_id,
+            status=SignalScoutMessage.Status.QUEUED,
+            created_at__lt=now - MESSAGE_RECOVERY_WINDOW,
         ).update(
             status=SignalScoutMessage.Status.DROPPED,
             drop_reason=SignalScoutMessage.DropReason.EXPIRED,
@@ -152,7 +154,7 @@ def _recover_lane(run: SignalScoutRun) -> None:
         team_id=run.team_id,
         message__skill_name=run.skill_name,
         status=SignalScoutMessageDelivery.Status.PENDING,
-        created_at__gte=now - MESSAGE_CAP_WINDOW,
+        created_at__gte=now - MESSAGE_RECOVERY_WINDOW,
         updated_at__lt=now - DELIVERY_REPUBLISH_AFTER,
     ).select_related("message")
     for delivery in list(unpublished[:_MAX_REPUBLISHED_DELIVERIES]):

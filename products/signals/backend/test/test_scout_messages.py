@@ -243,6 +243,20 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
         assert row.report_id is None
         enqueue.assert_not_called()
 
+    def test_a_dry_run_message_resent_after_emit_is_turned_on_becomes_a_queued_message(self) -> None:
+        run = self._run()
+        assert run.scout_config is not None
+        SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(emit=False)
+        self._send(run)
+        SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(emit=True)
+        report = self._report(run)
+
+        response = self._send(run, report_id=str(report.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        row = SignalScoutMessage.all_teams.get(run=run)
+        assert (row.status, row.report_id) == (SignalScoutMessage.Status.QUEUED, report.id)
+
 
 class TestScoutMessageRoutesConfigAPI(_MessagesFixture, APIBaseTest):
     def _patch(self, config: SignalScoutConfig, destinations: dict) -> Any:
@@ -407,6 +421,9 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
             earlier, key="pr-1", status=SignalScoutMessage.Status.QUEUED, report=self._report(earlier)
         )
         sent = self._message(earlier, key="pr-2", status=SignalScoutMessage.Status.SENT, report=self._report(earlier))
+        # A daily scout's next run ends more than a day after the failed send.
+        a_daily_schedule_later = timezone.now() - timedelta(hours=30)
+        SignalScoutMessage.all_teams.filter(pk=stranded.pk).update(created_at=a_daily_schedule_later)
         unpublished = SignalScoutMessageDelivery.all_teams.create(
             team_id=self.team.id,
             message=sent,
@@ -415,7 +432,8 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
             integration_id=self.integration.id,
         )
         SignalScoutMessageDelivery.all_teams.filter(pk=unpublished.pk).update(
-            updated_at=timezone.now() - DELIVERY_REPUBLISH_AFTER - timedelta(minutes=1)
+            created_at=a_daily_schedule_later,
+            updated_at=timezone.now() - DELIVERY_REPUBLISH_AFTER - timedelta(minutes=1),
         )
 
         enqueue, _capture = self._send(self._run())
