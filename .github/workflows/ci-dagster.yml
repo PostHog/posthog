@@ -793,7 +793,7 @@ jobs:
               id: ch-before
               if: >-
                   steps.ch-fingerprint.outputs.digest != '' && matrix.group == 1
-                  && github.event_name == 'schedule' && github.ref == 'refs/heads/master'
+                  && (github.event_name == 'pull_request' || (github.event_name == 'schedule' && github.ref == 'refs/heads/master'))
               continue-on-error: true
               run: python .github/scripts/clickhouse_schema_cache.py snapshot --out .ci-clickhouse-schema/before.tsv
 
