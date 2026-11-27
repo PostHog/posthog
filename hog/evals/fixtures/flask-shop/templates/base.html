@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hedge Goods</title>
+  </head>
+  <body>
+    <nav>
+      <a href="/">Hedge Goods</a>
+      {% if session.user_id %}
+      <form method="post" action="/logout"><button type="submit">Log out</button></form>
+      {% else %}
+      <a href="/signup">Create account</a>
+      {% endif %}
+    </nav>
+    <main>{% block content %}{% endblock %}</main>
+  </body>
+</html>

@@ -24,13 +24,13 @@ const props = {
     dateTo: '2026-09-28T00:00:00Z',
     refreshKey: 0,
 }
-const page: OfflineHistoryPageApi = {
+const page = {
     results: overviewHistory(overviewScorers[0]),
     count: 6,
     next: null,
     previous: null,
     next_cursor: null,
-}
+} satisfies OfflineHistoryPageApi
 const retrieve = jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve)
 const history = jest.mocked(api.aiObservabilityOfflineScorersHistoryList)
 

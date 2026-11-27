@@ -12,6 +12,8 @@ import express from 'ultimate-express'
 import { v5 as uuidv5 } from 'uuid'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { sesTransportFor } from '~/cdp/_tests/email-delivery-fakes'
+import { startFakeSes } from '~/cdp/_tests/fake-ses'
 import {
     createExampleInvocation,
     createKafkaMessage,
@@ -2034,9 +2036,12 @@ describe('EmailTrackingService', () => {
                     },
                 })
                 const emailService = api['hogExecutorAsync']['deps'].emailService
-                const sesSend = jest
-                    .spyOn(emailService.sesV2Client!, 'send')
-                    .mockResolvedValue({ MessageId: 'ses-message-id' } as never)
+                const ses = await startFakeSes({
+                    [hub.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
+                    [hub.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
+                })
+                const ownTransport = emailService.sesTransport
+                emailService.sesTransport = sesTransportFor(ses)
                 const invocation = createExampleInvocation({ id: hogFlow.id, team_id: team.id })
                 invocation.state.globals.event.distinct_id = 'user-1'
                 if (transactional) {
@@ -2054,15 +2059,18 @@ describe('EmailTrackingService', () => {
                     html: '<p>Hi</p>',
                 }
 
-                expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
-                const input = (sesSend.mock.calls[0][0] as any).input
-                const headers: { Name: string; Value: string }[] = input.Content.Simple.Headers
-                const emailTags: { Name: string; Value: string }[] = input.EmailTags
+                const result = await emailService.executeSendEmail(invocation).finally(async () => {
+                    emailService.sesTransport = ownTransport
+                    await ses.close()
+                })
+                expect(result.error).toBeUndefined()
+                const [{ headers, tags }] = ses.sent
+                expect(headers[TRACKING_CODE_HEADER_NAME]).toEqual(expect.any(String))
                 mockInternalFetch.mockClear()
                 return {
                     hogFlowId: hogFlow.id,
-                    headerCode: headers.find((header) => header.Name === TRACKING_CODE_HEADER_NAME)!.Value,
-                    tags: Object.fromEntries(emailTags.map((tag) => [tag.Name, [tag.Value]])),
+                    headerCode: headers[TRACKING_CODE_HEADER_NAME],
+                    tags: Object.fromEntries(Object.entries(tags).map(([name, value]) => [name, [value]])),
                 }
             }
 

@@ -269,15 +269,18 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "products.tasks.backend.logic.services.desktop_gateway_token.posthoganalytics.default_client"
         ) as client:
             self._mint()
-        count = client.metrics.count
-        if expected_reason is None:
-            count.assert_not_called()
-        else:
-            count.assert_called_once_with(
-                "tasks.gateway_token.refused",
-                1,
-                attributes={"surface": "desktop", "ai_product": "posthog_code", "reason": expected_reason},
-            )
+        # The client is shared, so the API middleware's own request metrics land on it too.
+        refusals = [
+            call.kwargs["attributes"]
+            for call in client.metrics.count.call_args_list
+            if call.args == ("tasks.gateway_token.refused", 1)
+        ]
+        expected = (
+            []
+            if expected_reason is None
+            else [{"surface": "desktop", "ai_product": "posthog_code", "reason": expected_reason}]
+        )
+        assert refusals == expected
 
     def test_unknown_credit_state_is_disabled(self) -> None:
         self.mocks["credit"].side_effect = RuntimeError("redis down")

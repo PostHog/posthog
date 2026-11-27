@@ -1,6 +1,5 @@
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
-import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import { Client, Pool } from 'pg'
@@ -14,7 +13,7 @@ import {
     StoredFile,
     attachmentStoreConfig,
     deliveredTo,
-    sesClientFor,
+    sesTransportFor,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
 import { FakeSes, startFakeSes } from '~/cdp/_tests/fake-ses'
@@ -32,6 +31,7 @@ import {
     LARGEST_SEND_FILE_BYTES,
     estimateSend,
 } from '~/cdp/services/messaging/in-flight-registry'
+import { SesTransport } from '~/cdp/services/messaging/ses-transport'
 import { CYCLOTRON_QUEUE_ROLES, CyclotronJobInvocation } from '~/cdp/types'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
@@ -247,7 +247,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     async function startWorker(
         limits: InFlightLimits | null,
-        sesClient: SESv2Client = sesClientFor(ses),
+        sesTransport: SesTransport = sesTransportFor(ses),
         postgres: PostgresRouter = hub.postgres,
         overrides: Partial<Hub> = {},
         workerOverrides: Partial<CyclotronV2WorkerConfig> = {}
@@ -268,7 +268,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             new EmailQueueOfOneTest(queueName, config, workerOverrides),
             new InFlightRegistry(limits, () => 0)
         )
-        worker.emailService.sesV2Client = sesClient
+        worker.emailService.sesTransport = sesTransport
         workers.push(worker)
         await worker.start()
         return worker
@@ -369,7 +369,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                     new CyclotronJobQueuePostgresV2(10, config),
                     new InFlightRegistry(null, () => 0)
                 )
-                worker.emailService.sesV2Client = sesClientFor(ses)
+                worker.emailService.sesTransport = sesTransportFor(ses)
                 workers.push(worker)
                 await worker.start()
 
@@ -422,7 +422,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         const staleBefore = await staleReschedules()
         const [id] = await enqueue(transactionalSend(null))
         const firstWorkersCheck = cyclotron.hold(writeOf(checksOwnership, id))
-        await startWorker(null, sesClientFor(ses), hub.postgres, {
+        await startWorker(null, sesTransportFor(ses), hub.postgres, {
             ...ownershipChecked,
             CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
         })
@@ -438,7 +438,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         const { stalled } = await janitor.runOnce()
         await janitor.stop()
         expect(stalled).toBeGreaterThanOrEqual(1)
-        await startWorker(null, sesClientFor(ses), hub.postgres, ownershipChecked)
+        await startWorker(null, sesTransportFor(ses), hub.postgres, ownershipChecked)
         expect(await ended(id)).toBe('completed')
 
         heldCheck.release()
@@ -452,7 +452,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         const unansweredCheck = cyclotron.hold(writeOf(checksOwnership, id))
         await startWorker(
             null,
-            sesClientFor(ses),
+            sesTransportFor(ses),
             hub.postgres,
             { CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id) },
             { pool: { dbUrl: cyclotron.url, maxConnections: 1 }, ownershipReadTimeoutMs: 200 }
@@ -469,7 +469,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         const staleBefore = await staleReschedules()
         const [id] = await enqueue(transactionalSend([invoice.metadata]))
         const olderClaimsCheck = cyclotron.hold(writeOf(checksOwnership, id))
-        await startWorker(roomFor(2), sesClientFor(ses), hub.postgres, {
+        await startWorker(roomFor(2), sesTransportFor(ses), hub.postgres, {
             CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id),
             CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
         })
@@ -499,7 +499,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         const staleBefore = await staleReschedules()
         bucket.answer = 'hold'
         const [id] = await enqueue(transactionalSend([invoice.metadata]))
-        await startWorker(roomFor(2), sesClientFor(ses), hub.postgres, {
+        await startWorker(roomFor(2), sesTransportFor(ses), hub.postgres, {
             CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id),
             CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
         })
@@ -694,8 +694,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     describe('with a send whose SES call never settles, not even on abort', () => {
         const callsCannotOutlast = CONSUMER_STOP_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
 
-        const stalledSes = (askedForCredentials: () => void = () => undefined): SESv2Client =>
-            sesClientFor(ses, {
+        const stalledSes = (askedForCredentials: () => void = () => undefined): SesTransport =>
+            sesTransportFor(ses, {
                 credentials: () => {
                     askedForCredentials()
                     return new Promise(() => undefined)
@@ -934,7 +934,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             }
             await startWorker(
                 room === null ? null : roomFor(room),
-                sesClientFor(ses),
+                sesTransportFor(ses),
                 lookupsFail ? postgresThatStopsWaitingOnLocks() : hub.postgres
             )
 

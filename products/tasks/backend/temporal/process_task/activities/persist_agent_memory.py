@@ -1,4 +1,5 @@
 import time
+from functools import partial
 from typing import Any, Literal
 
 import structlog
@@ -6,6 +7,7 @@ import posthoganalytics
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.models.team import Team
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotFoundError, SandboxNotRunningError
@@ -107,6 +109,10 @@ def _capture_memory_event(
         logger.warning("agent_memory_event_capture_failed", event=event, run_id=run_id, exc_info=True)
 
 
+def _team_exists(team_id: int) -> bool:
+    return Team.objects.filter(pk=team_id).exists()
+
+
 def _driven_by_another_member(run_id: str, team_id: int, actor_user_id: int | None) -> bool:
     row = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("state", "task__created_by_id").first()
     state, created_by_id = row if row is not None else (None, None)
@@ -191,7 +197,12 @@ def persist_agent_memory(input: PersistAgentMemoryInput) -> PersistAgentMemoryOu
     if _driven_by_another_member(input.run_id, input.team_id, input.actor_user_id):
         return _finish_persist(input, "actor_changed", started_at, counts, None)
     try:
-        counts = persist_sandbox_memory(sandbox, team_id=input.team_id, user_id=input.user_id)
+        counts = persist_sandbox_memory(
+            sandbox,
+            team_id=input.team_id,
+            user_id=input.user_id,
+            team_exists=partial(_team_exists, input.team_id),
+        )
     except NotImplementedError:
         # A backend without file listing (hogland) is a supported configuration, not a failure.
         return _finish_persist(input, "unsupported", started_at, counts, None)

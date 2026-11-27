@@ -67,6 +67,11 @@ const TODAY_RECORD_TYPES: Record<string, TodayRecordType> = {
     // Automate. The file system calls a workflow `workflows`, and the Automate pane calls it `workflow`.
     workflow: WORKFLOW,
     workflows: WORKFLOW,
+    broadcast: {
+        iconType: 'broadcasts',
+        label: 'Broadcast',
+        description: 'A broadcast. Open it to see its audience, message, and sends.',
+    },
     'hog_function/destination': {
         iconType: 'data_pipeline',
         label: 'Destination',

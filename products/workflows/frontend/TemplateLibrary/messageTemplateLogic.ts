@@ -68,6 +68,11 @@ function warnAboutPendingTags(event: BeforeUnloadEvent): void {
     event.preventDefault()
 }
 
+/** Content as the server stores it: without unset keys or a null design, which the form may still hold. */
+function asStored(content: TemplateContent | null): TemplateContent | null {
+    return content ? JSON.parse(JSON.stringify({ ...content, email: omitNullDesign(content.email) })) : null
+}
+
 /** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
 function splitDraft(template: MessageTemplate): {
     form: MessageTemplate
@@ -77,6 +82,189 @@ function splitDraft(template: MessageTemplate): {
     const { draft_content, ...form } = template
     const draft = (draft_content as TemplateContent | null | undefined) ?? null
     return { form: draft ? { ...form, content: draft } : form, draft, published: template.content }
+}
+
+function isOlderThanLoaded(
+    incomingUpdatedAt: string | null | undefined,
+    loadedUpdatedAt: string | null | undefined
+): boolean {
+    return !!loadedUpdatedAt && !!incomingUpdatedAt && dayjs(incomingUpdatedAt).isBefore(dayjs(loadedUpdatedAt))
+}
+
+function preserveNewerSettings(incoming: MessageTemplate, loaded: MessageTemplate): MessageTemplate {
+    if (isOlderThanLoaded(incoming.updated_at, loaded.updated_at)) {
+        return {
+            ...incoming,
+            sensitive: loaded.sensitive,
+            click_tracking_enabled: loaded.click_tracking_enabled,
+            updated_at: loaded.updated_at,
+        }
+    }
+    return incoming
+}
+
+async function flushCanvasAndCheckDirty(props: MessageTemplateLogicProps): Promise<{
+    stillMounted: boolean
+    canvasUnsaved: boolean
+}> {
+    const templater = emailTemplaterLogic.findMounted()
+    if (templater) {
+        await templater.asyncActions.flushPendingDesignEdit()
+        if (!messageTemplateLogic.isMounted(props)) {
+            return { stillMounted: false, canvasUnsaved: false }
+        }
+        return { stillMounted: true, canvasUnsaved: templater.isMounted() && templater.values.latestEditUnsaved }
+    }
+    return { stillMounted: messageTemplateLogic.isMounted(props), canvasUnsaved: false }
+}
+
+interface OwnSettingSnapshot {
+    updatedAt: string
+    name: string
+    description: string
+    transactionalHogFlowId: string | null
+    publishedContent: TemplateContent | null
+    serverDraft: TemplateContent | null
+}
+
+interface MessageTemplateCache {
+    formWhenSaving?: MessageTemplate
+    ownSettingSnapshot?: OwnSettingSnapshot | null
+    tagWriteGeneration?: number
+}
+
+interface ApplySettingUpdateResult {
+    applied: boolean
+    ownSettingSnapshot: OwnSettingSnapshot | null
+}
+
+function matchesOwnSettingSnapshot(
+    snapshot: OwnSettingSnapshot | null | undefined,
+    loadedUpdatedAt: string | null | undefined,
+    expected: {
+        name: string
+        description?: string
+        transactional_hog_flow_id?: string | null
+        publishedContent: TemplateContent | null
+        serverDraft: TemplateContent | null
+    }
+): boolean {
+    return (
+        !!snapshot &&
+        !!loadedUpdatedAt &&
+        snapshot.updatedAt === loadedUpdatedAt &&
+        snapshot.name === expected.name &&
+        snapshot.description === (expected.description ?? '') &&
+        snapshot.transactionalHogFlowId === (expected.transactional_hog_flow_id ?? null) &&
+        objectsEqual(snapshot.publishedContent, expected.publishedContent) &&
+        objectsEqual(snapshot.serverDraft, expected.serverDraft)
+    )
+}
+
+function applySettingUpdate(
+    updated: Awaited<ReturnType<typeof messagingTemplatesPartialUpdate>>,
+    values: {
+        originalTemplate: MessageTemplate
+        template: MessageTemplate
+        publishedContent: TemplateContent | null
+        serverDraft: TemplateContent | null
+        hasUnsavedChanges: boolean
+        externallyEdited: boolean
+        templateChanged: boolean
+        isDiscardingDraft: boolean
+        isTemplateSubmitting: boolean
+        savedTemplateLoading: boolean
+        templateLoading: boolean
+    },
+    actions: {
+        setDraftState: (draft: TemplateContent | null, published: TemplateContent) => void
+        setOriginalTemplate: (template: MessageTemplate) => void
+        resetTemplate: (values?: MessageTemplate) => void
+        setExternallyEdited: (externallyEdited: boolean) => void
+        setTemplateValues: (
+            values: Partial<Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at' | 'tags'>>
+        ) => void
+    },
+    options: {
+        canvasUnsaved: boolean
+        hasConcurrentTagWrite: boolean
+    }
+): ApplySettingUpdateResult {
+    const loadedUpdatedAt = values.originalTemplate.updated_at
+    if (loadedUpdatedAt && updated.updated_at && dayjs(updated.updated_at).isBefore(dayjs(loadedUpdatedAt))) {
+        return { applied: false, ownSettingSnapshot: null }
+    }
+
+    const {
+        form: serverForm,
+        draft: serverDraft,
+        published: serverPublished,
+    } = splitDraft(updated as unknown as MessageTemplate)
+    const serverTagsChanged =
+        !options.hasConcurrentTagWrite && !objectsEqual(serverForm.tags ?? [], values.originalTemplate.tags ?? [])
+    const hasExternalChanges =
+        serverForm.name !== values.originalTemplate.name ||
+        (serverForm.description ?? '') !== (values.originalTemplate.description ?? '') ||
+        (serverForm.transactional_hog_flow_id ?? null) !==
+            (values.originalTemplate.transactional_hog_flow_id ?? null) ||
+        !objectsEqual(serverPublished ?? null, values.publishedContent) ||
+        !objectsEqual(serverDraft, values.serverDraft)
+
+    const settingChanges: Partial<
+        Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at' | 'tags'>
+    > = {
+        sensitive: updated.sensitive,
+        click_tracking_enabled: updated.click_tracking_enabled,
+        updated_at: updated.updated_at,
+        ...(serverTagsChanged ? { tags: serverForm.tags } : {}),
+    }
+
+    const snapshot: OwnSettingSnapshot = {
+        updatedAt: updated.updated_at,
+        name: serverForm.name,
+        description: serverForm.description ?? '',
+        transactionalHogFlowId: serverForm.transactional_hog_flow_id ?? null,
+        publishedContent: serverPublished ?? null,
+        serverDraft,
+    }
+
+    if (
+        values.isDiscardingDraft ||
+        values.templateLoading ||
+        values.savedTemplateLoading ||
+        values.isTemplateSubmitting
+    ) {
+        actions.setOriginalTemplate({ ...values.originalTemplate, ...settingChanges })
+        if (values.templateChanged) {
+            actions.setTemplateValues(settingChanges)
+        } else {
+            actions.resetTemplate({ ...values.template, ...settingChanges })
+        }
+        return { applied: true, ownSettingSnapshot: snapshot }
+    }
+
+    const hasLocalUnsaved = values.hasUnsavedChanges || options.canvasUnsaved
+    if (hasExternalChanges && !hasLocalUnsaved && !values.externallyEdited) {
+        const reconciledServerForm = options.hasConcurrentTagWrite
+            ? { ...serverForm, tags: values.template.tags }
+            : serverForm
+        actions.setDraftState(serverDraft, serverPublished)
+        actions.setOriginalTemplate(reconciledServerForm)
+        actions.resetTemplate(reconciledServerForm)
+        return { applied: true, ownSettingSnapshot: null }
+    }
+
+    if (hasExternalChanges) {
+        actions.setExternallyEdited(true)
+    }
+
+    actions.setOriginalTemplate({ ...values.originalTemplate, ...settingChanges })
+    if (values.templateChanged) {
+        actions.setTemplateValues(settingChanges)
+    } else {
+        actions.resetTemplate({ ...values.template, ...settingChanges })
+    }
+    return { applied: true, ownSettingSnapshot: hasExternalChanges ? null : snapshot }
 }
 
 export interface MessageTemplateLogicProps {
@@ -98,6 +286,8 @@ export interface messageTemplateLogicValues {
     hasUnsavedChanges: boolean
     isDiscardingDraft: boolean
     isMakingTransactional: boolean
+    isReconcilingPublish: boolean
+    isSavingClickTracking: boolean
     isSavingDraft: boolean
     isSavingSensitive: boolean
     isSyncingExternalEdit: boolean
@@ -114,12 +304,14 @@ export interface messageTemplateLogicValues {
     savedTemplate: MessageTemplate | null
     savedTemplateLoading: boolean
     section: TemplateSection
+    serverDraft: TemplateContent | null
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
     templateChanged: boolean
     templateErrors: DeepPartialMap<
         {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -145,6 +337,7 @@ export interface messageTemplateLogicValues {
     templateTouches: Record<string, boolean>
     templateValidationErrors: DeepPartialMap<
         {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -232,6 +425,7 @@ export interface messageTemplateLogicActions {
         value: true
     }
     resetTemplate: (values?: {
+        click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -248,6 +442,7 @@ export interface messageTemplateLogicActions {
         updated_at: string | null
     }) => {
         values?: {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -269,12 +464,20 @@ export interface messageTemplateLogicActions {
     }
     saveDraftDone: (
         draft: TemplateContent,
-        updatedAt: string
+        updatedAt: string,
+        serverDraft?: TemplateContent | null
     ) => {
         draft: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
         }
+        serverDraft:
+            | {
+                  email: EmailTemplate
+                  templating: 'hog' | 'liquid'
+              }
+            | null
+            | undefined
         updatedAt: string
     }
     saveDraftFailed: () => {
@@ -301,6 +504,12 @@ export interface messageTemplateLogicActions {
         savedTemplate: MessageTemplate
         payload?: MessageTemplate
     }
+    setClickTrackingEnabled: (clickTrackingEnabled: boolean) => {
+        clickTrackingEnabled: boolean
+    }
+    setClickTrackingEnabledDone: () => {
+        value: true
+    }
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
     }
@@ -322,6 +531,9 @@ export interface messageTemplateLogicActions {
     }
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
+    }
+    setReconcilingPublish: (reconciling: boolean) => {
+        reconciling: boolean
     }
     setSensitive: (sensitive: boolean) => {
         sensitive: boolean
@@ -350,6 +562,7 @@ export interface messageTemplateLogicActions {
     }
     setTemplateValues: (
         values: DeepPartial<{
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -367,6 +580,7 @@ export interface messageTemplateLogicActions {
         }>
     ) => {
         values: DeepPartial<{
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -397,6 +611,7 @@ export interface messageTemplateLogicActions {
         errors: Record<string, any>
     }
     submitTemplateRequest: (template: {
+        click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -413,6 +628,7 @@ export interface messageTemplateLogicActions {
         updated_at: string | null
     }) => {
         template: {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -430,6 +646,7 @@ export interface messageTemplateLogicActions {
         }
     }
     submitTemplateSuccess: (template: {
+        click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -446,6 +663,7 @@ export interface messageTemplateLogicActions {
         updated_at: string | null
     }) => {
         template: {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -546,16 +764,23 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         syncExternalEdit: true,
         keepMyTemplateVersion: true,
         setExternallyEdited: (externallyEdited: boolean) => ({ externallyEdited }),
+        setReconcilingPublish: (reconciling: boolean) => ({ reconciling }),
         setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
         makeTransactional: true,
         makeTransactionalDone: (hogFlowId: string | null) => ({ hogFlowId }),
         setSensitive: (sensitive: boolean) => ({ sensitive }),
         setSensitiveDone: true,
+        setClickTrackingEnabled: (clickTrackingEnabled: boolean) => ({ clickTrackingEnabled }),
+        setClickTrackingEnabledDone: true,
         setTransactionalTab: (tab: TransactionalTemplateTab) => ({ tab }),
         setDraftState: (draft: TemplateContent | null, published: TemplateContent) => ({ draft, published }),
         autoSaveDraft: true,
         saveDraft: true,
-        saveDraftDone: (draft: TemplateContent, updatedAt: string) => ({ draft, updatedAt }),
+        saveDraftDone: (draft: TemplateContent, updatedAt: string, serverDraft?: TemplateContent | null) => ({
+            draft,
+            updatedAt,
+            serverDraft,
+        }),
         saveDraftFailed: true,
         discardDraft: true,
         confirmDiscardDraft: true,
@@ -588,6 +813,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             }),
             submit: async (template) => {
+                if (values.isReconcilingPublish || values.isDiscardingDraft) {
+                    return
+                }
                 actions.saveTemplate(template)
             },
         },
@@ -622,12 +850,26 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 setSensitiveDone: () => false,
             },
         ],
+        isSavingClickTracking: [
+            false,
+            {
+                setClickTrackingEnabled: () => true,
+                setClickTrackingEnabledDone: () => false,
+            },
+        ],
         // The draft as last saved, and the content sends use. Both come from the server.
         savedDraft: [
             null as TemplateContent | null,
             {
                 setDraftState: (_, { draft }) => draft,
                 saveDraftDone: (_, { draft }) => draft,
+            },
+        ],
+        serverDraft: [
+            null as TemplateContent | null,
+            {
+                setDraftState: (_, { draft }) => draft,
+                saveDraftDone: (_, { draft, serverDraft }) => (serverDraft !== undefined ? serverDraft : draft),
             },
         ],
         publishedContent: [
@@ -681,6 +923,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             false,
             {
                 setSyncingExternalEdit: (_, { syncing }) => syncing,
+            },
+        ],
+        isReconcilingPublish: [
+            false,
+            {
+                setReconcilingPublish: (_, { reconciling }) => reconciling,
             },
         ],
         // An edit event that arrived while our own save or load was in flight. Replayed once it settles.
@@ -784,7 +1032,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const payload = template.content?.email
                     ? { ...template, content: { ...template.content, email: omitNullDesign(template.content.email) } }
                     : template
-                const { sensitive: _sensitive, tags: _tags, ...content } = payload
+                const {
+                    sensitive: _sensitive,
+                    click_tracking_enabled: _clickTrackingEnabled,
+                    tags: _tags,
+                    ...content
+                } = payload
                 const saved =
                     template.id === 'new'
                         ? await api.messaging.createTemplate(payload)
@@ -824,8 +1077,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 if (
                     values.templateLoading ||
                     values.savedTemplateLoading ||
+                    values.isReconcilingPublish ||
                     values.isMakingTransactional ||
                     values.isSavingSensitive ||
+                    values.isSavingClickTracking ||
                     values.isSavingDraft ||
                     values.isDiscardingDraft
                 ) {
@@ -859,7 +1114,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.templateEditedElsewhere(event)
             }
         },
+        setDraftState: ({ draft }) => {
+            cache.serverDraft = draft
+        },
         syncExternalEdit: () => {
+            // A draft only holds what the person typed, so a reload that finds it gone must not take the text with it.
+            // Reload from the banner is the person choosing the other version, so it takes nothing along.
+            // The server's own copy of the draft, which it stores normalized, so a reload compares like with like.
+            const serverDraft = cache.serverDraft !== undefined ? cache.serverDraft : values.savedDraft
+            cache.beforeSync = values.externallyEdited ? null : { draft: serverDraft, content: values.template.content }
             actions.setSyncingExternalEdit(true)
             actions.loadTemplate()
         },
@@ -883,6 +1146,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             // can't cancel a tag that already looks saved.
             const writeBefore: Promise<string[] | undefined> =
                 pendingTagWrites.get(id) ?? Promise.resolve(values.originalTemplate.tags)
+            const cacheState = cache as MessageTemplateCache
             let failed = false
             const write: Promise<string[] | undefined> = writeBefore.then(async (saved) => {
                 // A newer edit already holds these tags.
@@ -892,7 +1156,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 try {
                     // Tags are metadata: they apply live and must not publish a transactional template's draft,
                     // which a full form save would.
-                    return (await api.messaging.updateTemplate(id, { tags })).tags
+                    const savedTags = (await api.messaging.updateTemplate(id, { tags })).tags
+                    cacheState.tagWriteGeneration = (cacheState.tagWriteGeneration ?? 0) + 1
+                    return savedTags
                 } catch (error: any) {
                     failed = true
                     if (pendingTagWrites.get(id) === write) {
@@ -931,10 +1197,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             if (
                 !values.draftOutOfDate ||
                 values.externallyEdited ||
+                values.isReconcilingPublish ||
+                values.templateLoading ||
                 values.isTemplateSubmitting ||
                 values.savedTemplateLoading ||
                 values.isSavingDraft ||
-                values.isDiscardingDraft
+                values.isDiscardingDraft ||
+                values.isSavingSensitive ||
+                values.isSavingClickTracking
             ) {
                 return
             }
@@ -947,13 +1217,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     // The form type still allows the legacy 'hog' templating, which templates never use.
                     draft_content: { ...content, email: omitNullDesign(content.email) } as MessageTemplateContentApi,
                 })
-                actions.saveDraftDone(content, updated.updated_at)
+                const serverDraft = (updated.draft_content as TemplateContent | null | undefined) ?? null
+                cache.serverDraft = serverDraft
+                actions.saveDraftDone(content, updated.updated_at, serverDraft)
             } catch {
                 actions.saveDraftFailed()
                 lemonToast.error("Couldn't save your draft. Your changes are still in the editor.")
             }
         },
         saveDraftDone: ({ updatedAt }) => {
+            ;(cache as MessageTemplateCache).ownSettingSnapshot = null
             // The echo of this save then matches the loaded stamp and is not read as an edit from elsewhere.
             actions.setOriginalTemplate({ ...values.originalTemplate, updated_at: updatedAt })
             actions.replayDeferredExternalEdit()
@@ -975,22 +1248,69 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             })
         },
         confirmDiscardDraft: async (_, breakpoint) => {
-            // A draft save that lands after the discard would bring the draft back, so let it finish first.
-            while (values.isSavingDraft || values.savedTemplateLoading) {
+            // Wait for any in-flight draft, publish, or setting save so an older response cannot bring the draft back.
+            while (
+                values.isSavingDraft ||
+                values.savedTemplateLoading ||
+                values.isReconcilingPublish ||
+                values.isSavingSensitive ||
+                values.isSavingClickTracking
+            ) {
                 await breakpoint(100)
             }
             try {
+                const cacheState = cache as MessageTemplateCache
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     draft_content: null,
                 })
-                const published = updated.content as TemplateContent
-                actions.setDraftState(null, published)
-                actions.setOriginalTemplate({
-                    ...values.originalTemplate,
-                    content: published,
-                    updated_at: updated.updated_at,
-                })
-                actions.resetTemplate({ ...values.template, content: published, updated_at: updated.updated_at })
+                const { stillMounted, canvasUnsaved } = await flushCanvasAndCheckDirty(props)
+                if (!stillMounted) {
+                    return
+                }
+                const {
+                    form: discardForm,
+                    draft: discardDraft,
+                    published,
+                } = splitDraft(updated as unknown as MessageTemplate)
+                const discardIsOlder = isOlderThanLoaded(updated.updated_at, values.originalTemplate.updated_at)
+                const newerIsOnlyOwnSetting =
+                    discardIsOlder &&
+                    !values.externallyEdited &&
+                    matchesOwnSettingSnapshot(cacheState.ownSettingSnapshot, values.originalTemplate.updated_at, {
+                        name: discardForm.name,
+                        description: discardForm.description,
+                        transactional_hog_flow_id: discardForm.transactional_hog_flow_id,
+                        publishedContent: published ?? null,
+                        serverDraft: discardDraft,
+                    })
+                if (discardIsOlder && !newerIsOnlyOwnSetting) {
+                    if (values.hasUnsavedChanges || canvasUnsaved) {
+                        actions.setExternallyEdited(true)
+                    } else {
+                        actions.syncExternalEdit()
+                    }
+                } else {
+                    const nextOriginal = preserveNewerSettings(
+                        {
+                            ...values.originalTemplate,
+                            content: published,
+                            sensitive: updated.sensitive,
+                            click_tracking_enabled: updated.click_tracking_enabled,
+                            updated_at: updated.updated_at,
+                        },
+                        values.originalTemplate
+                    )
+                    const discardChanges = {
+                        content: published,
+                        sensitive: nextOriginal.sensitive,
+                        click_tracking_enabled: nextOriginal.click_tracking_enabled,
+                        updated_at: nextOriginal.updated_at,
+                    }
+                    cacheState.ownSettingSnapshot = null
+                    actions.setDraftState(null, published)
+                    actions.setOriginalTemplate(nextOriginal)
+                    actions.resetTemplate({ ...values.template, ...discardChanges })
+                }
             } catch {
                 lemonToast.error("Couldn't discard your draft. Try again.")
             }
@@ -1038,18 +1358,34 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 lemonToast.error(error?.detail ?? 'Could not make the template transactional.')
             }
         },
-        setSensitive: async ({ sensitive }) => {
+        setSensitive: async ({ sensitive }, breakpoint) => {
+            // Wait for an in-flight draft or publish save so the loaded snapshot matches the server before reconciling.
+            while (
+                values.isSavingDraft ||
+                values.templateLoading ||
+                values.savedTemplateLoading ||
+                values.isReconcilingPublish
+            ) {
+                await breakpoint(100)
+            }
             try {
+                const cacheState = cache as MessageTemplateCache
+                const tagGenerationBefore = cacheState.tagWriteGeneration ?? 0
                 // Saved on its own, so it applies to sends at once and leaves any content draft untouched.
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     sensitive,
                 })
-                const changes = { sensitive: updated.sensitive, updated_at: updated.updated_at }
-                actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
-                if (values.templateChanged) {
-                    actions.setTemplateValues(changes)
-                } else {
-                    actions.resetTemplate({ ...values.template, ...changes })
+                const { stillMounted, canvasUnsaved } = await flushCanvasAndCheckDirty(props)
+                if (!stillMounted) {
+                    return
+                }
+                const result = applySettingUpdate(updated, values, actions, {
+                    canvasUnsaved,
+                    hasConcurrentTagWrite:
+                        pendingTagWrites.has(props.id) || (cacheState.tagWriteGeneration ?? 0) !== tagGenerationBefore,
+                })
+                if (result.applied) {
+                    cacheState.ownSettingSnapshot = result.ownSettingSnapshot
                 }
                 posthog.capture('email template sensitive changed', { template_id: props.id, sensitive })
             } catch (error: any) {
@@ -1057,6 +1393,51 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             actions.setSensitiveDone()
             actions.replayDeferredExternalEdit()
+            actions.autoSaveDraft()
+        },
+        setClickTrackingEnabled: async ({ clickTrackingEnabled }, breakpoint) => {
+            while (
+                values.isSavingDraft ||
+                values.templateLoading ||
+                values.savedTemplateLoading ||
+                values.isReconcilingPublish
+            ) {
+                await breakpoint(100)
+            }
+            try {
+                const cacheState = cache as MessageTemplateCache
+                const tagGenerationBefore = cacheState.tagWriteGeneration ?? 0
+                const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
+                    click_tracking_enabled: clickTrackingEnabled ? true : null,
+                })
+                const { stillMounted, canvasUnsaved } = await flushCanvasAndCheckDirty(props)
+                if (!stillMounted) {
+                    return
+                }
+                const result = applySettingUpdate(updated, values, actions, {
+                    canvasUnsaved,
+                    hasConcurrentTagWrite:
+                        pendingTagWrites.has(props.id) || (cacheState.tagWriteGeneration ?? 0) !== tagGenerationBefore,
+                })
+                if (result.applied) {
+                    cacheState.ownSettingSnapshot = result.ownSettingSnapshot
+                    if (updated.sensitive) {
+                        posthog.capture('email template click tracking changed', {
+                            template_id: props.id,
+                            click_tracking_enabled: updated.click_tracking_enabled === true,
+                        })
+                    } else {
+                        lemonToast.info(
+                            'Sensitive data protection was turned off elsewhere, so link click tracking is on by default.'
+                        )
+                    }
+                }
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
+            }
+            actions.setClickTrackingEnabledDone()
+            actions.replayDeferredExternalEdit()
+            actions.autoSaveDraft()
         },
         loadTemplateFailure: () => {
             // The form is still the stale copy. The banner keeps the conflict visible and offers the retry.
@@ -1066,11 +1447,23 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         loadTemplateSuccess: ({ template }) => {
+            ;(cache as MessageTemplateCache).ownSettingSnapshot = null
             if (values.isSyncingExternalEdit) {
+                const beforeSync = cache.beforeSync as {
+                    draft: TemplateContent | null
+                    content: TemplateContent
+                } | null
+                cache.beforeSync = null
+                const draftLostElsewhere =
+                    !!beforeSync?.draft &&
+                    !objectsEqual(asStored(beforeSync.draft), asStored(values.savedDraft ?? values.publishedContent))
                 // The server copy replaces the form. A Reload from the banner discards the local edits on purpose.
-                actions.resetTemplate(template)
+                // A draft replaced or removed elsewhere held the person's typing, so it stays and the banner asks.
+                actions.resetTemplate(
+                    draftLostElsewhere && beforeSync ? { ...template, content: beforeSync.content } : template
+                )
                 actions.setSyncingExternalEdit(false)
-                actions.setExternallyEdited(false)
+                actions.setExternallyEdited(draftLostElsewhere)
             }
             actions.replayDeferredExternalEdit()
         },
@@ -1085,7 +1478,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         saveTemplate: () => {
-            cache.formWhenSaving = values.template
+            ;(cache as MessageTemplateCache).formWhenSaving = values.template
         },
         saveTemplateFailure: ({ errorObject }) => {
             actions.replayDeferredExternalEdit()
@@ -1104,10 +1497,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.autoSaveDraft()
         },
         saveTemplateSuccess: async ({ savedTemplate: template }) => {
-            const current = values.template
-            const sent: MessageTemplate = cache.formWhenSaving ?? current
-            // Create leaves the page, so it has nothing to keep.
-            const typedMeanwhile: Partial<Pick<MessageTemplate, 'name' | 'description' | 'content'>> =
+            const cacheState = cache as MessageTemplateCache
+            const sent: MessageTemplate = cacheState.formWhenSaving ?? values.template
+            const publishedFromSave = values.publishedContent
+            const draftFromSave = values.serverDraft
+            const computeTypedMeanwhile = (
+                current: MessageTemplate
+            ): Partial<Pick<MessageTemplate, 'name' | 'description' | 'content'>> =>
                 props.id === 'new'
                     ? {}
                     : {
@@ -1118,25 +1514,79 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             lemonToast.success(
                 props.id === 'new' ? 'Template created' : values.draftsEnabled ? 'Published' : 'Template saved'
             )
-            // Tags save on their own, so the answer to this save can hold older ones.
-            const tagsChanged = current.tags !== sent.tags || pendingTagWrites.has(template.id)
-            const saved = props.id !== 'new' && tagsChanged ? { ...template, tags: current.tags } : template
-            // Clear the unsaved-changes state before navigating so the beforeUnload guard
-            // does not intercept the post-save redirect.
-            actions.resetTemplate(saved)
-            actions.setOriginalTemplate(saved)
-            if (values.transactionalHogFlowId) {
-                // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
-                workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()
-            }
-            if (props.id === 'new') {
-                router.actions.push(urls.workflows('library'))
-            } else if (template.id) {
-                router.actions.replace(templateUrlInSection(template.id, values.section))
-            }
-            // After the navigation, which would otherwise ask to discard them.
-            if (Object.keys(typedMeanwhile).length > 0) {
-                actions.setTemplateValues(typedMeanwhile)
+
+            const initialPublishIsOlder = isOlderThanLoaded(template.updated_at, values.originalTemplate.updated_at)
+            const initialNewerIsOnlyOwnSetting =
+                initialPublishIsOlder &&
+                !values.externallyEdited &&
+                matchesOwnSettingSnapshot(cacheState.ownSettingSnapshot, values.originalTemplate.updated_at, {
+                    name: template.name,
+                    description: template.description,
+                    transactional_hog_flow_id: template.transactional_hog_flow_id,
+                    publishedContent: publishedFromSave,
+                    serverDraft: draftFromSave,
+                })
+
+            let canvasUnsaved = false
+            let markedReconciling = false
+            try {
+                if (initialPublishIsOlder && !initialNewerIsOnlyOwnSetting) {
+                    actions.setReconcilingPublish(true)
+                    markedReconciling = true
+                    const flush = await flushCanvasAndCheckDirty(props)
+                    if (!flush.stillMounted) {
+                        return
+                    }
+                    canvasUnsaved = flush.canvasUnsaved
+                }
+
+                const current = values.template
+                const typedMeanwhile = computeTypedMeanwhile(current)
+                // Tags save on their own, so the answer to this save can hold older ones.
+                const tagsChanged = current.tags !== sent.tags || pendingTagWrites.has(template.id)
+                const saved = props.id !== 'new' && tagsChanged ? { ...template, tags: current.tags } : template
+                // Clear the unsaved-changes state before navigating so the beforeUnload guard
+                // does not intercept the post-save redirect.
+                const publishIsOlder = isOlderThanLoaded(saved.updated_at, values.originalTemplate.updated_at)
+                const newerIsOnlyOwnSetting =
+                    publishIsOlder &&
+                    !values.externallyEdited &&
+                    matchesOwnSettingSnapshot(cacheState.ownSettingSnapshot, values.originalTemplate.updated_at, {
+                        name: saved.name,
+                        description: saved.description,
+                        transactional_hog_flow_id: saved.transactional_hog_flow_id,
+                        publishedContent: publishedFromSave,
+                        serverDraft: draftFromSave,
+                    })
+                const needsExternalReconcile = publishIsOlder && !newerIsOnlyOwnSetting
+                const hasLocalEdits = Object.keys(typedMeanwhile).length > 0 || canvasUnsaved
+                const reconciled = preserveNewerSettings(saved, values.originalTemplate)
+                if (!publishIsOlder) {
+                    cacheState.ownSettingSnapshot = null
+                }
+                actions.setExternallyEdited(needsExternalReconcile && hasLocalEdits)
+                actions.resetTemplate(reconciled)
+                actions.setOriginalTemplate(reconciled)
+                if (values.transactionalHogFlowId) {
+                    // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
+                    workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()
+                }
+                if (props.id === 'new') {
+                    router.actions.push(urls.workflows('library'))
+                } else if (template.id) {
+                    router.actions.replace(templateUrlInSection(template.id, values.section))
+                }
+                // After the navigation, which would otherwise ask to discard them.
+                if (Object.keys(typedMeanwhile).length > 0) {
+                    actions.setTemplateValues(typedMeanwhile)
+                }
+                if (needsExternalReconcile && !hasLocalEdits) {
+                    actions.syncExternalEdit()
+                }
+            } finally {
+                if (markedReconciling && messageTemplateLogic.isMounted(props)) {
+                    actions.setReconcilingPublish(false)
+                }
             }
             actions.replayDeferredExternalEdit()
         },

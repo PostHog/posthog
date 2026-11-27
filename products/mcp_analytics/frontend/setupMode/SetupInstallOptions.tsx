@@ -16,7 +16,6 @@ const COPY = {
     wizard: "Run the Wizard in your server's repository",
     agent: 'Or ask your coding agent',
     agentOnly: 'Ask your coding agent',
-    restart: 'Restart your server when setup is done.',
 }
 
 /**
@@ -68,7 +67,6 @@ export function SetupInstallOptions(): JSX.Element {
                     </div>
                 </div>
             ) : null}
-            <span className="text-sm text-secondary">{COPY.restart}</span>
         </div>
     )
 }

@@ -39,6 +39,7 @@ import { InternalFetchService } from '~/common/services/internal-fetch'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { FetchResponse } from '~/common/utils/request'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -5057,6 +5058,20 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         return await insertHogFlow(hub.postgres, flow)
     }
 
+    const batchRunBody = (maxAudienceSize: number): Record<string, unknown> => ({
+        filters: { filter_test_accounts: false },
+        max_audience_size: maxAudienceSize,
+        audience_snapshot: { wait_until: new Date(Date.now() + 3600 * 1000).toISOString() },
+    })
+
+    const readyAudienceSnapshot = (): FetchResponse => ({
+        status: 200,
+        headers: {},
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve(JSON.stringify({ status: 'ready', audience_size: null, error: null })),
+        dump: () => Promise.resolve(),
+    })
+
     it('POST /batch_invocations with flag on creates a resolver cyclotron job with the right shape', async () => {
         const flow = await insertActiveBatchFlow()
         const parentRunId = new UUIDT().toString()
@@ -5157,7 +5172,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let personPageCalls = 0
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 personPageCalls += 1
                 const pages = [
                     { users_affected: personIds.slice(0, 2), cursor: 'c1', has_more: true },
@@ -5188,7 +5206,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         // Start the consumer — it'll pick up the resolver job and process pages
@@ -5255,7 +5273,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let personPageCalls = 0
 
         mockInternalFetch.mockImplementation(async (url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 personPageCalls += 1
                 if (personPageCalls === pagesBeforeLimit) {
                     await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
@@ -5297,7 +5318,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', pagesBeforeLimit === 0)
             await supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-                .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+                .send(batchRunBody(1000))
                 .expect(200)
 
             resolverWorker = buildResolverConsumer()
@@ -5334,7 +5355,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         })
 
         mockInternalFetch.mockImplementation(async (url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 audienceCalls += 1
                 expect(opts.timeoutMs).toBe(45_000)
                 await audiencePage.promise
@@ -5363,7 +5387,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         try {
             await supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-                .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+                .send(batchRunBody(1000))
                 .expect(200)
 
             resolverWorker = buildResolverConsumer()
@@ -5403,7 +5427,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const statusPuts: Array<{ status: string }> = []
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 return Promise.resolve({
                     status: 200,
                     headers: {},
@@ -5433,7 +5460,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const firstRunId = new UUIDT().toString()
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${firstRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         await waitForExpect(() => {
@@ -5451,7 +5478,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const secondRunId = new UUIDT().toString()
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${secondRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         await waitForExpect(() => {
@@ -5474,7 +5501,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const statusPuts: Array<{ status: string }> = []
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 return Promise.resolve({
                     status: 200,
                     headers: {},
@@ -5513,7 +5543,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const parentRunId = new UUIDT().toString()
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         // The first attempt claims the person's mask slot, then hits the injected commit
@@ -5575,7 +5605,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
                     dump: () => Promise.resolve(),
                 })
             }
-            // Audience fetch shouldn't be reached — the resolver bails on missing
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            // The audience page shouldn't be reached — the resolver bails on missing
             // hogflow before getting that far.
             return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
         })
@@ -5585,7 +5618,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         // and process the job before we delete the workflow).
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         // Sabotage: customer deletes the workflow between dispatch and processing.
@@ -5622,12 +5655,15 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const statusPuts: Array<{ status: string }> = []
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            const body = url.includes('/user_blast_radius_persons')
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            const body = url.endsWith('/audience_page')
                 ? JSON.stringify({ users_affected: personIds, cursor: null, has_more: false })
                 : '{}'
             if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
                 statusPuts.push(parseJSON(opts.body) as { status: string })
-            } else if (!url.includes('/user_blast_radius_persons')) {
+            } else if (!url.endsWith('/audience_page')) {
                 return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
             }
             return Promise.resolve({
@@ -5641,7 +5677,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         const replicaHidden = hideHogFlowsFromReplica(hub.postgres, [flow.id])
@@ -5671,7 +5707,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let putAttempts = 0
 
         mockInternalFetch.mockImplementation((url: string) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 return Promise.resolve({
                     status: 200,
                     headers: {},
@@ -5702,7 +5741,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         resolverWorker = buildResolverConsumer()
@@ -5733,7 +5772,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let fetchAttempts = 0
 
         mockInternalFetch.mockImplementation((url: string) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 fetchAttempts += 1
                 // Audience fetch always fails — resolver should keep retrying,
                 // never advance the cursor, never enqueue children.
@@ -5744,7 +5786,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         resolverWorker = buildResolverConsumer()
@@ -5849,7 +5891,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let fetchAttempts = 0
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 fetchAttempts += 1
                 return Promise.reject(new Error('ClickHouse permanently rejecting the audience query'))
             }
@@ -5872,6 +5917,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             hogFlowId: flow.id,
             filters: { properties: [], filter_test_accounts: false },
             variables: {},
+            audienceSnapshot: { waitUntil: new Date(Date.now() + 3600 * 1000).toISOString(), ready: true },
             maxAudienceSize: 1000,
             cursor: null,
             totalEnqueued: 0,
@@ -5979,7 +6025,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let personPageCalls = 0
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 personPageCalls += 1
                 const pages = [
                     { users_affected: personIds.slice(0, 3), cursor: 'c1', has_more: true },
@@ -6009,7 +6058,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 4 })
+            .send(batchRunBody(4))
             .expect(200)
 
         resolverWorker = buildResolverConsumer()

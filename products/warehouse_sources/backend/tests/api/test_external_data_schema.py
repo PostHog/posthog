@@ -57,7 +57,10 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.source_management import CDC_RESET_PENDING_KEY
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_PINNED_METADATA_KEY
+from products.warehouse_sources.backend.models.external_data_schema import (
+    MANUAL_RUN_REQUESTED_AT_KEY,
+    SCHEMA_PINNED_METADATA_KEY,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     UNREADABLE_SOURCE_CONFIG_ERROR,
     ExternalDataSchemaSerializer,
@@ -221,7 +224,8 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 200, response.content
         schema.refresh_from_db()
-        assert schema.sync_type_config == expected
+        assert {k: v for k, v in schema.sync_type_config.items() if k != MANUAL_RUN_REQUESTED_AT_KEY} == expected
+        assert schema.manual_sync_pending is True
 
     @parameterized.expand(
         [("flag_off", False, True, False), ("flag_on", True, True, True), ("unsupported", True, False, False)]

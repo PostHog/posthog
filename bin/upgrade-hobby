@@ -2,6 +2,11 @@
 
 set -e
 
+# docker-compose reads its settings from .env, but a variable set in the calling shell wins over .env.
+# A shell set up for another compose project, such as the PostHog dev stack, can carry these.
+# COMPOSE_PROJECT_NAME would point this upgrade at that project's containers and volumes.
+unset COMPOSE_PROJECT_NAME COMPOSE_FILE COMPOSE_PROFILES CADDY_HOST CADDY_TLS_BLOCK
+
 echo "Upgrading PostHog. This will cause a few minutes of downtime."
 read -r -p "Do you want to upgrade PostHog? [y/N] " response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
@@ -211,6 +216,16 @@ if [ -t 0 ] && ! grep -qE "^OPENAI_API_KEY=.+" .env; then
     if [ -n "$OPENAI_API_KEY_INPUT" ]; then
         echo "OPENAI_API_KEY=$OPENAI_API_KEY_INPUT" >> .env
         echo "Added OPENAI_API_KEY to .env file"
+    fi
+fi
+
+# Batch exports are off unless .env turns them on. An install keeps them on unless the database of
+# the old stack shows that it has none, so that no running export stops with the upgrade.
+if ! grep -qE "^BATCH_EXPORTS_ENABLED=" .env; then
+    EXISTING_BATCH_EXPORTS=$(docker-compose exec -T db psql -U posthog -d posthog -tAc "SELECT count(*) FROM posthog_batchexport WHERE deleted IS NOT TRUE" 2>/dev/null | tr -d '[:space:]' || true)
+    if [[ "$EXISTING_BATCH_EXPORTS" != "0" ]]; then
+        echo "BATCH_EXPORTS_ENABLED=true" >> .env
+        echo "Added BATCH_EXPORTS_ENABLED=true to .env file, to keep batch exports running"
     fi
 fi
 

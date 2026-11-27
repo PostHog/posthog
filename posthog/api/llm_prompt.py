@@ -108,6 +108,7 @@ class LLMPromptViewSet(
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # The two reads the SDKs make. Every other action stays tied to a person.
     psak_allowed_actions = ["list", "get_by_name"]
+    accepts_project_token = True
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
     permission_classes = [AccessControlPermission]

@@ -31,6 +31,8 @@ from products.feature_flags.backend.facade.flags import get_organization_flag_ev
 MAX_QUERY_BYTES = 100_000
 MAX_VARIABLES_BYTES = 100_000
 MAX_ACTIVE_REQUESTS_PER_TEAM = 5
+# The stats count and the deletion job run the same stored query, so a query that counts in time also queues in time.
+QUERY_BACKED_MAX_EXECUTION_TIME = 300
 ACTIVE_REQUEST_STATUSES = (
     RequestStatus.PENDING,
     RequestStatus.APPROVED,
@@ -197,20 +199,56 @@ def _column_sources(source: ast.Type, name: str, *, seen: set[tuple[int, str]]) 
                     yield from _column_sources(branch, branch_names[position], seen=seen)
 
 
-def preview_event_deletion(*, query: str, variables: dict[str, object], team: Team, user: User) -> int:
-    validate_payload_size(query, variables)
-    selected = compile_event_uuid_query(query=query, variables=variables, team=team, user=user)
+def _count_selected_uuids(
+    selected: EmbeddedClickHouseQuery,
+    *,
+    team_id: int,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    settings: Mapping[str, object] | None = None,
+) -> int:
     count_sql = f"SELECT count() FROM ({selected.sql}) AS selected"  # nosemgrep: clickhouse-injection-taint
     result = sync_execute(
         count_sql,
         selected.context.values,
         workload=Workload.OFFLINE,
-        team_id=team.id,
+        team_id=team_id,
         readonly=True,
-        settings=selected.settings,
+        ch_user=ch_user,
+        settings={**selected.settings, **(settings or {})},
         external_tables=list(selected.context.external_tables.values()) or None,
     )
     return int(result[0][0]) if result else 0
+
+
+def preview_event_deletion(*, query: str, variables: dict[str, object], team: Team, user: User) -> int:
+    validate_payload_size(query, variables)
+    selected = compile_event_uuid_query(query=query, variables=variables, team=team, user=user)
+    return _count_selected_uuids(selected, team_id=team.id)
+
+
+def count_query_backed_deletion(request: DataDeletionRequest) -> int:
+    """Count the event UUIDs that the request's stored query selects.
+
+    The query compiles with its creator's access controls, as the deletion job compiles it, so the count
+    matches what the job would queue rather than what the staff user running the count can read.
+    """
+    if request.created_by_id is None:
+        raise ValueError("The request has no creator whose query permissions can be enforced.")
+    team = Team.objects.get(pk=request.team_id)
+    user = User.objects.get(pk=request.created_by_id)
+    selected = compile_event_uuid_query(
+        query=request.hogql_query,
+        variables=request.hogql_variables or {},
+        team=team,
+        user=user,
+        ch_user=ClickHouseUser.META,
+    )
+    return _count_selected_uuids(
+        selected,
+        team_id=team.id,
+        ch_user=ClickHouseUser.META,
+        settings={"max_execution_time": QUERY_BACKED_MAX_EXECUTION_TIME},
+    )
 
 
 def create_event_deletion_request(

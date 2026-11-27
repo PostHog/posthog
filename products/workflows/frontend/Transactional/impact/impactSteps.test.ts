@@ -18,6 +18,8 @@ const impact: TransactionalEmailImpactApi = {
     untracked: 0,
     clicks_untracked: 0,
     window_days: 7,
+    sessions: null,
+    link_tagging_enabled: true,
     after_click: { sends: 16, converted: 4 },
     without_click: { sends: 50, converted: 1 },
 }
@@ -91,31 +93,35 @@ describe('impactSteps', () => {
     })
 
     it('shows each step as a count, and only the conversion as a share of the clicked sends it could follow', () => {
-        const steps = impactSteps(impact, 'plan upgraded')
+        const steps = impactSteps(impact, 'plan upgraded', 'off')
 
-        expect(steps.map((step) => [step.label, step.value, step.share, step.missing])).toEqual([
-            ['Sent', 100, null, undefined],
-            ['Delivered', 90, null, undefined],
-            ['Opened', 60, null, undefined],
-            ['Clicked', 20, null, undefined],
-            ['Started a session', null, null, 'Needs link tagging'],
-            ['plan upgraded', 4, 0.25, undefined],
+        expect(steps.map((step) => [step.label, step.value, step.share])).toEqual([
+            ['Sent', 100, null],
+            ['Delivered', 90, null],
+            ['Opened', 60, null],
+            ['Clicked', 20, null],
+            ['Started a session', null, null],
+            ['plan upgraded', 4, 0.25],
         ])
         expect(steps[5]).toMatchObject({ shareOf: '16 followed', shareDetail: expect.stringContaining('16 of 20') })
-        expect(impactSteps({ ...impact, after_click: { sends: 20, converted: 4 } }, 'plan upgraded')[5]).toMatchObject({
+        expect(
+            impactSteps({ ...impact, after_click: { sends: 20, converted: 4 } }, 'plan upgraded', 'off')[5]
+        ).toMatchObject({
             share: 0.2,
             shareOf: 'clicked',
         })
     })
 
     it('draws each bar against the tallest step, so opens and clicks show before their sends', () => {
-        const percents = stepBarPercents(impactSteps({ ...nothingRecorded, opened: 4, clicked: 1 }, 'plan upgraded'))
+        const percents = stepBarPercents(
+            impactSteps({ ...nothingRecorded, opened: 4, clicked: 1 }, 'plan upgraded', 'off')
+        )
 
         expect(percents.slice(0, 4)).toEqual([0, 0, 100, 25])
     })
 
     it('asks for an event until one is picked', () => {
-        const steps = impactSteps({ ...impact, after_click: null, without_click: null }, null)
+        const steps = impactSteps({ ...impact, after_click: null, without_click: null }, null, 'off')
 
         expect(steps[5]).toMatchObject({ label: 'Converted', value: null, missing: 'Pick an event' })
     })
@@ -126,6 +132,11 @@ describe('impactSteps', () => {
             untracked,
             [null, 'Tracking off'],
             [null, 'Tracking off'],
+            [
+                'Tracking off',
+                undefined,
+                "Every send in this period went out with tracking off, so PostHog couldn't record opens or clicks.",
+            ],
             [null, 'Tracking off', 'This counts conversions after a click. Every send in this period went out'],
         ],
         [
@@ -133,6 +144,7 @@ describe('impactSteps', () => {
             { ...impact, clicked: 0, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [0, undefined],
+            [undefined, true, undefined],
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded in this period.'],
         ],
         [
@@ -140,6 +152,7 @@ describe('impactSteps', () => {
             { ...impact, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [20, undefined],
+            [undefined, true, undefined],
             [null, 'None followed', "PostHog couldn't tie any of the 20 clicked sends"],
         ],
         [
@@ -147,6 +160,7 @@ describe('impactSteps', () => {
             { ...impact, clicked: 1, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [1, undefined],
+            [undefined, true, undefined],
             [null, 'None followed', "PostHog couldn't tie the clicked send in this period to a person."],
         ],
         [
@@ -154,6 +168,11 @@ describe('impactSteps', () => {
             { ...untracked, opened: 1 },
             [1, undefined],
             [null, 'Tracking off'],
+            [
+                'Tracking off',
+                undefined,
+                "Every send in this period went out with click tracking off, so PostHog couldn't record clicks.",
+            ],
             [
                 null,
                 'Tracking off',
@@ -171,6 +190,11 @@ describe('impactSteps', () => {
             },
             [1, undefined],
             [null, 'Tracking off'],
+            [
+                'Tracking off',
+                undefined,
+                "Every send in this period went out with click tracking off, so PostHog couldn't record clicks.",
+            ],
             [
                 null,
                 'Tracking off',
@@ -190,6 +214,11 @@ describe('impactSteps', () => {
             [60, undefined],
             [null, 'Tracking off'],
             [
+                'Tracking off',
+                undefined,
+                "Every send in this period went out with click tracking off, so PostHog couldn't record clicks.",
+            ],
+            [
                 null,
                 'Tracking off',
                 'This counts conversions after a click. Every send in this period went out with click',
@@ -200,6 +229,7 @@ describe('impactSteps', () => {
             { ...impact, clicked: 0, not_clicked: 50, clicks_untracked: 40, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [0, undefined],
+            [undefined, true, undefined],
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded'],
         ],
         [
@@ -207,6 +237,7 @@ describe('impactSteps', () => {
             { ...untracked, clicked: 3 },
             [0, undefined],
             [3, undefined],
+            [undefined, true, undefined],
             [null, 'None followed', "PostHog couldn't tie any of the 3 clicked sends"],
         ],
         [
@@ -214,14 +245,16 @@ describe('impactSteps', () => {
             { ...untracked, not_clicked: 50, untracked: 40, without_click: impact.without_click },
             [0, undefined],
             [0, undefined],
+            [undefined, true, undefined],
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded'],
         ],
-    ] as const)('says why a step has no data when %s', (_, data, opened, clicked, converted) => {
-        const steps = impactSteps(data, 'plan upgraded')
-        const [, , openedStep, clickedStep, , convertedStep] = steps
+    ] as const)('says why a step has no data when %s', (_, data, opened, clicked, session, converted) => {
+        const steps = impactSteps(data, 'plan upgraded', 'off')
+        const [, , openedStep, clickedStep, sessionStep, convertedStep] = steps
 
         expect([openedStep.value, openedStep.missing]).toEqual(opened)
         expect([clickedStep.value, clickedStep.missing]).toEqual(clicked)
+        expect([sessionStep.missing, sessionStep.missingFixedByLinkTagging, sessionStep.missingDetail]).toEqual(session)
         expect([convertedStep.label, convertedStep.value, convertedStep.missing]).toEqual([
             'plan upgraded',
             converted[0],

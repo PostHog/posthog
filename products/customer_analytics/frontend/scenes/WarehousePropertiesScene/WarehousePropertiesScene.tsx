@@ -1,10 +1,14 @@
 import { useActions, useValues } from 'kea'
 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
+
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ConcreteLemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -27,12 +31,13 @@ export function WarehousePropertiesScene(): JSX.Element {
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTab } = useValues(warehousePropertiesSceneLogic)
     const { setCurrentTab } = useActions(warehousePropertiesSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]) {
         return <NotFound object="page" caption="Warehouse properties isn't available for this project yet." />
     }
 
-    const tabs: LemonTab<WarehousePropertiesSceneTab>[] = [
+    const tabs: ConcreteLemonTab<WarehousePropertiesSceneTab>[] = [
         {
             label: 'Persons',
             key: 'persons',
@@ -51,14 +56,33 @@ export function WarehousePropertiesScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
-            <DefinitionsSceneTabs activeKey="warehouse-properties" />
-            <SceneTitleSection
-                name="Warehouse properties"
-                description="Add properties to your people and groups from a data warehouse table. Each row is matched by a key column, then the mapped columns stay up to date on every sync."
-                resourceType={{ type: 'data_warehouse' }}
-            />
-            <LemonTabs activeKey={currentTab} onChange={setCurrentTab} tabs={tabs} sceneInset />
-        </SceneContent>
+        <QuillSurfaceContext.Provider value={todayRailNav}>
+            <SceneContent>
+                <DefinitionsSceneTabs activeKey="warehouse-properties" />
+                <SceneTitleSection
+                    name="Warehouse properties"
+                    description="Add properties to your people and groups from a data warehouse table. Each row is matched by a key column, then the mapped columns stay up to date on every sync."
+                    resourceType={{ type: 'data_warehouse' }}
+                />
+                {todayRailNav ? (
+                    <Tabs value={currentTab} onValueChange={(tab) => setCurrentTab(tab as WarehousePropertiesSceneTab)}>
+                        <TabsList variant="line">
+                            {tabs.map((tab) => (
+                                <TabsTrigger key={tab.key} value={tab.key}>
+                                    {tab.label}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+                        {tabs.map((tab) => (
+                            <TabsContent key={tab.key} value={tab.key}>
+                                {tab.content}
+                            </TabsContent>
+                        ))}
+                    </Tabs>
+                ) : (
+                    <LemonTabs activeKey={currentTab} onChange={setCurrentTab} tabs={tabs} sceneInset />
+                )}
+            </SceneContent>
+        </QuillSurfaceContext.Provider>
     )
 }

@@ -36,6 +36,7 @@ from ..constants import (
     BK_RERANK_REQUEST_TIMEOUT,
     BK_SEARCH_DEFAULT_LIMIT,
     BK_SEARCH_MAX_LIMIT,
+    BK_SEARCH_MAX_QUERY_CHARS,
     MAX_URLS_PER_SOURCE,
 )
 from ..file_parse import FileParseError
@@ -59,6 +60,7 @@ from .serializers import (
     KnowledgeAvailabilitySerializer,
     KnowledgeDocumentWindowSerializer,
     KnowledgeGapSuggestionSerializer,
+    KnowledgeSearchRequestSerializer,
     KnowledgeSearchResultSerializer,
     KnowledgeSourceDocumentSerializer,
     KnowledgeSourceSerializer,
@@ -724,13 +726,27 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(KnowledgeDocumentWindowSerializer(instance=results, many=True).data)
 
     @extend_schema(
+        methods=["POST"],
+        summary="Search business knowledge with the query in the request body",
+        description=(
+            "The same search as the GET form. The query travels in the request body, so it does not appear in "
+            "request URLs or in the logs that record them."
+        ),
+        request=KnowledgeSearchRequestSerializer,
+        responses={200: KnowledgeSearchResultSerializer(many=True)},
+    )
+    @extend_schema(
+        methods=["GET"],
         parameters=[
             OpenApiParameter(
                 "query",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=True,
-                description="Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.",
+                description=(
+                    "Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, "
+                    f"READY knowledge chunks in this project. At most {BK_SEARCH_MAX_QUERY_CHARS} characters."
+                ),
             ),
             OpenApiParameter(
                 "limit",
@@ -767,23 +783,37 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(
         detail=False,
-        methods=["get"],
+        methods=["get", "post"],
         url_path="search",
         pagination_class=None,
         required_scopes=["business_knowledge:read"],
     )
     def search(self, request: Request, **kwargs) -> Response:
-        query = request.query_params.get("query")
+        requested_library: UUID | None
+        if request.method == "POST":
+            body = KnowledgeSearchRequestSerializer(data=request.data)
+            body.is_valid(raise_exception=True)
+            query = body.validated_data["query"]
+            limit = body.validated_data["limit"]
+            rerank = body.validated_data["rerank"]
+            requested_library = body.validated_data["library_id"]
+        else:
+            query = request.query_params.get("query")
+            limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
+            rerank = self._parse_bool_param(request, "rerank", default=False)
+            requested_library = self._library_id_param(request)
         if not query or not query.strip():
             raise exceptions.ValidationError({"query": "This query parameter is required."})
-        limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
+        if len(query) > BK_SEARCH_MAX_QUERY_CHARS:
+            raise exceptions.ValidationError(
+                {"query": f"Ensure this field has no more than {BK_SEARCH_MAX_QUERY_CHARS} characters."}
+            )
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
-        rerank = self._parse_bool_param(request, "rerank", default=False)
         if not _can_read_parent_knowledge(self, request):
             raise exceptions.PermissionDenied(
                 detail="You need access to business knowledge in this project to search it."
             )
-        library_id = self._search_library_id(request)
+        library_id = self._search_library_id(request, requested_library)
         search_limit = limit * 2 if rerank else limit
         trace = RetrievalTrace(surface="api")
         results = logic.search_knowledge_for_team(
@@ -818,14 +848,16 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             logger.warning("business_knowledge_search_capture_failed", team_id=self.team_id, exc_info=True)
         return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
 
-    def _search_library_id(self, request: Request) -> UUID | None:
+    def _library_id_param(self, request: Request) -> UUID | None:
         raw = request.query_params.get("library_id")
-        requested: UUID | None = None
-        if raw:
-            try:
-                requested = UUID(raw)
-            except (ValueError, DjangoValidationError):
-                raise exceptions.ValidationError({"library_id": "Must be a library id."}) from None
+        if not raw:
+            return None
+        try:
+            return UUID(raw)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.ValidationError({"library_id": "Must be a library id."}) from None
+
+    def _search_library_id(self, request: Request, requested: UUID | None) -> UUID | None:
         library_id = readable_library_id(request, requested)
         if library_id is None:
             return None

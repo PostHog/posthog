@@ -1,0 +1,177 @@
+from typing import Any
+
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
+
+from django.conf import settings
+from django.core.cache import caches
+from django.db.models.signals import pre_delete
+from django.test import override_settings
+
+from django_redis.cache import RedisCache
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.models import Organization, Team, User
+from posthog.models.instance_setting import override_instance_config
+from posthog.rate_limit import is_rate_limit_enabled
+from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
+
+from products.workflows.backend.facade.advent_calendar import answer_advent_calendar
+from products.workflows.backend.facade.enums import AdventCalendarDay, AdventCalendarOption
+from products.workflows.backend.models import AdventCalendarAnswer
+
+
+class TestAdventCalendarAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.outsider = User.objects.create_and_join(self.organization, "outsider@example.com", "password")
+        flag_patch = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            side_effect=lambda flag, distinct_id, **kwargs: (
+                flag == "workflows-advent-calendar" and distinct_id != str(self.outsider.distinct_id)
+            ),
+        )
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+
+    def _url(self, team: Team, action: str) -> str:
+        return f"/api/projects/{team.id}/workflow_advent_calendar/{action}/"
+
+    def _answer_as(self, user: User, team: Team, day: int, option: str) -> Any:
+        self.client.force_login(user)
+        response = self.client.post(self._url(team, "answer"), {"day": day, "option": option})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    def _results(self) -> list[dict[str, Any]]:
+        self.client.force_login(self.user)
+        response = self.client.get(self._url(self.team, "results"))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["questions"]
+
+    def _member_of_another_organization(self, email: str) -> tuple[User, Team]:
+        organization = Organization.objects.create(name="Other organization")
+        team = Team.objects.create(organization=organization, name="Other project")
+        user = User.objects.create_and_join(organization, email, "password")
+        return user, team
+
+    def test_results_count_answers_from_every_project_and_show_only_the_callers_own_answers(self) -> None:
+        james_fan, other_team = self._member_of_another_organization("james-fan@example.com")
+        self._answer_as(james_fan, other_team, 2, "james")
+        self._answer_as(james_fan, other_team, 5, "yes")
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+        self._answer_as(teammate, self.team, 2, "tim")
+        self._answer_as(self.user, self.team, 2, "tim")
+
+        questions = self._results()
+
+        assert [question["day"] for question in questions] == [2, 5, 10, 13, 18, 21]
+        results = {question["day"]: question for question in questions}
+        assert results[2] == {
+            "day": 2,
+            "answer": "tim",
+            "shares": [{"option": "james", "share": 33}, {"option": "tim", "share": 67}],
+        }
+        assert results[5] == {
+            "day": 5,
+            "answer": None,
+            "shares": [{"option": "yes", "share": 100}, {"option": "no", "share": 0}],
+        }
+        assert results[21] == {
+            "day": 21,
+            "answer": None,
+            "shares": [{"option": "coffee", "share": 0}, {"option": "tea", "share": 0}],
+        }
+
+    def test_answers_of_deleted_accounts_leave_the_tally(self) -> None:
+        leaver = User.objects.create_and_join(self.organization, "leaver@example.com", "password")
+        self._answer_as(leaver, self.team, 18, "no")
+        self._answer_as(self.user, self.team, 18, "yes")
+        leaver.organization_memberships.all().delete()
+        self.client.force_login(leaver)
+
+        def vote_lands_during_the_deletion(sender: type, instance: User, **kwargs: Any) -> None:
+            AdventCalendarAnswer.objects.create(user_id=instance.id, day=21, option="tea")
+
+        pre_delete.connect(vote_lands_during_the_deletion, sender=User, dispatch_uid="advent_test_vote_during_deletion")
+        self.addCleanup(pre_delete.disconnect, sender=User, dispatch_uid="advent_test_vote_during_deletion")
+
+        deletion = self.client.delete("/api/users/@me/")
+
+        assert deletion.status_code == status.HTTP_204_NO_CONTENT
+        assert not AdventCalendarAnswer.objects.filter(user_id=leaver.id).exists()
+        day_18 = next(question for question in self._results() if question["day"] == 18)
+        assert day_18["shares"] == [{"option": "yes", "share": 100}, {"option": "no", "share": 0}]
+
+    def test_the_first_answer_for_a_day_stands(self) -> None:
+        self._answer_as(self.user, self.team, 13, "dark")
+
+        second = self._answer_as(self.user, self.team, 13, "light")
+
+        day_13 = next(question for question in second["questions"] if question["day"] == 13)
+        assert day_13 == {
+            "day": 13,
+            "answer": "dark",
+            "shares": [{"option": "dark", "share": 100}, {"option": "light", "share": 0}],
+        }
+
+    @parameterized.expand(
+        [
+            ("day_without_a_question", {"day": 3, "option": "yes"}),
+            ("option_of_another_day", {"day": 2, "option": "yes"}),
+            ("free_text_option", {"day": 10, "option": "both"}),
+            ("missing_option", {"day": 10}),
+        ]
+    )
+    def test_answer_rejects_anything_outside_the_six_questions(self, _name: str, body: dict[str, Any]) -> None:
+        response = self.client.post(self._url(self.team, "answer"), body)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not AdventCalendarAnswer.objects.exists()
+
+    def test_people_outside_the_advent_calendar_rollout_can_neither_answer_nor_read(self) -> None:
+        self.client.force_login(self.outsider)
+
+        answer = self.client.post(self._url(self.team, "answer"), {"day": 2, "option": "tim"})
+        results = self.client.get(self._url(self.team, "results"))
+
+        assert answer.status_code == status.HTTP_403_FORBIDDEN
+        assert results.status_code == status.HTTP_403_FORBIDDEN
+        assert not AdventCalendarAnswer.objects.exists()
+        self._results()
+
+    def test_each_signed_in_person_has_their_own_request_budget_even_with_api_rate_limits_off(self) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+        with (
+            override_settings(
+                CACHES={**settings.CACHES, **lagging_reader_caches(unique_key_prefix("test-advent-calendar-throttle"))}
+            ),
+            override_instance_config("RATE_LIMIT_ENABLED", False),
+        ):
+            try:
+                is_rate_limit_enabled.cache_clear()
+                self._answer_as(self.user, self.team, 2, "tim")
+                for _ in range(29):
+                    self._results()
+                over_budget = self.client.get(self._url(self.team, "results"))
+                teammate_answer = self._answer_as(teammate, self.team, 2, "james")
+            finally:
+                for alias in ("default", "throttle_history"):
+                    redis_cache = caches[alias]
+                    assert isinstance(redis_cache, RedisCache)
+                    redis_cache.delete_pattern("*")
+                is_rate_limit_enabled.cache_clear()
+
+        assert over_budget.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert teammate_answer["questions"][0]["shares"] == [
+            {"option": "james", "share": 50},
+            {"option": "tim", "share": 50},
+        ]
+
+
+class TestAdventCalendarAnswers(BaseTest):
+    def test_an_answer_for_an_account_deleted_meanwhile_stores_nothing(self) -> None:
+        answer_advent_calendar(self.user.id + 1000, AdventCalendarDay.COFFEE_OR_TEA, AdventCalendarOption.TEA)
+
+        assert not AdventCalendarAnswer.objects.exists()

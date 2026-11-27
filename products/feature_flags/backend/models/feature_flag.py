@@ -205,8 +205,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "dashboards.Dashboard",
         through="FeatureFlagDashboards",
-        related_name="analytics_dashboards",
-        related_query_name="analytics_dashboard",
+        related_name="+",
     )
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)

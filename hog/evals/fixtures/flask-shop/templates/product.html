@@ -1,0 +1,9 @@
+{% extends "base.html" %} {% block content %}
+<h1>{{ product.name }}</h1>
+<p>${{ product.price }}</p>
+<form method="post" action="/products/{{ slug }}/cart">
+  <button type="submit">Add to cart</button>
+</form>
+{% if request.args.get('added') %}
+<p>Added to your cart.</p>
+{% endif %} {% endblock %}

@@ -9,11 +9,12 @@ Skip any change that saves less than about $10 a month, unless the user asked ab
 
 ## Estimate monthly spend
 
-Use non-exempt recorded usage from complete UTC days after the project's first receipt (see "First receipt" in queries-spend.md).
+Use non-exempt recorded usage from complete UTC days after the earliest receipt (see "Earliest receipt" in queries-spend.md).
 Estimate a month as `(5 * weekday_average + 2 * weekend_average) / 7 * days_in_month`.
 If the sample has no weekend day, use the average of all days and say that the figure can run high.
 Scale each item's period spend by the same ratio, so the items and the total agree.
 Label the result as an estimate, not an invoice forecast, and do not double-count overlapping controls.
+On a project in a trial, the trial's receipts are exempt, so non-exempt usage can be near zero. Estimate from all recorded usage instead, and say that it shows what the project spends once the trial ends.
 
 ## Judge yield
 
@@ -40,7 +41,7 @@ A large share already resolved is a reason to leave it alone. A large share dism
 ## Know what a scout is for
 
 Yield only measures a scout whose job is to find problems for people to fix.
-Before you judge a scout, read its description, `output_destinations`, `structured_output_schema`, and `scout_role` from `posthog:scout-config-list`, and read "What a quiet scout does" in queries-yield.md.
+Before you judge a scout, read its description, `output_destinations`, `structured_output_schema`, and `scout_role` from `posthog:scout-config-retrieve`, and read "What a quiet scout does" in queries-yield.md.
 
 | Kind of scout     | How to recognize it                                                                             | How to judge it                                                                                                                                |
 | ----------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -49,6 +50,9 @@ Before you judge a scout, read its description, `output_destinations`, `structur
 | Measurement       | Has a `structured_output_schema`, and its description says it records, measures, or judges      | Yield does not apply. Ask how many samples are needed, and check whether alerts or dashboards read the series before you run it less often     |
 | Digest or handoff | `inbox` is false, delivers to Slack or a canvas, or hands work to a named person or team        | Yield does not apply. Ask its owner how fresh it must be. Run it less often before you suggest a pause                                         |
 | Operational       | `scout_role` is `operational`. Watches Self-driving itself                                      | Do not recommend pausing it                                                                                                                    |
+
+Read the scout's `status` and `pause_reason` too (see "Scout status" in controls.md).
+A scout the system already paused, or warned with `ignored`, needs no pause from you. Explain what the system did, and leave it out of the savings.
 
 ## What to check
 
@@ -66,21 +70,32 @@ Before you judge a scout, read its description, `output_destinations`, `structur
 - **Whole sources.** Recommend turning off a source only when "Judge yield" supports it and neither a narrowing setting nor source steering applies.
   When its yield is too new to judge, use other evidence such as how many of its reports anyone opened, and say that resolution is not known yet.
 - **Scouts with no output.** Finder scouts with at least 20 runs in the period that created and edited no reports. Fewer runs prove little.
-  Group them into one recommendation with their total spend, name the largest ones, and recommend a pre-check or a slower schedule before a pause.
+  Group them into one recommendation with their total spend, name the largest ones, and recommend a pre-check, a slower schedule, or a workflow trigger before a pause.
   Check their history first: a scout with a strong settled rate may have finished its backlog.
+  Leave out scouts the system already paused or warned.
 - **Frequent scouts with low yield.** Finder scouts that run hourly or more often and have a low settled rate.
   Recommend a pre-check or a slower schedule before a pause, and give the saving for the new schedule.
   A scout that edits many reports keeps them current. Run it less often, do not pause it.
+- **Runs a schedule does not control.** Run "Spend by scout and trigger" in queries-spend.md.
+  Base every schedule and pre-check saving on the scheduled runs only.
+  When manual, check, Monitoring, or workflow runs hold much of a scout's spend, say what starts them, and name the control in "Runs a schedule does not control" in controls.md.
 - **Scout pre-checks.** Scouts with `precheck_query_source` of `off` and high `empty_run_credits` in "Spend by scout" in queries-spend.md.
   When a query can tell that nothing new arrived, prefer a pre-check to a slower schedule, because findings do not arrive later.
   Read the scout's description and recent summaries, write a query, and dry-run it with `posthog:scout-config-precheck-test` so you recommend a query that works. The dry run changes nothing and shows only what the query finds now.
   Say "up to" and give `empty_run_credits`, scaled to a month, as the saving: some empty runs will still start, because the query can find new data that is not worth a report.
   For a measurement scout, gate only on whether new samples exist. Its empty runs can still record data, so its `empty_run_credits` overstates waste.
   Do not count this saving together with a slower schedule for the same scout.
+  A scout with `skill_default` already has a pre-check. Recommend replacing it with a saved `precheck_query` only when its outcomes show that the default lets through runs that find nothing.
+- **Scout schedules.** For each finder or watchdog scout that runs more often than once a day, compare its schedule with how fast someone acts on its reports.
+  When reports are opened hours or days after they appear, recommend a slower interval or a cron schedule that covers working hours, and give the saving as the share of scheduled runs removed.
+- **Workflow triggers.** When a scout's job starts from an event the project already receives, such as a new issue, a merged pull request, or a firing alert, suggest a workflow trigger with a daily or weekly backstop schedule.
+  Estimate the new run count from how often the event fired in the period, at most one run per 30-minute tick, plus the backstop runs. Fires that arrive close together queue and share a run.
+  Recommend it only when that count is clearly below the current run count. Say that it needs a workflow, and that you cannot apply it with the scout tools alone.
 - **Research steering.** When one kind of report has a low settled rate and neither a setting nor source steering selects it, suggest research instructions that name it.
   Give no dollar figure.
 - **Automatic pull requests.** Compare pull requests linked and merged, by source and by scout (see queries-controls.md).
   When an item has many and few merge, suggest a higher priority threshold.
+  When most of them go to one reviewer, that person can raise only their own threshold with `posthog:inbox-my-settings-update`. Offer it only to that person.
   Use implementation receipts for the affected reports to estimate savings; do not assume all implementation spend would disappear.
   A person who then starts one of those fixes by hand moves its cost to PostHog AI usage, so say that the saving can be partly offset.
 - **Daily report limit.** Run "Reports shown per day" in queries-controls.md. Recommend a limit only when a few days hold much more than the rest, near the 75th percentile of daily reports.

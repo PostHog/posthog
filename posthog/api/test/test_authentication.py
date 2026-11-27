@@ -81,6 +81,7 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
@@ -674,6 +675,23 @@ class TestLoginAPI(APIBaseTest):
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
+    def test_service_account_cant_login_with_a_correct_password(self):
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_session_of_a_service_account_resolves_to_no_user(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)
+
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
         invalid_passwords = ["1234", "abcdefgh", "testpassword1234", "😈😈😈"]
@@ -1090,6 +1108,20 @@ class TestDevLoginAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_refuses_service_account(self) -> None:
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        listed = self.client.get("/api/login/dev")
+        self.assertNotIn(self.user.email, {user["email"] for user in listed.json()["users"]})
+        response = self.client.post("/api/login/dev", {"email": self.user.email})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "user_not_found")
+        self.assertNotIn(SESSION_KEY, self.client.session)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.last_login)
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
     def test_dev_login_list_and_create_when_allowed(self):
         for url in DEV_OAUTH_CONNECTOR_CIMD_URLS:
             OAuthApplication.objects.create(
@@ -1315,6 +1347,31 @@ class TestTwoFactorAPI(APIBaseTest):
     """
 
     CONFIG_AUTO_LOGIN = False
+
+    @parameterized.expand([("totp", False), ("backup", True)])
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email.delay")
+    def test_pending_2fa_refuses_service_account(self, _name: str, backup: bool, _send_email: MagicMock) -> None:
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        backup_device = StaticDevice.objects.create(user=self.user, name="backup")
+        backup_token = backup_device.token_set.create(token="abcd2345")
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.json()["code"], "2fa_required")
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        self.assertEqual(self.client.get("/api/login/2fa/passkey/methods/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.post("/api/login/2fa/passkey/begin/").status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.post(
+            "/api/login/token", {"token": backup_token.token if backup else totp_str(device.bin_key)}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_2fa_session")
+        self.assertNotIn(SESSION_KEY, self.client.session)
+        self.assertFalse(any(name.startswith(REMEMBER_COOKIE_PREFIX) for name in response.cookies))
+        self.assertTrue(backup_device.token_set.filter(pk=backup_token.pk).exists())
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.last_login)
 
     def test_login_2fa_enabled(self):
         device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
@@ -1706,9 +1763,9 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No pending 2FA session", response.json()["error"])
 
+    @parameterized.expand([("human", False), ("service_account", True)])
     @patch("posthog.api.authentication.verify_passkey_authentication_response")
-    def test_passkey_2fa_complete_success(self, mock_verify):
-        """Test successful passkey 2FA completion"""
+    def test_passkey_2fa_complete_success(self, _name: str, service_account: bool, mock_verify):
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.models.webauthn_credential import WebauthnCredential
@@ -1740,6 +1797,9 @@ class TestTwoFactorAPI(APIBaseTest):
         # Mock verification
         mock_verify.return_value = MagicMock(new_sign_count=1)
 
+        if service_account:
+            User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
         # Complete passkey 2FA
         response = self.client.post(
             "/api/login/token",
@@ -1753,6 +1813,14 @@ class TestTwoFactorAPI(APIBaseTest):
             },
             format="json",
         )
+        if service_account:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "invalid_2fa_session")
+            self.assertNotIn(SESSION_KEY, self.client.session)
+            self.assertFalse(any(name.startswith(REMEMBER_COOKIE_PREFIX) for name in response.cookies))
+            credential.refresh_from_db()
+            self.assertEqual(credential.counter, 0)
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["success"])
 
@@ -2373,6 +2441,26 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
         self.assertFalse(self.user.check_password("123"))
+
+    def test_service_account_cant_request_or_complete_a_password_reset(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(mail.outbox, [])
+
+        self.user.refresh_from_db()
+        token = password_reset_token_generator.make_token(self.user)
+        self.assertEqual(
+            self.client.get(f"/api/reset/{self.user.uuid}/?token={token}").status_code, status.HTTP_400_BAD_REQUEST
+        )
+        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_token")
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
     def test_cant_reset_password_with_no_token(self):
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"password": "a12345678"})

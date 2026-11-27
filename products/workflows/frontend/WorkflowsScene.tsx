@@ -157,6 +157,9 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
                 }
             },
             [urls.workflows(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
+                if (urls.workflows(tab as WorkflowsSceneTab) === urls.workflowsAdventCalendar()) {
+                    return
+                }
                 // A shared link often drops the tab segment, so `/workflows/<id>` lands here with the id as the tab.
                 if (tab && isUUIDLike(tab)) {
                     router.actions.replace(urls.workflow(tab, 'workflow'), router.values.searchParams)

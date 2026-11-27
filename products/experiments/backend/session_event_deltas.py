@@ -126,7 +126,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.enums import LabeledStrEnum
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -135,6 +134,20 @@ from posthog.utils import get_safe_cache, pluralize, safe_cache_set
 from products.access_control.backend.facade.property_access import sort_restricted_properties
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_with_group_type_index_for_team,
+)
+from products.experiments.backend.facade.contracts import (
+    FIRST_SESSION_HORIZON_HOURS,
+    MAX_CARD_HIGHLIGHTS,
+    MAX_CARD_RECORDINGS,
+    MAX_DELTA_SCAN_DAYS,
+    ExperimentWatchCard,
+    ExperimentWatchCardKind,
+    ExperimentWatchCardStrength,
+    ExperimentWatchEmptyReason,
+    ExperimentWatchHighlight,
+    ExperimentWatchResult,
+    ExperimentWatchVariant,
+    SessionEventDeltasUnavailable,
 )
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -156,23 +169,11 @@ from products.experiments.backend.replay_linkage import (
 )
 from products.experiments.backend.session_exposure import never_session_linked_events
 
-# The most days of events one comparison reads. Tighter than MAX_BUCKET_SCAN_DAYS. The bucket scan
-# filters by event name in its WHERE, so ClickHouse prunes on the events table's primary key; this
-# one compares every event name there is and has no such predicate, so time is all that stands
-# between it and the team's whole history.
-MAX_DELTA_SCAN_DAYS = 14
 # Ceiling on the exposed people one comparison covers, most recent first exposure first. Bounds
 # the aggregation state rather than the rows read. The cut is on first exposure time across all
 # variants at once, which is what keeps the variants covered over the same stretch of enrollment,
 # for the reason the module docstring gives under "Who is compared".
 MAX_DELTA_SCAN_PERSONS = 20_000
-# How far past a person's first exposure their events are read. Their compared session is the one
-# holding their earliest event in this stretch, so the bound keeps "first session after exposure"
-# meaning the session where they met the change, and it caps the per-(person, session) aggregation
-# state for people with many sessions. Stretches are clamped at the window end, so a person first
-# exposed inside the horizon of an experiment's end date is read over what is left of it: still
-# the session they met the change in, with only its tail missing.
-FIRST_SESSION_HORIZON_HOURS = 24
 # How much of a running experiment's newest enrollment the comparison holds back. A person exposed
 # minutes ago is still inside the session that would be read, so their event names are a partial
 # record of it, and an experiment that enrolls a whole comparison within one hour would otherwise
@@ -194,9 +195,6 @@ MAX_VARIANT_ONLY_CARDS = 2
 # metrics page lists them, so the metric a reader thinks of first is the one they get. An event that
 # already earned a comparison card is not repeated as a shortcut.
 MAX_METRIC_CARD_EVENTS = 2
-# How many recordings a card names to start with. Enough to offer a choice, few enough that the
-# reader still opens one instead of reading a second list.
-MAX_CARD_HIGHLIGHTS = 3
 # Two cards sharing this much of their recordings are one playlist under two names, so the second
 # one is dropped, e.g. if two cards share 18 of their 20 recordings.
 DUPLICATE_CARD_OVERLAP = 0.8
@@ -211,10 +209,9 @@ HIGHLIGHT_COUNT_DAMPING = 3
 # rage click show a median 23 active minutes across several distinct errors (a person suffering
 # through them), while those without show under a minute of activity and one error repeating.
 MAX_HIGHLIGHT_SIGNAL_COUNT = 100
-# Recording candidates fetched per card before replay existence is checked, and how many survive
-# onto the card. The margin absorbs sessions that were never recorded without a second round trip.
+# Recording candidates fetched per card before replay existence is checked. The margin over
+# MAX_CARD_RECORDINGS absorbs sessions that were never recorded without a second round trip.
 MAX_CARD_RECORDING_CANDIDATES = 60
-MAX_CARD_RECORDINGS = 20
 # An event has to have been done by this many people in the variant it is more common in before it can
 # earn a card. The separation test below already drops rare events on its own; this only keeps the
 # candidate set from being mostly rows that can never pass it.
@@ -258,9 +255,6 @@ VARIANT_ONLY_MIN_EXPECTED = 10.0
 # interval — at any finer resolution the key would change faster than the entry expires and the
 # TTL would never apply, leaving the heaviest read on the tab uncached in practice.
 DELTA_CACHE_TTL = 15 * 60
-# Kept beside the scan rather than with the viewset's other constants so the flag and what it gates
-# can't drift.
-EXPERIMENT_BEHAVIOR_COMPARISON_FLAG = "experiment-behavior-comparison"
 
 # Events whose *name* carries no behavior, so a difference in how often people do them says nothing
 # about what they did. Page views and autocaptures are the interesting ones to leave out: they are
@@ -308,79 +302,6 @@ HIGHLIGHT_SIGNALS: tuple[tuple[str, str], ...] = (
 FRICTION_EVENTS = frozenset(event for event, _singular in HIGHLIGHT_SIGNALS)
 
 
-class SessionEventDeltasUnavailable(Exception):
-    """The cards can't be computed for this experiment — a caller error, not a failure.
-    Raised instead of returning an empty shelf, so "we declined to compare" never reads as
-    "the variants behaved identically"."""
-
-
-# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
-class ExperimentWatchCardStrength(LabeledStrEnum):
-    """How far apart a variant and the rest are, conservatively, in bands rather than as a number."""
-
-    # Nobody in the other variants did it, among the people compared. A fact about the compared set
-    # rather than a ratio, and the one band that is exact.
-    ONLY = "only", "only"
-    FAR_MORE = "far_more", "far_more"
-    MORE = "more", "more"
-    SLIGHTLY_MORE = "slightly_more", "slightly_more"
-
-
-# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
-class ExperimentWatchCardKind(LabeledStrEnum):
-    # An event this variant did clearly more than the other variants together.
-    BEHAVIOR = "behavior", "behavior"
-    # Same evidence, but the event is an error/rage signal, so it reads as a defect lead.
-    FRICTION = "friction", "friction"
-    # An event only this variant can fire, because the variant is what renders it. Confirms the change is
-    # live rather than saying anything about what people did with it.
-    VARIANT_ONLY = "variant_only", "variant_only"
-    # A shortcut to recordings around one of the experiment's own metric events. No comparison
-    # claim: what happened to the metric is the results tab's answer.
-    METRIC = "metric", "metric"
-
-
-# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
-class ExperimentWatchEmptyReason(LabeledStrEnum):
-    """Why a shelf carries no cards. Set exactly when the shelf is empty.
-
-    Each reason asks something different of the reader, so the frontend and the MCP tool report
-    the reason rather than an empty list.
-    """
-
-    # Fewer than two variants cleared MIN_VARIANT_PERSONS. A rollout split that changed during the
-    # run lands here too, undiagnosed, because the exposure chart already shows it.
-    TOO_EARLY = "too_early", "too_early"
-    # The variants were compared and no event told them apart.
-    NO_SEPARATION = "no_separation", "no_separation"
-    # Events told the variants apart, but no recording behind them can be opened.
-    NO_RECORDINGS = "no_recordings", "no_recordings"
-    # The experiment has exposed people and none of them has a session the scan can see in the
-    # window. Only the sessions are read over the window; who counts as exposed is read over the
-    # whole run, so the exposures can predate the window, which is why the copy must date the claim
-    # to the window rather than to the exposures. More time alone cannot fix it: more traffic
-    # captured the same way produces more exposed people without sessions. The read stops at the
-    # request, though, so people exposed less than a horizon ago can still return, and the copy
-    # must not claim the day has passed.
-    NO_SESSION_LINKED_EXPOSURES = "no_session_linked_exposures", "no_session_linked_exposures"
-
-
-@dataclass(frozen=True)
-class ExperimentWatchHighlight:
-    """One recording a card names first, and everything it carries that earned it the place.
-
-    The friction signals are session-level rather than per event, so a recording keeps them on
-    every card it backs. That is deliberate: the reason has to survive a reader opening the
-    recording, and "this session rage clicked six times" does, while anything scoped to the card's
-    own event would contradict itself the moment the same session appeared under a second card.
-    The one per-card part, "did this N times", survives the same trip because "this" reads against
-    whichever card it is printed on.
-    """
-
-    session_id: str
-    reason: str
-
-
 @dataclass(frozen=True)
 class _CardRecordings:
     """What one card's recordings lookup found: the recordings themselves, and which of them to
@@ -406,77 +327,6 @@ class _CandidateRecording:
     session_id: str
     signals: dict[str, int]
     repetition: int
-
-
-@dataclass(frozen=True)
-class ExperimentWatchCard:
-    """One group of recordings worth opening, and the one sentence that justifies it.
-
-    Deliberately no rate, no ratio and no person count: a precise number next to an event name is
-    an effect size, and the results tab publishes those for everything the experiment measures,
-    computed over a different window and a different unit. The only number here is how many
-    recordings the card can actually show.
-    """
-
-    kind: ExperimentWatchCardKind
-    event: str
-    # The variant whose recordings these are — for comparison cards, the variant that did the event more.
-    variant: str
-    # None on metric cards: they are shortcuts, not comparisons.
-    strength: Optional[ExperimentWatchCardStrength]
-    # The metric this card's event belongs to, on a shortcut card and on a comparison card alike.
-    # Set means the results tab measures this event, so the card must be read as pointing there
-    # rather than as a second answer.
-    metric_name: Optional[str]
-    recording_count: int
-    session_ids: list[str]
-    # Which of those recordings to open first, strongest signal first. Empty when none of them
-    # carries one, which is itself worth showing: it says the card's recordings are unremarkable
-    # apart from the event that earned the card.
-    highlights: list[ExperimentWatchHighlight]
-
-
-@dataclass(frozen=True)
-class ExperimentWatchVariant:
-    """One variant's compared population: exposed people, and the sessions they were seen in."""
-
-    key: str
-    persons: int
-    sessions: int
-
-
-@dataclass(frozen=True)
-class ExperimentWatchResult:
-    cards: list[ExperimentWatchCard]
-    variants: list[ExperimentWatchVariant]
-    multiple_variant_persons: int
-    multiple_variant_handling: str
-    metric_events: list[str]
-    date_from: datetime
-    date_to: datetime
-    filter_test_accounts: bool
-    # Always False. The population is person-scoped now, so no stamped-property stand-in exists to
-    # fall back to; the field stays so the payload shape holds for existing readers.
-    used_exposure_fallback: bool
-    # True when more people were exposed than one comparison covers, so the most recently exposed
-    # were compared. Named for the session ceiling it used to report, kept so the payload shape
-    # holds for existing readers.
-    sessions_truncated: bool
-    events_truncated: bool
-    min_variant_persons: int
-    # Reported so a reader can tell a card carrying every recording of its event from one that ran
-    # into the ceiling. A count sitting on the cap is a floor, and printed as a plain number beside
-    # an event name it reads as a measurement of that event.
-    max_card_recordings: int
-    # How many cards the duplicate-recording-set rule removed from this viewer's shelf, reported
-    # so the shelf-loaded telemetry can say how often DUPLICATE_CARD_OVERLAP fires on real shelves
-    # before anyone tunes it. Set in `finalize_watch_cards` rather than here, because the shelf is
-    # cached across viewers and the duplicate cut runs on the shelf a viewer actually gets.
-    dropped_duplicate_cards: int
-    too_early: bool
-    # Settled per viewer in `finalize_watch_cards`: the recording access cut can empty a shelf the
-    # scan built with findings on it.
-    empty_reason: Optional[ExperimentWatchEmptyReason]
 
 
 @dataclass(frozen=True)
