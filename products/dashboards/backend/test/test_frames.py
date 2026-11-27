@@ -56,8 +56,9 @@ class TestInsightFramesFromCachedRows(SimpleTestCase):
         days = ["2026-09-18", "2026-09-19"]
         result = InsightResult(
             result=[
-                _row("Views", [1, 2], days=days, compare_label="current"),
-                _row("Views", [3, 4], days=["2026-09-11", "2026-09-12"], compare_label="previous"),
+                # Unique users: the runner's whole-period count is less than the summed intervals.
+                _row("Views", [1, 2], days=days, compare_label="current", count=2),
+                _row("Views", [3, 4], days=["2026-09-11", "2026-09-12"], compare_label="previous", count=5),
             ],
             last_refresh=None,
             cache_key=None,
@@ -81,6 +82,8 @@ class TestInsightFramesFromCachedRows(SimpleTestCase):
         current_start = current.fields[0].values[0]
         assert isinstance(current_start, int)
         assert previous.fields[0].values[0] == current_start - 7 * 86_400_000
+        expected_totals = (2, 5) if display == ChartDisplayType.METRIC else (None, None)
+        assert (current.meta.total, previous.meta.total) == expected_totals
 
     def test_trends_shown_as_one_number_per_series_are_not_framed(self) -> None:
         query = TrendsQuery(

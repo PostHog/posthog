@@ -12,6 +12,7 @@ import re
 import json
 import hashlib
 import datetime as dt
+import dataclasses
 from collections.abc import Mapping, Sequence
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -203,6 +204,8 @@ def frame_json(frame: Frame) -> dict[str, Any]:
         meta["previous"] = True
     if frame.meta.truncated:
         meta["truncated"] = True
+    if frame.meta.total is not None:
+        meta["total"] = frame.meta.total
     # Encoded as the response encodes it, so a fresh Decimal and the float a cache hit reads back hash alike.
     content = orjson.dumps(
         {"name": frame.name, "labels": frame.labels, "fields": fields},
@@ -251,10 +254,17 @@ def trends_frames(query: TrendsQuery, result: Mapping[str, Any]) -> Optional[lis
                     FrameField(name="time", type="time", values=_wall_clock_ms(series["days"], timezone)),
                     FrameField(name="value", type="number", values=list(series["data"])),
                 ],
-                meta=previous if is_previous else current,
+                meta=metric_total_meta(previous if is_previous else current, query, series),
             )
         )
     return frames
+
+
+def metric_total_meta(meta: FrameMeta, query: TrendsQuery, series: Mapping[str, Any]) -> FrameMeta:
+    if not query.trendsFilter or query.trendsFilter.display != ChartDisplayType.METRIC:
+        return meta
+    count = series.get("count")
+    return dataclasses.replace(meta, total=float(count)) if isinstance(count, int | float) else meta
 
 
 def _trends_series_name(

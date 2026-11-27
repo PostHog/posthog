@@ -150,7 +150,7 @@ class TestFrameConverters(SimpleTestCase):
     ) -> None:
         days = [f"2026-09-{day}" for day in range(12, 20)]
         result = {
-            "results": [{"label": "$pageview", "order": 0, "days": days, "data": [0, 0, 0, 0, 0, 0, 1, 2]}],
+            "results": [{"label": "$pageview", "order": 0, "days": days, "data": [0, 0, 0, 0, 0, 0, 1, 2], "count": 2}],
             "timezone": timezone,
             "resolved_date_range": {"date_from": first_day, "date_to": "2026-09-19T23:59:59" + first_day[-6:]},
         }
@@ -162,6 +162,7 @@ class TestFrameConverters(SimpleTestCase):
         assert _shape(frames) == [("$pageview", {"series_index": "0"}, [times, [0, 0, 0, 0, 0, 0, 1, 2]])]
         assert frames is not None
         assert (frames[0]["meta"]["interval"], frames[0]["meta"]["end"]) == ("day", times[-1])
+        assert frames[0]["meta"].get("total") == (2 if display == ChartDisplayType.METRIC else None)
 
     @parameterized.expand(
         [

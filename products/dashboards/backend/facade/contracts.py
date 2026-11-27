@@ -434,6 +434,9 @@ class FrameMeta:
     previous: bool = False
     # The table had more rows than were returned, so the frame is cut.
     truncated: bool = False
+    # A Metric tile's whole-period number. Unique-user and formula math don't add up across intervals, so the
+    # client can't get it by summing the values.
+    total: float | None = None
 
 
 @frozen

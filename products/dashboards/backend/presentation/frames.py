@@ -42,6 +42,12 @@ class FrameMetaSerializer(serializers.Serializer):
     previous = serializers.BooleanField(
         help_text="Whether the frame is the compared period. Its dates are that period's dates."
     )
+    total = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="A Metric tile's number for the whole period, which summing the values can't always give. "
+        "Null or absent for other displays.",
+    )
 
 
 class FrameSerializer(serializers.Serializer):

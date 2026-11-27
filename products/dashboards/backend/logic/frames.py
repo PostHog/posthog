@@ -21,7 +21,7 @@ from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, 
 from posthog.hogql_queries.utils.result_series import get_series_key
 
 from products.dashboards.backend.facade.contracts import Frame, FrameField, FrameMeta
-from products.dashboards.backend.v2.frames import TIME_SERIES_DISPLAYS
+from products.dashboards.backend.v2.frames import TIME_SERIES_DISPLAYS, metric_total_meta
 
 _BREAKDOWN_LABELS = {BREAKDOWN_NULL_STRING_LABEL: "None", BREAKDOWN_OTHER_STRING_LABEL: "Other"}
 
@@ -87,7 +87,7 @@ def _trends_frames(query: TrendsQuery, result: InsightResult) -> list[Frame] | N
                     ),
                     FrameField(name="value", type="number", values=list(series["data"])),
                 ],
-                meta=previous if is_previous else current,
+                meta=metric_total_meta(previous if is_previous else current, query, series),
             )
         )
     return frames
