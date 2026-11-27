@@ -28,6 +28,39 @@
     }
 }
 
+/* The dragged tab stays in the row as a placeholder, styled like the spot a dragged tile will land in. */
+.DashboardTabs__tab--dragging {
+    color: transparent;
+    background: color-mix(in oklab, var(--dv2-interaction-color) 14%, transparent);
+    border-radius: var(--radius);
+    outline: 1px dashed var(--dv2-interaction-color);
+    outline-offset: -1px;
+
+    > * {
+        visibility: hidden;
+    }
+}
+
+/* What follows the cursor, styled like a dragged tile: lifted, and outlined. Positioned off screen, since it is only
+   drawn for the drag image. */
+.DashboardTabs__ghost {
+    position: fixed;
+    top: -1000px;
+    left: -1000px;
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    padding: 0 8px;
+    font-size: 14px;
+    color: var(--foreground);
+    white-space: nowrap;
+    background: var(--color-bg-surface-primary);
+    border-radius: var(--radius);
+    outline: 2px solid var(--dv2-interaction-color);
+    outline-offset: -2px;
+    box-shadow: var(--shadow-elevation-3000);
+}
+
 /* A bar on the side a dragged tab will land, drawn outside the trigger so quill's own styles leave it alone. */
 .DashboardTabs__tab--insert-before,
 .DashboardTabs__tab--insert-after {
@@ -37,7 +70,7 @@
         position: absolute;
         top: 15%;
         bottom: 15%;
-        width: 2px;
+        width: 3px;
         content: '';
         background: var(--dv2-interaction-color);
         border-radius: 1px;
@@ -74,4 +107,16 @@
         animation: DashboardTabs__fade linear both;
         animation-timeline: scroll(self inline);
     }
+}
+
+/* The line under the active tab takes that tab's color. */
+.DashboardTabs__scroller .quill-tabs__indicator--variant-line {
+    background-color: var(--dv2-active-tab-color, var(--dv2-interaction-color));
+}
+
+.DashboardTabs__scroller .quill-tabs__trigger:focus-visible {
+    border-color: transparent;
+    outline: 2px solid var(--dv2-interaction-color);
+    outline-offset: -2px;
+    box-shadow: none;
 }

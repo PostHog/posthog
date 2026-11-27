@@ -40,7 +40,7 @@ function TargetFailures({ failures }: { failures: TargetFailure[] }): JSX.Elemen
     )
 }
 
-/** Returns one of `TILE_BACKGROUND_COLORS`, any CSS color, or null for the tile's own background. */
+/** Returns one of `ACCENT_COLORS`, any CSS color, or null for the tile's own background. */
 export type ChartBackgroundColor = (chart: { panel: ContentPanel<ChartConfig>; frames: DataFrame[] }) => string | null
 
 // A menu entry is built before the chart's data arrives and outside its component, so it reads the frames from here.

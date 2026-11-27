@@ -3,24 +3,45 @@ import './DashboardTabs.css'
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconExternal, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import {
-    Button,
-    ContextMenu,
-    ContextMenuContent,
-    ContextMenuItem,
-    ContextMenuTrigger,
-    Input,
-    Tabs,
-    TabsList,
-    TabsTrigger,
-} from '@posthog/quill'
+import { IconExternal, IconPlus } from '@posthog/icons'
+import { Button, Input, Tabs, TabsList, TabsTrigger } from '@posthog/quill'
 
 import { hasDangerousScheme } from 'lib/utils/url'
 
 import { useGridDrag } from '../../grid/drag/gridDrag'
+import { ActionContextMenu } from '../../menu/ActionContextMenu'
+import type { MenuAction } from '../../menu/menuAction'
+import { ACCENT_COLOR_KEYS, ACCENT_COLORS, type AccentColor } from '../../panels/core/accentColors'
 import { type DashboardTab, isGridTab } from '../document/dashboardTypes'
 import { useDashboard } from './dashboardContext'
+
+function AccentColorDot({ color }: { color: AccentColor | undefined }): JSX.Element | null {
+    return color ? (
+        <span
+            className="size-[7px] shrink-0 rounded-full"
+            style={{ background: ACCENT_COLORS[color].css }}
+            aria-hidden
+        />
+    ) : null
+}
+
+/**
+ * Replaces the browser's faded copy of a dragged tab with one that looks lifted, like a dragged tile. The browser
+ * snapshots the image when the drag starts, so the copy only has to exist until then.
+ */
+function setLiftedDragImage(event: React.DragEvent<HTMLElement>): void {
+    const source = event.currentTarget
+    const rect = source.getBoundingClientRect()
+    const ghost = source.cloneNode(true) as HTMLElement
+    ghost.classList.add('DashboardTabs__ghost')
+    ghost.style.width = `${rect.width}px`
+    ghost.style.height = `${rect.height}px`
+    // Inside the dashboard, so it picks up the dashboard's colors.
+    const host = source.closest('.DashboardV2') ?? document.body
+    host.appendChild(ghost)
+    event.dataTransfer.setDragImage(ghost, event.clientX - rect.left, event.clientY - rect.top)
+    requestAnimationFrame(() => ghost.remove())
+}
 
 type TabDraft = {
     id: string
@@ -96,6 +117,78 @@ export function DashboardTabs(): JSX.Element | null {
         }
     }
 
+    const tabActions = (tab: DashboardTab, position: number): MenuAction[] => {
+        const actions: MenuAction[] = []
+        if (can('renameTab')) {
+            actions.push({
+                key: 'rename',
+                label: 'Rename',
+                dataAttr: 'dashboard-v2-rename-tab',
+                disabledReason: renameDisabledReason,
+                onSelect: () => startRename(tab.id, tab.title),
+            })
+        }
+        if (canMove) {
+            actions.push(
+                {
+                    key: 'move-left',
+                    label: 'Move left',
+                    dataAttr: 'dashboard-v2-move-tab-left',
+                    disabledReason: position === 0 ? 'Already the first tab' : null,
+                    onSelect: () => onEdit({ edit: 'moveTab', id: tab.id, before: tabIds[position - 1] ?? null }),
+                },
+                {
+                    key: 'move-right',
+                    label: 'Move right',
+                    dataAttr: 'dashboard-v2-move-tab-right',
+                    disabledReason: position === tabIds.length - 1 ? 'Already the last tab' : null,
+                    onSelect: () => onEdit({ edit: 'moveTab', id: tab.id, before: tabIds[position + 2] ?? null }),
+                }
+            )
+        }
+        if (can('setTabColor')) {
+            const setColor = (color: AccentColor | null) => (): void =>
+                onEdit({ edit: 'setTabColor', id: tab.id, color })
+            actions.push({
+                key: 'color',
+                label: 'Color',
+                dataAttr: 'dashboard-v2-tab-color',
+                disabledReason: disabledReasonFor('setTabColor'),
+                group: 'display',
+                choice: true,
+                submenu: [
+                    {
+                        key: 'none',
+                        label: 'None',
+                        dataAttr: 'dashboard-v2-tab-color-none',
+                        disabledReason: null,
+                        checked: !tab.color,
+                        onSelect: setColor(null),
+                    },
+                    ...ACCENT_COLOR_KEYS.map((color) => ({
+                        key: color,
+                        label: ACCENT_COLORS[color].label,
+                        dataAttr: `dashboard-v2-tab-color-${color}`,
+                        disabledReason: null,
+                        checked: tab.color === color,
+                        onSelect: setColor(color),
+                    })),
+                ],
+            })
+        }
+        if (can('removeTab')) {
+            actions.push({
+                key: 'remove',
+                label: 'Delete',
+                dataAttr: 'dashboard-v2-delete-tab',
+                disabledReason: removeDisabledReasonFor(tab),
+                destructive: true,
+                onSelect: () => onEdit({ edit: 'removeTab', id: tab.id }),
+            })
+        }
+        return actions
+    }
+
     if (dashboard.tabs.length === 1 && !can('addTab')) {
         return null
     }
@@ -104,6 +197,11 @@ export function DashboardTabs(): JSX.Element | null {
             <Tabs
                 ref={setScroller}
                 className="DashboardTabs__scroller hide-scrollbar min-w-0 overflow-x-auto"
+                style={
+                    activeTab.color
+                        ? ({ '--dv2-active-tab-color': ACCENT_COLORS[activeTab.color].css } as React.CSSProperties)
+                        : undefined
+                }
                 value={activeTab.id}
                 onValueChange={(value) => onActiveTabChange(String(value))}
             >
@@ -137,30 +235,17 @@ export function DashboardTabs(): JSX.Element | null {
                             )
                         }
                         const isDropTarget = dropTarget?.grid === tab.id && tab.id !== activeTab.id
-                        const insertClass =
-                            insert?.id === tab.id ? `DashboardTabs__tab--insert-${insert.side}` : undefined
-                        const moves = [
-                            {
-                                key: 'left',
-                                label: 'Move left',
-                                Icon: IconArrowLeft,
-                                disabled: position === 0,
-                                before: tabIds[position - 1] ?? null,
-                            },
-                            {
-                                key: 'right',
-                                label: 'Move right',
-                                Icon: IconArrowRight,
-                                disabled: position === tabIds.length - 1,
-                                before: tabIds[position + 2] ?? null,
-                            },
-                        ]
+                        const insertClass = clsx(
+                            insert?.id === tab.id && `DashboardTabs__tab--insert-${insert.side}`,
+                            draggedId === tab.id && 'DashboardTabs__tab--dragging'
+                        )
                         // Link tabs and grid tabs reorder the same way, so both take these.
                         const dragProps = {
                             draggable: canMove,
                             onDragStart: (event: React.DragEvent<HTMLElement>) => {
                                 event.dataTransfer.effectAllowed = 'move'
                                 event.dataTransfer.setData('text/plain', tab.title)
+                                setLiftedDragImage(event)
                                 setDraggedId(tab.id)
                             },
                             onDragOver: (event: React.DragEvent<HTMLElement>) => {
@@ -201,6 +286,7 @@ export function DashboardTabs(): JSX.Element | null {
                                 data-attr="dashboard-v2-link-tab"
                                 {...dragProps}
                             >
+                                <AccentColorDot color={tab.color} />
                                 {tab.title}
                                 <IconExternal className="size-3 text-secondary" aria-hidden />
                             </a>
@@ -218,55 +304,14 @@ export function DashboardTabs(): JSX.Element | null {
                                 onDoubleClick={() => startRename(tab.id, tab.title)}
                                 {...dragProps}
                             >
+                                <AccentColorDot color={tab.color} />
                                 {tab.title}
                             </TabsTrigger>
                         )
-                        if (!can('renameTab') && !can('removeTab') && !canMove) {
-                            return trigger
-                        }
                         return (
-                            <ContextMenu key={tab.id}>
-                                <ContextMenuTrigger render={trigger} />
-                                {/* Returning focus to the tab would blur the rename input straight away. */}
-                                <ContextMenuContent data-attr="dashboard-v2-tab-menu" finalFocus={false}>
-                                    <ContextMenuItem
-                                        data-attr="dashboard-v2-rename-tab"
-                                        disabled={renameDisabledReason !== null}
-                                        onClick={() => startRename(tab.id, tab.title)}
-                                    >
-                                        <IconPencil />
-                                        Rename
-                                    </ContextMenuItem>
-                                    {canMove &&
-                                        moves.map(({ key, label, Icon, disabled, before }) => (
-                                            <ContextMenuItem
-                                                key={key}
-                                                data-attr={`dashboard-v2-move-tab-${key}`}
-                                                disabled={disabled}
-                                                onClick={() => onEdit({ edit: 'moveTab', id: tab.id, before })}
-                                            >
-                                                <Icon />
-                                                {label}
-                                            </ContextMenuItem>
-                                        ))}
-                                    <ContextMenuItem
-                                        variant="destructive"
-                                        data-attr="dashboard-v2-delete-tab"
-                                        disabled={removeDisabledReasonFor(tab) !== null}
-                                        onClick={() => onEdit({ edit: 'removeTab', id: tab.id })}
-                                    >
-                                        <IconTrash />
-                                        <span className="flex flex-col items-start">
-                                            Delete
-                                            {removeDisabledReasonFor(tab) && (
-                                                <span className="text-xs text-muted-foreground">
-                                                    {removeDisabledReasonFor(tab)}
-                                                </span>
-                                            )}
-                                        </span>
-                                    </ContextMenuItem>
-                                </ContextMenuContent>
-                            </ContextMenu>
+                            <ActionContextMenu key={tab.id} actions={tabActions(tab, position)}>
+                                {trigger}
+                            </ActionContextMenu>
                         )
                     })}
                 </TabsList>

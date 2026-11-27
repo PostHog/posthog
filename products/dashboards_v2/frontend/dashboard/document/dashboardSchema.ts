@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { AccessControlLevel } from '~/types'
 
 import { timeRangeSchema } from '../../filters/time/timeRangeSchema'
+import { ACCENT_COLOR_KEYS } from '../../panels/core/accentColors'
 import {
     contentPanelPartsSchema,
     contentPanelSchema,
@@ -58,9 +59,12 @@ export const tileSchema = z.object({
     },
 })
 
+const tabColorSchema = z.enum(ACCENT_COLOR_KEYS).optional()
+
 export const gridTabSchema = z.object({
     id: z.string().min(1),
     title: z.string(),
+    color: tabColorSchema,
     tiles: z.array(tileSchema),
 })
 
@@ -68,6 +72,7 @@ export const gridTabSchema = z.object({
 export const linkTabSchema = z.object({
     id: z.string().min(1),
     title: z.string(),
+    color: tabColorSchema,
     /** A path in PostHog, such as `/dashboard-v2?tab=errors`, or an http(s) URL. Anything else could run script. */
     href: z
         .string()

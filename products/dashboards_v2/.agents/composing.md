@@ -227,7 +227,7 @@ const APM_PANELS = [
 
 ### Color a tile from its data
 
-`backgroundColor` colors a chart's tile from the data it drew: `createChartPanel({ backgroundColor: ({ panel, frames }) => ... })` returns one of `TILE_BACKGROUND_COLORS`, any CSS color, or null. A custom content does the same from inside its component with `useTileBackground(color)`. Both win over the color a person picked.
+`backgroundColor` colors a chart's tile from the data it drew: `createChartPanel({ backgroundColor: ({ panel, frames }) => ... })` returns a `css` value from `ACCENT_COLORS`, any CSS color, or null. A custom content does the same from inside its component with `useTileBackground(color)`. Both win over the color a person picked.
 
 ### Add to the chart menu
 
