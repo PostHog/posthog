@@ -11,20 +11,22 @@ const SECRET_KEY_SCOPE = 'logs:write'
 // capture-logs replaces a secret key with this digest, which has the form of `secure_value`.
 const SECRET_KEY_DIGEST_PREFIX = 'sha256$'
 const LOGGED_DIGEST_LENGTH = SECRET_KEY_DIGEST_PREFIX.length + 8
+const SECRET_IN_TOKEN = /phs_|sha256\$/
 
 export function isSecretKeyDigest(token: string): boolean {
     return token.startsWith(SECRET_KEY_DIGEST_PREFIX)
 }
 
-/** The part of a token that is safe to log. A digest is as good as the key to a reader of the logs. */
+/** The part of a token that is safe to log, wherever a key or digest sits in it. A digest is as good as the key to a reader of the logs. */
 export function loggableToken(token: string): string {
-    if (isUnhashedSecretKey(token)) {
-        return SECRET_KEY_PREFIX
+    const secret = SECRET_IN_TOKEN.exec(token)
+    if (!secret) {
+        return token
     }
-    if (isSecretKeyDigest(token)) {
-        return token.length >= LOGGED_DIGEST_LENGTH ? token.slice(0, LOGGED_DIGEST_LENGTH) : SECRET_KEY_DIGEST_PREFIX
-    }
-    return token
+    const markerEnd = secret.index + secret[0].length
+    const digestEnd = secret.index + LOGGED_DIGEST_LENGTH
+    const end = secret[0] === SECRET_KEY_DIGEST_PREFIX && token.length >= digestEnd ? digestEnd : markerEnd
+    return token.slice(0, end).trimStart()
 }
 
 export function isUnhashedSecretKey(token: string): boolean {
@@ -78,11 +80,8 @@ export async function isUnknownToken(
     token: string,
     secretKeyTeams: Pick<SecretKeyTeams, 'exists'> | undefined
 ): Promise<boolean> {
-    if (isUnhashedSecretKey(token)) {
-        return false
+    if (isSecretKeyDigest(token)) {
+        return secretKeyTeams ? !(await secretKeyTeams.exists(token)) : false
     }
-    if (!isSecretKeyDigest(token)) {
-        return true
-    }
-    return secretKeyTeams ? !(await secretKeyTeams.exists(token)) : false
+    return !SECRET_IN_TOKEN.test(token)
 }

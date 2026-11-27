@@ -35,6 +35,8 @@ describe('SecretKeyTeams', () => {
         ['the digest of a key with no row', exampleKeyHash, [], true],
         ['no digest of a key without the logs:write scope', exampleKeyHash, ['logs:read'], false],
         ['no secret key that arrived unhashed', 'phs_unhashed_key', null, false],
+        ['no token with a secret key inside it', 'apikey: phs_unhashed_key', null, false],
+        ['no token with a digest inside it', `Basic ${exampleKeyHash}`, null, false],
         ['a public token', 'phc_example', null, true],
     ])('treats as unknown %s', async (_, token, scopes, expected) => {
         const teams = secretKeyTeams(scopes?.length ? [{ secure_value: exampleKeyHash, team_id: 7, scopes }] : [])
@@ -59,6 +61,9 @@ describe('SecretKeyTeams', () => {
         [exampleKeyHash, 'sha256$e39f0789'],
         ['sha256$e39f', 'sha256$'],
         [' phs_unhashed_key', 'phs_'],
+        ['apikey: phs_unhashed_key', 'apikey: phs_'],
+        [`Basic ${exampleKeyHash}`, 'Basic sha256$e39f0789'],
+        ['Basic sha256$e39f', 'Basic sha256$'],
         ['phc_example', 'phc_example'],
     ])('logs only the safe part of %s', (token, logged) => {
         expect(loggableToken(token)).toEqual(logged)
