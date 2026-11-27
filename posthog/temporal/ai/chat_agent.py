@@ -20,6 +20,7 @@ from posthog.schema import AgentMode, AssistantEventType, HumanMessage, MaxBilli
 from posthog.models import Team, User
 from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.utils import close_db_connections
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.temporal.activities import MirrorConversationInputs
@@ -181,6 +182,7 @@ class ChatAgentWorkflow(AgentBaseWorkflow):
 
 
 @activity.defn
+@close_db_connections
 async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> ChatAgentActivityResult:
     """Process a chat agent task and stream results to Redis.
 
