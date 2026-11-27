@@ -126,6 +126,15 @@ describe('adventFlowLayout', () => {
         }
     )
 
+    it.each(cases)('draws an edge for every link of the graph in %s with %s', (orientation, state) => {
+        const { progress, today } = STATES[state]
+        const graph = buildAdventGraph(progress, today, REWARDS)
+
+        const edgeIds = adventFlowLayout(graph, {}, orientation).edges.map((edge) => edge.id)
+
+        expect(graph.links.map((link) => link.id).filter((id) => !edgeIds.includes(id))).toEqual([])
+    })
+
     it.each(cases)('walks an edge once its source and its target door are open in %s with %s', (orientation, state) => {
         const layout = layoutOf(state, orientation)
         const isOpen = (id: string): boolean =>
