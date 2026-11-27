@@ -1,6 +1,6 @@
 import { spawnSync } from 'child_process'
 import { createHash } from 'crypto'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { Client } from 'pg'
@@ -166,8 +166,14 @@ describe('host-prepare.sh', () => {
         await onPostgres(ADMIN_URL, (client) => client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`))
     })
 
-    it('migrates and seeds the run cluster with its encoded credentials, recording the backlog where the card reads it', async () => {
+    it('migrates and seeds the run cluster with its encoded credentials, recording the backlog where the card reads it and the writer where only the host can read it', async () => {
         expect(prepareHost({})).toBe(0)
+
+        const writer = path.join(dir, 'host', 'writer', 'url')
+        expect(readFileSync(writer, 'utf8')).toBe(
+            `postgres://scn%20admin:p%40ss%2Fw%3Ard%25${CLUSTER_DATABASE}?uselibpqcompat=true&sslmode=verify-full&sslrootcert=${path.join(dir, 'host', 'rds-ca.pem')}\n`
+        )
+        expect([statSync(writer).mode & 0o777, statSync(path.dirname(writer)).mode & 0o777]).toEqual([0o600, 0o700])
 
         const cardStateDir = defaultStateDir({ XDG_CACHE_HOME: path.join(dir, 'host', 'cache') })
         const resident = await residentBacklogOf(

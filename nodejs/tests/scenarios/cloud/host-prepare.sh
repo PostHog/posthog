@@ -27,6 +27,9 @@ password=$(jq -r '.password | @uri' <<<"$credentials")
 url="postgres://${user}:${password}@${endpoint}:5432/cyclotron_node"
 tls="sslmode=verify-full&sslrootcert=$root/rds-ca.pem"
 export CYCLOTRON_NODE_DATABASE_URL="${url}?uselibpqcompat=true&${tls}"
+mkdir -p "$root/writer"
+chmod 700 "$root/writer"
+(umask 077 && printf '%s\n' "$CYCLOTRON_NODE_DATABASE_URL" >"$root/writer/url")
 
 sqlx migrate run -D "${url}?${tls}" --source "$repo/rust/cyclotron-node-migrations/"
 SCENARIO_RUN_MANIFEST="$input/manifest.json" pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/main.ts seed-backlog --profile "$input/runner-profile.yaml"

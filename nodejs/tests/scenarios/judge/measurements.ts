@@ -497,6 +497,9 @@ const meanBackendsOf = (
     const taken = inside(activity, step)
     const read = taken.flatMap((sample) => ('backends' in sample ? [sample.backends] : []))
     const failed = taken.find((sample) => 'error' in sample)
+    if (taken.length === 0) {
+        return [{ value: null, censored: true, unmeasured: 'no pg_stat_activity read landed in the step' }]
+    }
     if (read.length === 0 && failed !== undefined && 'error' in failed) {
         return [
             {
@@ -513,9 +516,39 @@ const meanBackendsOf = (
             totals.set(key, (totals.get(key) ?? 0) + backend.count)
         }
     }
+    if (totals.size === 0 && read.length < taken.length) {
+        return [measuredOf(0, true)]
+    }
     return [...totals]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([key, total]) => ({ key, ...measuredOf(total / read.length, read.length < taken.length) }))
+}
+
+function stepLagOf(ofRole: readonly MetricSample[], missed: readonly MissedScrape[], step: Phase): Measured[] {
+    const serving = replicasOf(ofRole).filter((ofReplica) =>
+        ofReplica.some(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds !== undefined)
+    )
+    if (serving.length === 0) {
+        return []
+    }
+    const covering = serving.map((ofReplica) =>
+        ofReplica.filter((sample, i) => within(step, i === 0 ? sample.startedAt * 1000 : ofReplica[i - 1].at))
+    )
+    const lags = covering.flat().flatMap(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds ?? [])
+    if (lags.length === 0) {
+        return [{ value: null, censored: true, unmeasured: 'no event loop lag reading covers the step' }]
+    }
+    const incomplete = covering.some(
+        (window, i) =>
+            window.length === 0 ||
+            gappedIn(window, step) ||
+            window.some(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds === undefined) ||
+            missed.some(
+                ({ role, replica, at }) =>
+                    role === serving[i][0].role && replica === serving[i][0].replica && within(step, at)
+            )
+    )
+    return [measuredOf(maxOf(lags) * 1000, incomplete)]
 }
 
 const perWriterStep =
@@ -714,23 +747,8 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         name: 'step_eventloop_lag_p99_ms',
         params: z.object({}).strict(),
         unit: 'ms',
-        measure: ({ samples, drive, steps }) =>
-            perRoleStep(samples, drive, steps, (ofRole, step) => {
-                const serving = replicasOf(ofRole)
-                    .filter((ofReplica) =>
-                        ofReplica.some(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds !== undefined)
-                    )
-                    .map((ofReplica) => inside(ofReplica, step))
-                const lags = serving.flat().flatMap(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds ?? [])
-                return lags.length === 0
-                    ? []
-                    : [
-                          measuredOf(
-                              Math.max(...lags) * 1000,
-                              serving.some((window) => gappedIn(window, step))
-                          ),
-                      ]
-            }),
+        measure: ({ samples, missed, drive, steps }) =>
+            perRoleStep(samples, drive, steps, (ofRole, step) => stepLagOf(ofRole, missed, step)),
     },
     {
         name: 'baseline_new_jobs_per_second',

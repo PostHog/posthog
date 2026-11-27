@@ -176,19 +176,28 @@ describe('cyclotron probe', () => {
         const clients = [holder, waiter, idle, elsewhere]
         try {
             await Promise.all(clients.map((client) => client.connect()))
+            const {
+                rows: [{ pid }],
+            } = await waiter.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')
             await holder.query('SELECT pg_advisory_lock($1)', [LOCK])
             const waited = waiter.query('SELECT pg_advisory_lock($1)', [LOCK])
             waited.catch(() => undefined)
             await Promise.all([idle.query('BEGIN'), elsewhere.query('BEGIN')])
+            let blocked = false
+            while (!blocked) {
+                const { rows } = await holder.query<{ blocked: boolean }>(
+                    'SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked',
+                    [pid]
+                )
+                blocked = rows[0].blocked
+            }
             const probe = createCyclotronProbe(PROBE_URL, undefined, isolated.toString())
 
-            await waitForExpect(async () =>
-                expect(await probe.activity()).toEqual([
-                    { state: 'active', wait: 'lock', count: 1 },
-                    { state: 'idle', wait: 'client', count: 1 },
-                    { state: 'idle in transaction', wait: 'client', count: 1 },
-                ])
-            )
+            expect(await probe.activity()).toEqual([
+                { state: 'active', wait: 'lock', count: 1 },
+                { state: 'idle', wait: 'client', count: 1 },
+                { state: 'idle in transaction', wait: 'client', count: 1 },
+            ])
             await holder.query('SELECT pg_advisory_unlock($1)', [LOCK])
             await waited
         } finally {

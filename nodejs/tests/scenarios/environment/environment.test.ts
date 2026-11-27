@@ -535,10 +535,10 @@ describe('scenario environment', () => {
             expect(consumerGroupsOf(replicated)).toEqual(consumerGroupsOf(specs))
         })
 
-        it('splits the role processes evenly across the poolers the host names, spreading a role over them, while the runner reads the writer itself', () => {
+        it('splits the role processes evenly across the poolers the host names, spreading a role over them', () => {
             const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
             const writer = 'postgres://posthog:posthog@localhost:5432/cyclotron_writer'
-            const pooled = { ...base, SCENARIO_POOLER_URLS: poolers.join(',') }
+            const pooled = { ...base, SCENARIO_POOLER_URLS: poolers.join(','), SCENARIO_WRITER_URL: writer }
             const split = roleSpecs(
                 pooled,
                 EDGE,
@@ -554,8 +554,20 @@ describe('scenario environment', () => {
             expect(
                 shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
             ).toEqual([1, 1])
-            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
-            expect(writerUrlOf(pooled, { CYCLOTRON_NODE_DATABASE_URL: writer })).toBe(writer)
+            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env || 'SCENARIO_WRITER_URL' in env)).toEqual([])
+        })
+
+        it.each([
+            ['the host names', { SCENARIO_WRITER_URL: 'postgres://a@writer.example.com:5432/cyclotron_node' }, {}],
+            [
+                'the profile sets',
+                {},
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@writer.example.com:5432/cyclotron_node' },
+            ],
+        ])('probes the writer %s itself, past the poolers the roles reach it through', (_, env, settings) => {
+            const pooled = { ...base, SCENARIO_POOLER_URLS: 'postgres://a@127.0.0.1:6432/cyclotron_node', ...env }
+
+            expect(writerUrlOf(pooled, settings)).toBe('postgres://a@writer.example.com:5432/cyclotron_node')
         })
 
         const POOLERS = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
