@@ -32,6 +32,7 @@ from products.visual_review.backend.facade.enums import (
 )
 from products.visual_review.backend.logic import artifact_store, ci_status, errors, github_api, quarantine, runs
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
+from products.visual_review.backend.presentation.serializers import FinalizeConflictSerializer
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
@@ -513,7 +514,58 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Per-snapshot approval is DB only — run not finalized
-        self.assertFalse(response.json()["approved"])
+        self.assertFalse(response.json()["run"]["approved"])
+        self.assertEqual(response.json()["head_run"]["id"], str(create_result.run_id))
+
+    def test_reject_list_and_undo_a_decision_through_the_api(self):
+        Repo.objects.filter(id=self.vr_project.id).update(baseline_mode=BaselineMode.LEDGER)
+        run = Run.objects.create(
+            repo_id=self.vr_project.id,
+            team_id=self.team.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="p1a",
+            branch="feat",
+            pr_number=1,
+            status=RunStatus.COMPLETED,
+        )
+        RunSnapshot.objects.create(
+            run=run,
+            team_id=self.team.id,
+            identifier="Button",
+            result=SnapshotResult.CHANGED,
+            baseline_hash="b0",
+            current_hash="b1",
+            review_state=ReviewState.PENDING,
+        )
+        runs_url = f"/api/projects/{self.team.id}/visual_review/runs/{run.id}"
+        button = {"identifier": "Button", "new_hash": "b1"}
+
+        with patch.object(github_api, "pull_request_state", return_value=None):
+            no_reason = self.client.post(f"{runs_url}/reject/", {"snapshots": [button]}, format="json")
+            rejected = self.client.post(
+                f"{runs_url}/reject/", {"snapshots": [{**button, "reason": "Too blue"}]}, format="json"
+            )
+            wrong_hash = self.client.post(
+                f"{runs_url}/approve/", {"snapshots": [{**button, "new_hash": "b2"}]}, format="json"
+            )
+            listed = self.client.get(f"{runs_url}/snapshots/?review_state=rejected")
+            seen_seq = listed.json()["results"][0]["decision"]["seq"]
+            cleared = self.client.post(
+                f"{runs_url}/clear/", {"identifiers": ["Button"], "expected_seq": seen_seq}, format="json"
+            )
+
+        self.assertEqual(no_reason.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(rejected.status_code, status.HTTP_200_OK)
+        self.assertEqual((rejected.json()["head_run"]["id"], rejected.json()["progress"]["rejected"]), (str(run.id), 1))
+        self.assertEqual(wrong_hash.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            (wrong_hash.json()["code"], [s["identifier"] for s in wrong_hash.json()["snapshots"]]),
+            ("hash_mismatch", ["Button"]),
+        )
+        decision = listed.json()["results"][0]["decision"]
+        self.assertEqual((decision["state"], decision["via"], decision["reason"]), ("rejected", "web", "Too blue"))
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        self.assertEqual(cleared.json()["progress"]["needs_review"], 1)
 
     def test_finalize_run(self):
         artifact_store.get_or_create_artifact(
@@ -551,6 +603,38 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["run"]["approved"])
+
+    def test_finalize_conflict_bodies_match_the_declared_conflict_schema(self):
+        run_ids = []
+        for commit_sha in ("abc123", "def456"):
+            create_result = api.create_run(
+                CreateRunInput(
+                    repo_id=self.vr_project.id,
+                    run_type=RunType.STORYBOOK,
+                    commit_sha=commit_sha,
+                    branch="feature/stale",
+                    snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                    baseline_hashes={"Button": "new_hash"},
+                ),
+                team_id=self.team.id,
+            )
+            with (
+                patch(
+                    "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
+                    return_value=({"Button": "new_hash"}, 0),
+                ),
+                patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+            ):
+                runs.complete_run(create_result.run_id)
+            run_ids.append(create_result.run_id)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run_ids[0]}/finalize/", {}, format="json"
+        )
+
+        self.assertEqual((response.status_code, response.json()["code"]), (status.HTTP_409_CONFLICT, "stale_run"))
+        declared = FinalizeConflictSerializer(data=response.json())
+        self.assertTrue(declared.is_valid(), declared.errors)
 
     @parameterized.expand(
         [

@@ -40,6 +40,10 @@ class Owner:
 
 # A card with more facts than this is a report. Put the detail in a tool and link to it.
 MAX_FACTS_PER_PANEL = 8
+# A plain fact value longer than this, or on more lines, shows its start and opens to the full value, so one long
+# value such as a query does not push the rest of the page down.
+COLLAPSE_FACT_CHARS = 160
+COLLAPSE_FACT_LINES = 3
 
 
 @frozen
@@ -50,14 +54,26 @@ class Fact:
     mono: bool = False
     # A console page the value links to, for example the team page of a team the fact names.
     href: str | None = None
+    detail: str = ""
 
     def __post_init__(self) -> None:
         # The shell escapes facts. Markup from format_html or mark_safe would bypass the shared design.
-        if isinstance(self.label, SafeData) or isinstance(self.value, SafeData):
+        if any(isinstance(text, SafeData) for text in (self.label, self.value, self.detail)):
             raise ValueError(f"Fact {self.label!r} must be plain text, not markup")
         # Facts link within PostHog only, so a value that came from customer data cannot become an outside link.
         if self.href is not None and not is_internal_path(self.href):
             raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
+
+    @property
+    def collapsed(self) -> bool:
+        if self.href is not None or self.tone is not None:
+            return False
+        return len(self.value) > COLLAPSE_FACT_CHARS or self.value.count("\n") >= COLLAPSE_FACT_LINES
+
+    @property
+    def summary(self) -> str:
+        first_line = self.value.split("\n", 1)[0]
+        return f"{first_line[:COLLAPSE_FACT_CHARS].rstrip()}…"
 
 
 def _unresolved_owner_gate(request: "HttpRequest") -> bool:

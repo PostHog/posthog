@@ -37,6 +37,8 @@ export type QueryBatchLine = {
         /** Freshness and access-control notes that qualify the frames. */
         warnings?: { message: string }[]
         cache?: { fetchedAt?: string | null; stale?: boolean; hit?: boolean }
+        /** Where the result came from. `derived` means it was read from a precomputed result. */
+        provenance?: { mode?: string; timeline?: { source: string; ms: number }[] }
     } | null
 }
 
