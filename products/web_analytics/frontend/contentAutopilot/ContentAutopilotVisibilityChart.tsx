@@ -13,6 +13,7 @@ import { AiVisibilityCard } from './AiVisibilityCard'
 import { ContentAutopilotChartAverages } from './ContentAutopilotChartAverages'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import type { PromptVisibilityMetric } from './promptReport'
+import { formatShare } from './shares'
 import { type EngineVisibilityChart, MIN_TREND_DAYS, daysWithData, trendDisplay } from './visibilityChart'
 
 const BASE_CONFIG: TimeSeriesLineChartConfig = {
@@ -27,6 +28,7 @@ const BASE_CONFIG: TimeSeriesLineChartConfig = {
 const RATE_CONFIG: TimeSeriesLineChartConfig = {
     ...BASE_CONFIG,
     yAxis: { format: 'percentage_scaled', showGrid: true },
+    tooltip: { valueFormatter: (value: number) => (Number.isFinite(value) ? formatShare(value) : '-') },
 }
 
 const POSITION_CONFIG: TimeSeriesLineChartConfig = {

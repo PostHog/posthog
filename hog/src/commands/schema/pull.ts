@@ -1,5 +1,7 @@
+import { dirname } from 'node:path'
+
 import { defineCommand } from '@/core/command'
-import { TYPESCRIPT_SDKS, updateConfig, type SchemaLanguage, type TypeScriptSdk } from '@/core/config'
+import { SCHEMA_SDKS, updateConfig, type SchemaLanguage, type SchemaSdk } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { absolutePath, confinedWritePath, findGitRoot, isInside, storedPath } from '@/core/paths'
@@ -8,18 +10,20 @@ import { plural } from '@/core/text'
 import {
     chosenFile,
     configRoot,
-    DEFAULT_TYPESCRIPT_SDK,
     fetchDefinitions,
     isLanguage,
     LANGUAGE_INFO,
+    LANGUAGE_SDKS,
     LANGUAGES,
     moduleInfo,
+    savedSdk,
+    sdkLanguage,
     type Language,
 } from './shared'
 
 interface PulledLanguage {
     language: Language
-    sdk: TypeScriptSdk | undefined
+    sdk: SchemaSdk | undefined
     file: string
     status: 'written' | 'would_write' | 'unchanged'
     eventCount: number
@@ -38,9 +42,9 @@ export default defineCommand({
         },
         sdk: {
             type: 'string',
-            choices: TYPESCRIPT_SDKS,
+            choices: SCHEMA_SDKS,
             description:
-                'TypeScript only: the SDK the module wraps. none generates only the event types, for posthog-react-native, posthog-node or any other SDK. posthog.json remembers it',
+                'The SDK the module wraps, which posthog.json remembers. TypeScript: none generates only the event types, for posthog-react-native, posthog-node or any other SDK. Go: posthog-go for 1.x or posthog-go-v2 for 2.x. Without it, hog reads the posthog-go version from go.mod',
         },
         file: {
             type: 'string',
@@ -59,6 +63,7 @@ export default defineCommand({
         'hog schema pull',
         'hog schema pull -l python --file app/posthog_typed.py',
         'hog schema pull -l typescript --sdk none',
+        'hog schema pull -l golang --sdk posthog-go-v2',
     ],
 
     async run({ options, ctx }) {
@@ -95,11 +100,13 @@ export default defineCommand({
             )
         }
 
-        if (options.sdk !== undefined && !languages.includes('typescript')) {
+        if (options.sdk !== undefined && !languages.includes(sdkLanguage(options.sdk))) {
+            const language = sdkLanguage(options.sdk)
+            const { name } = LANGUAGE_INFO[language]
             throw new HogError(
                 'usage_error',
-                '--sdk only applies to TypeScript, but hog is not generating TypeScript.',
-                'Pass --language typescript too.',
+                `--sdk ${options.sdk} only applies to ${name}, but hog is not generating ${name}.`,
+                `Pass --language ${language} too.`,
                 EXIT_USAGE
             )
         }
@@ -109,7 +116,15 @@ export default defineCommand({
         const entries: Partial<Record<Language, SchemaLanguage>> = {}
         for (const language of languages) {
             const saved = configured[language]
-            const sdk = language === 'typescript' ? await typescriptSdk(ctx, options.sdk, saved) : undefined
+            const flag = options.sdk !== undefined && sdkLanguage(options.sdk) === language ? options.sdk : undefined
+            // go.mod is searched from the module's folder.
+            const folder =
+                options.file !== undefined
+                    ? absolutePath(ctx.runtime.cwd(), options.file)
+                    : saved
+                      ? dirname(absolutePath(root, saved.output_path))
+                      : ctx.runtime.cwd()
+            const { sdk, record } = await moduleSdk(ctx, language, flag, saved, folder)
             let file: string
             let target: string | undefined
             if (options.file !== undefined) {
@@ -147,16 +162,17 @@ export default defineCommand({
             const definitions = await fetchDefinitions(ctx, language, sdk)
             const outputPath = storedPath(root, file)
             // The module carries the time PostHog generated it, so only the hash says whether the events changed.
+            // PostHog hashes the 2.x module differently, so the hash also catches a go.mod change.
             const unchanged =
                 saved?.output_path === outputPath &&
-                savedSdk(language, saved) === sdk &&
+                recordedSdk(language, saved) === record &&
                 saved.schema_hash === definitions.schema_hash &&
                 (await ctx.runtime.exists(file))
             if (!unchanged && !options.dryRun) {
                 await ctx.runtime.writeFile(target ?? file, definitions.content)
                 entries[language] = {
                     output_path: outputPath,
-                    sdk,
+                    sdk: record,
                     schema_hash: definitions.schema_hash,
                     updated_at: new Date(ctx.runtime.now()).toISOString(),
                     event_count: definitions.event_count,
@@ -239,24 +255,42 @@ async function confinedOutput(
     return target
 }
 
-// A posthog.json entry without `sdk` has a module that wraps posthog-js.
-function savedSdk(language: Language, saved: SchemaLanguage | undefined): TypeScriptSdk | undefined {
-    return language === 'typescript' ? (saved?.sdk ?? DEFAULT_TYPESCRIPT_SDK) : undefined
+interface SdkChoice {
+    sdk: SchemaSdk | undefined
+    // What posthog.json keeps: a flag, a saved value or an answer, never what go.mod says.
+    record: SchemaSdk | undefined
 }
 
-async function typescriptSdk(
+// Order: the flag, posthog.json, the project (go.mod), the prompt, the default.
+async function moduleSdk(
     ctx: Context,
-    flag: TypeScriptSdk | undefined,
-    saved: SchemaLanguage | undefined
-): Promise<TypeScriptSdk> {
-    if (flag) {
-        return flag
+    language: Language,
+    flag: SchemaSdk | undefined,
+    saved: SchemaLanguage | undefined,
+    folder: string
+): Promise<SdkChoice> {
+    const sdks = LANGUAGE_SDKS[language]
+    if (!sdks) {
+        return { sdk: undefined, record: undefined }
     }
-    if (saved || !ctx.prompts) {
-        return savedSdk('typescript', saved) ?? DEFAULT_TYPESCRIPT_SDK
+    const chosen = flag ?? savedSdk(language, saved)
+    if (chosen) {
+        return { sdk: chosen, record: chosen }
     }
-    return ctx.prompts.select('Which PostHog SDK does this app use?', [
-        { value: 'posthog-js', label: 'posthog-js: hog wraps it so capture() checks your events' },
-        { value: 'none', label: 'Another SDK, such as posthog-react-native: hog writes only the event types' },
-    ])
+    const detected = await sdks.detect?.(ctx.runtime, folder)
+    if (detected) {
+        return { sdk: detected, record: undefined }
+    }
+    if (saved || !ctx.prompts || !sdks.prompt) {
+        const sdk = sdks.choices[0]
+        return { sdk, record: sdks.recordsDefault ? sdk : undefined }
+    }
+    const answer = await ctx.prompts.select(sdks.prompt.message, sdks.prompt.options)
+    return { sdk: answer, record: answer }
+}
+
+// posthog-cli writes TypeScript entries without `sdk`, which means the default.
+function recordedSdk(language: Language, saved: SchemaLanguage): SchemaSdk | undefined {
+    const sdks = LANGUAGE_SDKS[language]
+    return savedSdk(language, saved) ?? (sdks?.recordsDefault ? sdks.choices[0] : undefined)
 }

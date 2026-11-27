@@ -1089,7 +1089,7 @@ export namespace Schemas {
          */
       previous_visibility: number | null;
       /**
-         * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+         * The share (0-1) of scored answers naming the brand whose sentences about it were positive. Null when none of them was scored yet.
          * @nullable
          */
       positive_share: number | null;
@@ -10815,6 +10815,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',

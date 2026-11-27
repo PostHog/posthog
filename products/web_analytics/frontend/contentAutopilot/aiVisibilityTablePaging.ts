@@ -1,5 +1,8 @@
 import type { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 
+/** Rows per page of a report table that pages on the client, such as the brands or the cited sites. */
+export const REPORT_TABLE_PAGE_SIZE = 10
+
 export interface PagerState {
     show: boolean
     page: number

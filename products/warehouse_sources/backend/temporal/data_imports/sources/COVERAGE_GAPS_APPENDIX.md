@@ -15768,8 +15768,8 @@ Diffed against: <https://api.vapi.ai/api-json>
 - [x] `GET /eval/run` — evaluation run results per assistant; the regression signal for voice agents (high)
 - [x] `GET /eval` — eval definitions, the lookup that resolves eval ids on runs (medium)
 - [ ] `GET /call/{id}/call-logs` — per-call turn/system log lines for the calls we already sync (medium); skipped, it is a file download (a 302 to a short-lived presigned log file URL, no JSON schema), not a list endpoint, and it would take one request per call with no changed-since filter
-- [ ] `POST /analytics` — Vapi's aggregate analytics query API (minutes, spend, call outcomes) — the headline metrics surface (medium)
-- [ ] `GET /structured-output` — lookup for the extraction schemas whose extracted values appear on call records (low)
+- [x] `POST /analytics` — Vapi's aggregate analytics query API (minutes, spend, call outcomes) — the headline metrics surface (medium)
+- [x] `GET /structured-output` — lookup for the extraction schemas whose extracted values appear on call records (low)
 - [x] `GET /eval/simulation/run` — simulation run results for assistants and squads, with pass/fail item counts (medium)
 
 Note: Full OpenAPI fetched live from api.vapi.ai/api-json. Note /reporting/insight is a saved-query definition (its data only comes back via POST /reporting/insight/{id}/run), and /provider/{provider}/{resourceName} is a passthrough to Twilio/Vonage account resources — both excluded as plumbing. /v2/campaign is a newer version of the /campaign the source already uses, not a distinct resource.

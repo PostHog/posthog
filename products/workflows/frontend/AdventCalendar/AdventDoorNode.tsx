@@ -77,7 +77,6 @@ export function AdventDoorNode({ data }: NodeProps<AdventDoorNodeType>): JSX.Ele
                         className={cn(
                             'AdventDoor relative flex size-full items-center justify-center border-2 bg-surface-primary p-0 text-2xl font-bold shadow-md',
                             isExit ? 'rounded-l-xl rounded-r-[1.75rem]' : 'rounded-xl',
-                            door.status === 'ready' && 'AdventDoor--ready',
                             'cursor-pointer',
                             isSelected && 'outline outline-2 outline-offset-4 outline-accent'
                         )}
