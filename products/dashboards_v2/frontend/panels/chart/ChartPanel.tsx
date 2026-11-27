@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Suspense, useContext, useEffect, useMemo } from 'react'
+import { Suspense, useContext, useEffect, useMemo, useRef } from 'react'
 
 import { FiltersContext } from '../../filters/filtersContext'
 import type { DataFrame, RunQuery } from '../../query/queryTypes'
@@ -44,11 +44,13 @@ function TargetFailures({ failures }: { failures: TargetFailure[] }): JSX.Elemen
 export type ChartBackgroundColor = (chart: { panel: ContentPanel<ChartConfig>; frames: DataFrame[] }) => string | null
 
 // A menu entry is built before the chart's data arrives and outside its component, so it reads the frames from here.
-const shownFrames = new WeakMap<ContentPanel<ChartConfig>, DataFrame[]>()
+// Keyed by mounted chart too, as a panel can show twice, such as in the grid and a slideshow.
+const shownFrames = new WeakMap<ContentPanel<ChartConfig>, Map<object, DataFrame[]>>()
 
 /** The frames the panel's chart last drew, or undefined while it has none, such as before its first result. */
 export function shownFramesOf(panel: ContentPanel<ChartConfig>): DataFrame[] | undefined {
-    return shownFrames.get(panel)
+    const byChart = shownFrames.get(panel)
+    return byChart ? [...byChart.values()].at(-1) : undefined
 }
 
 export function hasNoValues(frames: DataFrame[]): boolean {
@@ -87,14 +89,18 @@ function ChartData({
         () => combineTargetResults(chartTargets(panel.config), results, !!panel.config.targets),
         [results, panel.config]
     )
+    const chart = useRef({}).current
     useEffect(() => {
-        if (result.status === 'ready') {
-            shownFrames.set(panel, result.frames)
+        if (result.status !== 'ready') {
+            return
         }
+        const byChart = shownFrames.get(panel) ?? new Map<object, DataFrame[]>()
+        shownFrames.set(panel, byChart)
+        byChart.set(chart, result.frames)
         return () => {
-            shownFrames.delete(panel)
+            byChart.delete(chart)
         }
-    }, [panel, result])
+    }, [panel, result, chart])
     const frames = result.status === 'ready' ? result.frames : null
     useTileBackground(
         useMemo(() => (frames && backgroundColor?.({ panel, frames })) || null, [backgroundColor, panel, frames])
