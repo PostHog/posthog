@@ -206,6 +206,20 @@ const byTime = <T extends { at: number }>(series: readonly T[]): T[] => [...seri
 
 const committedAt = ({ at, latencyMs }: WriterSample): number => at + latencyMs
 
+function longestIdle(writer: readonly WriterSample[], from: number, to: number): number {
+    const endsBefore = writer.map(committedAt).filter((end) => end < from)
+    let probedUntil = endsBefore.length > 0 ? Math.max(...endsBefore) : from
+    let longest = 0
+    for (const sample of byTime(writer)) {
+        if (sample.at >= to || committedAt(sample) <= probedUntil) {
+            continue
+        }
+        longest = Math.max(longest, sample.at - probedUntil)
+        probedUntil = committedAt(sample)
+    }
+    return Math.max(longest, to - probedUntil)
+}
+
 type Outage = { from: number; to?: number }
 
 function outagesOf(writer: readonly WriterSample[]): Outage[] {
@@ -490,7 +504,7 @@ export function baselineOf({
 export const RECOVERY_BAR_MULTIPLE = 2
 const SERIES_WINDOW_MS = 60_000
 const WRITER_PROBE_GAP_MS = 10_000
-const WRITER_PROBE_LONGEST_SPACING_MS = 4_000
+const WRITER_PROBE_LONGEST_IDLE_MS = 1_500
 
 type WindowP99 = { value: number | null; clean: boolean; censored?: true; incomplete?: true; reset?: true }
 
@@ -729,15 +743,7 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
                 const late = !sample.ok || (series.bar !== null && sample.latencyMs > series.bar)
                 return settled < to && ((end >= settled && end < to && late) || (sample.at < settled && end >= settled))
             })
-            const ends = evidence.writer.map(committedAt).sort((a, b) => a - b)
-            const remainder = [
-                ends.findLast((at) => at < settled) ?? settled,
-                ...ends.filter((at) => at >= settled && at < to),
-                to,
-            ]
-            const unsampled =
-                settled < to &&
-                remainder.some((at, i) => i > 0 && at - remainder[i - 1] > WRITER_PROBE_LONGEST_SPACING_MS)
+            const unsampled = settled < to && longestIdle(evidence.writer, settled, to) > WRITER_PROBE_LONGEST_IDLE_MS
             return [
                 recoveryOf(
                     series,

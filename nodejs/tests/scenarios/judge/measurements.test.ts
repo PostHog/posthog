@@ -647,6 +647,20 @@ describe('measurements', () => {
             (second) => second !== 881 && second !== 882,
         ],
         [
+            'leaves recovery unknown when the writer idles long enough to hide a timed-out write in the remainder',
+            (second) => (second === 883 ? { startsLateMs: 500, latencyMs: 10 } : 10),
+            [{ ...VALVE, releasedAt: isoAt(885.39) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSAMPLED_REMAINDER },
+            ],
+            (second) => second !== 881 && second !== 882,
+        ],
+        [
             'leaves recovery unknown when a write in the remainder after the last whole minute is slow',
             (second) => (second === 915 ? 400 : 10),
             [{ ...VALVE, releasedAt: isoAt(920.5) }],
