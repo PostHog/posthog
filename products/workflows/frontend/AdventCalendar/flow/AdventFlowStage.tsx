@@ -23,8 +23,9 @@ import { AdventDoor } from '../adventGraph'
 import { adventPaletteStyle } from '../adventPalette'
 import { useAdventCard } from '../useAdventCard'
 import { useAdventEscape } from '../useAdventEscape'
+import { useAdventStageSize } from '../useAdventStageSize'
 import { AdventFlowEdges } from './AdventFlowEdges'
-import { AdventFlowFit, adventFlowFit } from './adventFlowFit'
+import { AdventFlowFit, adventFlowFit, adventFlowOrientation } from './adventFlowFit'
 import {
     ADVENT_FLOW_DOOR,
     AdventFlowEdge,
@@ -33,7 +34,6 @@ import {
     AdventFlowNode,
 } from './adventFlowLayout'
 import { AdventFlowStep, AdventFlowStepProps } from './AdventFlowStep'
-import { useAdventFlowSize } from './useAdventFlowSize'
 
 const FACE_DOOR_SIZE = 56
 const DOT_GAP = 36
@@ -90,7 +90,8 @@ const nodeOfDoor = (layout: AdventFlowLayout, doorId: string | null): AdventFlow
 export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis }: AdventFlowStageProps): JSX.Element {
     const { graph, today, selectedDoorId, revealingDoor, pollShares } = useValues(adventCalendarLogic)
     const { activateDoor, answerDoor, clearSelection, finishReveal, clickTip } = useActions(adventCalendarLogic)
-    const { ref, stage, orientation } = useAdventFlowSize()
+    const { ref, stage } = useAdventStageSize()
+    const orientation = adventFlowOrientation(stage)
     const layout = useMemo(() => adventFlowLayout(graph, pollShares, orientation), [graph, pollShares, orientation])
     const fit = adventFlowFit(stage, layout)
     const { zoom, box } = fit

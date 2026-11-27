@@ -1,15 +1,11 @@
 import { RefObject, useLayoutEffect, useRef, useState } from 'react'
 
-import { adventFlowOrientation } from './adventFlowFit'
-import { AdventFlowOrientation } from './adventFlowLayout'
-
-export interface AdventFlowSize {
+export interface AdventStageSize {
     ref: RefObject<HTMLDivElement>
     stage: { width: number; height: number }
-    orientation: AdventFlowOrientation
 }
 
-export function useAdventFlowSize(): AdventFlowSize {
+export function useAdventStageSize(): AdventStageSize {
     const ref = useRef<HTMLDivElement>(null)
     const [stage, setStage] = useState({ width: 0, height: 0 })
 
@@ -28,5 +24,5 @@ export function useAdventFlowSize(): AdventFlowSize {
         return () => observer.disconnect()
     }, [])
 
-    return { ref, stage, orientation: adventFlowOrientation(stage) }
+    return { ref, stage }
 }
