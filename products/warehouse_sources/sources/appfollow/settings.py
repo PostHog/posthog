@@ -45,6 +45,7 @@ EndpointKind = Literal[
     "workspace_apps",
     "reviews_feed",
     "dated_fanout",
+    "console_ratings",
 ]
 
 # How an "app_fanout" endpoint takes time:
@@ -60,7 +61,7 @@ TimeMode = Literal["none", "snapshot", "window", "daily"]
 #   - "list":    a list of rows.
 #   - "object":  one object, which becomes one row.
 #   - "grouped": an object of row lists. The rows are flattened and the list name goes in `group_field`.
-RowShape = Literal["list", "object", "grouped"]
+RowShape = Literal["list", "object", "grouped", "app_data"]
 
 # AppFollow requires a `from`/`to` window on the reviews and ratings endpoints. On a first (backfill)
 # sync we open the window all the way back to this date so the whole history is captured once; from
@@ -104,6 +105,7 @@ class AppfollowEndpointConfig:
     group_field: Optional[str] = None
     # "dated_fanout" only: statuses that mean this app cannot use the endpoint. The walk skips the app.
     skip_app_statuses: tuple[int, ...] = ()
+    store: str | None = None
 
 
 _REVIEW_UPDATED_FIELD: IncrementalField = {
@@ -317,6 +319,46 @@ APPFOLLOW_ENDPOINTS: dict[str, AppfollowEndpointConfig] = {
         backfill_days=365,
         row_shape="grouped",
         group_field="rating_change",
+        default_incremental_field="date",
+        incremental_fields=[_DATE_FIELD],
+        should_sync_default=False,
+    ),
+    "reviews_version_stats": AppfollowEndpointConfig(
+        name="reviews_version_stats",
+        path="/reviews/stats/version",
+        kind="dated_fanout",
+        primary_keys=["ext_id", "date"],
+        data_key="tags_stat",
+        partition_key="date",
+        time_mode="daily",
+        backfill_days=30,
+        row_shape="object",
+        default_incremental_field="date",
+        incremental_fields=[_DATE_FIELD],
+        should_sync_default=False,
+    ),
+    "featured_apps": AppfollowEndpointConfig(
+        name="featured_apps",
+        path="/aso/featured",
+        kind="dated_fanout",
+        primary_keys=["ext_id", "country", "date", "feature", "type", "title", "pos", "app_pos"],
+        partition_key="date",
+        time_mode="window",
+        backfill_days=365,
+        requires_country=True,
+        row_shape="app_data",
+        store="as",
+        should_sync_default=False,
+    ),
+    "console_ratings": AppfollowEndpointConfig(
+        name="console_ratings",
+        path="/meta/ratings/console/gp",
+        kind="console_ratings",
+        primary_keys=["collection_name", "ext_id", "metric", "date"],
+        partition_key="date",
+        time_mode="window",
+        max_window_days=14,
+        backfill_days=30,
         default_incremental_field="date",
         incremental_fields=[_DATE_FIELD],
         should_sync_default=False,

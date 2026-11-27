@@ -105,7 +105,7 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
                 name=endpoint,
                 supports_incremental=has_incremental,
                 # A dated fan-out re-reads its lookback window, which append would store twice.
-                supports_append=has_incremental and endpoint_config.kind != "dated_fanout",
+                supports_append=has_incremental and endpoint_config.kind not in ("dated_fanout", "console_ratings"),
                 incremental_fields=endpoint_config.incremental_fields,
                 should_sync_default=endpoint_config.should_sync_default,
                 detected_primary_keys=endpoint_config.primary_keys,
