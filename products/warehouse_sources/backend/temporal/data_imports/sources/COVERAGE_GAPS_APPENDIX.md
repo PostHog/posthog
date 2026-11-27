@@ -11396,10 +11396,10 @@ Diffed against: <https://api.peec.ai/customer/v1/openapi/json>
 
 Re-audited 2026-11-19 against: <https://api.peec.ai/customer/v1/openapi/json>
 
-- [ ] `Brands Report (POST /reports/brands)` — visibility, sentiment, position and share of voice per brand and date range, Peec's headline metrics, keyed by brand IDs we already sync (high)
-- [ ] `Domains Report (POST /reports/domains); URLs Report (POST /reports/urls)` — which domains and URLs AI answers cite, with usage and citation counts, the core source-attribution view (high)
-- [ ] `Products (POST /products/list)` — shopping products with mention count, win count, average position, visibility and share of voice (medium)
-- [ ] `Search Fanout Queries (POST /queries/search)` — the web search queries AI models run behind each prompt, one row per query (medium)
+- [x] `Brands Report (POST /reports/brands)` — visibility, sentiment, position and share of voice per brand and date range, Peec's headline metrics, keyed by brand IDs we already sync (high). Added as `brand_report`, one row per brand, day and model channel, incremental on `date`
+- [x] `Domains Report (POST /reports/domains); URLs Report (POST /reports/urls)` — which domains and URLs AI answers cite, with usage and citation counts, the core source-attribution view (high). Added as `domain_report` and `url_report`, one row per domain or URL, day and model channel, incremental on `date`
+- [x] `Products (POST /products/list)` — shopping products with mention count, win count, average position, visibility and share of voice (medium). Added as `products`; the metrics are totals from the start date to the sync date, so it is full refresh
+- [x] `Search Fanout Queries (POST /queries/search)` — the web search queries AI models run behind each prompt, one row per query (medium). Added as `search_fanout_queries` (rows view), keyed on chat and query index, incremental on `date`
 - [ ] `Agent logs (GET /agent-analytics/logs)` — AI bot access log lines from the customer's log provider, with start_date/end_date and bot_ids filters (medium)
 - [ ] `Categories (GET /categories)` — product category tree with path and parent_id, a lookup for the products endpoints (low)
 - [ ] `Facts (GET /facts)` — facts used to fact-check claims in AI answers, with origin and active flag (low)
