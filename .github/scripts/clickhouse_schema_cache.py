@@ -75,6 +75,121 @@ SNAPSHOT_QUERIES = (
 )
 
 
+# RESTORE re-parses the backed-up DDL and drops the redundant outer parentheses of a column
+# expression, such as `version UInt64 MATERIALIZED (a + b)`, while the migrated table keeps them.
+# formatQuery keeps them too, so the snapshot strips exactly one pair that wraps a whole expression.
+# Anything else in the DDL still has to match.
+EXPRESSION_KEYWORD = re.compile(r"\b(?:MATERIALIZED|DEFAULT|ALIAS|EPHEMERAL) (?=\()")
+EXPRESSION_END = (",", ")", " CODEC(", " COMMENT ", " TTL ")
+
+
+def _walk(text: str, start: int = 0):
+    """Yield (index, char, quoted) for text[start:]. Quoted covers string literals, identifiers and comments.
+
+    A backslash escapes the next character only inside quotes.
+    """
+    quote = ""
+    index = start
+    while index < len(text):
+        char = text[index]
+        if quote:
+            yield index, char, True
+            if char == "\\" and index + 1 < len(text):
+                index += 1
+                yield index, text[index], True
+            elif char == quote:
+                quote = ""
+        elif text.startswith(("--", "/*"), index):
+            end = text.find("\n" if text[index] == "-" else "*/", index)
+            end = len(text) if end == -1 else end + (0 if text[index] == "-" else 2)
+            for position in range(index, end):
+                yield position, text[position], True
+            index = end - 1
+        else:
+            if char in "'`\"":
+                quote = char
+            yield index, char, bool(quote)
+        index += 1
+
+
+def _closing_paren(text: str, start: int) -> int:
+    """Index of the parenthesis closing text[start], or -1."""
+    depth = 0
+    for index, char, quoted in _walk(text, start):
+        if quoted:
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+def _has_top_level_comma(text: str) -> bool:
+    depth = 0
+    for _, char, quoted in _walk(text):
+        if quoted:
+            continue
+        if char in "([":
+            depth += 1
+        elif char in ")]":
+            depth -= 1
+        elif char == "," and depth == 0:
+            return True
+    return False
+
+
+def strip_enclosing_parens(expression: str) -> str:
+    """Drop one pair of parentheses that wraps the whole expression, unless it makes a tuple."""
+    if expression.startswith("(") and _closing_paren(expression, 0) == len(expression) - 1:
+        inner = expression[1:-1]
+        if not _has_top_level_comma(inner):
+            return inner
+    return expression
+
+
+def normalize_ddl(ddl: str) -> str:
+    """strip_enclosing_parens for every column expression inside a CREATE statement."""
+    result, position = [], 0
+    quoted = {index for index, _, inside in _walk(ddl) if inside}
+    for match in EXPRESSION_KEYWORD.finditer(ddl):
+        start = match.end()
+        if start < position or match.start() in quoted:
+            continue
+        end = _closing_paren(ddl, start)
+        if end == -1 or not ddl.startswith(EXPRESSION_END, end + 1):
+            continue
+        result.append(ddl[position:start] + strip_enclosing_parens(ddl[start : end + 1]))
+        position = end + 1
+    return "".join(result) + ddl[position:]
+
+
+TSV_ESCAPES = {"\\": "\\", "t": "\t", "n": "\n", "r": "\r", "'": "'", "0": "\0", "b": "\b", "f": "\f"}
+TSV_UNESCAPED = {value: f"\\{key}" for key, value in TSV_ESCAPES.items()}
+
+
+def _tsv_unescape(field: str) -> str:
+    return re.sub(r"\\(.)", lambda m: TSV_ESCAPES.get(m.group(1), m.group(0)), field)
+
+
+def _tsv_escape(field: str) -> str:
+    return "".join(TSV_UNESCAPED.get(char, char) for char in field)
+
+
+def normalize_snapshot(text: str) -> str:
+    lines = []
+    for line in text.splitlines(keepends=True):
+        row = line.rstrip("\n").split("\t")
+        if row[0] == "table" and len(row) > 4:
+            row[4] = _tsv_escape(normalize_ddl(_tsv_unescape(row[4])))
+        elif row[0] == "column" and len(row) > 7:
+            row[7] = _tsv_escape(strip_enclosing_parens(_tsv_unescape(row[7])))
+        lines.append("\t".join(row) + ("\n" if line.endswith("\n") else ""))
+    return "".join(lines)
+
+
 class SnapshotError(Exception):
     pass
 
@@ -170,7 +285,7 @@ def snapshot() -> str:
         _query("SYSTEM RELOAD DICTIONARIES")
     except SnapshotError:
         pass  # A dictionary that fails to load shows as FAILED below.
-    return "".join(_query(f"{sql} FORMAT TSV") for sql in SNAPSHOT_QUERIES)
+    return normalize_snapshot("".join(_query(f"{sql} FORMAT TSV") for sql in SNAPSHOT_QUERIES))
 
 
 def _sql_functions() -> list[str]:

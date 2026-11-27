@@ -71,6 +71,10 @@ _RECORD_COLUMNS: Mapping[tuple[str, str], PreviewRecordColumns] = {
 }
 
 
+def preview_supported(source_product: str, source_type: str) -> bool:
+    return (source_product, source_type) in _RECORD_COLUMNS
+
+
 @frozen
 class PreviewRecord:
     id: str

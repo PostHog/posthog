@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { Switch } from '@posthog/quill'
 
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 
@@ -17,18 +17,20 @@ export const ContentAutopilotPromptActiveSwitch = ({
     const { setPromptActive } = useActions(contentAutopilotPromptsLogic)
 
     return (
-        <LemonSwitch
+        <Switch
             checked={active}
-            onChange={(checked) => setPromptActive(promptId, checked)}
-            loading={!!promptActiveUpdating[promptId]}
+            onCheckedChange={(checked) => setPromptActive(promptId, checked)}
             disabledReason={
-                !active && promptLimitReached && setupContext
-                    ? `You're tracking ${setupContext.active_prompts} prompts, and this project can track up to ${setupContext.max_active_prompts}. Turn off some prompts first.`
-                    : undefined
+                promptActiveUpdating[promptId]
+                    ? 'Saving…'
+                    : !active && promptLimitReached && setupContext
+                      ? `You're tracking ${setupContext.active_prompts} prompts, and this project can track up to ${setupContext.max_active_prompts}. Turn off some prompts first.`
+                      : undefined
             }
-            label={label}
             aria-label={active ? 'Turn prompt off' : 'Turn prompt on'}
             data-attr="content-autopilot-prompt-active-toggle"
-        />
+        >
+            {label}
+        </Switch>
     )
 }

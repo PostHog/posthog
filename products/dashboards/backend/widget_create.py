@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import JsonValue
 from rest_framework import serializers
 
 from posthog.models.team import Team
@@ -24,7 +25,7 @@ def prepare_widget_tile_create(
     *,
     team: Team,
     widget_type: str,
-    config: dict[str, Any],
+    config: JsonValue,
     user: User | None = None,
     user_access_control: UserAccessControl | None = None,
 ) -> tuple[str, dict[str, Any]]:

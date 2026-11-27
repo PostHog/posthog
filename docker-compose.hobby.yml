@@ -32,6 +32,12 @@ x-hypercache-s3: &hypercache-s3
 x-single-temporal-queue: &single-temporal-queue
     TEMPORAL_USE_SINGLE_TASK_QUEUE: 'true'
 
+# Batch exports are off unless .env turns them on, because their destination SDKs cost the Temporal
+# worker memory that a small host needs. The services that start exports must agree with the worker,
+# so that they refuse to start an export that no worker runs.
+x-batch-exports: &batch-exports
+    BATCH_EXPORTS_ENABLED: ${BATCH_EXPORTS_ENABLED:-false}
+
 # The Node consumers default to a short fetch.wait.max.ms, so on an idle install Redpanda spends its
 # CPU answering empty fetches. A fetch still returns as soon as data arrives, because fetch.min.bytes
 # stays at 1, so a longer wait only cuts the polling while there is nothing to read.
@@ -166,7 +172,7 @@ services:
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED: ${HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:-false}
-            <<: *single-temporal-queue
+            <<: [*single-temporal-queue, *batch-exports]
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
@@ -254,7 +260,7 @@ services:
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
-            <<: *single-temporal-queue
+            <<: [*single-temporal-queue, *batch-exports]
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
@@ -700,7 +706,7 @@ services:
             OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?}
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
-            <<: *single-temporal-queue
+            <<: [*single-temporal-queue, *batch-exports]
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'

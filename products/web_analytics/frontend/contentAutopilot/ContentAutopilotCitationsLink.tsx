@@ -1,7 +1,6 @@
-import clsx from 'clsx'
 import { useActions } from 'kea'
 
-import { Link } from '@posthog/lemon-ui'
+import { Button, cn } from '@posthog/quill'
 
 import { type CitationsLookup, contentAutopilotCitationsModalLogic } from './contentAutopilotCitationsModalLogic'
 
@@ -22,13 +21,16 @@ export const ContentAutopilotCitationsLink = ({
 }): JSX.Element => {
     const { openCitations } = useActions(contentAutopilotCitationsModalLogic)
     return (
-        <Link
+        <Button
+            variant="link-foreground"
+            size="sm"
+            left
             onClick={() => openCitations(lookup, source)}
-            className={clsx('min-w-0 text-left', className)}
-            title={title}
+            className={cn('max-w-full min-w-0 shrink', className)}
+            title={title ?? (typeof children === 'string' ? children : undefined)}
             data-attr="content-autopilot-citations-open"
         >
-            {children}
-        </Link>
+            <span className="truncate">{children}</span>
+        </Button>
     )
 }

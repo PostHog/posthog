@@ -87,6 +87,12 @@ def _structured_data_json(metadata: _PageMetadata, canonical_url: str) -> str:
     return json.dumps(structured_data).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
+def is_indexable_page(path: str) -> bool:
+    """Whether search engines may index the page at `path`. Only the public pages with search
+    metadata qualify, so an invite link such as `/signup/<id>` does not."""
+    return path.rstrip("/") in _PUBLIC_PAGE_METADATA
+
+
 def public_page_metadata_context(request: HttpRequest) -> dict[str, str]:
     """Template context for the search and link-preview tags of a public page, or an empty
     dict for every other path. The canonical URL drops the query string, so links such as

@@ -782,6 +782,7 @@ def _save_needs_account_token() -> SavedPage:
             "Skipped, because a server token can't read domains or sender signatures. To list them, import this step "
             "again with the account token, or add your domains in PostHog by hand.",
         ),
+        skipped=True,
     )
 
 

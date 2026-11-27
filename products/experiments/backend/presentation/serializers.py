@@ -45,6 +45,7 @@ from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.facade import experiment_validation
+from products.experiments.backend.facade.api import RECALCULATION_REQUEST_TRIGGER_CHOICES, RECALCULATION_STATUS_CHOICES
 from products.experiments.backend.facade.contracts import (
     DEFAULT_LIST_LIMIT,
     FIRST_SESSION_HORIZON_HOURS,
@@ -88,7 +89,6 @@ from products.experiments.backend.facade.enums import (
     MetricSourceRole,
 )
 from products.experiments.backend.facade.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.models.experiment import ExperimentMetricsRecalculation
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -1868,7 +1868,7 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.RequestTrigger.choices,
+        choices=RECALCULATION_REQUEST_TRIGGER_CHOICES,
         required=False,
         default="manual",
         help_text=(
@@ -1883,7 +1883,7 @@ class ActiveRecalculationRunSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True, help_text="Identifier of the run that is still executing")
     status = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Status.choices,
+        choices=RECALCULATION_STATUS_CHOICES,
         read_only=True,
         help_text="Status of the executing run (pending or in_progress)",
     )
@@ -1899,7 +1899,7 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
     experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
     status = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Status.choices,
+        choices=RECALCULATION_STATUS_CHOICES,
         read_only=True,
         help_text="Current status of the recalculation job",
     )
