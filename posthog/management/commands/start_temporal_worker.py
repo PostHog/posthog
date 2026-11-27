@@ -18,6 +18,7 @@ from posthog.temporal.common.open_telemetry import initialize_otel
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand, CommandError
+    from django.db import Error as DjangoDatabaseError
 
 from posthog.hogql import parser as hogql_parser
 
@@ -27,8 +28,6 @@ from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
     EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
-    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
-    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.alerts import (
@@ -113,7 +112,6 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
-from posthog.temporal.session_replay.copy_recording import COPY_RECORDING_ACTIVITIES, COPY_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.count_playlist_items import (
     COUNT_PLAYLIST_ITEMS_ACTIVITIES,
     COUNT_PLAYLIST_ITEMS_WORKFLOWS,
@@ -154,6 +152,7 @@ from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
 from products.warehouse_sources.backend.facade.temporal import (
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
     load_all_sources,
+    load_sources_in_use,
 )
 
 # When adding modules to a queue, also add their paths to that fleet's filter: the
@@ -224,13 +223,11 @@ _task_queue_specs: list[tuple[str, typing.Any, typing.Any]] = [
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
         COUNT_PLAYLIST_ITEMS_WORKFLOWS
-        + COPY_RECORDING_WORKFLOWS
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
         + REPLAY_COUNT_METRICS_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
-        + COPY_RECORDING_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
@@ -239,8 +236,8 @@ _task_queue_specs: list[tuple[str, typing.Any, typing.Any]] = [
     (settings.WEEKLY_DIGEST_TASK_QUEUE, WEEKLY_DIGEST_WORKFLOWS, WEEKLY_DIGEST_ACTIVITIES),
     (
         settings.LLMA_EVALS_TASK_QUEUE,
-        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
-        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
+        LLM_ANALYTICS_EVAL_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES,
     ),
     (settings.LLMA_TASK_QUEUE, LLM_ANALYTICS_WORKFLOWS, LLM_ANALYTICS_ACTIVITIES),
     (
@@ -281,6 +278,19 @@ ACTIVITIES_DICT = _activities
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
     """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
+
+
+def preload_data_import_sources() -> None:
+    if settings.TEMPORAL_PRELOAD_ALL_DATA_IMPORT_SOURCES:
+        load_all_sources()
+        return
+    try:
+        load_sources_in_use()
+    except DjangoDatabaseError:
+        # Importing a source late can register its vendor SDK twice, so a worker that cannot read the
+        # source types imports every source, as it does by default, instead of importing none.
+        LOGGER.warning("Could not read the source types in use, so importing every data import source", exc_info=True)
+        load_all_sources()
 
 
 if settings.DEBUG or settings.TEMPORAL_USE_SINGLE_TASK_QUEUE:
@@ -464,7 +474,7 @@ class Command(BaseCommand):
         # registration recur and broke unrelated syncs with "duplicate symbol". Other workers never
         # import the vendor SDKs, so they keep their fast startup.
         if workflows_include_data_import_syncs(workflows):
-            load_all_sources()
+            preload_data_import_sources()
 
         # Temporal keeps workflow tasks and activity tasks apart even on one queue name, so a workflows
         # worker and an activities worker on the same queue split its work between them. This runs after

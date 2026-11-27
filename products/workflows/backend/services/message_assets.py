@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 
 from products.workflows.backend.facade.contracts import MessageAsset
 
@@ -216,19 +217,20 @@ def fetch_message_assets_for_invocations(
         )
         WHERE latest_is_deleted = 0
     """
-    results = cast(
-        list,
-        sync_execute(
-            query,
-            {
-                "team_id": team_id,
-                "invocation_ids": list(invocation_ids),
-                "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
-            },
-            workload=Workload.ONLINE,
-            team_id=team_id,
-        ),
-    )
+    with tags_context(query_type="message_assets_for_invocations"):
+        results = cast(
+            list,
+            sync_execute(
+                query,
+                {
+                    "team_id": team_id,
+                    "invocation_ids": list(invocation_ids),
+                    "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+                },
+                workload=Workload.ONLINE,
+                team_id=team_id,
+            ),
+        )
     return [_build_asset(row) for row in results]
 
 

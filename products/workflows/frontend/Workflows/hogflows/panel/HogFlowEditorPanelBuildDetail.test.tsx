@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -16,7 +16,10 @@ import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 const WORKFLOW_ID = 'wf-transactional-category'
 const EMAIL_NODE_ID = 'transactional_email'
 
-const transactionalEmailWorkflow = (messageCategoryId: string | null): HogFlow => ({
+const transactionalEmailWorkflow = (
+    messageCategoryId: string | null,
+    stepConfig: Record<string, boolean> = {}
+): HogFlow => ({
     id: WORKFLOW_ID,
     name: 'Usage spike detected',
     actions: [
@@ -40,6 +43,7 @@ const transactionalEmailWorkflow = (messageCategoryId: string | null): HogFlow =
                 template_id: 'template-email',
                 message_category_id: messageCategoryId,
                 message_category_type: 'transactional',
+                ...stepConfig,
                 inputs: {
                     email: {
                         templating: 'liquid',
@@ -82,9 +86,42 @@ const categories = [
     { id: 'cat-billing', key: 'billing', name: 'Billing', category_type: 'transactional' },
 ]
 
-describe('HogFlowEditorPanelBuildDetail message category', () => {
-    let logic: ReturnType<typeof workflowLogic.build>
+const emailStepMocks = (
+    messageCategoryId: string | null,
+    stepConfig: Record<string, boolean> = {}
+): Parameters<typeof useMocks>[0] => ({
+    get: {
+        '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId, stepConfig),
+        '/api/projects/:team_id/hog_function_templates/': () => new Promise(() => {}),
+        '/api/environments/:team_id/messaging_categories/': { results: categories, count: 2, next: null },
+    },
+})
 
+async function renderEmailStep(): Promise<ReturnType<typeof render>> {
+    initKeaTests()
+    const props = { id: WORKFLOW_ID }
+    logic = workflowLogic(props)
+    logic.mount()
+    await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+    const editorLogic = hogFlowEditorLogic(props)
+    editorLogic.mount()
+    await expectLogic(optOutCategoriesLogic()).toDispatchActions(['loadCategoriesSuccess'])
+    editorLogic.actions.setSelectedNodeId(EMAIL_NODE_ID)
+
+    return render(
+        <Provider>
+            <BindLogic logic={workflowLogic} props={props}>
+                <BindLogic logic={hogFlowEditorLogic} props={props}>
+                    <HogFlowEditorPanelBuildDetail />
+                </BindLogic>
+            </BindLogic>
+        </Provider>
+    )
+}
+
+let logic: ReturnType<typeof workflowLogic.build>
+
+describe('HogFlowEditorPanelBuildDetail', () => {
     afterEach(() => {
         cleanup()
         logic?.unmount()
@@ -93,36 +130,38 @@ describe('HogFlowEditorPanelBuildDetail message category', () => {
     it.each([
         ['names the type of a transactional step saved without a category', null, 'Transactional, no category'],
         ['shows the chosen category of a transactional step', 'cat-billing', 'Billing'],
-    ])('%s', async (_, messageCategoryId, shown) => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId),
-                '/api/projects/:team_id/hog_function_templates/': () => new Promise(() => {}),
-                '/api/environments/:team_id/messaging_categories/': { results: categories, count: 2, next: null },
-            },
-        })
-        initKeaTests()
-        const props = { id: WORKFLOW_ID }
-        logic = workflowLogic(props)
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-        const editorLogic = hogFlowEditorLogic(props)
-        editorLogic.mount()
-        await expectLogic(optOutCategoriesLogic()).toDispatchActions(['loadCategoriesSuccess'])
-        editorLogic.actions.setSelectedNodeId(EMAIL_NODE_ID)
-
-        render(
-            <Provider>
-                <BindLogic logic={workflowLogic} props={props}>
-                    <BindLogic logic={hogFlowEditorLogic} props={props}>
-                        <HogFlowEditorPanelBuildDetail />
-                    </BindLogic>
-                </BindLogic>
-            </Provider>
-        )
+    ])('message category: %s', async (_, messageCategoryId, shown) => {
+        useMocks(emailStepMocks(messageCategoryId))
+        await renderEmailStep()
 
         expect(screen.getByText('Message category')).toBeInTheDocument()
         expect(screen.getByText(shown)).toBeInTheDocument()
         expect(screen.queryByText('Select message type')).not.toBeInTheDocument()
+    })
+
+    it('turns off connecting clicks to sessions for this email', async () => {
+        useMocks(emailStepMocks('cat-billing'))
+        const { container } = await renderEmailStep()
+
+        fireEvent.click(container.querySelector('[data-attr="workflow-email-run-link-tag-toggle"]') as HTMLElement)
+
+        const emailStep = logic.values.workflow.actions.find((action) => action.id === EMAIL_NODE_ID)
+        expect(emailStep?.config).toMatchObject({ run_link_tag_enabled: false })
+    })
+
+    it.each([
+        ['while tracking is off', {}, true],
+        ['on a step saved as sensitive', { sensitive: true }, false],
+        ['on a step with link click tracking off', { click_tracking_enabled: false }, false],
+    ])('hides the connect clicks to sessions switch %s', async (_, stepConfig, turnTrackingOff) => {
+        useMocks(emailStepMocks('cat-billing', stepConfig))
+        const { container } = await renderEmailStep()
+
+        if (turnTrackingOff) {
+            fireEvent.click(container.querySelector('[data-attr="workflow-email-tracking-toggle"]') as HTMLElement)
+        }
+
+        expect(container.querySelector('[data-attr="workflow-email-tracking-toggle"]')).toBeInTheDocument()
+        expect(container.querySelector('[data-attr="workflow-email-run-link-tag-toggle"]')).not.toBeInTheDocument()
     })
 })

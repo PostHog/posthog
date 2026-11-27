@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { buildToolResultPayload } from '@/lib/build-tool-result'
 import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
+import { PostHogValidationError } from '@/lib/errors'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { Context } from '@/tools/types'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
@@ -504,7 +505,9 @@ describe('createQueryWrapper trace redaction and compaction', () => {
 
             expect(JSON.stringify(payload.content).length).toBeLessThanOrEqual(MCP_TOOL_OUTPUT_CHAR_BUDGET)
             expect(result).toMatchObject({ _posthogUrl: 'http://localhost:8010/project/1/ai-observability/traces' })
-            expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({ query: params })
+            expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({
+                query: { ...params, eventsLimit: 1_000 },
+            })
         }
     )
 
@@ -578,7 +581,10 @@ describe('createQueryWrapper trace redaction and compaction', () => {
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
     })
 
-    it('strips detail from the trace query body, which the backend rejects unknown fields on', async () => {
+    it.each([
+        ['TraceQuery', { kind: 'TraceQuery', eventsLimit: 1_000 }],
+        ['TracesQuery', { kind: 'TracesQuery' }],
+    ])('%s strips detail and caps only single-trace events', async (kind, expectedQuery) => {
         const runQuery = vi.fn().mockResolvedValue({ results: [] })
         const context = {
             api: {
@@ -588,10 +594,73 @@ describe('createQueryWrapper trace redaction and compaction', () => {
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
         } as unknown as Context
 
-        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
-        await tool.handler(context, fullDetailParams)
+        const tool = createQueryWrapper({ name: 'test', schema, kind })()
+        await tool.handler(context, { kind, detail: 'full' } as { kind: string })
 
-        expect(runQuery).toHaveBeenCalledWith({ query: { kind: 'TraceQuery' } })
+        expect(runQuery).toHaveBeenCalledWith({ query: expectedQuery })
+    })
+
+    it('reports the events cap only when the backend left events out', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
+        const run = async (hasMore: boolean): Promise<any> => {
+            const context = {
+                api: {
+                    query: vi.fn().mockReturnValue({
+                        runQuery: vi.fn().mockResolvedValue({ results: [{ id: 'trace-1', events: [] }], hasMore }),
+                    }),
+                    getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+                },
+                stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+            } as unknown as Context
+            return tool.handler(context, fullDetailParams)
+        }
+
+        expect(await run(true)).toMatchObject({
+            _eventsLimit: { limit: 1_000, note: expect.stringContaining('properties.$ai_trace_id') },
+        })
+        expect(await run(false)).not.toHaveProperty('_eventsLimit')
+    })
+
+    describe('when the backend rejects the query', () => {
+        const runAgainst = (detail: string): { runQuery: ReturnType<typeof vi.fn>; result: Promise<unknown> } => {
+            const runQuery = vi
+                .fn()
+                .mockRejectedValueOnce(
+                    new PostHogValidationError({
+                        detail: `JSON parse error - ${detail}`,
+                        attr: undefined,
+                        code: 'parse_error',
+                        extra: undefined,
+                        url: '/api/environments/1/query/',
+                        method: 'POST',
+                    })
+                )
+                .mockResolvedValue({ results: [] })
+            const context = {
+                api: {
+                    query: vi.fn().mockReturnValue({ runQuery }),
+                    getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+                },
+                stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+            } as unknown as Context
+            const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
+            return { runQuery, result: tool.handler(context, fullDetailParams) }
+        }
+
+        it('retries once without the cap when an older backend rejects eventsLimit', async () => {
+            const { runQuery, result } = runAgainst('query.TraceQuery.eventsLimit\n  Extra inputs are not permitted')
+
+            await result
+            expect(runQuery).toHaveBeenCalledTimes(2)
+            expect(runQuery).toHaveBeenLastCalledWith({ query: { kind: 'TraceQuery' } })
+        })
+
+        it('rethrows a validation error about another field', async () => {
+            const { runQuery, result } = runAgainst('query.TraceQuery.traceId\n  Field required')
+
+            await expect(result).rejects.toBeInstanceOf(PostHogValidationError)
+            expect(runQuery).toHaveBeenCalledTimes(1)
+        })
     })
 })
 

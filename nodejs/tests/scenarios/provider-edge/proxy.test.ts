@@ -13,6 +13,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
 import { ValveContext, createValves } from '../valves/valves'
+import { ruleOf } from './faults'
 
 describe('provider edge proxy', () => {
     let caDir: string
@@ -118,22 +119,56 @@ describe('provider edge proxy', () => {
     }
 
     const startValve = async (entry = ANSWER_503) => {
+        let held = (): void => undefined
+        const actuated = new Promise<void>((resolve) => (held = resolve))
         const context: ValveContext = {
             commits: () => [],
             environment: {
-                actuate: (action) =>
-                    action.kind === 'edge.fault'
-                        ? Promise.resolve(edge.hold(action.rule))
-                        : Promise.reject(new Error(`no ${action.kind} here`)),
+                actuate: (action) => {
+                    if (action.kind !== 'edge.fault') {
+                        return Promise.reject(new Error(`no ${action.kind} here`))
+                    }
+                    const hold = edge.hold(action.rule)
+                    held()
+                    return Promise.resolve(hold)
+                },
             },
             probe: { runningJobs: () => Promise.resolve(0) },
             teams: [],
         }
         const valves = createValves({ pollMs: 5 })
         await valves.start([entry], context)
-        await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+        await actuated
         return valves
     }
+
+    const registerOverHttp = async (fault: object): Promise<undefined> => {
+        expect((await control('POST', '/_faults', fault)).status).toBe(201)
+        return undefined
+    }
+
+    it('picks a webhook that names no unit by its host and path alone, and lists no unit for it', async () => {
+        const answerUnder = async (target: string): Promise<{ status: number; hits?: string[] }> => {
+            const hold = edge.hold({
+                ...ruleOf({ name: 'dest.status', params: { code: 503 }, dose: { share: 0.5 } }),
+                pick: '17:0',
+            })
+            const response = await request(`https://${WEBHOOK_HOST}${target}`, {
+                method: 'POST',
+                dispatcher: client,
+                body: '{}',
+            })
+            await response.body.text()
+            const hits = await hold.hits?.()
+            await hold.release()
+            return { status: response.statusCode, hits }
+        }
+
+        expect([await answerUnder('/hook?sig=one'), await answerUnder('/other?sig=one')]).toEqual([
+            { status: 503, hits: [] },
+            { status: 200, hits: [] },
+        ])
+    })
 
     it('answers webhooks with the status of a dest.status valve until the valve releases', async () => {
         const valves = await startValve()
@@ -148,6 +183,49 @@ describe('provider edge proxy', () => {
             error: undefined,
         })
     })
+
+    const ACCEPTED_CALLS = [
+        ['run-1-1', 200, 'dest.ambiguous'],
+        ['run-1-2', 200, undefined],
+    ]
+    const REFUSED_CALLS = [['run-1-2', 200, undefined]]
+
+    it.each<[string, boolean, (number | string | undefined)[][]]>([
+        ['a valve', true, ACCEPTED_CALLS],
+        ['a valve', false, REFUSED_CALLS],
+        ['a card fault over HTTP', true, ACCEPTED_CALLS],
+        ['a card fault over HTTP', false, REFUSED_CALLS],
+    ])(
+        'drops the connection of the next webhook with dest.ambiguous as %s, accepted %s, recording only what the destination took',
+        async (registeredAs, accepted, calls) => {
+            const valves =
+                registeredAs === 'a valve'
+                    ? await startValve({
+                          valve: 'dest.ambiguous',
+                          target: WEBHOOK_HOST,
+                          dose: { accepted, count: 1 },
+                          at: '0ms',
+                          for: '1m',
+                      })
+                    : await registerOverHttp({
+                          name: 'dest.ambiguous',
+                          params: { accepted },
+                          match: { host: WEBHOOK_HOST },
+                          dose: { count: 1 },
+                      })
+
+            const dropped = await callWebhook('run-1-1').catch((error: Error) => error.name)
+            const next = await callWebhook('run-1-2')
+            await valves?.releaseAll()
+
+            expect({
+                outcomes: [dropped, next],
+                calls: (await truth()).map(({ unitId, status, fault }) => [unitId, status, fault]),
+                error: valves?.timeline()[0].error,
+                observed: valves === undefined || valves.timeline()[0].observedAt !== undefined,
+            }).toEqual({ outcomes: ['SocketError', 200], calls, error: undefined, observed: true })
+        }
+    )
 
     it.each<[string, string, boolean]>([
         ['its hold ends', '100ms', true],

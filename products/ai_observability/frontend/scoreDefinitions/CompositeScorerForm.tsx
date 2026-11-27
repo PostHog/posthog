@@ -13,24 +13,84 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import type { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { ResourceTagFilter } from '../components/ResourceTagFilter'
+import { ExperimentScoreResult } from '../offline-evaluations/ExperimentScoreResult'
 import { defaultCompositeExpression } from './compositeFormulaDefaults'
 import { compositeInputsLogic } from './compositeInputsLogic'
+import { getCategoricalConfig, getNumericConfig } from './scoreDefinitionConfigUtils'
 import { buildCompositionFromDraft, buildConfigFromDraft, type ScoreDefinitionDraft } from './scoreDefinitionModalUtils'
 
 export interface CompositeScorerFormProps {
+    experimentId?: string
     draft: ScoreDefinitionDraft
     disabled: boolean
     setDraftField: (field: keyof ScoreDefinitionDraft, value: ScoreDefinitionDraft[keyof ScoreDefinitionDraft]) => void
 }
 
-export function CompositeScorerForm({ draft, disabled, setDraftField }: CompositeScorerFormProps): JSX.Element {
+function explainedOption<T extends string>(value: T, label: string, example: string): LemonSelectOptionLeaf<T> {
+    return {
+        value,
+        label,
+        labelInMenu: (
+            <span className="flex flex-col gap-0.5 py-1 whitespace-normal">
+                <span>{label}</span>
+                <span className="text-xs text-muted font-normal">{example}</span>
+            </span>
+        ),
+    }
+}
+
+const versionPolicies = [
+    explainedOption(
+        'run',
+        'One version per run',
+        'Use v3 or v4. If both return scores, this input is unavailable. Errors and skips do not count.'
+    ),
+    explainedOption('exact', 'Exact version', 'Choose v3 to count only the items scored by v3.'),
+    explainedOption(
+        'combine',
+        'Combine versions',
+        'Pool scores from v3 and v4. Each item can contribute one successful score.'
+    ),
+]
+
+function experimentStatistics(
+    input: Pick<ScoreDefinitionDraft['inputs'][number], 'kind' | 'config'>
+): LemonSelectOptionLeaf<NonNullable<ScoreDefinitionDraft['inputs'][number]['statistic']>>[] {
+    const passRate = explainedOption(
+        'pass_rate',
+        'Pass rate',
+        'Share that meets the passing rule. 8 of 10 passing gives 0.8.'
+    )
+    if (input.kind === 'boolean') {
+        return [
+            passRate,
+            explainedOption('true_rate', 'True rate', 'Share scored true, even when false is the passing value.'),
+        ]
+    }
+    const base =
+        input.kind === 'numeric'
+            ? explainedOption('mean', 'Mean', 'Average of the numeric scores. Scores of 2 and 4 give 3.')
+            : explainedOption('category_rate', 'Category rate', 'Share with the selected category. 3 of 10 gives 0.3.')
+    const config = input.kind === 'numeric' ? getNumericConfig(input.config) : getCategoricalConfig(input.config)
+    return config.passing_rule ? [base, passRate] : [base]
+}
+
+export function CompositeScorerForm({
+    draft,
+    disabled,
+    setDraftField,
+    experimentId,
+}: CompositeScorerFormProps): JSX.Element {
     const id = useId()
     const logic = compositeInputsLogic({
         id,
+        scope: draft.scope,
+        experimentId,
         initialDefinitionIds: [...new Set(draft.inputs.map((input) => input.definition_id))],
     })
     const {
@@ -55,6 +115,7 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
     const checked =
         validation?.fingerprint ===
         JSON.stringify({
+            ...(draft.scope === 'experiment' ? { scope: draft.scope } : {}),
             kind: draft.kind,
             composition: buildCompositionFromDraft(draft),
             config: buildConfigFromDraft(draft),
@@ -65,7 +126,7 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
     return (
         <section className="flex flex-col gap-4 @container/composite-form" aria-labelledby={`${id}-heading`}>
             <h3 id={`${id}-heading`} className="mb-0">
-                Composite calculation
+                {draft.scope === 'experiment' ? 'Experiment score formula' : 'Composite calculation'}
             </h3>
             {draft.inputs.map((input, index) => {
                 const loadedLatest = versions[input.definition_id]?.results[0]
@@ -111,89 +172,130 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                                     data-attr="aio-composite-input-alias"
                                 />
                             </LemonField.Pure>
-                            <LemonField.Pure label="Version">
-                                <div className="flex flex-wrap gap-2 items-center">
-                                    <LemonSelect
-                                        value={input.scorer_version_id}
-                                        data-attr="aio-composite-input-version"
-                                        disabledReason={
-                                            disabled
-                                                ? 'Saving scorer'
-                                                : versionsLoadingById[input.definition_id]
-                                                  ? 'Loading versions'
-                                                  : undefined
-                                        }
-                                        options={[
-                                            { value: input.scorer_version_id, label: `Version ${input.version}` },
-                                            ...(versions[input.definition_id]?.results || [])
-                                                .filter((version) => version.id !== input.scorer_version_id)
-                                                .map((version) => ({
-                                                    value: version.id,
-                                                    label: `Version ${version.version}`,
-                                                })),
-                                        ]}
-                                        onChange={(value) => {
-                                            const version = versions[input.definition_id]?.results.find(
-                                                (version) => version.id === value
-                                            )
-                                            if (version) {
-                                                updateInput(index, {
-                                                    scorer_version_id: version.id,
-                                                    version: version.version,
-                                                    config: version.config,
-                                                })
+                            {draft.scope === 'experiment' && (
+                                <>
+                                    <LemonField.Pure label="Version policy">
+                                        <LemonSelect
+                                            value={input.version_policy ?? 'run'}
+                                            disabledReason={disabled ? 'Saving scorer' : undefined}
+                                            options={versionPolicies}
+                                            data-attr="aio-experiment-input-version-policy"
+                                            onChange={(version_policy) => updateInput(index, { version_policy })}
+                                        />
+                                    </LemonField.Pure>
+                                    <LemonField.Pure
+                                        label="Statistic"
+                                        info="Only items with a successful score count toward these statistics."
+                                    >
+                                        <LemonSelect
+                                            value={input.statistic}
+                                            disabledReason={disabled ? 'Saving scorer' : undefined}
+                                            options={experimentStatistics(input)}
+                                            data-attr="aio-experiment-input-statistic"
+                                            onChange={(statistic) => updateInput(index, { statistic })}
+                                        />
+                                    </LemonField.Pure>
+                                    {input.statistic === 'category_rate' && (
+                                        <LemonField.Pure label="Category">
+                                            <LemonSelect
+                                                value={input.category}
+                                                disabledReason={disabled ? 'Saving scorer' : undefined}
+                                                options={getCategoricalConfig(input.config).options.map(
+                                                    ({ key, label }) => ({ value: key, label })
+                                                )}
+                                                onChange={(category) => updateInput(index, { category })}
+                                            />
+                                        </LemonField.Pure>
+                                    )}
+                                </>
+                            )}
+                            {(draft.scope !== 'experiment' || input.version_policy === 'exact') && (
+                                <LemonField.Pure label="Version">
+                                    <div className="flex flex-wrap gap-2 items-center">
+                                        <LemonSelect
+                                            value={input.scorer_version_id}
+                                            data-attr="aio-composite-input-version"
+                                            disabledReason={
+                                                disabled
+                                                    ? 'Saving scorer'
+                                                    : versionsLoadingById[input.definition_id]
+                                                      ? 'Loading versions'
+                                                      : undefined
                                             }
-                                        }}
-                                    />
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconRefresh />}
-                                        aria-label={`Refresh versions for ${input.name}`}
-                                        tooltip="Refresh versions"
-                                        loading={versionsLoadingById[input.definition_id]}
-                                        disabledReason={disabled ? 'Saving scorer' : undefined}
-                                        data-attr="aio-composite-refresh-versions"
-                                        onClick={() => loadVersions(input.definition_id)}
-                                    />
-                                    {versions[input.definition_id]?.next_cursor && (
+                                            options={[
+                                                { value: input.scorer_version_id, label: `Version ${input.version}` },
+                                                ...(versions[input.definition_id]?.results || [])
+                                                    .filter((version) => version.id !== input.scorer_version_id)
+                                                    .map((version) => ({
+                                                        value: version.id,
+                                                        label: `Version ${version.version}`,
+                                                    })),
+                                            ]}
+                                            onChange={(value) => {
+                                                const version = versions[input.definition_id]?.results.find(
+                                                    (version) => version.id === value
+                                                )
+                                                if (version) {
+                                                    updateInput(index, {
+                                                        scorer_version_id: version.id,
+                                                        version: version.version,
+                                                        config: version.config,
+                                                    })
+                                                }
+                                            }}
+                                        />
                                         <LemonButton
                                             size="small"
+                                            icon={<IconRefresh />}
+                                            aria-label={`Refresh versions for ${input.name}`}
+                                            tooltip="Refresh versions"
                                             loading={versionsLoadingById[input.definition_id]}
                                             disabledReason={disabled ? 'Saving scorer' : undefined}
-                                            data-attr="aio-composite-more-versions"
-                                            onClick={() =>
-                                                loadVersions(
-                                                    input.definition_id,
-                                                    versions[input.definition_id].next_cursor!
-                                                )
-                                            }
-                                        >
-                                            More versions
-                                        </LemonButton>
-                                    )}
-                                </div>
-                            </LemonField.Pure>
+                                            data-attr="aio-composite-refresh-versions"
+                                            onClick={() => loadVersions(input.definition_id)}
+                                        />
+                                        {versions[input.definition_id]?.next_cursor && (
+                                            <LemonButton
+                                                size="small"
+                                                loading={versionsLoadingById[input.definition_id]}
+                                                disabledReason={disabled ? 'Saving scorer' : undefined}
+                                                data-attr="aio-composite-more-versions"
+                                                onClick={() =>
+                                                    loadVersions(
+                                                        input.definition_id,
+                                                        versions[input.definition_id].next_cursor!
+                                                    )
+                                                }
+                                            >
+                                                More versions
+                                            </LemonButton>
+                                        )}
+                                    </div>
+                                </LemonField.Pure>
+                            )}
                         </div>
-                        {latest.id && input.scorer_version_id !== latest.id && (
-                            <LemonBanner
-                                type="warning"
-                                action={{
-                                    children: `Use version ${latest.version}`,
-                                    disabledReason: disabled
-                                        ? 'Saving scorer'
-                                        : latest.config === undefined
-                                          ? 'Load this version before using it'
-                                          : undefined,
-                                    'data-attr': 'aio-composite-upgrade-input',
-                                    onClick: () =>
-                                        updateInput(index, {
-                                            scorer_version_id: latest.id!,
-                                            version: latest.version!,
-                                            config: latest.config,
-                                        }),
-                                }}
-                            >{`${input.name} has a newer version.`}</LemonBanner>
-                        )}
+                        {latest.id &&
+                            input.scorer_version_id !== latest.id &&
+                            (draft.scope !== 'experiment' || input.version_policy === 'exact') && (
+                                <LemonBanner
+                                    type="warning"
+                                    action={{
+                                        children: `Use version ${latest.version}`,
+                                        disabledReason: disabled
+                                            ? 'Saving scorer'
+                                            : latest.config === undefined
+                                              ? 'Load this version before using it'
+                                              : undefined,
+                                        'data-attr': 'aio-composite-upgrade-input',
+                                        onClick: () =>
+                                            updateInput(index, {
+                                                scorer_version_id: latest.id!,
+                                                version: latest.version!,
+                                                config: latest.config,
+                                            }),
+                                    }}
+                                >{`${input.name} has a newer version.`}</LemonBanner>
+                            )}
                     </div>
                 )
             })}
@@ -237,7 +339,8 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                                     .filter(
                                         (scorer) =>
                                             scorer.current_version_id &&
-                                            !draft.inputs.some((input) => input.definition_id === scorer.id)
+                                            (draft.scope === 'experiment' ||
+                                                !draft.inputs.some((input) => input.definition_id === scorer.id))
                                     )
                                     .map((scorer) => ({ value: scorer.id, label: `${scorer.name} (${scorer.kind})` }))}
                                 onChange={(value) => {
@@ -253,6 +356,18 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                                         ...draft.inputs,
                                         {
                                             alias: `score${suffix}`,
+                                            ...(draft.scope === 'experiment'
+                                                ? {
+                                                      statistic: experimentStatistics(scorer)[0].value,
+                                                      version_policy: 'run' as const,
+                                                      ...(scorer.kind === 'categorical'
+                                                          ? {
+                                                                category: getCategoricalConfig(scorer.config).options[0]
+                                                                    ?.key,
+                                                            }
+                                                          : {}),
+                                                  }
+                                                : {}),
                                             scorer_version_id: scorer.current_version_id,
                                             definition_id: scorer.id,
                                             name: scorer.name,
@@ -297,11 +412,13 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                     <p className="text-sm text-muted mb-0">
                         {suggested === null
                             ? 'No default fits these scoring rules and formula limits. Write a formula, or adjust the inputs and output rules.'
-                            : draft.kind === 'numeric'
-                              ? 'Averages numeric values. Passing Boolean and categorical inputs count as 1; failing inputs count as 0.'
-                              : draft.kind === 'boolean'
-                                ? `${draft.booleanPassing === 'false' ? 'False' : 'True'} when every input passes its rule.`
-                                : 'Returns passing categories when all inputs pass; otherwise includes a failing category.'}
+                            : draft.scope === 'experiment'
+                              ? 'Averages the selected scorer statistics.'
+                              : draft.kind === 'numeric'
+                                ? 'Averages numeric values. Passing Boolean and categorical inputs count as 1; failing inputs count as 0.'
+                                : draft.kind === 'boolean'
+                                  ? `${draft.booleanPassing === 'false' ? 'False' : 'True'} when every input passes its rule.`
+                                  : 'Returns passing categories when all inputs pass; otherwise includes a failing category.'}
                     </p>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
@@ -319,7 +436,9 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                         }
                         onClick={() => validateFormula(draft)}
                     >
-                        Validate formula
+                        {experimentId && draft.scope === 'experiment'
+                            ? 'Preview on this experiment'
+                            : 'Validate formula'}
                     </LemonButton>
                     {draft.expressionIsCustom && suggested && (
                         <LemonButton
@@ -332,7 +451,8 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                         </LemonButton>
                     )}
                 </div>
-                {checked && (
+                {checked?.preview && <ExperimentScoreResult score={checked.preview} />}
+                {checked && !checked.preview && (
                     <LemonBanner type={checked.error ? 'error' : 'success'}>
                         {checked.error ||
                             'Formula and output configuration are valid. Values are checked when results arrive.'}
@@ -350,13 +470,24 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                             <LemonTable
                                 size="small"
                                 rowKey="name"
-                                dataSource={[
-                                    { name: 'Weighted average', formula: '(2 * score1 + score2) / 3' },
-                                    { name: 'Both Boolean values are true', formula: 'score1 and score2' },
-                                    { name: 'True as 1, false as 0', formula: 'number(score1)' },
-                                    { name: 'Check a category', formula: '"good" in score1' },
-                                    { name: 'Choose a category', formula: '"good" if score1 else "bad"' },
-                                ]}
+                                dataSource={
+                                    draft.scope === 'experiment'
+                                        ? [
+                                              { name: 'Weighted pass rates', formula: '0.7 * score1 + 0.3 * score2' },
+                                              { name: 'Both rates reach 90%', formula: 'min(score1, score2) >= 0.9' },
+                                              {
+                                                  name: 'Choose a category',
+                                                  formula: '"good" if score1 >= 0.9 else "bad"',
+                                              },
+                                          ]
+                                        : [
+                                              { name: 'Weighted average', formula: '(2 * score1 + score2) / 3' },
+                                              { name: 'Both Boolean values are true', formula: 'score1 and score2' },
+                                              { name: 'True as 1, false as 0', formula: 'number(score1)' },
+                                              { name: 'Check a category', formula: '"good" in score1' },
+                                              { name: 'Choose a category', formula: '"good" if score1 else "bad"' },
+                                          ]
+                                }
                                 columns={[
                                     { title: 'Use case', dataIndex: 'name' },
                                     {

@@ -42,8 +42,51 @@ function AddedThemButton({ primary }: { primary?: boolean }): JSX.Element {
     )
 }
 
-function AutoConfigureChoice(): JSX.Element {
+function AutoConfigureButton(): JSX.Element {
     const { hostName, autoConfigureLoading } = useValues(emailDomainAutoConfigureLogic)
+    const { openAutoConfigure } = useActions(emailDomainAutoConfigureLogic)
+    return (
+        <>
+            <BigAction
+                onClick={openAutoConfigure}
+                loading={autoConfigureLoading}
+                disabledReason={autoConfigureLoading ? 'Opening' : undefined}
+                data-attr="email-domain-auto-configure"
+            >
+                Add them to {hostName} for me
+            </BigAction>
+            <span className="text-xs text-secondary">You approve it once in {hostName}. Nothing else changes.</span>
+        </>
+    )
+}
+
+function WaitingForHost(): JSX.Element {
+    const { hostName } = useValues(emailDomainAutoConfigureLogic)
+    const { checkAutoConfigureAgain } = useActions(emailDomainAutoConfigureLogic)
+    const { rechecking } = useValues(emailDomainStatusLogic)
+    return (
+        <>
+            <p className="m-0 text-sm font-semibold text-center text-balance">
+                Approve the settings in {hostName}, then come back to this tab.
+            </p>
+            <BigAction
+                icon={<IconRefresh />}
+                onClick={checkAutoConfigureAgain}
+                loading={rechecking}
+                disabledReason={rechecking ? 'Checking' : undefined}
+                data-attr="email-domain-auto-configure-check-again"
+            >
+                Check again
+            </BigAction>
+            <span className="text-xs text-secondary text-center text-balance">
+                If {hostName} does not finish, add the settings yourself.
+            </span>
+        </>
+    )
+}
+
+function AutoConfigureChoice(): JSX.Element {
+    const { hostName, autoConfigureLoading, waitingForAutoConfigure } = useValues(emailDomainAutoConfigureLogic)
     const { openAutoConfigure } = useActions(emailDomainAutoConfigureLogic)
     const { recordsRevealed } = useValues(emailDomainManualSetupLogic)
     const { revealRecords } = useActions(emailDomainManualSetupLogic)
@@ -51,16 +94,19 @@ function AutoConfigureChoice(): JSX.Element {
     return (
         <div className="flex flex-col gap-6">
             <div className="flex flex-col items-center gap-2">
-                <BigAction
-                    onClick={openAutoConfigure}
-                    loading={autoConfigureLoading}
-                    disabledReason={autoConfigureLoading ? 'Opening' : undefined}
-                    data-attr="email-domain-auto-configure"
-                >
-                    Add them to {hostName} for me
-                </BigAction>
-                <span className="text-xs text-secondary">You approve it once in {hostName}. Nothing else changes.</span>
+                {waitingForAutoConfigure ? <WaitingForHost /> : <AutoConfigureButton />}
                 <div className="flex flex-wrap justify-center gap-1">
+                    {waitingForAutoConfigure && (
+                        <LemonButton
+                            type="tertiary"
+                            onClick={openAutoConfigure}
+                            loading={autoConfigureLoading}
+                            disabledReason={autoConfigureLoading ? 'Opening' : undefined}
+                            data-attr="email-domain-auto-configure-reopen"
+                        >
+                            Open {hostName} again
+                        </LemonButton>
+                    )}
                     {!recordsRevealed && (
                         <LemonButton type="tertiary" onClick={revealRecords} data-attr="email-domain-reveal-records">
                             I'll add them myself

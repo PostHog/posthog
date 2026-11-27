@@ -61,7 +61,8 @@ def _build_params(
     if config.incremental:
         # The default sort key is `updated_at` unless the endpoint sets `sort_by`; ascending order
         # lets the pipeline advance its incremental watermark deterministically.
-        params["sort_direction"] = "ASC"
+        if config.sort_direction:
+            params["sort_direction"] = config.sort_direction
         if config.sort_by:
             params["sort_by"] = config.sort_by
 
@@ -220,5 +221,5 @@ def salesloft_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        sort_mode="asc" if config.sort_direction else None,
     )

@@ -220,11 +220,12 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
 
         fill_query = self._get_fill_query()
 
-        limit = 1_000
+        interval_count = len(self._date_range().all_values())
+        limit = max(1_000, interval_count)
         if self.context.breakdown:
             breakdown_limit = self.get_breakdown_limit()
             if breakdown_limit:
-                limit = breakdown_limit * len(self._date_range().all_values())
+                limit = breakdown_limit * interval_count
 
             not_in_cohort_union = ""
             extra_placeholders: dict[str, ast.Expr] = {}
@@ -463,6 +464,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             team=self.context.team,
             interval=self.context.query.interval,
             now=self.context.now,
+            earliest_timestamp_fallback=self.context.earliest_timestamp_fallback,
         )
 
     # The fill query returns all the start_interval dates in the response

@@ -1,6 +1,9 @@
+from .advent_calendar_answer import AdventCalendarAnswer
+from .advent_calendar_door_open import AdventCalendarDoorOpen
 from .hog_flow.hog_flow import HogFlow
 from .hog_flow.hog_flow_template import HogFlowTemplate
 from .hog_flow_batch_job import HogFlowBatchJob, HogFlowBatchJobAudienceMember
+from .hog_flow_conversion_goal import HogFlowConversionGoal
 from .hog_flow_optimization import HogFlowOptimization
 from .hog_flow_revision import HogFlowRevision
 from .hog_flow_schedule.hog_flow_schedule import HogFlowSchedule
@@ -13,9 +16,12 @@ from .workflow_import import WorkflowImport
 from .workflow_proposal import WorkflowProposal
 
 __all__ = [
+    "AdventCalendarAnswer",
+    "AdventCalendarDoorOpen",
     "HogFlow",
     "HogFlowBatchJob",
     "HogFlowBatchJobAudienceMember",
+    "HogFlowConversionGoal",
     "HogFlowOptimization",
     "HogFlowRevision",
     "HogFlowSchedule",

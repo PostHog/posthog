@@ -42,6 +42,8 @@ const mockScoreDefinition: ScoreDefinition = {
     kind: 'categorical',
     archived: false,
     current_version: 2,
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     input_scorers: [],
@@ -63,6 +65,8 @@ const mockScoreDefinition: ScoreDefinition = {
     },
     created_at: '2026-03-11T00:00:00Z',
     updated_by: null,
+    created_by_project_key_id: null,
+    updated_by_project_key_id: null,
     updated_at: '2026-03-11T00:00:00Z',
     team: MOCK_DEFAULT_TEAM.id,
 }

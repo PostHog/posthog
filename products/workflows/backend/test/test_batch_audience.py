@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flu
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.redis import get_client as get_redis_client
 
@@ -17,12 +18,7 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortTeamAccess,
 )
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
-from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
-from products.workflows.backend.services.batch_audience import (
-    audience_page_size,
-    get_batch_audience_person_ids,
-    get_batch_audience_person_ids_snapshot,
-)
+from products.workflows.backend.services.batch_audience import get_batch_audience_person_ids_snapshot
 from products.workflows.backend.services.blast_radius import get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
@@ -50,19 +46,6 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         [
             # Duplicate emails (case/whitespace variants) collapse to the smallest UUID;
             # persons without an email (missing or empty) each keep their own entry.
-            ("email_dedupe", "email", [1, 3, 4, 5]),
-            ("no_dedupe", None, [1, 2, 3, 4, 5]),
-        ]
-    )
-    def test_audience_dedupe_by_email(self, _name, dedupe_key, expected_indices):
-        self._create_audience(["Dup@X.com", " dup@x.com ", "b@x.com", None, ""])
-
-        result = get_batch_audience_person_ids(self.team, FILTERS, dedupe_key=dedupe_key)
-
-        assert sorted(result) == [_uuid(i) for i in expected_indices]
-
-    @parameterized.expand(
-        [
             ("email_dedupe", "email", 10, [1, 3, 4, 5]),
             ("no_dedupe", None, 10, [1, 2, 3, 4, 5]),
             # The cap cuts the audience in id order, so the resolver's truncation sees the same first persons.
@@ -78,43 +61,81 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert result == [_uuid(i) for i in expected_indices]
 
-    def test_audience_without_dedupe_matches_legacy_query(self):
-        self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])
+    def test_test_account_filters_that_only_apply_to_events_are_left_out(self):
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": "localhost", "operator": "is_not"},
+            {"key": "email", "type": "person", "value": "@internal.example.com", "operator": "not_icontains"},
+        ]
+        self.team.save()
+        self._create_audience(["a@example.com", "b@internal.example.com", "c@example.com"])
+        filters = {**FILTERS, "filter_test_accounts": True}
 
-        assert sorted(get_batch_audience_person_ids(self.team, FILTERS)) == sorted(
-            get_user_blast_radius_persons(self.team, FILTERS)
+        snapshot = get_batch_audience_person_ids_snapshot(
+            self.team, filters, dedupe_key=None, limit=10, settings=bounded_memory_settings()
         )
+        preview = get_audience_size(
+            team_id=self.team.pk, filters=filters, group_type_index=None, dedupe_key=None, sends_email=False
+        )
+
+        assert snapshot == [_uuid(1), _uuid(3)]
+        assert preview.affected == 2
+        assert preview.skipped_test_account_filters == ["$host"]
 
     @parameterized.expand(
         [
-            ("email_dedupe", "email", [1, 2, 3, 5]),
-            ("no_dedupe", None, [1, 2, 3, 4, 5]),
+            (f"{name}_{dedupe_key}", sql, dedupe_key)
+            for name, sql in [
+                ("person_id", f"person_id != '{_uuid(2)}'"),
+                ("person_field", f"person.id != '{_uuid(2)}'"),
+                ("person_property", "not ifNull(person.properties.email ILIKE '%@internal.example.com', 0)"),
+                # The person without an email stays, because a missing value does not match the pattern.
+                ("person_property_regex", "person.properties.email !~* '@INTERNAL[.]'"),
+                ("after_non_ascii_text", f"'é😀' != 'x' and person_id != '{_uuid(2)}'"),
+                ("beside_a_lambda", f"arrayExists(person_id -> person_id = 1, [1]) and person_id != '{_uuid(2)}'"),
+                (
+                    "person_id_of_a_subquery_stays_its_own",
+                    f"person_id NOT IN (SELECT person_id FROM person_distinct_ids WHERE person_id = '{_uuid(2)}')",
+                ),
+            ]
+            for dedupe_key in (None, "email")
         ]
     )
-    def test_pagination_emits_each_email_exactly_once(self, _name, dedupe_key, expected_indices):
-        # Person 4 duplicates person 1's email but sorts onto a later page — if the cursor
-        # were applied inside the aggregation, min(id) would be recomputed per page and
-        # a@x.com would be emitted twice.
-        self._create_audience(["a@x.com", "b@x.com", "c@x.com", "a@x.com", None])
+    def test_sql_test_account_filters_on_the_person_apply(self, _name, sql, dedupe_key):
+        self.team.test_account_filters = [{"key": sql, "type": "hogql"}]
+        self.team.save()
+        self._create_audience(["a@example.com", "b@internal.example.com", None])
+        filters = {**FILTERS, "filter_test_accounts": True}
 
-        collected: list[str] = []
-        cursor = None
-        with override_settings(WORKFLOWS_PERSON_BATCH_SIZE=2):
-            for _ in range(10):
-                page = get_batch_audience_person_ids(self.team, FILTERS, cursor=cursor, dedupe_key=dedupe_key)
-                collected.extend(page)
-                if len(page) < 2:
-                    break
-                cursor = page[-1]
+        snapshot = get_batch_audience_person_ids_snapshot(
+            self.team, filters, dedupe_key=dedupe_key, limit=10, settings=bounded_memory_settings()
+        )
+        preview = get_audience_size(
+            team_id=self.team.pk, filters=filters, group_type_index=None, dedupe_key=dedupe_key, sends_email=False
+        )
 
-        assert collected == [_uuid(i) for i in expected_indices]
+        assert snapshot == [_uuid(1), _uuid(3)]
+        assert preview.affected == 2
 
-    @override_settings(WORKFLOWS_PERSON_BATCH_SIZE=7)
-    def test_has_more_page_size_follows_the_audience_kind(self):
-        # A group audience pages through the flags-owned query with its own limit; comparing its
-        # page length against the person setting would stop after the first page.
-        assert audience_page_size(None) == 7
-        assert audience_page_size(0) == PERSON_BATCH_SIZE
+    @parameterized.expand(
+        [
+            ("invalid_regex", {"key": "email", "type": "person", "value": "(@internal", "operator": "not_regex"}),
+            ("missing_cohort", {"key": "id", "type": "cohort", "value": 999999999, "operator": "not_in"}),
+            ("event_column_in_sql", {"key": "distinct_id != 'user-1'", "type": "hogql"}),
+        ]
+    )
+    def test_a_person_test_account_filter_that_cannot_be_evaluated_fails_the_run(self, _name, test_filter):
+        self.team.test_account_filters = [test_filter]
+        self.team.save()
+        self._create_audience(["a@example.com"])
+
+        with self.assertRaises(ValidationError):
+            get_batch_audience_person_ids_snapshot(
+                self.team,
+                {**FILTERS, "filter_test_accounts": True},
+                dedupe_key=None,
+                limit=10,
+                settings=bounded_memory_settings(),
+            )
 
     @parameterized.expand(
         [
@@ -278,3 +299,24 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         )
 
         assert (size.affected, size.total) == expected
+
+    def test_audience_size_counts_again_after_the_test_account_filters_change(self):
+        self._create_audience(["a@example.com", "b@internal.example.com"])
+
+        def affected() -> int:
+            return get_audience_size(
+                team_id=self.team.pk,
+                filters={**FILTERS, "filter_test_accounts": True},
+                group_type_index=None,
+                dedupe_key=None,
+                sends_email=True,
+                use_cached_counts=True,
+            ).affected
+
+        before = affected()
+        self.team.test_account_filters = [
+            {"key": "email", "type": "person", "value": "@internal.example.com", "operator": "not_icontains"}
+        ]
+        self.team.save()
+
+        assert (before, affected()) == (2, 1)

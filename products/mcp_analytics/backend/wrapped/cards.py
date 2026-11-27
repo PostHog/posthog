@@ -7,14 +7,16 @@ skips it. The cards hold only what the story shows, so the stored payload stays 
 
 from collections.abc import Iterable, Sequence
 from datetime import date
-from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
+from products.mcp_analytics.backend.facade.enums import Archetype
 from products.mcp_analytics.backend.wrapped.model_families import OTHER_FAMILY, UNKNOWN_FAMILY
 from products.mcp_analytics.backend.wrapped.queries import DimensionRow, MonthCalls, WrappedAggregates
 
-SCHEMA_VERSION = 1
+# Bump when the stored card shape changes. Reads skip rows of any other version, so an old row never reaches
+# a frontend that expects the new shape.
+SCHEMA_VERSION = 3
 
 # A project needs this many months with real traffic. One month leaves the monthly cards nothing to compare,
 # and the first month is often a test install.
@@ -60,21 +62,14 @@ NIGHT_OWL_SHARE = 0.4
 WEEKEND_WARRIOR_SHARE = 0.35
 SPEED_DEMON_P95_MS = 250
 ROCKET_GROWTH_MULTIPLE = 5
-
-
-class Archetype(StrEnum):
-    ONE_HIT_WONDER = "one_hit_wonder"
-    SWISS_ARMY_KNIFE = "swiss_army_knife"
-    NIGHT_OWL = "night_owl"
-    WEEKEND_WARRIOR = "weekend_warrior"
-    SPEED_DEMON = "speed_demon"
-    ROCKET = "rocket"
-    ALL_ROUNDER = "all_rounder"
+# Reliable and quick together, for a server with no stronger usage pattern than doing its job well.
+SUPERHERO_SUCCESS_RATE = 0.995
+SUPERHERO_P95_MS = 1000
 
 
 @frozen
 class Share:
-    label: str
+    name: str
     share: float
 
 
@@ -131,11 +126,14 @@ class RushHourCard:
 class ToolErrorRate:
     tool: str
     error_rate: float
+    calls: int
 
 
 @frozen
 class ReliabilityCard:
     success_rate: float
+    # The lowest error rate among busy tools, with more calls winning a tie.
+    most_reliable_tool: ToolErrorRate | None
     struggling_tool: ToolErrorRate | None
 
 
@@ -231,6 +229,16 @@ def _ratio(value: float) -> float:
     return round(value, 4)
 
 
+# The story says "not a single tool call hit an error" only at exactly zero errors, so a rare error must not
+# round to a clean record.
+SMALLEST_ERROR_SHARE = 0.0001
+
+
+def _error_share(errors: int, calls: int) -> float:
+    share = _ratio(errors / calls) if calls else 0.0
+    return max(share, SMALLEST_ERROR_SHARE) if errors else share
+
+
 def _tool_calls_card(months: Sequence[MonthCalls], total_calls: int) -> ToolCallsCard:
     growth: float | None = None
     # The first tracked month usually starts mid-month at install, so growth counts from the month after it.
@@ -257,10 +265,10 @@ def _top_shares(rows: Sequence[DimensionRow], limit: int, denominator: int) -> t
     if denominator <= 0:
         return ()
     top = _ranked(rows)[:limit]
-    shares = [Share(label=row.key, share=_ratio(row.calls / denominator)) for row in top]
+    shares = [Share(name=row.key, share=_ratio(row.calls / denominator)) for row in top]
     rest = denominator - sum(row.calls for row in top)
     if rest > 0:
-        shares.append(Share(label=OTHER_SHARE_LABEL, share=_ratio(rest / denominator)))
+        shares.append(Share(name=OTHER_SHARE_LABEL, share=_ratio(rest / denominator)))
     return tuple(shares)
 
 
@@ -299,7 +307,11 @@ def _models_card(aggregates: WrappedAggregates) -> SharesCard | None:
     known = [row for row in aggregates.model_families if row.key not in (UNKNOWN_FAMILY, OTHER_FAMILY)]
     if not known:
         return None
-    return SharesCard(shares=_top_shares(known, TOP_MODEL_FAMILIES, with_model))
+    shares = _top_shares(known, TOP_MODEL_FAMILIES, with_model)
+    # When unmatched models outnumber the leader, the leader isn't the top model, so there is no headline to tell.
+    if shares[-1].name == OTHER_SHARE_LABEL and shares[-1].share >= shares[0].share:
+        return None
+    return SharesCard(shares=shares)
 
 
 def _rush_hour_card(week_hours: Sequence[DimensionRow], total_calls: int, timezone: str) -> RushHourCard | None:
@@ -325,14 +337,23 @@ def _rush_hour_card(week_hours: Sequence[DimensionRow], total_calls: int, timezo
 
 def _reliability_card(aggregates: WrappedAggregates) -> ReliabilityCard:
     total = aggregates.total
-    success_rate = 1 - total.errors / total.calls if total.calls else 1.0
+    success_rate = 1 - _error_share(total.errors, total.calls)
     candidates = [row for row in _chosen_tools(aggregates.tools) if row.calls >= MIN_TOOL_CALLS]
-    struggling: ToolErrorRate | None = None
-    if len(candidates) >= MIN_TOOLS_FOR_WORST:
-        worst = max(candidates, key=lambda row: (row.errors / row.calls, row.calls))
-        if worst.errors > 0:
-            struggling = ToolErrorRate(tool=worst.key, error_rate=_ratio(worst.errors / worst.calls))
-    return ReliabilityCard(success_rate=_ratio(success_rate), struggling_tool=struggling)
+    if len(candidates) < MIN_TOOLS_FOR_WORST:
+        return ReliabilityCard(success_rate=_ratio(success_rate), most_reliable_tool=None, struggling_tool=None)
+    best = min(candidates, key=lambda row: (row.errors / row.calls, -row.calls))
+    worst = max(candidates, key=lambda row: (row.errors / row.calls, row.calls))
+    # Without a gap between the two rates there is no struggling tool to point at, only the same rate twice.
+    struggling = worst if worst.errors / worst.calls > best.errors / best.calls else None
+    return ReliabilityCard(
+        success_rate=_ratio(success_rate),
+        most_reliable_tool=_tool_error_rate(best),
+        struggling_tool=_tool_error_rate(struggling) if struggling else None,
+    )
+
+
+def _tool_error_rate(row: DimensionRow) -> ToolErrorRate:
+    return ToolErrorRate(tool=row.key, error_rate=_error_share(row.errors, row.calls), calls=row.calls)
 
 
 def _speed_card(aggregates: WrappedAggregates) -> SpeedCard | None:
@@ -387,4 +408,9 @@ def _archetype(
         return ArchetypeCard(archetype=Archetype.SPEED_DEMON, evidence=speed.p95_duration_ms)
     if tool_calls.growth_multiple is not None and tool_calls.growth_multiple >= ROCKET_GROWTH_MULTIPLE:
         return ArchetypeCard(archetype=Archetype.ROCKET, evidence=tool_calls.growth_multiple)
+    success_rate = 1 - aggregates.total.errors / total_calls
+    if speed is not None and success_rate >= SUPERHERO_SUCCESS_RATE and speed.p95_duration_ms < SUPERHERO_P95_MS:
+        return ArchetypeCard(
+            archetype=Archetype.SUPERHERO, evidence=_ratio(1 - _error_share(aggregates.total.errors, total_calls))
+        )
     return ArchetypeCard(archetype=Archetype.ALL_ROUNDER, evidence=None)

@@ -13,9 +13,9 @@ from products.warehouse_sources.sources.particle.particle import (
     probe_devices,
 )
 from products.warehouse_sources.sources.particle.settings import (
-    DEVICES_SCHEMA_NAME,
     ENDPOINTS,
     EVENTS_SCHEMA_NAME,
+    PULL_ENDPOINTS,
     WEBHOOK_RESOURCE_MAP,
     WEBHOOK_SCHEMA_NAMES,
 )
@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     ExternalWebhookInfo,
     FieldType,
+    IncrementalField,
     ReleaseStatus,
     SimpleSource,
     SourceConfig,
@@ -43,6 +44,14 @@ from products.warehouse_sources.sources.sdk import (
 
 if TYPE_CHECKING:
     from products.warehouse_sources.sources.sdk import HogFunctionTemplateDC
+
+
+PRODUCT_ONLY_TABLE_REASON = "Device groups exist only in a Particle product. Add a product ID to sync this table."
+
+
+def _incremental_fields(endpoint: str) -> list[IncrementalField]:
+    config = PULL_ENDPOINTS.get(endpoint)
+    return list(config.incremental_fields) if config else []
 
 
 @SourceRegistry.register
@@ -87,8 +96,9 @@ class ParticleSource(
 For **product devices**, use an **API user** token. In the Particle console, open your product → **Team** → **Add API user**, and give it these scopes:
 - `devices:list` to sync your device list
 - `integrations:list`, `integrations:create` and `integrations:remove` so PostHog can manage its webhooks
+- Optional, for the matching tables: `sims:list` (SIM cards), `sims.usage:get` (SIM data usage), `devices.diagnostics:get` (device vitals) and `groups:list` (device groups)
 
-For **sandbox devices**, Particle has no API users, so use a personal access token for your account (`particle token create --never-expires` in the Particle CLI) and leave **Product ID** empty.
+For **sandbox devices**, Particle has no API users, so use a personal access token for your account (`particle token create --never-expires` in the Particle CLI) and leave **Product ID** empty. Device groups exist only in a product.
 """,
             iconPath="/static/services/particle.png",
             docsUrl="https://posthog.com/docs/cdp/sources/particle",
@@ -165,9 +175,9 @@ For **sandbox devices**, Particle has no API users, so use a personal access tok
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(_incremental_fields(endpoint)),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=_incremental_fields(endpoint),
                 supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,
                 # Particle keeps no event history, so a full refresh would only delete the table.
                 webhook_only=endpoint in WEBHOOK_SCHEMA_NAMES,
@@ -178,6 +188,17 @@ For **sandbox devices**, Particle has no API users, so use a personal access tok
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
+
+    def get_endpoint_permissions(
+        self, config: ParticleSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        has_product = bool((config.product_id or "").strip())
+        return {
+            endpoint: PRODUCT_ONLY_TABLE_REASON
+            if not has_product and endpoint in PULL_ENDPOINTS and PULL_ENDPOINTS[endpoint].product_only
+            else None
+            for endpoint in endpoints
+        }
 
     def validate_credentials(
         self,
@@ -209,7 +230,7 @@ For **sandbox devices**, Particle has no API users, so use a personal access tok
                 "Your Particle access token is invalid or expired. Please check the token and reconnect."
             ),
             "403 Client Error: Forbidden for url: https://api.particle.io": (
-                "Your Particle access token can't list devices. Give the API user the `devices:list` scope and reconnect."
+                "Your Particle access token is missing a scope this table needs. Give the API user the scope listed for the table in the source setup and reconnect."
             ),
         }
 
@@ -232,8 +253,14 @@ For **sandbox devices**, Particle has no API users, so use a personal access tok
         return delete_particle_webhook(config, webhook_url)
 
     def source_for_pipeline(self, config: ParticleSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        if inputs.schema_name == DEVICES_SCHEMA_NAME:
-            return particle_source(config, inputs.team_id, inputs.job_id)
+        if inputs.schema_name in PULL_ENDPOINTS:
+            return particle_source(
+                config,
+                inputs.schema_name,
+                inputs.team_id,
+                inputs.job_id,
+                should_use_incremental_field=inputs.should_use_incremental_field,
+            )
         if inputs.schema_name != EVENTS_SCHEMA_NAME:
             raise ValueError(f"Unknown Particle table: {inputs.schema_name}")
 

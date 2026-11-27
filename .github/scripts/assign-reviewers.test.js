@@ -99,8 +99,8 @@ test('classifyOwner: not-an-owner', () => {
     assert.equal(classifyOwner('not-an-owner'), null)
 })
 
-test('teamSlugToLabel: team-product-analytics -> team/product-analytics', () => {
-    assert.equal(teamSlugToLabel('team-product-analytics'), 'team/product-analytics')
+test('teamSlugToLabel: team-analytics -> team/analytics', () => {
+    assert.equal(teamSlugToLabel('team-analytics'), 'team/analytics')
 })
 test('teamSlugToLabel: team-infra -> team/infra', () => {
     assert.equal(teamSlugToLabel('team-infra'), 'team/infra')
@@ -112,20 +112,21 @@ test('teamSlugToLabel: empty string -> null', () => {
     assert.equal(teamSlugToLabel(''), null)
 })
 
-test('partitionExternalTeams: labels product-analytics, still requests every other team', () => {
+test('partitionExternalTeams: labels analytics and dashboards, still requests every other team', () => {
     const { toLabel, toRequest } = partitionExternalTeams([
-        'team-product-analytics',
-        'team-web-analytics',
+        'team-analytics',
+        'team-dashboards-and-charts',
+        'team-replay',
         'team-infra',
     ])
-    assert.deepEqual(toLabel, ['team-product-analytics'])
-    assert.deepEqual(toRequest, ['team-web-analytics', 'team-infra'])
+    assert.deepEqual(toLabel, ['team-analytics', 'team-dashboards-and-charts'])
+    assert.deepEqual(toRequest, ['team-replay', 'team-infra'])
 })
 
-test('partitionExternalTeams: no product-analytics owner → nothing labelled, all requested', () => {
-    const { toLabel, toRequest } = partitionExternalTeams(['team-web-analytics', 'team-infra'])
+test('partitionExternalTeams: no label-only owner → nothing labelled, all requested', () => {
+    const { toLabel, toRequest } = partitionExternalTeams(['team-replay', 'team-infra'])
     assert.deepEqual(toLabel, [])
-    assert.deepEqual(toRequest, ['team-web-analytics', 'team-infra'])
+    assert.deepEqual(toRequest, ['team-replay', 'team-infra'])
 })
 
 test('computeOwnerFootprints: ignores generated/excluded files and maps bare slugs to @PostHog handles', () => {

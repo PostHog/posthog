@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from posthoganalytics import Posthog
@@ -89,6 +89,9 @@ class EvalContext:
 
     git_dirty: bool | None
     """Whether tracked files differed from ``git_sha``; ``None`` when unknown."""
+
+    preparation_slots: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(4))
+    """Bounds cases preparing or waiting for a sandbox across all suites."""
 
     offline_delivery: OfflineEvalDelivery | None = None
     """Run-owned delivery worker, drained after infrastructure teardown."""

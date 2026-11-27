@@ -36,7 +36,13 @@ from products.experiments.backend.health.context import (
     ReachableCondition,
     load_health_context,
 )
-from products.experiments.backend.health.skips import NOT_ON_ARCHIVED, CheckSkip, not_applicable, not_checked
+from products.experiments.backend.health.skips import (
+    NOT_ON_ARCHIVED,
+    NOT_ON_WAREHOUSE_NATIVE_EXPOSURES,
+    CheckSkip,
+    not_applicable,
+    not_checked,
+)
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -124,6 +130,11 @@ class TestExposureFilters(TestCase):
             ),
             ("event_exclusion_without_a_cohort", _filters(EXCLUDED_URL), NO_COHORT_FILTER),
             ("archived", _filters(cohorts=(DYNAMIC,), archived=True), not_applicable(NOT_ON_ARCHIVED)),
+            (
+                "warehouse_native_exposure",
+                replace(RUNNING_CONTEXT, warehouse_native_exposures=True, exposure_events=None),
+                not_applicable(NOT_ON_WAREHOUSE_NATIVE_EXPOSURES),
+            ),
         ]
     )
     def test_exposure_filters(
@@ -247,6 +258,7 @@ class TestExposureFilterInputs(BaseTest):
                     "activation_config": _config("checkout_viewed", _filter("event", "step")),
                 },
                 [("person", "plan", "$feature_flag_called"), ("event", "step", "checkout_viewed")],
+                (None, None, "checkout_viewed"),
             ),
             (
                 "activation_stored_next_to_a_custom_exposure",
@@ -255,16 +267,29 @@ class TestExposureFilterInputs(BaseTest):
                     "activation_config": _config("checkout_viewed", _filter("event", "step")),
                 },
                 [("person", "plan", "signup")],
+                ("signup", None, None),
             ),
             (
                 "action",
-                {"exposure_config": {"kind": "ActionsNode", "id": 1, "properties": [_filter("event", "step")]}},
+                {
+                    "exposure_config": {
+                        "kind": "ActionsNode",
+                        "id": 1,
+                        "name": "Signed up",
+                        "properties": [_filter("event", "step")],
+                    }
+                },
                 [("event", "step", None)],
+                (None, "Signed up", None),
             ),
         ]
     )
     def test_reads_the_filters_the_exposure_query_applies(
-        self, _name: str, criteria: dict[str, Any], expected: list[tuple[str, str, str | None]]
+        self,
+        _name: str,
+        criteria: dict[str, Any],
+        expected: list[tuple[str, str, str | None]],
+        expected_counted: tuple[str | None, str | None, str | None],
     ) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
         experiment = Experiment.objects.create(
@@ -275,4 +300,8 @@ class TestExposureFilterInputs(BaseTest):
 
         assert ctx.exposure_events is not None
         self.assertEqual([(f.type, f.key, f.event) for f in ctx.exposure_events.property_filters], expected)
+        self.assertEqual(
+            (ctx.exposure_events.custom_event, ctx.exposure_events.action, ctx.exposure_events.activation),
+            expected_counted,
+        )
         self.assertEqual(ctx.exposure_properties_received, {})

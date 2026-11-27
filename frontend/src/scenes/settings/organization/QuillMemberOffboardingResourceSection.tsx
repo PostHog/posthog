@@ -248,7 +248,7 @@ export function QuillMemberOffboardingResourceSection({
                 onRowSelectionChange={setRowSelection}
                 rowSelectionLabel={(resource) => `Select ${resource.name}`}
                 rowSelectionDisabledReason={() => disabledReason ?? null}
-                pageSize={resources.length > PAGE_SIZE ? PAGE_SIZE : undefined}
+                pageSize={PAGE_SIZE}
             />
         </section>
     )

@@ -10,7 +10,7 @@
                     "type": "string"
                 },
                 "inputs": {
-                    "description": "Named, version-pinned input scorers for the same item. Nested composites are not supported.",
+                    "description": "Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.",
                     "items": {
                         "properties": {
                             "alias": {
@@ -19,8 +19,22 @@
                                 "pattern": "^[a-z][a-z0-9_]{0,31}$",
                                 "type": "string"
                             },
+                            "category": {
+                                "maxLength": 128,
+                                "type": "string"
+                            },
                             "scorer_version_id": {
-                                "description": "Exact immutable version of an ordinary input scorer.",
+                                "description": "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact.",
+                                "type": "string"
+                            },
+                            "statistic": {
+                                "description": "* `pass_rate` - pass_rate\n* `mean` - mean\n* `true_rate` - true_rate\n* `category_rate` - category_rate",
+                                "enum": ["pass_rate", "mean", "true_rate", "category_rate"],
+                                "type": "string"
+                            },
+                            "version_policy": {
+                                "description": "* `run` - run\n* `exact` - exact\n* `combine` - combine",
+                                "enum": ["run", "exact", "combine"],
                                 "type": "string"
                             }
                         },
@@ -184,6 +198,12 @@
         "kind": {
             "description": "Expected formula output kind.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean",
             "enum": ["categorical", "numeric", "boolean"],
+            "type": "string"
+        },
+        "scope": {
+            "default": "item",
+            "description": "* `item` - Item\n* `experiment` - Experiment",
+            "enum": ["item", "experiment"],
             "type": "string"
         }
     },

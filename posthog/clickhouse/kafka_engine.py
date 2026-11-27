@@ -11,6 +11,7 @@ from posthog.run_mode import run_mode
 _US = settings.CLOUD_DEPLOYMENT == "US"
 CONSUMER_GROUP_EVENTS_JSON = "clickhouse_events_json" if _US else "group1"
 CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON = "clickhouse_events_json_native_json"
+CONSUMER_GROUP_EVENTS_JSON_RECENT = "clickhouse_events_json_recent"
 # DEPRECATED: see posthog/models/app_metrics/sql.py for context. Kept only for the
 # deprecated `kafka_app_metrics` table DDL.
 CONSUMER_GROUP_APP_METRICS = "clickhouse_app_metrics" if _US else "group1"
@@ -41,8 +42,6 @@ CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
 CONSUMER_GROUP_LOG_ENTRIES_AUX = "clickhouse_log_entries_aux"
 CONSUMER_GROUP_APP_METRICS2_WS = "clickhouse_app_metrics2_ws"
 CONSUMER_GROUP_TOPHOG_WS = "clickhouse_tophog_ws"
-CONSUMER_GROUP_PRECALCULATED_EVENTS_WS = "clickhouse_precalculated_events_ws"
-CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES_WS = "clickhouse_precalculated_person_properties_ws"
 CONSUMER_GROUP_EVENTS_JSON_WS = "clickhouse_events_json_ws"
 CONSUMER_GROUP_GROUPS_WS = "clickhouse_groups_ws"
 CONSUMER_GROUP_PERSON_WS = "clickhouse_person_ws"

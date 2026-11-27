@@ -15,17 +15,20 @@ from posthog.schema import IntervalType
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
+from posthog.models import FileSystemViewLog, Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
 from products.signals.backend.anomaly_scores.read import (
+    AnomalyJudgeKind,
     ChartShare,
     FlaggedPoint,
+    JudgeVerdict,
     SeriesSummary,
     chart_shares,
+    judge_verdict,
     rank_series,
     rollup,
 )
@@ -268,6 +271,42 @@ class TestAnomalyIntervalRanges(SimpleTestCase):
         assert (applied.interval, applied.date_from.isoformat(), applied.date_to) == (interval, expected_from, date_to)
 
 
+def _judged(**judge: Any) -> dict[str, Any]:
+    return {"z": 3.1, "members": [{"type": "zscore", "state": "fired", "score": 0.99}, {"type": "llm", **judge}]}
+
+
+class TestJudgeVerdict(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "a_verdict",
+                _judged(state="fired", kind="level_shift", rationale="  The value stepped up and stayed. "),
+                AnomalyJudgeKind.LEVEL_SHIFT,
+                "The value stepped up and stayed.",
+            ),
+            ("no_kind_named", _judged(state="fired", kind="none", rationale="Odd."), None, "Odd."),
+            ("a_kind_added_later", _judged(state="fired", kind="wobble", rationale="Odd."), None, "Odd."),
+            ("an_empty_rationale", _judged(state="fired", kind="spike", rationale=" "), AnomalyJudgeKind.SPIKE, None),
+            ("not_evaluated", _judged(state="not_evaluated", reason="cap"), None, None),
+            ("no_ai_member", {"z": 3.1, "members": [{"type": "zscore", "state": "fired"}]}, None, None),
+            ("no_members", {"z": 3.1}, None, None),
+            ("members_not_a_list", {"members": "llm"}, None, None),
+            ("member_not_an_object", {"members": ["llm"]}, None, None),
+            (
+                "rationale_not_text",
+                _judged(state="fired", kind="drop", rationale=["Odd."]),
+                AnomalyJudgeKind.DROP,
+                None,
+            ),
+            ("no_details", None, None, None),
+        ]
+    )
+    def test_reads_the_kind_and_reason_of_the_ai_member(
+        self, _name: str, details: dict[str, Any] | None, kind: AnomalyJudgeKind | None, reason: str | None
+    ) -> None:
+        assert judge_verdict(details) == JudgeVerdict(kind=kind, reason=reason)
+
+
 @time_machine.travel(NOW, tick=False)
 class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
@@ -298,6 +337,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         insight: Insight | None = None,
         team: Team | None = None,
         timestamp: datetime.datetime | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         _create_event(
             team=team or self.team,
@@ -319,7 +359,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
                 "$anomaly_detector_version": "v1",
                 "$anomaly_profile": "default-v1",
                 "$anomaly_scored_at": scored_at.isoformat(),
-                "$anomaly_details": '{"z": 3.1}',
+                "$anomaly_details": json.dumps(details or {"z": 3.1}),
             },
         )
 
@@ -366,7 +406,15 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         }
         assert (row["anomaly_rate"], row["coverage"]) == (0.5, 0.5)
         assert row["last_flagged_bucket"] == row["first_flagged_bucket"] == "2026-10-22T00:00:00+00:00"
-        assert row["flagged_points"] == [{"bucket_start": "2026-10-22T00:00:00+00:00", "value": 10.0, "score": 0.98}]
+        assert row["flagged_points"] == [
+            {
+                "bucket_start": "2026-10-22T00:00:00+00:00",
+                "value": 10.0,
+                "score": 0.98,
+                "anomaly_kind": None,
+                "anomaly_reason": None,
+            }
+        ]
         assert "points" not in row
 
     @parameterized.expand(
@@ -434,6 +482,38 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
                 [("2026-10-10T00:00:00+00:00", False), ("2026-10-22T00:00:00+00:00", True)],
             ),
             ("logins", "2026-10-16T12:00:00+00:00", [("2026-10-23T11:00:00+00:00", True)]),
+        ]
+
+    def _verdict_rows(self, endpoint: str) -> list[dict[str, Any]]:
+        if endpoint == "search":
+            return self._get("search", date_from="2026-10-19").json()["series"][0]["flagged_points"]
+        if endpoint == "search_points":
+            return self._get("search", date_from="2026-10-19", include_points=True).json()["series"][0]["points"]
+        if endpoint == "points":
+            return self._points((self.insight, "signups", "day")).json()["series"][0]["points"]
+        body = self._get("insight", insight_id=self.insight.id, date_from="2026-10-19").json()
+        return [bucket for bucket in body["series"][0]["buckets"] if bucket["scored"]]
+
+    @parameterized.expand(
+        [
+            ("search_flagged_points", "search", ["2026-10-22", "2026-10-20"]),
+            ("search_points", "search_points", ["2026-10-20", "2026-10-21", "2026-10-22"]),
+            ("points", "points", ["2026-10-20", "2026-10-21", "2026-10-22"]),
+            ("insight_buckets", "insight", ["2026-10-20", "2026-10-21", "2026-10-22"]),
+        ]
+    )
+    def test_returns_the_ai_verdict_of_flagged_buckets_only(self, _name: str, endpoint: str, days: list[str]) -> None:
+        confirmed = "Signups jumped well above the usual range."
+        self._score(_day(22), score=0.98, flag=1, details=_judged(state="fired", kind="spike", rationale=confirmed))
+        # The judge rejected the z-score flag, so the bucket is not flagged and its rationale stays out.
+        self._score(_day(21), score=0.97, flag=0, details=_judged(state="not_fired", kind="none", rationale="Normal."))
+        self._score(_day(20), score=0.96, flag=1, details=_judged(state="not_evaluated", reason="cap"))
+        expected = {"2026-10-20": (None, None), "2026-10-21": (None, None), "2026-10-22": ("spike", confirmed)}
+
+        rows = self._verdict_rows(endpoint)
+
+        assert [(row["bucket_start"][:10], row["anomaly_kind"], row["anomaly_reason"]) for row in rows] == [
+            (day, *expected[day]) for day in days
         ]
 
     @parameterized.expand(
@@ -601,6 +681,63 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             ("week", "2026-10-05T00:00:00+00:00"),
             ("month", "2026-09-01T00:00:00+00:00"),
         ]
+
+    @parameterized.expand(
+        [
+            ("whole_project_without_a_window", {}, False, ["checkout", "other", "signups"], (None, False)),
+            ("insights_opened_in_the_window", {"viewed_within_days": 14}, False, ["signups"], (14, False)),
+            (
+                "insights_on_dashboards_opened_in_the_window",
+                {"viewed_within_days": 30},
+                False,
+                ["checkout", "signups"],
+                (30, False),
+            ),
+            ("dashboard_filter_inside_the_scope", {"viewed_within_days": 30}, True, ["checkout"], (30, False)),
+            (
+                "whole_project_when_nothing_was_viewed_in_the_window",
+                {"viewed_within_days": 7},
+                False,
+                ["checkout", "other", "signups"],
+                (7, True),
+            ),
+        ]
+    )
+    def test_search_scopes_to_the_insights_the_user_viewed(
+        self,
+        _name: str,
+        params: dict[str, Any],
+        filter_dashboard: bool,
+        expected: list[str],
+        scope: tuple[int | None, bool],
+    ) -> None:
+        on_dashboard = Insight.objects.create(team=self.team, name="Checkout", saved=True)
+        other = Insight.objects.create(team=self.team, name="Other", saved=True)
+        dashboard = Dashboard.objects.create(team=self.team, name="Main")
+        DashboardTile.objects.create(dashboard=dashboard, insight=on_dashboard)
+        for series_key, insight in (("signups", self.insight), ("checkout", on_dashboard), ("other", other)):
+            self._score(_day(22), score=0.99, flag=1, series_key=series_key, insight=insight)
+        someone_else = self._create_user("someone-else@example.com")
+        for user, view_type, ref, days_ago in (
+            (self.user, "insight", self.insight.short_id, 10),
+            (self.user, "dashboard", str(dashboard.id), 20),
+            (someone_else, "insight", other.short_id, 1),
+            # The view log stores any ref and any time a member sends.
+            (self.user, "insight", other.short_id, -1),
+            (self.user, "dashboard", "²", 1),
+            (self.user, "dashboard", str(2**31), 1),
+            (self.user, "dashboard", "9" * 200, 1),
+        ):
+            FileSystemViewLog.objects.create(
+                team=self.team, user=user, type=view_type, ref=ref, viewed_at=NOW - datetime.timedelta(days=days_ago)
+            )
+        if filter_dashboard:
+            params = {**params, "dashboard_id": dashboard.id}
+
+        body = self._get("search", date_from="2026-10-19", **params).json()
+
+        assert sorted(row["series_key"] for row in body["series"]) == expected
+        assert (body["viewed_within_days"], body["viewed_scope_empty"]) == scope
 
     @parameterized.expand(
         [

@@ -4,9 +4,9 @@ import {
     createAiGenerationEvent,
     createEvaluation,
     createEvaluationCondition,
-    createTagger,
 } from '~/ai-observability/_tests/fixtures'
 import { logger } from '~/common/utils/logger'
+import { ClickHouseTimestamp } from '~/types'
 
 import {
     EvaluationMatcher,
@@ -16,7 +16,6 @@ import {
     extractEvaluationContext,
     filterAndParseMessages,
     groupEventsByTeam,
-    unwrapOrLog,
 } from './evaluation-scheduler'
 
 jest.mock('~/ai-observability/services/temporal.service', () => {
@@ -174,7 +173,7 @@ describe('Evaluation Scheduler', () => {
                     globals: expect.objectContaining({
                         event: '$ai_generation',
                         distinct_id: event.distinct_id,
-                        person: { properties: personProperties },
+                        person: { id: 'person-uuid-1', properties: personProperties },
                         properties: eventProperties,
                     }),
                 })
@@ -198,7 +197,7 @@ describe('Evaluation Scheduler', () => {
                 condition.bytecode,
                 expect.objectContaining({
                     globals: expect.objectContaining({
-                        person: { properties: {} },
+                        person: { id: 'person-uuid-1', properties: {} },
                     }),
                 })
             )
@@ -221,10 +220,64 @@ describe('Evaluation Scheduler', () => {
                 condition.bytecode,
                 expect.objectContaining({
                     globals: expect.objectContaining({
-                        person: { properties: {} },
+                        person: { id: 'person-uuid-1', properties: {} },
                     }),
                 })
             )
+        })
+    })
+
+    describe('checkConditionMatch with compiled event metadata filters', () => {
+        let mockExecHog: jest.Mock
+
+        beforeEach(() => {
+            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog.mockImplementation(jest.requireActual('~/cdp/utils/hog-exec').execHog)
+        })
+
+        afterEach(() => {
+            mockExecHog.mockReset()
+        })
+
+        it.each([
+            [
+                'timestamp is after 2026-01-01',
+                [
+                    '_H',
+                    1,
+                    32,
+                    '2026-01-01',
+                    2,
+                    'toDateTime',
+                    1,
+                    32,
+                    'timestamp',
+                    1,
+                    1,
+                    2,
+                    'toString',
+                    1,
+                    2,
+                    'toDateTime',
+                    1,
+                    13,
+                ],
+            ],
+            ['$group_0 is group-key-1', ['_H', 1, 32, 'group-key-1', 32, '$group_0', 1, 1, 11]],
+            ['group 0 plan is pro', ['_H', 1, 32, 'pro', 32, 'plan', 32, 'properties', 32, 'group_0', 1, 3, 11]],
+            [
+                'person_id is person-uuid-1, in a condition saved before the backend rejected it',
+                ['_H', 1, 32, 'person-uuid-1', 32, 'person_id', 1, 1, 11],
+            ],
+        ])('matches a condition on %s', async (_name, bytecode) => {
+            const event = createAiGenerationEvent(teamId, {
+                timestamp: '2026-11-25 12:00:00.000000' as ClickHouseTimestamp,
+                properties: JSON.stringify({ $ai_model: 'gpt-4', $group_0: 'group-key-1' }),
+                group0_properties: JSON.stringify({ plan: 'pro' }),
+            })
+            const condition = createEvaluationCondition({ bytecode, rollout_percentage: 100 })
+
+            await expect(checkConditionMatch(event, condition)).resolves.toBe(true)
         })
     })
 
@@ -363,80 +416,10 @@ describe('Evaluation Scheduler', () => {
                 ['_H', 1, 32, true],
                 expect.objectContaining({
                     globals: expect.objectContaining({
-                        person: {
-                            properties: personProperties,
-                        },
+                        person: { id: 'person-uuid-1', properties: personProperties },
                     }),
                 })
             )
-        })
-
-        it('matches taggers using the same Matchable contract as evaluations', async () => {
-            mockExecHog.mockResolvedValue({ execResult: { result: true } })
-
-            const event = createAiGenerationEvent(teamId)
-            const tagger = createTagger({
-                enabled: true,
-                conditions: [
-                    createEvaluationCondition({ id: 'cond-1', rollout_percentage: 100, bytecode: ['_H', 1, 32, true] }),
-                ],
-            })
-
-            const result = await matcher.shouldTriggerEvaluation(event, tagger)
-
-            expect(result).toEqual({ matched: true, conditionId: 'cond-1' })
-        })
-
-        it('returns disabled for a disabled tagger without consulting bytecode', async () => {
-            const event = createAiGenerationEvent(teamId)
-            const tagger = createTagger({ enabled: false })
-
-            const result = await matcher.shouldTriggerEvaluation(event, tagger)
-
-            expect(result).toEqual({ matched: false, reason: 'disabled' })
-            expect(mockExecHog).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('unwrapOrLog', () => {
-        it('returns the value when the promise was fulfilled', () => {
-            const result = unwrapOrLog(
-                { status: 'fulfilled', value: { 1: ['a'], 2: ['b'] } } as PromiseSettledResult<
-                    Record<string, string[]>
-                >,
-                'should not log'
-            )
-
-            expect(result).toEqual({ 1: ['a'], 2: ['b'] })
-        })
-
-        it('returns an empty object and logs when rejected', () => {
-            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
-
-            const result = unwrapOrLog(
-                { status: 'rejected', reason: new Error('db down') } as PromiseSettledResult<Record<string, string[]>>,
-                'fetch failed'
-            )
-
-            expect(result).toEqual({})
-            expect(errorSpy).toHaveBeenCalledWith('fetch failed', { error: 'db down' })
-
-            errorSpy.mockRestore()
-        })
-
-        it('coerces non-Error rejection reasons to string for the log payload', () => {
-            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
-
-            unwrapOrLog(
-                { status: 'rejected', reason: 'plain string failure' } as PromiseSettledResult<
-                    Record<string, string[]>
-                >,
-                'fetch failed'
-            )
-
-            expect(errorSpy).toHaveBeenCalledWith('fetch failed', { error: 'plain string failure' })
-
-            errorSpy.mockRestore()
         })
     })
 
@@ -509,7 +492,6 @@ describe('Evaluation Scheduler', () => {
     describe('eachBatchEvaluationScheduler trace-target evaluations', () => {
         let mockExecHog: jest.Mock
         let evaluationManager: import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
-        let taggerManager: import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
         let temporalService: import('~/ai-observability/services/temporal.service').TemporalService
 
         const messageFor = (event: ReturnType<typeof createAiGenerationEvent>): Message =>
@@ -525,13 +507,9 @@ describe('Evaluation Scheduler', () => {
             evaluationManager = {
                 getEvaluationsForTeams: jest.fn().mockResolvedValue({}),
             } as unknown as import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
-            taggerManager = {
-                getTaggersForTeams: jest.fn().mockResolvedValue({}),
-            } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
             temporalService = {
                 startEvaluationRunWorkflow: jest.fn().mockResolvedValue(undefined),
                 startAggregateEvaluationWorkflow: jest.fn().mockResolvedValue(undefined),
-                startTaggerRunWorkflow: jest.fn().mockResolvedValue(undefined),
             } as unknown as import('~/ai-observability/services/temporal.service').TemporalService
         })
 
@@ -548,7 +526,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService)
 
             expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -575,7 +553,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService)
 
             expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -602,7 +580,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService)
 
             expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -625,7 +603,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService)
 
             expect(temporalService.startAggregateEvaluationWorkflow).not.toHaveBeenCalled()
             expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
@@ -642,7 +620,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService)
 
             expect(temporalService.startEvaluationRunWorkflow).toHaveBeenCalledWith(
                 evaluation.id,
@@ -669,7 +647,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService)
 
             expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -697,7 +675,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService)
 
             expect(temporalService.startAggregateEvaluationWorkflow).not.toHaveBeenCalled()
             expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
@@ -734,7 +712,7 @@ describe('Evaluation Scheduler', () => {
                     })
                 )
             )
-            await eachBatchEvaluationScheduler(messages, evaluationManager, taggerManager, temporalService)
+            await eachBatchEvaluationScheduler(messages, evaluationManager, temporalService)
 
             const calls = (temporalService.startAggregateEvaluationWorkflow as jest.Mock).mock.calls
             const dispatchedSessionIds = calls.map(([options]) => options.aiSessionId)
@@ -747,14 +725,10 @@ describe('Evaluation Scheduler', () => {
         const noopEvaluationManager = {
             getEvaluationsForTeams: jest.fn().mockResolvedValue({}),
         } as unknown as import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
-        const noopTaggerManager = {
-            getTaggersForTeams: jest.fn().mockResolvedValue({}),
-        } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
         const noopTemporal = {} as unknown as import('~/ai-observability/services/temporal.service').TemporalService
 
         beforeEach(() => {
             ;(noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mockClear()
-            ;(noopTaggerManager.getTaggersForTeams as jest.Mock).mockClear()
         })
 
         const messageFor = (teamIdForEvent: number): Message =>
@@ -767,7 +741,6 @@ describe('Evaluation Scheduler', () => {
             await eachBatchEvaluationScheduler(
                 [messageFor(2), messageFor(7), messageFor(99)],
                 noopEvaluationManager,
-                noopTaggerManager,
                 noopTemporal
             )
 
@@ -776,18 +749,28 @@ describe('Evaluation Scheduler', () => {
             expect(teamsAsked.sort((a, b) => a - b)).toEqual([2, 7, 99])
         })
 
+        it('logs and skips the batch when the evaluation fetch fails', async () => {
+            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
+            ;(noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mockRejectedValueOnce(new Error('db down'))
+
+            await expect(
+                eachBatchEvaluationScheduler([messageFor(2)], noopEvaluationManager, noopTemporal)
+            ).resolves.toBeUndefined()
+            expect(errorSpy).toHaveBeenCalledWith('Failed to fetch evaluations for teams', { error: 'db down' })
+
+            errorSpy.mockRestore()
+        })
+
         it('skips Postgres entirely when the batch has no $ai_generation events', async () => {
-            await eachBatchEvaluationScheduler([], noopEvaluationManager, noopTaggerManager, noopTemporal)
+            await eachBatchEvaluationScheduler([], noopEvaluationManager, noopTemporal)
 
             expect(noopEvaluationManager.getEvaluationsForTeams).not.toHaveBeenCalled()
-            expect(noopTaggerManager.getTaggersForTeams).not.toHaveBeenCalled()
         })
     })
 
     describe('eachBatchEvaluationScheduler provider key gate', () => {
         let mockExecHog: jest.Mock
         let evaluationManager: import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
-        let taggerManager: import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
         let temporalService: import('~/ai-observability/services/temporal.service').TemporalService
         let providerKeyManager: import('~/ai-observability/services/provider-key-manager.service').ProviderKeyManagerService
 
@@ -804,12 +787,8 @@ describe('Evaluation Scheduler', () => {
             evaluationManager = {
                 getEvaluationsForTeams: jest.fn().mockResolvedValue({}),
             } as unknown as import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
-            taggerManager = {
-                getTaggersForTeams: jest.fn().mockResolvedValue({}),
-            } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
             temporalService = {
                 startEvaluationRunWorkflow: jest.fn().mockResolvedValue(undefined),
-                startTaggerRunWorkflow: jest.fn().mockResolvedValue(undefined),
             } as unknown as import('~/ai-observability/services/temporal.service').TemporalService
             providerKeyManager = {
                 getProviderKey: jest.fn().mockResolvedValue({ id: 'key-1', team_id: teamId, state: 'error' }),
@@ -827,7 +806,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService, {
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService, {
                 enabled: true,
                 providerKeyManager,
             })
@@ -847,7 +826,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService, {
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService, {
                 enabled: true,
                 providerKeyManager,
             })
@@ -875,7 +854,7 @@ describe('Evaluation Scheduler', () => {
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService, {
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService, {
                 enabled: true,
                 providerKeyManager,
             })
@@ -886,26 +865,6 @@ describe('Evaluation Scheduler', () => {
                 event,
                 evaluation.evaluation_type
             )
-        })
-
-        it('does not start tagger workflows when the configured provider key is not ok', async () => {
-            const event = createAiGenerationEvent(teamId)
-            const tagger = createTagger({
-                team_id: teamId,
-                provider_key_id: 'key-1',
-                conditions: [
-                    createEvaluationCondition({ id: 'cond-1', bytecode: ['_H', 1, 32, true], rollout_percentage: 100 }),
-                ],
-            })
-            ;(taggerManager.getTaggersForTeams as jest.Mock).mockResolvedValue({ [teamId]: [tagger] })
-
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService, {
-                enabled: true,
-                providerKeyManager,
-            })
-
-            expect(providerKeyManager.getProviderKey).toHaveBeenCalledWith('key-1')
-            expect(temporalService.startTaggerRunWorkflow).not.toHaveBeenCalled()
         })
 
         it('fails open when provider key lookup fails', async () => {
@@ -920,7 +879,7 @@ describe('Evaluation Scheduler', () => {
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
             ;(providerKeyManager.getProviderKey as jest.Mock).mockRejectedValue(new Error('db down'))
 
-            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService, {
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, temporalService, {
                 enabled: true,
                 providerKeyManager,
             })

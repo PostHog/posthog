@@ -4,7 +4,6 @@ import os
 import logging
 import contextlib
 from collections.abc import Generator, Iterator
-from typing import Any
 
 import django
 from django.conf import settings
@@ -76,7 +75,6 @@ class EvalDatabase:
     def __init__(self, *, keepdb: bool) -> None:
         self.keepdb = keepdb
         self.blocker = NullDbBlocker()
-        self._db_cfg: Any = None
         self._eval_setup: Generator[None] | None = None
 
     def setup(self) -> None:
@@ -86,29 +84,53 @@ class EvalDatabase:
             _django_db_setup,  # noqa: PLC0415 — pulls in Django models; keep off the pre-setup import path
         )
 
+        # The persons and ClickHouse databases outlive a missing default database. Reusing them under a new
+        # default database gives the regenerated master team an id that their old rows already use.
+        keepdb = self.keepdb and _default_test_database_exists()
+
         # Only the base Django ("default") DB is created here. Person DB setup is
         # handled by PostHog's eval setup below, after the default test DB name is
         # known (see SANDBOXED_EVAL_SETUP_DATABASES in the original conftest).
-        self._db_cfg = setup_databases(
+        setup_databases(
             verbosity=1,
             interactive=False,
-            keepdb=self.keepdb,
+            keepdb=keepdb,
             aliases={"default": None},
             serialized_aliases=set(),
         )
-        self._eval_setup = _django_db_setup(self.keepdb, self.blocker)
+        self._eval_setup = _django_db_setup(keepdb, self.blocker)
         next(self._eval_setup)
 
+        from posthog.clickhouse.client.deferred_setup import (
+            clickhouse_test_setup,  # noqa: PLC0415 — must import only after django.setup()
+        )
+
+        # Replicated tables get a unique ZooKeeper path only while settings.TEST is true. The demo data
+        # setup sends the first ClickHouse query under override_settings(TEST=False), so a deferred setup
+        # would create the tables there, on the paths the development database uses.
+        clickhouse_test_setup.run()
+
     def teardown(self) -> None:
-        from django.test.utils import teardown_databases  # noqa: PLC0415 — must import only after django.setup()
+        """Keep every database for the next run, which reuses them unless it passes ``--create-db``."""
+        from django.db import connections  # noqa: PLC0415 — must import only after django.setup()
 
         if self._eval_setup is not None:
-            # Run the generator's post-``yield`` cleanup (ClickHouse reset / drop).
-            try:
-                next(self._eval_setup)
-            except StopIteration:
-                pass
+            # Closing the generator skips its post-``yield`` cleanup, which drops the ClickHouse database
+            # when the run rebuilt it.
+            self._eval_setup.close()
             self._eval_setup = None
+        connections.close_all()
 
-        if not self.keepdb and self._db_cfg is not None:
-            teardown_databases(self._db_cfg, verbosity=1)
+
+def _default_test_database_exists() -> bool:
+    from django.db import connections  # noqa: PLC0415 — must import only after django.setup()
+    from django.db.backends.base.creation import TEST_DATABASE_PREFIX  # noqa: PLC0415 — same reason
+
+    connection = connections["default"]
+    test_database_name = connection.settings_dict["TEST"].get("NAME") or (
+        TEST_DATABASE_PREFIX + connection.settings_dict["NAME"]
+    )
+    # The non-test database may not exist, so the check uses the maintenance connection.
+    with connection._nodb_cursor() as cursor:
+        cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", [test_database_name])
+        return cursor.fetchone() is not None

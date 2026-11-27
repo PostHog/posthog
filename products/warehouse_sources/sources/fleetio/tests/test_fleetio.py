@@ -93,14 +93,26 @@ class TestPagination:
         [
             # The "v1" pin sends the 2024-06-30 date version under the integer `/api/v1` path;
             # 2025-05-05 drops the integer segment and moves resources to `/api/{resource}`.
-            (FLEETIO_LEGACY_VERSION, FLEETIO_API_VERSION, "https://secure.fleetio.com/api/v1/vehicles"),
-            (FLEETIO_VERSION_2025_05_05, "2025-05-05", "https://secure.fleetio.com/api/vehicles"),
+            ("vehicles", FLEETIO_LEGACY_VERSION, FLEETIO_API_VERSION, "https://secure.fleetio.com/api/v1/vehicles"),
+            ("vehicles", FLEETIO_VERSION_2025_05_05, "2025-05-05", "https://secure.fleetio.com/api/vehicles"),
+            (
+                "inspection_forms",
+                FLEETIO_LEGACY_VERSION,
+                FLEETIO_API_VERSION,
+                "https://secure.fleetio.com/api/v3/inspection_forms",
+            ),
+            (
+                "inspection_forms",
+                FLEETIO_VERSION_2025_05_05,
+                "2025-05-05",
+                "https://secure.fleetio.com/api/inspection_forms",
+            ),
         ]
     )
     def test_version_selects_header_and_base_path(
-        self, api_version: str, expected_header: str, expected_url: str
+        self, endpoint: str, api_version: str, expected_header: str, expected_url: str
     ) -> None:
-        result = _driver().run("vehicles", [_response([{"id": 1}], None)], api_version=api_version)
+        result = _driver().run(endpoint, [_response([{"id": 1}], None)], api_version=api_version)
 
         assert result.raised is None
         assert result.requests[0].headers["x-api-version"] == expected_header
@@ -133,28 +145,53 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/api/vehicles"
 
 
-class TestServiceEntryLineItemsFanout:
-    """The only fan-out endpoint: line items are listed per service entry, never account-wide."""
-
+class TestLineItemsFanout:
     @parameterized.expand(
         [
-            # Fleetio removed `/v1/service_entries` when it moved the resource to v2, so a legacy
-            # pin that assumes one shared generation segment cannot list the fan-out's parents.
-            (FLEETIO_LEGACY_VERSION, "/api/v2/service_entries", "/api/v2/service_entries/11/service_entry_line_items"),
-            (FLEETIO_VERSION_2025_05_05, "/api/service_entries", "/api/service_entries/11/service_entry_line_items"),
+            # Fleetio removed the v1 paths of the parents it moved to v2, so a legacy pin that assumes
+            # one shared generation segment cannot list the fan-out's parents.
+            (
+                "service_entry_line_items",
+                "service_entry_id",
+                FLEETIO_LEGACY_VERSION,
+                "/api/v2/service_entries",
+                "/api/v2/service_entries/11/service_entry_line_items",
+            ),
+            (
+                "service_entry_line_items",
+                "service_entry_id",
+                FLEETIO_VERSION_2025_05_05,
+                "/api/service_entries",
+                "/api/service_entries/11/service_entry_line_items",
+            ),
+            (
+                "work_order_line_items",
+                "work_order_id",
+                FLEETIO_LEGACY_VERSION,
+                "/api/v2/work_orders",
+                "/api/v2/work_orders/11/work_order_line_items",
+            ),
+            (
+                "work_order_line_items",
+                "work_order_id",
+                FLEETIO_VERSION_2025_05_05,
+                "/api/work_orders",
+                "/api/work_orders/11/work_order_line_items",
+            ),
         ]
     )
-    def test_parent_and_child_carry_their_own_version_segment(
-        self, api_version: str, parent_path: str, child_path: str
+    def test_lists_line_items_per_parent_and_keys_them_by_the_parent(
+        self, endpoint: str, parent_key: str, api_version: str, parent_path: str, child_path: str
     ) -> None:
         result = _driver().run(
-            "service_entry_line_items",
-            [_response([{"id": 11}], None), _response([{"id": 101}], None)],
+            endpoint,
+            [_response([{"id": 11}], None), _response([{"id": 101}, {"id": 102}], None)],
             api_version=api_version,
         )
 
         assert result.raised is None
         assert result.paths == [parent_path, child_path]
+        assert [(row[parent_key], row["id"]) for row in result.rows] == [(11, 101), (11, 102)]
 
 
 class TestPurchaseOrderLineItemsFanout:

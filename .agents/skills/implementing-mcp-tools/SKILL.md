@@ -215,15 +215,18 @@ Flags are evaluated in parallel at init via `evaluateFeatureFlags`. If a flag ca
 
 ### Enabling or renaming a tool
 
-The MCP server and Django deploy separately.
-A tool that reaches clients before its route lands returns 404 on every call until the Django deploy catches up.
-That hits a whole agent fleet at once.
+The MCP deploy waits until Django in prod-US and prod-EU runs the commit of the MCP image, or a newer one.
+The step "Wait for the Django deploy that the image needs" in `.github/workflows/cd-mcp-image.yml` does this.
+So a new route and its tool land safely in the same PR.
 
-- **Land the route first.** Ship the endpoint, then enable the tool in a later change. A tool with
-  `enabled: true` in the same commit as a brand-new route is live in clients as soon as the MCP
-  server deploys.
-- **Or gate it.** Add `feature_flag` with `feature_flag_behavior: enable` and turn the flag on once
-  the route is serving.
+- **Enable the tool with its route.** `enabled: true` in the same PR as a new route is safe. Do not
+  hold the tool back or add a feature flag only to wait for the route.
+- **A flag is a product decision.** Add `feature_flag` with `feature_flag_behavior: enable` when
+  the team wants a gradual release, not for deploy order.
+- **The break glass skips the wait.** With the repository variable `MCP_DEPLOY_SKIP_DJANGO_WAIT`
+  set, an MCP deploy goes out before Django has its commit. A tool for a route that Django does not
+  serve yet then returns 404 on every call, for a whole agent fleet at once. Whoever sets the
+  variable checks the deploy for such tools.
 - **Keep the old name on a rename.** Leave the previous tool name in the YAML, pointing at the same
   operation, until the new name has deployed everywhere. Sunset it with
   `feature_flag_behavior: disable` on the same flag key, which swaps the two atomically.

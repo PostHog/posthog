@@ -30,8 +30,8 @@ from products.knowledge_writer.merge_check.facts import (
     YesNoFact,
 )
 from products.knowledge_writer.merge_check.gather import DocsPage, docs_content_root
-from products.knowledge_writer.merge_check.judge import JudgeVerdict
-from products.knowledge_writer.merge_check.sources import LandedChange
+from products.knowledge_writer.merge_check.judge import GATEWAY_LABELS_HEADER, JudgeVerdict, judge_client, judge_merge
+from products.knowledge_writer.merge_check.sources import LandedChange, read_page_sources
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
 DIFF_QUOTE = "showLegacyRollout = false"
@@ -73,7 +73,9 @@ class FakePostHogGitHub:
         sheds_batch_reads: bool = False,
         merged_by: dict[str, str] | None = None,
         author_association: str = "MEMBER",
+        body: str = "Removes the legacy rollout path.",
     ) -> None:
+        self.body = body
         self.author_association = author_association
         self.commit_sha = commit_sha
         self.merged_commit_sha = merged_commit_sha or commit_sha
@@ -91,7 +93,7 @@ class FakePostHogGitHub:
         return {
             "number": 7,
             "title": "chore: drop legacy rollout",
-            "body": "Removes the legacy rollout path.",
+            "body": self.body,
             "author_association": self.author_association,
             "html_url": "https://github.com/PostHog/posthog/pull/7",
             "merge_commit_sha": self.merged_commit_sha,
@@ -196,7 +198,7 @@ def fake_sitemap() -> httpx.Client:
 
 
 def judge_with_parse(parse: Callable[..., object]) -> Anthropic:
-    client = SimpleNamespace(messages=SimpleNamespace(parse=parse))
+    client = SimpleNamespace(messages=SimpleNamespace(parse=parse), default_headers={})
     client.with_options = lambda **_options: client
     return cast(Anthropic, client)
 
@@ -283,6 +285,7 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
     assert [(row.criterion, row.value) for row in report.criteria] == [
         ("code_changed", "true"),
         ("knowledge_writer_docs_pr", "false"),
+        ("author_release_status", "false"),
         ("other_docs_pr", "false"),
         ("not_editable_here", "0"),
         ("docs_version", "documented"),
@@ -397,6 +400,20 @@ def test_sitemap_pages_without_a_docs_source_are_kept_from_the_judge(
             "knowledge_writer_docs_pr",
             id="stale_knowledge_writer_docs_pr_joined_by_comment",
         ),
+        pytest.param(
+            lambda commit_sha: FakePostHogGitHub(
+                commit_sha, body="- Behind a flag <!-- release-status: behind-feature-flag -->"
+            ),
+            "author_release_status",
+            id="author_marks_behind_feature_flag",
+        ),
+        pytest.param(
+            lambda commit_sha: FakePostHogGitHub(
+                commit_sha, body="- Behind a flag <!--release-status: behind-feature-flag-->"
+            ),
+            "author_release_status",
+            id="author_marks_behind_feature_flag_without_spaces",
+        ),
     ],
 )
 def test_a_blocking_gate_records_no_docs_without_a_judge_call(
@@ -416,10 +433,10 @@ def test_a_blocking_gate_records_no_docs_without_a_judge_call(
     [
         pytest.param(
             merge_facts(ReleaseState.FLAGGED_OR_UNRELEASED, "drop legacy rollout"),
-            "release_state",
+            "judge",
+            True,
             False,
-            False,
-            id="quoted_flag_blocks",
+            id="quoted_flag_reaches_the_judge",
         ),
         pytest.param(
             merge_facts(ReleaseState.FLAGGED_OR_UNRELEASED, "behind the beta flag"),
@@ -444,7 +461,7 @@ def test_a_blocking_gate_records_no_docs_without_a_judge_call(
         ),
     ],
 )
-def test_release_facts_gate_only_on_quoted_evidence(
+def test_a_release_fact_reaches_the_judge_and_only_quoted_evidence_keeps_confidence(
     facts: MergeFacts, expected_reason: str, is_judged: bool, low_confidence: bool
 ) -> None:
     commit_sha = "7" * 40
@@ -581,15 +598,23 @@ def test_a_check_past_its_deadline_stops_before_a_model_call() -> None:
 
 
 @pytest.mark.parametrize(
-    "changed_page_quote, is_page_named_in_evidence",
+    "changed_page_quote, merge_diff, is_page_named_in_evidence",
     [
-        pytest.param(DIFF_QUOTE, True, id="quote_from_the_diff"),
-        pytest.param("chore: drop legacy rollout", False, id="quote_from_the_pull_request_title"),
+        pytest.param(DIFF_QUOTE, COMPONENT_CHUNK, True, id="quote_from_the_diff"),
+        pytest.param("chore: drop legacy rollout", COMPONENT_CHUNK, False, id="quote_from_the_pull_request_title"),
+        pytest.param(
+            f"const rolloutLabel = 'Legacy' {DIFF_QUOTE}",
+            f"diff --git a/{COMPONENT_PATH} b/{COMPONENT_PATH}\n const rolloutLabel = 'Legacy'\n-old\n+{DIFF_QUOTE}\n",
+            True,
+            id="quote_spanning_new_side_lines_split_by_a_removed_line",
+        ),
     ],
 )
-def test_only_a_diff_quote_names_a_changed_page(changed_page_quote: str, is_page_named_in_evidence: bool) -> None:
+def test_only_a_diff_quote_names_a_changed_page(
+    changed_page_quote: str, merge_diff: str, is_page_named_in_evidence: bool
+) -> None:
     commit_sha = "8" * 40
-    github = FakePostHogGitHub(commit_sha, page_text_by_path={FLAGS_PATHS[0]: FLAGS_PAGE_TEXT})
+    github = FakePostHogGitHub(commit_sha, merge_diff=merge_diff, page_text_by_path={FLAGS_PATHS[0]: FLAGS_PAGE_TEXT})
     facts = merge_facts(changed_page_paths=ONE_NAMED_PAGE, changed_page_quote=changed_page_quote)
     verdict = JudgeVerdict(
         needs_docs=True, change_kind=DocsChangeKind.UPDATE, page_urls=[FLAGS_PATHS[0]], reason="rollout removed"
@@ -652,3 +677,60 @@ def test_a_merge_into_a_branch_that_never_reached_the_default_branch_is_retried_
     report = check_merge(commit_sha, github, judge_returning_malformed_output(), is_final_attempt=True)
 
     assert (report.needs_docs, report.reason) == (False, "not_on_default_branch")
+
+
+def test_a_diff_path_cannot_read_outside_the_repository_contents() -> None:
+    requested_paths: list[str] = []
+
+    class RecordingGitHub:
+        def api_request(self, method: str, path: str, **_request: object) -> requests.Response:
+            requested_paths.append(path)
+            response = requests.Response()
+            response.status_code = 200
+            response._content = b"text"
+            return response
+
+    traversal_paths = ["%2e%2e/%2e%2e/orgs/PostHog", "docs/../../orgs/PostHog", "posthog/models/team.py"]
+    read_page_sources(
+        RecordingGitHub(), "PostHog/posthog", {path: path for path in traversal_paths}, docs_commit_sha=None
+    )
+    assert requested_paths == [
+        "/repos/PostHog/posthog/contents/%252e%252e/%252e%252e/orgs/PostHog",
+        "/repos/PostHog/posthog/contents/posthog/models/team.py",
+    ]
+
+
+def test_judge_call_labels_its_stage_and_keeps_the_client_labels(settings: Any) -> None:
+    settings.AI_GATEWAY_URL = "https://ai-gateway.example.com/v1"
+    settings.AI_GATEWAY_API_KEY = "phs_test"
+    commit_sha = "c" * 40
+    sent_labels: list[dict[str, str]] = []
+    verdict_text = json.dumps({"needs_docs": False, "change_kind": None, "page_urls": [], "reason": "internal"})
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        sent_labels.append(json.loads(request.headers[GATEWAY_LABELS_HEADER]))
+        return httpx.Response(
+            200,
+            json={
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-sonnet-5-5",
+                "content": [{"type": "text", "text": verdict_text}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    with judge_client(commit_sha) as client:
+        verdict = judge_merge(
+            client.with_options(http_client=httpx.Client(transport=httpx.MockTransport(respond))),
+            title="Rename an internal helper",
+            judged_diff=COMPONENT_CHUNK,
+            docs_page_paths=FLAGS_PATHS[:1],
+            page_text_by_key={},
+        )
+
+    assert verdict.reason == "internal"
+    assert sent_labels == [{"commit_sha": commit_sha, "ai_product": "knowledge_writer", "ai_stage": "judge"}]

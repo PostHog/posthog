@@ -1,5 +1,6 @@
 import { useActions } from 'kea'
 import React, { useMemo, useState } from 'react'
+import { InView } from 'react-intersection-observer'
 
 import { IconCollapse, IconExpand, IconEye, IconHide, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -93,7 +94,15 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
     const rawQuery = content.query
 
     const chart =
-        query && !isCollapsed ? <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} /> : null
+        query && !isCollapsed ? (
+            <InView rootMargin="500px" triggerOnce fallbackInView>
+                {({ ref, inView }) => (
+                    <div ref={ref} className="flex h-full flex-col">
+                        {inView && <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} />}
+                    </div>
+                )}
+            </InView>
+        ) : null
     // A funnel sizes itself, so it only gets a cap; a chart drawn on a canvas needs a fixed height.
     const chartHeightClassName = isFunnelsQuery(rawQuery) ? 'max-h-[580px]' : 'h-96'
 

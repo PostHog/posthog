@@ -108,7 +108,9 @@ def _list_params(
     api_version: str,
 ) -> dict[str, Any]:
     config = WHOP_ENDPOINTS[endpoint]
-    params: dict[str, Any] = {config.page_size_param: PAGE_SIZE, COMPANY_FILTER_PARAM[api_version]: company_id}
+    params: dict[str, Any] = {config.page_size_param: PAGE_SIZE}
+    if config.company_filter:
+        params[COMPANY_FILTER_PARAM[api_version]] = company_id
 
     if config.supports_created_at_order:
         # Forcing the sort column makes the arrival order knowable, which is what lets this endpoint

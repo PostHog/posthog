@@ -23,6 +23,7 @@ from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorS3Error, wrap_clickhouse_query_error
@@ -958,6 +959,45 @@ class TestSavedQuery(APIBaseTest):
         response_json = response.json()
         assert "Invalid query" in response_json["detail"]
 
+    def test_create_with_jev_saves_without_model_call(self):
+        with (
+            patch("httpx.AsyncClient.post") as post,
+            patch.object(
+                HogQLQueryExecutor, "plan_prompt_jev", autospec=True, side_effect=HogQLQueryExecutor.plan_prompt_jev
+            ) as plan,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "jev_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": (
+                            "SELECT s.id AS id, jev(s.text, 'Is this a refund request?') AS verdict "
+                            "FROM (SELECT toString(uuid) AS id, toString(event) AS text FROM events LIMIT 100) AS s"
+                        ),
+                    },
+                },
+            )
+
+        assert response.status_code == 201, response.content
+        assert [column["name"] for column in response.json()["columns"]] == ["id", "verdict"]
+        post.assert_not_called()
+        # Each plan runs the jev source query on ClickHouse, so validation and the column read share one.
+        assert plan.call_count == 1
+
+    def test_create_with_jev_over_budget_returns_planner_error(self):
+        query = "SELECT jev(toString(event), 'Topic?') AS a, jev(toString(event), 'Tone?') AS b FROM events LIMIT 600"
+        with patch("httpx.AsyncClient.post") as post:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {"name": "jev_view", "query": {"kind": "HogQLQuery", "query": query}},
+            )
+
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"].startswith("Invalid query: jev exceeds the query budget")
+        post.assert_not_called()
+
     def test_delete(self):
         query_name = "test_query"
         saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)
@@ -1577,6 +1617,29 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(
             bounds["plan_floor"],
             {"label": expected_label, "blocker": None, "pinned": False} if expected_label else None,
+        )
+
+    def test_retrieve_reports_a_plan_floor_rewrite(self):
+        from products.data_modeling.backend.facade.api import clamp_dag_targets_to_plan_floor, set_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_declared_target(node, timedelta(minutes=15))
+
+        with (
+            self._six_hour_plan_floor(True),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules"),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.ph_background_capture"),
+        ):
+            self.assertEqual(clamp_dag_targets_to_plan_floor(self.team.pk, str(node.dag_id)), 1)
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["sync_frequency"], "6hour")
+        plan_clamp = response.json()["plan_clamp"]
+        self.assertEqual(
+            (plan_clamp["previous_target_seconds"], plan_clamp["plan_floor_seconds"]), (900, 21600), plan_clamp
         )
 
     def test_a_withheld_cadence_names_the_view_that_withholds_it(self):

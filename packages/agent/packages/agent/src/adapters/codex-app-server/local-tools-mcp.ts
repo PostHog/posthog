@@ -9,7 +9,6 @@ import type { McpServerStdio } from "@agentclientprotocol/sdk";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
   enabledLocalTools,
-  isFinishReportRequired,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   type LocalToolGateMeta,
@@ -30,6 +29,7 @@ export interface LocalToolsMeta extends LocalToolGateMeta {
   taskRunId?: string;
   persistence?: { taskId?: string };
   baseBranch?: string;
+  finishReportRequired?: boolean;
 }
 
 const GITLAB_ENV_VARS = ["POSTHOG_GIT_PROVIDER", "GITLAB_TOKEN"] as const;
@@ -92,7 +92,7 @@ export function buildLocalToolsServer(
     taskId: resolveTaskId(meta),
     taskRunId: meta?.taskRunId,
     baseBranch: meta?.baseBranch,
-    finishReportRequired: isFinishReportRequired(meta),
+    finishReportRequired: meta?.finishReportRequired === true,
   };
   const names = enabledLocalTools(toolCtx, meta).map((tool) => tool.name);
   if (isTaskRunSandbox(process.env)) names.push(MEMORY_KILL_HOOK_TOOL_NAME);

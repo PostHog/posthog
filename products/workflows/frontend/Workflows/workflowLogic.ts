@@ -34,6 +34,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { selectedSenderIds } from 'scenes/hog-functions/email-templater/emailSenderFields'
+import { emailTemplaterLogic, latestEmailEditSaved } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailFieldErrors, EmailTemplateFrom } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,6 +45,8 @@ import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType,
 
 import { integrationsList } from 'products/integrations/frontend/generated/api'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
+import { messagingCategoriesRetrieve, messagingTemplatesRetrieve } from 'products/messaging/frontend/generated/api'
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
@@ -80,6 +83,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import { SENSITIVE_REASON } from '../TemplateLibrary/templateWorkflowDisabledReason'
 import { confirmEnableOnSandboxSender } from './confirmEnableOnSandboxSender'
 import {
     EmailSendingPause,
@@ -121,6 +125,7 @@ import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
     prefilledEmailContent,
     prefilledWorkflow,
+    templatePrefilledWorkflow,
     withEmailBrand,
     withEmailSender,
     withSandboxSender,
@@ -136,12 +141,20 @@ export interface WorkflowLogicProps {
     editTemplateId?: string
     triggerPrefill?: string
     emailPrefill?: string
+    messageTemplateId?: string
     draftSource?: string
     entrySource?: string
 }
 
+/** Gives the workflow's name to the scene logic, which reports it as a recent and cannot import this logic back. */
+function reportWorkflowName(props: WorkflowLogicProps, workflow: HogFlow): void {
+    if (props.id && props.id !== 'new') {
+        workflowSceneLogic.findMounted({ id: props.id })?.actions.setWorkflowName(workflow.name)
+    }
+}
+
 export function workflowLogicKey(props: WorkflowLogicProps): string {
-    return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
+    return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}-${props.messageTemplateId || 'default'}`
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -232,6 +245,50 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // row, and an internal event are all things no PostHog person is attached to. Keep in sync with
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
+
+type EmailTemplateCopy = {
+    template: MessageTemplateApi | null
+    outcome: 'copied' | 'sensitive' | 'not_transactional' | 'marketing_category' | 'load_failed'
+}
+
+async function loadEmailTemplate(templateId: string | undefined): Promise<MessageTemplateApi | null> {
+    if (!templateId) {
+        return null
+    }
+    const { template, outcome } = await readEmailTemplateCopy(templateId)
+    // pinned: analytics event name
+    posthog.capture('workflow email template link opened', { template_id: templateId, outcome })
+    return template
+}
+
+async function readEmailTemplateCopy(templateId: string): Promise<EmailTemplateCopy> {
+    try {
+        const projectId = String(ApiConfig.getCurrentTeamId())
+        const template = await messagingTemplatesRetrieve(projectId, templateId)
+        if (template.sensitive) {
+            lemonToast.warning(`The workflow opens without the email. ${SENSITIVE_REASON}`)
+            return { template: null, outcome: 'sensitive' }
+        }
+        // Only a transactional template may become a step that sends past marketing opt-outs. A template moved to a
+        // marketing category keeps its workflow, so its category is checked too, as the send API does.
+        if (!template.transactional_hog_flow_id || !template.content?.email) {
+            return { template: null, outcome: 'not_transactional' }
+        }
+        const category = template.message_category
+            ? await messagingCategoriesRetrieve(projectId, template.message_category)
+            : null
+        if (category?.category_type === 'marketing') {
+            lemonToast.warning(
+                'The workflow opens without the email. Move the template to a transactional category to copy it.'
+            )
+            return { template: null, outcome: 'marketing_category' }
+        }
+        return { template, outcome: 'copied' }
+    } catch {
+        lemonToast.warning("Couldn't load the email template. Add an email step to the workflow yourself.")
+        return { template: null, outcome: 'load_failed' }
+    }
+}
 
 async function loadEmailSenders(): Promise<IntegrationConfigApi[]> {
     const teamId = String(ApiConfig.getCurrentTeamId())
@@ -967,6 +1024,7 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
+                                click_tracking_enabled?: boolean | undefined
                                 inputs: Record<
                                     string,
                                     {
@@ -979,6 +1037,8 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                run_link_tag_enabled?: boolean | undefined
+                                sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -1920,6 +1980,7 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
+                                click_tracking_enabled?: boolean | undefined
                                 inputs: Record<
                                     string,
                                     {
@@ -1932,6 +1993,8 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                run_link_tag_enabled?: boolean | undefined
+                                sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -2899,6 +2962,7 @@ export interface workflowLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {
@@ -2911,6 +2975,8 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  run_link_tag_enabled?: boolean | undefined
+                  sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
@@ -3352,6 +3418,7 @@ export interface workflowLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {
@@ -3364,6 +3431,8 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  run_link_tag_enabled?: boolean | undefined
+                  sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
@@ -3902,6 +3971,14 @@ export const workflowLogic = kea<workflowLogicType>([
                             return (await withDefaultEmailSender(templated)) as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                        // The card links an event trigger only. The copied email reads the event's properties and sends to its person.
+                        const messageTemplate =
+                            triggerConfig?.type === 'event' ? await loadEmailTemplate(props.messageTemplateId) : null
+                        if (triggerConfig && messageTemplate) {
+                            return await withDefaultEmailSender(
+                                templatePrefilledWorkflow(NEW_WORKFLOW, triggerConfig, messageTemplate)
+                            )
+                        }
                         if (triggerConfig) {
                             const prefilled = prefilledWorkflow(
                                 NEW_WORKFLOW,
@@ -4097,11 +4174,16 @@ export const workflowLogic = kea<workflowLogicType>([
                             return result
                         } catch (error) {
                             if (error instanceof ApiError && error.status === 409) {
-                                if (initiatedByAutoSave && values.pendingSchedule === false) {
+                                if (
+                                    initiatedByAutoSave &&
+                                    values.pendingSchedule === false &&
+                                    values.keepsLocalEditsOnExternalEdit
+                                ) {
                                     // An auto-save losing the race is not a decision point: the user never
-                                    // asked to overwrite anything, so reconcile to the newer copy silently.
-                                    // A pending schedule change is the exception: only a manual save
-                                    // persists it, and the reload would wipe it, so that gets the banner.
+                                    // asked to overwrite anything, so reconcile to the newer copy silently,
+                                    // keeping the edits. A pending schedule change is the exception: only a
+                                    // manual save persists it, and the reload would wipe it, so that gets the
+                                    // banner, as does a reload that would drop the edits being saved.
                                     actions.setSyncingExternalEdit(true)
                                     actions.loadWorkflow()
                                 } else {
@@ -4911,10 +4993,11 @@ export const workflowLogic = kea<workflowLogicType>([
             // While auto-save can flush the local buffer, reconcile silently instead of interrupting
             // with a conflict banner. When auto-save can't flush (toggled off, no name to save under,
             // or a pending schedule change, which only a manual save persists), the buffer can hold
-            // real work, so the banner lets the user choose.
+            // real work, so the banner lets the user choose. Without the keep-local-edits reload, a
+            // silent reload would drop the unsaved edits, so they get the banner too.
             const autoSaveCanFlush =
                 values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
-            if (values.hasUnsavedChanges && !autoSaveCanFlush) {
+            if (values.hasUnsavedChanges && !(autoSaveCanFlush && values.keepsLocalEditsOnExternalEdit)) {
                 actions.setExternallyEdited(true)
             } else {
                 // Flag the sync first so the editor shows a brief working/disabled overlay and
@@ -4926,6 +5009,19 @@ export const workflowLogic = kea<workflowLogicType>([
         publishDraft: async () => {
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
+            }
+            // The open email editor hands over its last edit first, so the unsaved-changes check below sees it.
+            if (emailTemplaterLogic.findMounted()) {
+                actions.setDraftActionPending('publish')
+                let emailEditSaved: boolean
+                try {
+                    emailEditSaved = await latestEmailEditSaved()
+                } finally {
+                    actions.setDraftActionPending(null)
+                }
+                if (!emailEditSaved) {
+                    return
+                }
             }
             // The "Draft saved" toast offers Publish too, while auto-save may still hold edits. The step
             // check below reads the form, so it describes the staged draft only once the form is saved.
@@ -5103,6 +5199,8 @@ export const workflowLogic = kea<workflowLogicType>([
             if (props.id && props.id !== 'new') {
                 try {
                     const latest = await api.hogFlows.getHogFlow(props.id)
+                    // A staged save also fences its live metadata write, so the live stamp moves to the latest too.
+                    cache.lastSavedWorkflow = latest
                     // On an active workflow the next save races the draft slot, so its stamp is the baseline.
                     actions.setSaveBaseUpdatedAt(latest.draft_updated_at ?? latest.updated_at)
                 } catch {
@@ -5200,10 +5298,13 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
+            reportWorkflowName(props, originalWorkflow)
             const missingTemplates = missingStepTemplateIds(originalWorkflow, values.hogFunctionTemplatesById)
             if (missingTemplates.length) {
                 actions.loadMissingHogFunctionTemplates(missingTemplates)
             }
+            const previousSaveBaseline =
+                (cache.lastSavedWorkflow as HogFlow | undefined) ?? selectors.originalWorkflow(previousState)
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
@@ -5219,7 +5320,19 @@ export const workflowLogic = kea<workflowLogicType>([
                     ? selectors.originalWorkflow(previousState)
                     : null
             const unsavedEdits = editsKeptOverReload(baseBeforeExternalEdit, values.workflow, loaded)
-            actions.resetWorkflow(loaded)
+            // Without the keep-local-edits reload, edits typed while this silent reload ran would be reset away,
+            // such as an email canvas edit that reached the form after the reload started.
+            const editedDuringSilentReload =
+                !values.keepsLocalEditsOnExternalEdit &&
+                selectors.isSyncingExternalEdit(previousState) &&
+                selectors.workflowChanged(previousState)
+            if (editedDuringSilentReload) {
+                actions.setExternallyEdited(true)
+                // The form still holds the older copy, so saves stay fenced by it, as when no reload ran.
+                cache.lastSavedWorkflow = previousSaveBaseline
+            } else {
+                actions.resetWorkflow(loaded)
+            }
             if (Object.keys(unsavedEdits).length > 0) {
                 actions.setWorkflowValues(unsavedEdits)
                 actions.autoSaveWorkflow()
@@ -5237,11 +5350,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         loadWorkflowFailure: (_, __, ___, previousState) => {
-            if (
-                values.keepsLocalEditsOnExternalEdit &&
-                selectors.isSyncingExternalEdit(previousState) &&
-                values.workflowChanged
-            ) {
+            if (selectors.isSyncingExternalEdit(previousState) && values.workflowChanged) {
                 actions.setExternallyEdited(true)
             }
             actions.replayDeferredResourceEdited()
@@ -5259,6 +5368,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            reportWorkflowName(props, originalWorkflow)
             // What this save was dispatched with. A manual save queued behind an auto-save used to
             // relabel the auto-save here, so the auto-save also ran the manual-only work below: a
             // second toast, and a second schedule write that can leave a duplicate schedule.
@@ -5633,7 +5743,9 @@ export const workflowLogic = kea<workflowLogicType>([
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
                 values.autoSaveBlockedByValidation ||
-                (values.keepsLocalEditsOnExternalEdit && values.isSyncingExternalEdit)
+                values.isSyncingExternalEdit ||
+                // The banner asks first, and a save could overwrite the newer copy without it.
+                (!values.keepsLocalEditsOnExternalEdit && values.externallyEdited)
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()

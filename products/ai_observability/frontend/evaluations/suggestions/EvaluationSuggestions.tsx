@@ -6,11 +6,13 @@ import { TraceDrawerHost } from '../../redesign/trace/TraceDrawerHost'
 import { EvaluationNoticeCard } from './EvaluationNoticeCard'
 import { EvaluationSuggestionCard } from './EvaluationSuggestionCard'
 import { SUGGESTION_EXAMPLES_LIST, evaluationSuggestionsLogic } from './evaluationSuggestionsLogic'
+import { EvaluationSuggestionsTurnOffMenu } from './EvaluationSuggestionsTurnOffMenu'
 import { JudgeSuggestionConfirmModal } from './JudgeSuggestionConfirmModal'
 
 export function EvaluationSuggestions(): JSX.Element | null {
-    const { suggestionList, suggestionListLoading, suggestionListLoadFailed } = useValues(evaluationSuggestionsLogic)
-    const { loadEvalSuggestions } = useActions(evaluationSuggestionsLogic)
+    const { suggestionList, suggestionListLoading, suggestionListLoadFailed, turningOff } =
+        useValues(evaluationSuggestionsLogic)
+    const { loadEvalSuggestions, turnOffSuggestions } = useActions(evaluationSuggestionsLogic)
 
     if (suggestionListLoadFailed) {
         return (
@@ -42,7 +44,10 @@ export function EvaluationSuggestions(): JSX.Element | null {
     }
     return (
         <section className="@container/suggestions flex flex-col gap-2" data-attr="eval-suggestions">
-            <h3 className="m-0 text-base font-semibold">Suggested evals</h3>
+            <div className="flex items-center justify-between gap-2">
+                <h3 className="m-0 text-base font-semibold">Suggested evals</h3>
+                <EvaluationSuggestionsTurnOffMenu loading={turningOff} onTurnOff={turnOffSuggestions} />
+            </div>
             <div className="grid grid-cols-1 gap-2 @min-[40rem]/suggestions:grid-cols-2 @min-[64rem]/suggestions:grid-cols-3">
                 {suggestionList.results.map((suggestion) =>
                     suggestion.kind === 'fix_eval' ? (

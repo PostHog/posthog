@@ -23,7 +23,7 @@ export const AgenticAuthorize = (): JSX.Element => {
         filteredTeams,
         allTeamsLoading,
         pendingAuthLoading,
-        state,
+        pageError,
         partnerName,
         paysForCustomers,
         partnerOrganizationName,
@@ -32,8 +32,12 @@ export const AgenticAuthorize = (): JSX.Element => {
     } = useValues(agenticAuthorizeLogic)
     const { cancel, submitAgenticAuthorization, setAgenticAuthorizationValue } = useActions(agenticAuthorizeLogic)
 
-    if (!state) {
-        return <OAuthAuthorizeError title="Invalid request" description="Missing required state parameter." />
+    if (pageError) {
+        return (
+            <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
+                <OAuthAuthorizeError title={pageError.title} description={pageError.description} />
+            </div>
+        )
     }
 
     if (allTeamsLoading || pendingAuthLoading) {

@@ -1,6 +1,6 @@
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -296,10 +296,47 @@ class TestInsightTileReads(APIBaseTest):
             (self.second_tile, self.second.id, {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}, {}),
         ]
 
+    @parameterized.expand(
+        [
+            ("json", {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}, {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}),
+            ("stringified_json", '{"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}', {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}),
+            ("unparseable_string", "not json", "not json"),
+            ("too_deeply_nested_string", "[" * 2000 + "]" * 2000, {}),
+            ("too_deeply_nested_object", {"sm": {"a": {"b": {"c": {"d": {"e": {"f": {"g": {}}}}}}}}}, {}),
+        ]
+    )
+    def test_tile_for_insight_on_dashboard_returns_parsed_layouts_and_the_dashboard(
+        self, _name: str, stored_layouts: dict | str, expected_layouts: dict | str
+    ) -> None:
+        DashboardTile.objects.filter(id=self.second_tile).update(layouts=stored_layouts, color="blue")
+
+        tile = api.tile_for_insight_on_dashboard(insight_id=self.second.id, dashboard_id=self.dashboard)
+
+        assert tile is not None
+        assert (tile.id, tile.dashboard.id, tile.color, tile.layouts) == (
+            self.second_tile,
+            self.dashboard,
+            "blue",
+            expected_layouts,
+        )
+
     def test_insight_tiles_is_empty_for_a_soft_deleted_dashboard(self) -> None:
         Dashboard.objects.filter(id=self.dashboard).update(deleted=True)
 
         assert api.insight_tiles(dashboard_id=self.dashboard) == []
+
+    def test_insight_ids_on_dashboards_reads_only_the_teams_dashboards(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        theirs = create_dashboard(team_id=other_team.id)
+        create_insight_tile(dashboard_id=theirs, insight_id=self.first.id)
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team)
+
+        by_dashboard = api.insight_ids_on_dashboards([self.dashboard, theirs, self.dashboard], team_id=environment.id)
+
+        assert by_dashboard == {
+            self.dashboard: frozenset({self.first.id, self.second.id, self.deleted.id}),
+            theirs: frozenset(),
+        }
 
     def test_insight_ids_on_dashboard_with_removed_tiles_matches_the_insight_dashboards_relation(self) -> None:
         relation = Insight.objects_including_soft_deleted.filter(dashboards__in=[self.dashboard])
@@ -365,7 +402,7 @@ class TestDashboardSearch(APIBaseTest):
         )
 
         assert [r["result_id"] for r in results] == [str(self.revenue), str(self.churn)]
-        assert results[0]["rank"] > results[1]["rank"]
+        assert cast(float, results[0]["rank"]) > cast(float, results[1]["rank"])
         assert count == 0
 
 
@@ -373,7 +410,7 @@ class TestDashboardTeamSettings(APIBaseTest):
     @parameterized.expand(
         [("live", False, False, True), ("soft_deleted", True, False, False), ("other_team", False, True, False)]
     )
-    def test_home_tab_dashboard_reads_like_the_team_property(
+    def test_home_tab_dashboard_shows_only_a_live_dashboard_of_this_team(
         self, _name: str, deleted: bool, other_team: bool, shown: bool
     ) -> None:
         team_id = Team.objects.create(organization=self.organization).id if other_team else self.team.id
@@ -381,9 +418,7 @@ class TestDashboardTeamSettings(APIBaseTest):
 
         api.set_home_tab_dashboard(team_id=self.team.id, dashboard_id=dashboard_id)
 
-        team = Team.objects.get(id=self.team.id)
         assert api.home_tab_dashboard_id(team_id=self.team.id) == (dashboard_id if shown else None)
-        assert (team.home_tab_dashboard.id if team.home_tab_dashboard else None) == (dashboard_id if shown else None)
 
     def test_clearing_the_home_tab_dashboard_keeps_the_config_row(self) -> None:
         api.set_home_tab_dashboard(team_id=self.team.id, dashboard_id=create_dashboard(team_id=self.team.id))
@@ -513,7 +548,7 @@ class TestTilePlacements(APIBaseTest):
         # The stale dashboard was opened before `since`, and the removed tile does not count.
         assert placements == ([self.asked[0]] if found else [])
 
-    def test_live_tile_placements_lists_live_tiles_of_any_kind(self) -> None:
+    def test_live_tile_reads_list_live_tiles_of_any_kind(self) -> None:
         deleted_dashboard = create_dashboard(team_id=self.team.id, deleted=True)
         create_insight_tile(dashboard_id=deleted_dashboard, insight_id=self.insight.id)
 
@@ -527,6 +562,9 @@ class TestTilePlacements(APIBaseTest):
         ]
         with self.assertRaises(ValueError):
             api.live_tile_placements()
+        assert api.live_tile_layouts(self.opened, limit=3) == [{}, {}]
+        assert api.live_tile_layouts(self.opened, limit=1) == [{}]
+        assert api.live_tile_layouts(deleted_dashboard, limit=3) == []
 
     @parameterized.expand([("live", False), ("including_deleted", True)])
     def test_insight_placements_match_the_tile_query_they_replace(self, _name: str, include_deleted: bool) -> None:
@@ -656,6 +694,13 @@ class TestDashboardTemplatesForCore(APIBaseTest):
         assert api.create_global_template_if_missing(definition) is True
         assert api.create_global_template_if_missing(definition) is False
         assert global_dashboard_template_exists(template_name="Seeded")
+        stored = DashboardTemplate.objects.get(template_name="Seeded", team__isnull=True)
+        assert (stored.dashboard_description, stored.tiles, stored.variables, stored.scope) == (
+            "From a seed",
+            [{"type": "TEXT", "body": "hi", "layouts": {}}],
+            [{"code_name": "v"}],
+            "global",
+        )
 
     def test_create_starter_dashboard_applies_the_signup_template(self) -> None:
         template = DashboardTemplate.default_signup_template()
