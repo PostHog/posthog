@@ -4284,7 +4284,7 @@ class ExperimentService:
             allowed_fields = {"name", "description", "end_date", "deleted"}
             update_fields = set(update_data.keys())
 
-            # Remove internal fields that are handled separately
+            # `update_experiment` drops the flag key before it writes, so the key has no effect on a legacy experiment.
             update_fields.discard("feature_flag_key")
 
             disallowed_fields = update_fields - allowed_fields
