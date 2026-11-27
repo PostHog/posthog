@@ -120,6 +120,9 @@ export interface slackChannelScoutLogicActions {
     openSlackScoutModal: () => {
         value: true
     }
+    pickSlackScoutSource: (sourceId: string) => {
+        sourceId: string
+    }
     resetSlackScout: (values?: SlackChannelScoutFormValues) => {
         values?: SlackChannelScoutFormValues
     }
@@ -184,6 +187,7 @@ export const slackChannelScoutLogic = kea<slackChannelScoutLogicType>([
     actions({
         openSlackScoutModal: true,
         closeSlackScoutModal: true,
+        pickSlackScoutSource: (sourceId: string) => ({ sourceId }),
     }),
     reducers({
         isSlackScoutModalOpen: [
@@ -218,7 +222,7 @@ export const slackChannelScoutLogic = kea<slackChannelScoutLogicType>([
             defaults: formDefaults(null),
             errors: ({ display_name, source_id, channel_ids }: SlackChannelScoutFormValues) => ({
                 display_name: !display_name.trim() ? 'Give the scout a name' : undefined,
-                source_id: !source_id ? 'Pick a Slack workspace' : undefined,
+                source_id: !source_id ? 'Pick a Slack source' : undefined,
                 // kea-forms types an array field's errors per item, but the field shows one message for the whole list.
                 channel_ids: (channel_ids.length === 0
                     ? 'Pick at least one channel'
@@ -279,6 +283,20 @@ export const slackChannelScoutLogic = kea<slackChannelScoutLogicType>([
             actions.resetSlackScout(formDefaults(values.channelSources))
             captureSlackChannelScoutFormOpened({
                 channelCount: values.channelSources?.reduce((count, source) => count + source.channels.length, 0) ?? 0,
+                sourceCount: values.channelSources?.length ?? 0,
+            })
+        },
+        pickSlackScoutSource: ({ sourceId }) => {
+            // Only synced channels can be picked, so an unsynced channel of the new source is dropped too.
+            const syncedChannelIds = new Set(
+                values.channelSources
+                    ?.find((source) => source.id === sourceId)
+                    ?.channels.filter((channel) => channel.table_name !== null)
+                    .map((channel) => channel.id)
+            )
+            actions.setSlackScoutValues({
+                source_id: sourceId,
+                channel_ids: values.slackScout.channel_ids.filter((channelId) => syncedChannelIds.has(channelId)),
             })
         },
     })),
