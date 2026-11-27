@@ -88,8 +88,10 @@ export interface maxGlobalLogicValues {
     dataProcessingDismissed: boolean // aiConsentLogic
     requestingAiAccess: boolean // aiConsentLogic
     effectivePhaiView: PhaiViewMode // aiShellLogic
+    isAiAvailable: boolean // aiShellLogic
     isMaxAvailable: boolean // aiShellLogic
     isPhaiSandboxFlagOn: boolean // aiShellLogic
+    isTaskRunnerAvailable: boolean // aiShellLogic
     phaiViewMode: PhaiViewMode // aiShellLogic
     registeredToolMap: Record<string, ToolRegistration> // aiShellLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
@@ -260,7 +262,15 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     connect(() => ({
         values: [
             aiShellLogic,
-            ['effectivePhaiView', 'isMaxAvailable', 'isPhaiSandboxFlagOn', 'phaiViewMode', 'registeredToolMap'],
+            [
+                'effectivePhaiView',
+                'isAiAvailable',
+                'isMaxAvailable',
+                'isPhaiSandboxFlagOn',
+                'isTaskRunnerAvailable',
+                'phaiViewMode',
+                'registeredToolMap',
+            ],
             organizationLogic,
             ['currentOrganization'],
             sceneLogic,
