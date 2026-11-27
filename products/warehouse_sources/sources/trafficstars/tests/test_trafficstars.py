@@ -48,15 +48,32 @@ def _api(result: DriveResult) -> list[RecordedRequest]:
 
 
 class TestLists:
-    def test_campaigns_exchange_the_key_once_and_read_one_page(self) -> None:
-        result = _run("campaigns", "/v1.1/campaigns", [ScriptedResponse(json={"response": [{"id": 1}, {"id": 2}]})])
+    @pytest.mark.parametrize(
+        ("endpoint", "api_path", "body", "key", "expected_keys"),
+        [
+            ("campaigns", "/v1.1/campaigns", {"response": [{"id": 1}, {"id": 2}]}, "id", [1, 2]),
+            (
+                "countries",
+                "/v1.1/countries",
+                [{"code": "ZZ", "name": "Testland"}, {"code": "QX", "name": "Exampleland"}],
+                "code",
+                ["ZZ", "QX"],
+            ),
+            ("countries", "/v1.1/countries", [{"code": "ZZ", "name": "Testland"}], "code", ["ZZ"]),
+            ("countries", "/v1.1/countries", [], "code", []),
+        ],
+    )
+    def test_single_request_lists_exchange_the_key_once_and_read_one_response(
+        self, endpoint: str, api_path: str, body: Any, key: str, expected_keys: list[Any]
+    ) -> None:
+        result = _run(endpoint, api_path, [ScriptedResponse(json=body)])
 
         assert result.raised is None
         token_request = result.requests[0]
         assert token_request.path == "/v1/auth/token"
         assert token_request.body == b"grant_type=refresh_token&refresh_token=ts_key"
-        assert [r.headers["authorization"] for r in _api(result)] == ["Bearer tok"]
-        assert [row["id"] for row in result.rows] == [1, 2]
+        assert [(r.path, r.headers["authorization"]) for r in _api(result)] == [(api_path, "Bearer tok")]
+        assert [row[key] for row in result.rows] == expected_keys
 
     def test_creatives_walk_pages_until_page_count(self) -> None:
         result = _run(
@@ -75,9 +92,20 @@ class TestLists:
 
 
 class TestDailyStatistics:
-    def test_requests_one_inclusive_day_at_a_time_from_the_watermark(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "group_by"),
+        [
+            ("campaign_statistics_daily", "campaign"),
+            ("country_statistics_daily", "country"),
+            ("creative_statistics_daily", "creative"),
+            ("spot_statistics_daily", "spot"),
+            ("device_statistics_daily", "device"),
+            ("os_statistics_daily", "os"),
+        ],
+    )
+    def test_requests_one_inclusive_day_at_a_time_from_the_watermark(self, endpoint: str, group_by: str) -> None:
         result = _run(
-            "campaign_statistics_daily",
+            endpoint,
             "/v2/campaigns/statistics",
             [
                 ScriptedResponse(json={"data": [{"id": 123, "name": "Campaign", "impressions": 6627, "costs": 0.33}]}),
@@ -96,7 +124,7 @@ class TestDailyStatistics:
             ("2026-10-14", "2026-10-14"),
             ("2026-10-15", "2026-10-15"),
         ]
-        assert api[0].json()["group_by"] == "campaign"
+        assert {r.json()["group_by"] for r in api} == {group_by}
         assert [(row["date"], row["id"], row["impressions"]) for row in result.rows] == [
             (date(2026, 10, 13), 123, 6627),
             (date(2026, 10, 15), 123, 10),

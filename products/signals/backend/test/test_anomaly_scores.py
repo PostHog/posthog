@@ -52,6 +52,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
     bucket_end,
     buckets_to_score,
+    detector_version,
     fetch_buckets,
     history_buckets,
     query_cost,
@@ -443,6 +444,12 @@ class TestScoreInsight(SimpleTestCase):
 
 _IDENTITY = StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q1")
 _SCORED_THROUGH = datetime(2026, 1, 9, tzinfo=UTC)
+_OLDER_SCORING = dataclasses.replace(DAY_SCORING, detector={**DAY_SCORING.detector, "threshold": 0.9})
+_OLDER_IDENTITY = dataclasses.replace(_IDENTITY, detector_version=detector_version(_OLDER_SCORING, artifacts=True))
+with patch("products.signals.backend.anomaly_scores.scoring.FIT_VERSION", "artifact_v1"):
+    _OLDER_FIT_IDENTITY = dataclasses.replace(
+        _IDENTITY, detector_version=detector_version(_OLDER_SCORING, artifacts=True)
+    )
 
 
 def _state(**changes: Any) -> TrainedState:
@@ -469,9 +476,12 @@ class TestTrainDue(SimpleTestCase):
                 _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q0")),
                 TrainDue.HARD,
             ),
+            ("older_detector_settings", _state(identity=_OLDER_IDENTITY, scoring=_OLDER_SCORING), TrainDue.SOFT),
+            ("older_detector_settings_not_stored", _state(identity=_OLDER_IDENTITY), TrainDue.HARD),
+            ("older_fit_version", _state(identity=_OLDER_FIT_IDENTITY, scoring=_OLDER_SCORING), TrainDue.HARD),
             (
-                "detector_changed",
-                _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v0", query_hash="q1")),
+                "older_detector_settings_past_the_model_age_ceiling",
+                _state(identity=_OLDER_IDENTITY, scoring=_OLDER_SCORING, trained_at=datetime(2025, 12, 13, tzinfo=UTC)),
                 TrainDue.HARD,
             ),
             ("trained_too_long_ago", _state(trained_at=datetime(2026, 1, 2, tzinfo=UTC)), TrainDue.SOFT),
@@ -487,6 +497,7 @@ class TestTrainDue(SimpleTestCase):
             train_due(
                 state,
                 identity=_IDENTITY,
+                scoring=DAY_SCORING,
                 now=datetime(2026, 1, 10, 1, tzinfo=UTC),
                 timezone=ZoneInfo("UTC"),
                 train_every=7,
@@ -512,6 +523,7 @@ class TestTrainDue(SimpleTestCase):
             train_due(
                 state,
                 identity=identity,
+                scoring=DEFAULT_PROFILE.intervals[IntervalType.HOUR],
                 now=now,
                 timezone=ZoneInfo("UTC"),
                 train_every=24,

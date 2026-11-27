@@ -11,7 +11,7 @@ import type { QueryRequest } from './queryTypes'
 const TIME = { from: 'now-7d', to: 'now' }
 const SQL: QueryRequest = { query: { language: 'hogql', query: 'select 1 as total' }, time: TIME }
 const TRENDS: QueryRequest = {
-    query: { language: 'insight', query: { kind: NodeKind.TrendsQuery, series: [] } },
+    query: { language: 'query', query: { kind: NodeKind.TrendsQuery, series: [] } },
     time: TIME,
 }
 const LATENCY: QueryRequest = {
@@ -23,6 +23,7 @@ const DAY_1 = Date.UTC(2026, 10, 1)
 
 type OpenStream = {
     body: any
+    signal: AbortSignal
     push: (text: string) => void
     close: () => void
 }
@@ -43,6 +44,7 @@ describe('createQueryBatchRunner', () => {
             const stream = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) })
             streams.push({
                 body: JSON.parse(String(init.body)),
+                signal: init.signal as AbortSignal,
                 push: (text) => controller.enqueue(new TextEncoder().encode(text)),
                 close: () => controller.close(),
             })
@@ -65,7 +67,7 @@ describe('createQueryBatchRunner', () => {
             `${JSON.stringify({ i, result: { frames: [{ name: null, labels: {}, fields: [{ name: 'total', type: 'number', values: [total] }], meta: {}, hash: 'h' }] } })}\n`
         )
     const totalOf = (total: number): unknown => ({
-        frames: [{ fields: [{ name: 'total', type: 'number', values: [total] }] }],
+        frames: [{ meta: {}, hash: 'h', fields: [{ name: 'total', type: 'number', values: [total] }] }],
     })
 
     it('sends the queries asked in one tick as one stream and settles each as its line arrives', async () => {
@@ -92,12 +94,12 @@ describe('createQueryBatchRunner', () => {
 
         const frame = {
             name: null,
-            labels: {},
+            labels: { series_index: '0' },
             fields: [
                 { name: 'day', type: 'time', unit: 'date', values: [DAY_1] },
-                { name: 'total', type: 'number', unit: 's', values: [42] },
+                { name: 'total', type: 'number', unit: 's', values: [42], labels: { le: '0.5' } },
             ],
-            meta: {},
+            meta: { interval: 'day', end: DAY_1 },
             hash: 'h',
         }
         streams[0].push(
@@ -107,9 +109,12 @@ describe('createQueryBatchRunner', () => {
         await expect(second).resolves.toEqual({
             frames: [
                 {
+                    labels: { series_index: '0' },
+                    meta: { interval: 'day', end: DAY_1 },
+                    hash: 'h',
                     fields: [
                         { name: 'day', type: 'time', values: ['2026-11-01'] },
-                        { name: 'total', type: 'number', values: [42], unit: 's' },
+                        { name: 'total', type: 'number', values: [42], unit: 's', labels: { le: '0.5' } },
                     ],
                 },
             ],
@@ -164,6 +169,67 @@ describe('createQueryBatchRunner', () => {
             answer(streams[stream], 0, 3 + stream)
         }
         await expect(Promise.all(later)).resolves.toEqual(later.map((_, index) => totalOf(4 + index)))
+    })
+
+    it('leaves out a query that aborted before its batch was sent', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const gone = new AbortController()
+        const aborted = runQuery(SQL, gone.signal)
+        const kept = runQuery(TRENDS)
+        gone.abort()
+        await expect(aborted).rejects.toMatchObject({ name: 'AbortError' })
+        await flush()
+
+        expect(streams[0].body.queries).toEqual([
+            { target: { refId: '0', language: 'query', query: '{"kind":"TrendsQuery","series":[]}' }, time: TIME },
+        ])
+        answer(streams[0], 0, 1)
+        await expect(kept).resolves.toEqual(totalOf(1))
+    })
+
+    it('keeps a stream open while one of its queries still waits, and stops it when none do', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const [first, second] = [new AbortController(), new AbortController()]
+        const results = [runQuery(SQL, first.signal), runQuery(TRENDS, second.signal)]
+        await flush()
+
+        first.abort()
+        expect(streams[0].signal.aborted).toBe(false)
+        second.abort()
+        expect(streams[0].signal.aborted).toBe(true)
+        for (const result of results) {
+            await expect(result).rejects.toMatchObject({ name: 'AbortError' })
+        }
+    })
+
+    it('stops a stream once the query it kept open for is answered and only aborted ones remain', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const gone = new AbortController()
+        void runQuery(SQL, gone.signal).catch(() => {})
+        const kept = runQuery(TRENDS)
+        await flush()
+
+        gone.abort()
+        expect(streams[0].signal.aborted).toBe(false)
+        answer(streams[0], 1, 1)
+        await expect(kept).resolves.toEqual(totalOf(1))
+        expect(streams[0].signal.aborted).toBe(true)
+    })
+
+    it('does not ask again for an aborted query answered busy', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const gone = new AbortController()
+        void runQuery(SQL, gone.signal).catch(() => {})
+        const kept = runQuery(TRENDS)
+        await flush()
+
+        gone.abort()
+        streams[0].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
+        answer(streams[0], 1, 1)
+        streams[0].close()
+        await expect(kept).resolves.toEqual(totalOf(1))
+        await jest.advanceTimersByTimeAsync(1000)
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
     })
 
     it('asks once more for a query answered busy, a second after the stream ends, even when another stream is free', async () => {
@@ -249,7 +315,9 @@ describe('createQueryBatchRunner', () => {
             streams[0].push(`${JSON.stringify({ i: 0, error: 'Query timed out' })}\n`)
             await expect(sql).rejects.toThrow('Query timed out')
             clock = 1400
-            streams[0].push(`${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true } } })}\n`)
+            streams[0].push(
+                `${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true }, provenance: { mode: 'derived', timeline: [{ source: 'engine', ms: 250.4 }] } } })}\n`
+            )
             await expect(latency).resolves.toEqual({ frames: [], stale: true })
             clock = 1500
             streams[0].close()
@@ -263,8 +331,8 @@ describe('createQueryBatchRunner', () => {
                         trace_id: '4bf92f3577b34da6a3ce929d0e0e4736',
                         batch_index: 0,
                         query_count: 3,
-                        query_languages: { hogql: 1, promql: 1, insight: 1 },
-                        language_mix: 'hogql+insight+promql',
+                        query_languages: { hogql: 1, promql: 1, query: 1 },
+                        language_mix: 'hogql+promql+query',
                         status: 200,
                         failed: true,
                         error: 'No answer came back for this query',
@@ -279,6 +347,8 @@ describe('createQueryBatchRunner', () => {
                         error_lines: 1,
                         cache_hits: 1,
                         stale_lines: 1,
+                        derived_lines: 1,
+                        engine_ms: 250,
                         since_mount_request_ms: 40,
                         since_mount_first_result_ms: 400,
                         since_mount_last_result_ms: 400,

@@ -1,3 +1,5 @@
+import json
+import hashlib
 from typing import Any, Optional, cast
 
 import requests
@@ -41,6 +43,8 @@ class SigmaComputingResumeConfig:
 
 
 def _paginator_config(pagination: Pagination = "page") -> PaginatorConfig:
+    if pagination == "none":
+        return "single_page"
     if pagination == "page_token":
         return {"type": "cursor", "cursor_path": "nextPageToken", "cursor_param": "pageToken"}
     return {"type": "cursor", "cursor_path": "nextPage", "cursor_param": "page"}
@@ -62,13 +66,35 @@ def _client_config(base_url: str, client_id: str, client_secret: str) -> ClientC
     }
 
 
+def _page_size_params(config: SigmaComputingEndpointConfig) -> dict[str, Any]:
+    if config.pagination == "none":
+        return {}
+    if config.pagination == "page_token":
+        return {"pageSize": config.page_size}
+    return {"limit": config.page_size}
+
+
+# Each workbook source type names its id differently.
+_WORKBOOK_SOURCE_ID_FIELDS = ("dataModelId", "inodeId", "customSqlId")
+
+
+def _add_workbook_source_id(row: dict[str, Any]) -> dict[str, Any]:
+    source_id = next((row[key] for key in _WORKBOOK_SOURCE_ID_FIELDS if row.get(key)), None)
+    if source_id is None:
+        # An undocumented source type: a content hash keeps the primary key non-null and stable.
+        payload = json.dumps({k: v for k, v in row.items() if k != "workbookId"}, sort_keys=True, default=str)
+        source_id = hashlib.sha256(payload.encode()).hexdigest()
+    row["sourceId"] = source_id
+    return row
+
+
 def get_resource(name: str) -> EndpointResource:
     config = SIGMA_ENDPOINTS[name]
     endpoint: Endpoint = {
         "path": config.path,
-        "data_selector": "entries",
-        "params": {"limit": config.page_size},
-        "paginator": _paginator_config(),
+        "data_selector": config.data_selector,
+        "params": _page_size_params(config),
+        "paginator": _paginator_config(config.pagination),
     }
     return {
         "name": config.name,
@@ -200,15 +226,17 @@ def sigma_computing_source(
             page_size_param="limit" if endpoint_config.pagination == parent_config.pagination else None,
             parent_endpoint_extra={
                 "paginator": _paginator_config(parent_config.pagination),
-                "data_selector": "entries",
+                "data_selector": parent_config.data_selector,
             },
             child_endpoint_extra={
                 "paginator": _paginator_config(endpoint_config.pagination),
-                "data_selector": "entries",
+                "data_selector": endpoint_config.data_selector,
             },
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_paginator_state,
         )
+        if endpoint == "WorkbookSources":
+            dependent_resource = cast(Any, dependent_resource).add_map(_add_workbook_source_id)
         return _make_source_response(endpoint_config, lambda: dependent_resource)
 
     config: RESTAPIConfig = {

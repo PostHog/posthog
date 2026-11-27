@@ -24,6 +24,7 @@ import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogf
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CyclotronV2Manager } from './services/cyclotron-v2'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
+import { CYCLOTRON_QUEUE_ROLES } from './types'
 
 const CYCLOTRON_NODE_DB_URL =
     process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -159,7 +160,10 @@ describe('Stored Cyclotron job state', () => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
         const { rows } = await cyclotronPool.query('SELECT current_database() AS name')
         assertTestDatabaseName(rows[0].name, 'Cyclotron node Postgres')
-        manager = new CyclotronV2Manager({ pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 2 } })
+        manager = new CyclotronV2Manager({
+            pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 2 },
+            ...CYCLOTRON_QUEUE_ROLES,
+        })
     })
 
     afterAll(async () => {

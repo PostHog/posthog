@@ -13,6 +13,7 @@ from products.slack_app.backend.temporal.slack_app_mention_processing import Sla
 from products.slack_app.backend.temporal.slack_app_onboarding import SlackAppOnboardingWorkflow
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import SlackAppUnfurlChartsWorkflow
 from products.slack_app.backend.temporal.slack_app_work_focus import (
+    SlackAppDailyFocusAgentWorkflow,
     SlackAppDailyFocusSweepWorkflow,
     SlackAppWorkFocusWorkflow,
 )
@@ -30,6 +31,7 @@ WORKFLOWS = [
     SlackAppOnboardingWorkflow,
     SlackAppWorkFocusWorkflow,
     SlackAppDailyFocusSweepWorkflow,
+    SlackAppDailyFocusAgentWorkflow,
 ]
 
 ACTIVITIES: list[ActivityDefinition] = [*SLACK_APP_ACTIVITIES]

@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -330,7 +331,10 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
         },
         deleteSelectedRulesSuccess: reloadIssueTagDefinitions,
         finishReorderingRulesSuccess: reloadIssueTagDefinitions,
-        openModal: () => actions.resetMatchCount(),
+        openModal: ({ rule }) => {
+            posthog.capture('error_tracking_tag_rule_modal_opened', { mode: rule ? 'edit' : 'create' })
+            actions.resetMatchCount()
+        },
         updateRule: () => actions.resetMatchCount(),
         increaseDateRange: () => actions.loadMatchCount(),
     })),

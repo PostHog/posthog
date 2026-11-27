@@ -978,6 +978,9 @@ class TestComputeTableStatisticsSync:
 
         row = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
         assert result["status"] == expected_status
+        # The post-import gate reads this stamp. A skip writes it without moving `computed_at`.
+        assert row.checked_at is not None
+        assert expected_status == "skipped" or row.checked_at == row.computed_at
         if expected_status == "skipped":
             assert result["reason"] == "version_unchanged"
             helper.get_delta_table.return_value.get_add_actions.assert_not_called()

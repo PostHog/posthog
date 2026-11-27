@@ -346,7 +346,7 @@ export function DesktopAccessScreen({
               </div>
 
               {switchError && (
-                <p role="alert" className="text-destructive text-sm">
+                <p role="alert" className="text-destructive-foreground text-sm">
                   {switchError}
                 </p>
               )}

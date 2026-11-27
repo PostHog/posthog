@@ -33,6 +33,10 @@ MAX_ROUTE_WHEN_LENGTH = 300
 ROUTE_KEY_RE = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 SLACK_CHANNEL_TARGET_RE = r"^[CG][A-Z0-9]{4,}\s*(\|.*)?$"
 
+# A message is a few sentences that point at a report, so the limits hold it to that rather than to a summary.
+MAX_MESSAGE_TITLE_LENGTH = 80
+MAX_MESSAGE_BODY_LENGTH = 500
+
 MAX_MESSAGES_PER_SCOUT_PER_WINDOW = 5
 MESSAGE_CAP_WINDOW = timedelta(hours=24)
 DEDUPE_WINDOW = timedelta(days=30)
