@@ -28,8 +28,6 @@ const MINUTE_MS = 60_000
 
 const ENDPOINT_WITHIN_MS = 2 * VACUUM_PROBE_EVERY_MS
 
-const WORKERS_HIDDEN = 'the database role cannot see autovacuum workers, so no run start was read'
-
 const readsOf = (vacuum: readonly VacuumRead[] | undefined): Read[] =>
     (vacuum ?? []).filter((read): read is Read => !('error' in read)).sort((a, b) => a.at - b.at)
 
@@ -126,9 +124,6 @@ function drivenRunsOf(evidence: MeasureEvidence): Runs | undefined {
     }
     return { runs, incomplete }
 }
-
-const workersHidden = ({ vacuumSettings }: MeasureEvidence): boolean =>
-    vacuumSettings !== undefined && !('error' in vacuumSettings) && !vacuumSettings.workersVisible
 
 function endpointsOf(evidence: MeasureEvidence): { reads: Read[]; incomplete?: true } | { unmeasured: string } {
     const reads = inDrive(readsOf(evidence.vacuum), evidence)
@@ -229,15 +224,10 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
         const incomplete = driven.incomplete ? { incomplete: true as const } : {}
         return [
             { key: 'count', value: driven.runs.length, ...incomplete },
-            workersHidden(evidence)
-                ? { key: 'timed', ...unmeasured(WORKERS_HIDDEN) }
-                : { key: 'timed', value: driven.runs.filter(({ seconds }) => seconds !== undefined).length },
+            { key: 'timed', value: driven.runs.filter(({ seconds }) => seconds !== undefined).length },
         ]
     }),
     soakMeasure('autovacuum_seconds', 's', (evidence) => {
-        if (workersHidden(evidence)) {
-            return [unmeasured(WORKERS_HIDDEN)]
-        }
         const timed = (drivenRunsOf(evidence)?.runs ?? [])
             .flatMap(({ seconds }) => (seconds === undefined ? [] : [seconds]))
             .sort((a, b) => a - b)

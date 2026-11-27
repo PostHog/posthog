@@ -202,20 +202,6 @@ describe('soak measurements', () => {
         expect(measured('autovacuum_runs', { vacuum })).toEqual(expected)
     })
 
-    it('leaves the autovacuum run times unmeasured when the database role cannot see autovacuum workers', () => {
-        const vacuum = [read(-5), read(1805, { autovacuums: 1, lastAutovacuumAt: atS(900) })]
-        const vacuumSettings = { settings: {}, storage: {}, workersVisible: false }
-        const hidden = 'the database role cannot see autovacuum workers, so no run start was read'
-
-        expect(measured('autovacuum_runs', { vacuum, vacuumSettings })).toEqual([
-            { key: 'count', value: 1 },
-            { key: 'timed', value: null, censored: true, unmeasured: hidden },
-        ])
-        expect(measured('autovacuum_seconds', { vacuum, vacuumSettings })).toEqual([
-            { value: null, censored: true, unmeasured: hidden },
-        ])
-    })
-
     it('keeps the longest wait since the last autovacuum in each window, censored while the table had none', () => {
         const vacuum = [
             read(500),
