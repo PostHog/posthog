@@ -26,11 +26,26 @@ const ISSUE_FILTER_GROUP_TYPES = [
     TaxonomicFilterGroupType.EventProperties,
 ]
 
+const TRANSITION_NAMES = {
+    issue_created: 'New issues',
+    issue_reopened: 'Reopened issues',
+    issue_spiking: 'Spiking issues',
+}
+
 export function ErrorTrackingIssueFiltersModal(props: ErrorTrackingIssueFiltersModalLogicProps): JSX.Element {
     const logic = errorTrackingIssueFiltersModalLogic(props)
-    const { severity, assignee, saving, saveDisabledReason, storedFilterCount, quickFilters, quickFilterSelections } =
-        useValues(logic)
-    const { setSeverity, setAssignee, pickQuickFilter, saveFilters, clearFilters } = useActions(logic)
+    const {
+        preview,
+        payload,
+        severity,
+        assignee,
+        saving,
+        saveDisabledReason,
+        storedFilterCount,
+        quickFilters,
+        quickFilterSelections,
+    } = useValues(logic)
+    const { setSeverity, setAssignee, pickQuickFilter, saveFilters, clearFilters, refreshPreview } = useActions(logic)
 
     const handleClose = (): void => {
         if (!saving) {
@@ -101,6 +116,43 @@ export function ErrorTrackingIssueFiltersModal(props: ErrorTrackingIssueFiltersM
                         />
                     </div>
                 </BindLogic>
+                {!('error' in payload) && (
+                    <section aria-live="polite" className="flex flex-col gap-2">
+                        <strong>Preview · Last 7 days</strong>
+                        {!preview ? (
+                            <span>Checking recent signals…</span>
+                        ) : preview.status !== 'ok' ? (
+                            <div>
+                                <span>{preview.error}</span>
+                                {preview.status === 'query_failed' && (
+                                    <LemonButton size="small" onClick={refreshPreview}>
+                                        Retry preview
+                                    </LemonButton>
+                                )}
+                            </div>
+                        ) : (
+                            preview.results.map((row) => (
+                                <div key={row.source_type} data-attr="issue-filter-preview-results">
+                                    <strong>{TRANSITION_NAMES[row.source_type]}</strong>
+                                    <div>
+                                        {row.passing_count} passed · {row.excluded_count} excluded
+                                    </div>
+                                    <div className="text-secondary">
+                                        Excluded signals fed {row.excluded_reports.with_merged_pr}{' '}
+                                        {row.excluded_reports.with_merged_pr === 1 ? 'report' : 'reports'} with a merged
+                                        PR.
+                                    </div>
+                                    {row.unavailable_count > 0 && (
+                                        <div className="text-secondary">
+                                            Original filter inputs unavailable for {row.unavailable_count}{' '}
+                                            {row.unavailable_count === 1 ? 'transition' : 'transitions'}.
+                                        </div>
+                                    )}
+                                </div>
+                            ))
+                        )}
+                    </section>
+                )}
                 <ul className="m-0 flex list-disc flex-col gap-1 pl-4 text-xs text-secondary">
                     <li>
                         Filters check one exception per issue: the first one for a new issue, the one that reopened it,

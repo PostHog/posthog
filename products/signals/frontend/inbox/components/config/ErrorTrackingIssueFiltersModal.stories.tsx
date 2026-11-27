@@ -29,6 +29,35 @@ const meta: Meta<typeof ModalHarness> = {
     component: ModalHarness,
     decorators: [
         mswDecorator({
+            post: {
+                '/api/projects/:team_id/signals/source_configs/issue_filter_preview/': () => [
+                    200,
+                    {
+                        status: 'ok',
+                        error: null,
+                        results: [
+                            {
+                                source_type: 'issue_created',
+                                passing_count: 3,
+                                excluded_count: 2,
+                                unavailable_count: 1,
+                                passing: [],
+                                excluded: [],
+                                excluded_reports: { count: 2, with_pr: 1, with_merged_pr: 1 },
+                            },
+                            ...['issue_reopened', 'issue_spiking'].map((source_type) => ({
+                                source_type,
+                                passing_count: 1,
+                                excluded_count: 0,
+                                unavailable_count: 0,
+                                passing: [],
+                                excluded: [],
+                                excluded_reports: { count: 0, with_pr: 0, with_merged_pr: 0 },
+                            })),
+                        ],
+                    },
+                ],
+            },
             get: {
                 '/api/environments/:team_id/quick_filters/': { results: [] },
                 '/api/projects/:team_id/quick_filters/': { results: [] },
@@ -39,7 +68,7 @@ const meta: Meta<typeof ModalHarness> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-03-20',
-        testOptions: { waitForSelector: '[data-attr="signal-source-issue-filters-controls"]' },
+        testOptions: { waitForSelector: '[data-attr="issue-filter-preview-results"]' },
     },
 }
 export default meta
