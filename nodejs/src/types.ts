@@ -147,6 +147,7 @@ export interface PluginServerCapabilities {
     cdpSesWebhooks?: boolean
     cdpIntakeTransactionalEmail?: boolean
     cdpIntakeWorkflowWebhook?: boolean
+    cdpIntakeTransactionalPush?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
