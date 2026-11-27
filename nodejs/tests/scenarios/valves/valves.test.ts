@@ -278,6 +278,20 @@ describe('valves', () => {
             { warmReader: true },
         ],
         [
+            'records no intent for a warm-reader failover on a reader above its maximum',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 33] } },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .* was above its 32 ACU maximum/) },
+            { warmReader: true },
+        ],
+        [
+            'fails a warm reader at its maximum over and back',
+            { liveReaderAcu: { maxima: [32, 32, 32, 32, 32] } },
+            true,
+            RECOVERED,
+            { warmReader: true },
+        ],
+        [
             'records no intent for a warm-reader failover whose capacity read has fewer values than timestamps',
             { shortValuesOf: 'Average' },
             true,

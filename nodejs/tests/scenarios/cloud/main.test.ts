@@ -1646,7 +1646,13 @@ describe('cloud controller', () => {
             {
                 card: {
                     intentAt: new Date(T.getTime() - 2 * 24 * HOUR_MS).toISOString(),
-                    eventFields: { acu_peak: 9, acu_after_t0_max: [4], acu_pre_t0_above_idle: ['x'] },
+                    eventFields: {
+                        acu_peak: 9,
+                        acu_after_t0_max: [4],
+                        acu_pre_t0_above_idle: ['x'],
+                        acu_pre_t0_avg: [1],
+                        reader_at_t0: 'warm',
+                    },
                 },
             },
             () => undefined,
@@ -1654,7 +1660,13 @@ describe('cloud controller', () => {
             'falls outside the run',
             {
                 printed: 'falls outside the run, so the reader was not judged.',
-                published: { acu_peak: null, acu_after_t0_max: null, acu_pre_t0_above_idle: null },
+                published: {
+                    acu_peak: null,
+                    acu_after_t0_max: null,
+                    acu_pre_t0_above_idle: null,
+                    acu_pre_t0_avg: null,
+                    reader_at_t0: null,
+                },
             },
         ],
         [
@@ -1788,6 +1800,22 @@ describe('cloud controller', () => {
             'refuses a reading above the reader maximum before T0',
             [...minutes(-5, -3, 3, 2.8), ...minutes(-2, -2, 40, 3), ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
             [2.8, 2.8, 2.8, 3, 3],
+            'invalid',
+            'reader above its 32 ACU maximum before T0',
+            'warm',
+        ],
+        [
+            'passes a reading above the reader maximum before the five judged minutes',
+            [...minutes(-6, -6, 40, 3), ...minutes(-5, -2, 1, 1), ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
+            [1, 1, 1, 1, 3],
+            'passed',
+            '',
+            'warm',
+        ],
+        [
+            'refuses an average above the reader maximum before T0 with no maximum beside it',
+            [...minutes(-5, -3, 3, 2.8), { minute: -2, avg: 33 }, ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
+            [2.8, 2.8, 2.8, 33, 3],
             'invalid',
             'reader above its 32 ACU maximum before T0',
             'warm',

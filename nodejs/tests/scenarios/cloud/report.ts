@@ -217,9 +217,7 @@ function judgeCapacity(
     const under = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading < min))
     const inverted = pre.filter(({ max, avg }) => max !== undefined && avg !== undefined && avg > max)
     const unshown = pre.filter(({ max, avg }) => avg === undefined && max !== undefined && max > idleMax)
-    const over = minutes.filter(
-        ({ at, max: top, avg }) => at < t0Minute && [top, avg].some((reading) => reading !== undefined && reading > max)
-    )
+    const over = pre.filter(({ max: top, avg }) => [top, avg].some((reading) => reading !== undefined && reading > max))
     const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
     const reasons = [

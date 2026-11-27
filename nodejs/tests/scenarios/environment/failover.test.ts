@@ -258,6 +258,12 @@ describe('pg.failover', () => {
             /names no minimum for .*-reader, so lease the run again/,
         ],
         [
+            'a run manifest without the reader maximum',
+            {},
+            (run) => delete run.manifest.readerMaxAcu,
+            /names no maximum for .*-reader, so lease the run again/,
+        ],
+        [
             'a reader with fewer than five capacity minutes',
             { liveReaderAcu: { maxima: [1, 1, 1, 1] } },
             () => undefined,

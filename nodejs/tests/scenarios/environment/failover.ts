@@ -378,6 +378,8 @@ export async function failOver({
             refuse(`the run manifest names no idle limit for ${reader}, so set readerAcu.idleMax in the cloud profile`)
         const floor =
             manifest.readerMinAcu ?? refuse(`the run manifest names no minimum for ${reader}, so lease the run again`)
+        const ceiling =
+            manifest.readerMaxAcu ?? refuse(`the run manifest names no maximum for ${reader}, so lease the run again`)
         const startedAt = Date.now()
         const until = startedAt - (startedAt % MINUTE_MS)
         const query = {
@@ -436,6 +438,13 @@ export async function failOver({
         const newestEnd = minutes.at(-1)!.at + MINUTE_MS
         if (Date.now() - newestEnd > CAPACITY_FRESH_WITHIN_MS) {
             refuse(`${reader}'s newest capacity minute ended ${Math.floor((Date.now() - newestEnd) / 1000)}s ago`)
+        }
+        // No reader reaches past its maximum, so a reading above it is bad evidence even for a warm reader.
+        const over = minutes.filter(({ acu }) => acu > ceiling)
+        if (over.length > 0) {
+            refuse(
+                `${reader} was above its ${ceiling} ACU maximum in its last ${CAPACITY_MINUTES} minutes: ${over.map(({ at, acu }) => `${acu} at ${new Date(at).toISOString()}`).join(', ')}`
+            )
         }
         const since = new Date().setUTCSeconds(0, 0) - CAPACITY_MINUTES * MINUTE_MS
         const busy = minutes.filter(({ at, acu }) => at >= since && acu > idleMax)
