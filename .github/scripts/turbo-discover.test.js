@@ -189,7 +189,7 @@ test('only a product whose backend:test is a bare echo leaves the matrix', () =>
         task('@posthog/products-replay', "echo 'No backend tests'"),
         task('@posthog/products-surveys', 'pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short'),
         task('@posthog/products-canvas', "echo 'building' && pytest backend/"),
-        task('@posthog/products-alerts', "echo $(pytest backend/)"),
+        task('@posthog/products-alerts', 'echo $(pytest backend/)'),
         task('@posthog/products-logs', 'echo hi\npytest backend/'),
         task('@posthog/personhog-proto', "echo 'personhog-proto has no tests'"),
     ]
@@ -216,13 +216,18 @@ test('the selection event tells draft, ready, and merge-queue runs apart', () =>
             expected: { pr_number: 9, pr_draft: true, merge_queue: true },
         },
         { event: {}, headRef: '', expected: { pr_number: null, pr_draft: null, merge_queue: false } },
+        { event: {}, headRef: undefined, expected: { pr_number: null, pr_draft: null, merge_queue: false } },
     ]
     try {
         cases.forEach(({ event, headRef, expected }, index) => {
             const eventPath = path.join(dir, `event-${index}.json`)
             fs.writeFileSync(eventPath, JSON.stringify(event))
             process.env.GITHUB_EVENT_PATH = eventPath
-            process.env.GITHUB_HEAD_REF = headRef
+            if (headRef === undefined) {
+                delete process.env.GITHUB_HEAD_REF
+            } else {
+                process.env.GITHUB_HEAD_REF = headRef
+            }
             const { pr_number, pr_draft, merge_queue } = runContext()
             assert.deepEqual({ pr_number, pr_draft, merge_queue }, expected, JSON.stringify({ event, headRef }))
         })

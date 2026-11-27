@@ -5046,6 +5046,9 @@ jobs:
                   DIFF_BASE: ${{ format('{0}^1', github.sha) }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_DRAFT: ${{ toJSON(github.event.pull_request.draft) }}
+                  MERGE_QUEUE: ${{ startsWith(github.head_ref, 'trunk-merge/') }}
+                  BRANCH: ${{ github.head_ref || github.ref_name }}
               run: |
                   set -euo pipefail
                   mkdir -p /tmp/verdict
@@ -5066,6 +5069,7 @@ jobs:
                       /tmp/verdict/selection.json \
                       /tmp/junit-results/ \
                       --summary-path "$GITHUB_STEP_SUMMARY" \
+                      --event-path /tmp/verdict/event.json \
                       --pretty \
                       > /tmp/verdict/verdict.json
 
@@ -5084,42 +5088,7 @@ jobs:
                   && github.actor != 'dependabot[bot]'
                   && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               continue-on-error: true
-              env:
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  PR_DRAFT: ${{ toJSON(github.event.pull_request.draft) }}
-                  MERGE_QUEUE: ${{ startsWith(github.head_ref, 'trunk-merge/') }}
-                  BRANCH: ${{ github.head_ref || github.ref_name }}
-              run: |
-                  set -euo pipefail
-                  properties=$(jq -c \
-                      --argjson pr_number "${PR_NUMBER:-null}" \
-                      --argjson pr_draft "${PR_DRAFT:-null}" \
-                      --argjson merge_queue "$MERGE_QUEUE" \
-                      --arg branch "$BRANCH" \
-                      --arg sha "$GITHUB_SHA" \
-                      --arg run_id "$GITHUB_RUN_ID" \
-                      '{
-                          suite: "backend",
-                          backend_conclusion,
-                          junit_xml_files_seen,
-                          total_tests_run,
-                          failure_count,
-                          selected_test_count,
-                          caught_count: (.caught | length),
-                          missed_count: (.missed | length),
-                          missed_files: .missed[:20],
-                          missed_files_truncated: ((.missed | length) > 20),
-                          recall,
-                          full_run_triggered,
-                          full_run_reasons: .full_run_reasons[:5],
-                          pr_number: $pr_number,
-                          pr_draft: $pr_draft,
-                          merge_queue: $merge_queue,
-                          branch: $branch,
-                          sha: $sha,
-                          run_id: $run_id
-                      }' /tmp/verdict/verdict.json)
-                  echo "properties=$properties" >> "$GITHUB_OUTPUT"
+              run: echo "properties=$(jq -c . /tmp/verdict/event.json)" >> "$GITHUB_OUTPUT"
 
             - name: Capture test selection verdict to DevEx PostHog
               if: ${{ !cancelled() && steps.verdict-event.outputs.properties != '' }}
