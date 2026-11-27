@@ -158,6 +158,17 @@ def get_consumer_tick_gate_metric(team_id: int, source_id: str, decision: str) -
     )
 
 
+def get_load_trigger_metric(team_id: int, source_id: str, outcome: str) -> MetricCounter:
+    return (
+        _source_meter(team_id, source_id)
+        .with_additional_attributes({"outcome": outcome})
+        .create_counter(
+            "cdc_load_trigger_total",
+            "Consumer schedules a capture run tried to trigger: triggered, paused (skipped), or failed",
+        )
+    )
+
+
 def get_auto_drop_metric(team_id: int, source_id: str) -> MetricCounter:
     return _source_meter(team_id, source_id).create_counter(
         "cdc_auto_drop_total", "Total slots auto-dropped by the critical-lag safety net"

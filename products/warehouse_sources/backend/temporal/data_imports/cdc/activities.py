@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.logic.source_inputs import SourceInputsS
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
+    SCHEDULE_INTERVAL_SECONDS_KEY,
     ExternalDataSchema,
     update_sync_type_config_keys,
 )
@@ -82,6 +83,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import (
+    BUFFER_WRITE_OPEN_KEY,
     close_buffer_write,
     data_driven_load_enabled,
     open_buffer_write,
@@ -99,6 +101,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import SourceHistoryNamings
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_trigger import (
+    load_trigger_enabled,
+    trigger_loads,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
     cdc_qualified_table_name,
@@ -283,6 +289,8 @@ class CDCExtractActivity:
         self._buffer_file_index: dict[str, int] = {}
         self._buffer_cleaned_schemas: set[str] = set()
         self._data_driven_load: bool | None = None
+        self._last_load_trigger: float | None = None
+        self._load_trigger: bool | None = None
         # Table names whose changes this run writes to the buffer. Resolved once in _setup.
         self._buffered_table_names: set[str] = set()
         self._truncated_tables: list[str] = []
@@ -560,6 +568,8 @@ class CDCExtractActivity:
             self.log.warning("cdc_setup_transient_app_db_error", exc_info=True)
             raise NonReportableError(str(exc)) from exc
 
+        self._trigger_loads_a_dead_run_left()
+
         completed = False
         try:
             self._prepare_buffer()
@@ -610,8 +620,11 @@ class CDCExtractActivity:
             # Every other outcome has recorded its duration by now. A completed run records it below.
             if not completed:
                 self._observe_source()
+                self._trigger_loads()
 
         self._finalize_success()
+        # After the run counted its writes, so a triggered load reads the generation that covers them.
+        self._trigger_loads()
         self._observe_source()
         self.log.info("cdc_extract_completed", event_count=self.event_count)
 
@@ -1067,6 +1080,7 @@ class CDCExtractActivity:
             # hold, grow the window so an oversized single transaction can complete in one peek (or
             # trip the decoder's MAX_TX_BUFFER_EVENTS guard) instead of re-peeking the same page.
             advanced = self._drain_and_advance_page()
+            self._trigger_loads_during_a_long_read()
 
             # Checked after the page advance, so the slot is already past every change this run wrote
             # to the buffer and the next run starts at the first unread change.
@@ -1709,6 +1723,41 @@ class CDCExtractActivity:
             assert self.source is not None
             self._data_driven_load = data_driven_load_enabled(self.source)
         return self._data_driven_load
+
+    def _trigger_loads(self) -> None:
+        """Start the loads this source's tables owe. Never fails the run: the next run triggers them again."""
+        if self.source is None:
+            return
+        self._last_load_trigger = time.monotonic()
+        try:
+            if self._load_trigger is None:
+                self._load_trigger = load_trigger_enabled(self.source)
+            # With the flag off the only work left is to restore a schedule it slowed down earlier.
+            slowed = any(SCHEDULE_INTERVAL_SECONDS_KEY in (s.sync_type_config or {}) for s in self.cdc_schemas)
+            if not self._load_trigger and not slowed:
+                return
+            trigger_loads(self.source, self.log, enabled=self._load_trigger, heartbeat=self._safe_heartbeat)
+        except Exception:
+            self.log.warning("cdc_load_trigger_run_failed", exc_info=True)
+
+    def _trigger_loads_a_dead_run_left(self) -> None:
+        """A run that died after a write triggered nothing, so the tables it wrote wait for this one."""
+        if any((schema.sync_type_config or {}).get(BUFFER_WRITE_OPEN_KEY) for schema in self.cdc_schemas):
+            self._trigger_loads()
+
+    def _trigger_loads_during_a_long_read(self) -> None:
+        """Keep loads on the capture cadence while one run drains a backlog over several intervals."""
+        if self._should_stop is not None and self._should_stop():
+            return
+        try:
+            interval = data_warehouse_api.cdc_min_interval(s.sync_frequency_interval for s in self.cdc_schemas)
+            since = time.monotonic() - (self._last_load_trigger or self._run_started_at or 0.0)
+            if since < interval.total_seconds():
+                return
+        except Exception:
+            self.log.warning("cdc_load_trigger_run_failed", exc_info=True)
+            return
+        self._trigger_loads()
 
     def _record_healthy_run(self, schema: ExternalDataSchema, now: dt.datetime) -> None:
         """Record that extraction ran for this schema, without touching its status.

@@ -114,6 +114,12 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
         return AcquireV3LockActivityOutputs(acquired=False, token=token, organization_deactivated=True)
 
     schema = _read_schema(inputs, logger)
+    if schema is not None and schema.schedule_interval_override is not None:
+        # Whatever slowed this schema's schedule owns giving its cadence back, also once the schema
+        # is no longer the kind it slows down. Never raises.
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.load_trigger import restore_own_schedule
+
+        restore_own_schedule(inputs.schema_id, inputs.team_id, logger)
     if _defer_failing_schema(schema, inputs, logger):
         return AcquireV3LockActivityOutputs(acquired=False, token=token, deferred=True)
     if schema is not None and schema.is_cdc:

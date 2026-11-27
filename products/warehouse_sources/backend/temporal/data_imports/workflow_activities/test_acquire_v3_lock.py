@@ -299,6 +299,32 @@ class TestCDCConsumerTickGate:
         assert (result.acquired, result.deferred, result.stood_down_reason) == (True, False, None)
         mock_acquire.assert_called_once()
 
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_a_run_of_a_schema_on_a_slowed_schedule_asks_for_its_own_cadence_back(
+        self,
+        _bind: MagicMock,
+        mock_activity: MagicMock,
+        _mock_acquire: MagicMock,
+        _mock_write_meta: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
+        schema = _schema_with_config({"schedule_interval_seconds": 21600})
+
+        with (
+            patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow"),
+            patch(_GATE),
+        ):
+            result = acquire_v3_pipeline_lock_activity(
+                AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)
+            )
+
+        schema.refresh_from_db()
+        assert "schedule_interval_seconds" not in schema.sync_type_config
+        assert result.acquired is True
+
     @pytest.mark.parametrize("stands_down", [True, False], ids=["nothing_to_load", "load_owed"])
     @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
