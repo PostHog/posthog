@@ -5161,8 +5161,13 @@ def test_a_pull_request_link_that_nobody_may_ask_about_stays_silent(
             "Already asked here: <" + fakes.slack_permalink(BROADCAST_CHANNEL, "1700000000.000100") + ">",
             id="active_request_with_a_card",
         ),
-        pytest.param("waiting_for_stamphog", "Already asked in this channel.", id="active_request_without_a_card"),
+        pytest.param(
+            "waiting_for_stamphog",
+            "Someone already asked for reviews on this pull request.",
+            id="active_request_without_a_card",
+        ),
         pytest.param("stamphog_approved", "Stamphog already approved this pull request.", id="stamphog_approved"),
+        pytest.param("person_approved", "Already approved by maintainer.", id="person_approved"),
         # A silent review withheld its refusal, so the card goes out and shows nothing of it.
         pytest.param("withheld_refusal", None, id="withheld_silent_refusal"),
     ],
@@ -5176,7 +5181,16 @@ def test_a_pull_request_link_answers_in_its_thread_instead_of_a_second_card(
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=192, author_login="devex-dev"
     )
-    if case in ("card_posted", "waiting_for_stamphog"):
+    if case == "person_approved":
+        stamphog_chain.recorder.pr_reviews[(REPO, 192)] = [
+            {
+                "user": {"login": "maintainer", "type": "User"},
+                "author_association": "MEMBER",
+                "state": "APPROVED",
+                "commit_id": "sha192a",
+            }
+        ]
+    elif case in ("card_posted", "waiting_for_stamphog"):
         posted = case == "card_posted"
         request = BroadcastRequest.objects.for_team(team.id).create(
             team_id=team.id,

@@ -27,7 +27,7 @@ from posthog.models import Team, User
 from ..facade.enums import BroadcastRequestSource
 from ..models import BroadcastRequest, PullRequest, StamphogRepoConfig
 from .broadcast_request_slack import card_workspace, find_card_integration, post_thread_reply
-from .broadcast_requests import BroadcastRequestAsk, LinkAsk, LinkAskOutcome, open_link_request
+from .broadcast_requests import BroadcastRequestAsk, LinkAsk, LinkAskOutcome, human_approver, open_link_request
 from .github_client import StamphogGitHubClient, StamphogGitHubError
 from .installations import reviewable_repo_configs
 
@@ -45,7 +45,8 @@ _CHANNEL_CACHE_SECONDS = 60
 _CLAIM_SECONDS = 60 * 60
 
 ALREADY_ASKED_WITH_LINK = "Already asked here: <{permalink}>"
-ALREADY_ASKED = "Already asked in this channel."
+ALREADY_ASKED = "Someone already asked for reviews on this pull request."
+ALREADY_APPROVED = "Already approved by {login}."
 STAMPHOG_ALREADY_APPROVED = "Stamphog already approved this pull request."
 
 
@@ -202,6 +203,20 @@ def open_from_link(post: LinkPost) -> LinkAsk | None:
             return None
         raise
     if pr.get("state") != "open":
+        return None
+    approver = human_approver(
+        client.get_pr_reviews(repo_config.repository, post.link.pr_number),
+        pr["head"]["sha"],
+        (pr.get("user") or {}).get("login") or "",
+    )
+    if approver:
+        post_thread_reply(
+            repo_config.team_id,
+            target.integration_id,
+            post.channel_id,
+            post.message_ts,
+            ALREADY_APPROVED.format(login=approver),
+        )
         return None
     ask = BroadcastRequestAsk(
         requested_by_user_id=target.user_id,
