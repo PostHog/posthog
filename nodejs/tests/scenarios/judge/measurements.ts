@@ -10,13 +10,12 @@ import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
 import type { AttachmentBudget } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
-import type { QueueCounts } from '../probe/cyclotron-probe'
+import type { QueueCounts, WriterBackends } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { acceptedDeliveriesOf, deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import type { JournalEntry } from './judge'
 import { SCRAPE_GAP_MS, WORKER_OF } from './pickups'
 
 export type MetricSample = {
@@ -46,7 +45,20 @@ export type Sampled = { samples: MetricSample[]; missed: MissedScrape[]; host: H
 
 export type QueueSample = { at: number } & (QueueCounts | { error: string })
 
-export type Probed = { writer: WriterSample[]; queue: QueueSample[] }
+export type ActivitySample = { at: number } & ({ backends: WriterBackends } | { error: string })
+
+export function readActivity(
+    read: () => Promise<WriterBackends>,
+    now: () => number = Date.now
+): Promise<ActivitySample> {
+    const at = now()
+    return read().then(
+        (backends) => ({ at: now(), backends }),
+        (error: unknown) => ({ at, error: error instanceof Error ? error.message : String(error) })
+    )
+}
+
+export type Probed = { writer: WriterSample[]; queue: QueueSample[]; activity?: ActivitySample[] }
 
 export type DriveWindow = { startedAt: number; endedAt: number; warmedAt?: number }
 
@@ -65,6 +77,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         timeline: readonly ValveTimelineEntry[]
         counters?: CounterReading
         attachmentBudgets?: readonly AttachmentBudget[]
+        truthFrom: number
         unread?: string
         horizonAt?: number
         converged?: boolean
@@ -343,24 +356,17 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     },
 }
 
-type StepWindow = Step & Phase
-
-const stepWindowsOf = ({ drive, steps }: Pick<MeasureEvidence, 'drive' | 'steps'>): StepWindow[] =>
-    steps.flatMap((step) => {
-        const window = { from: drive.startedAt + step.fromMs, to: Math.min(drive.startedAt + step.toMs, drive.endedAt) }
-        return window.to <= window.from ? [] : [{ ...step, ...window }]
-    })
-
 const PARTS = [
     { part: 'plain', withFiles: false },
     { part: 'files', withFiles: true },
 ] as const
 
-function stepLatencies(evidence: MeasureEvidence): { step: StepWindow; part: string; sorted: number[] }[] {
+function stepLatencies(evidence: MeasureEvidence): (ScaledPhase & { part: string; sorted: number[] })[] {
     const latencies = latenciesOf(evidence)
     return runsFiles(evidence)
-        ? stepWindowsOf(evidence).flatMap((step) =>
+        ? stepPhasesOf(evidence.drive, evidence.steps).flatMap(({ scale, step }) =>
               PARTS.map(({ part, withFiles }) => ({
+                  scale,
                   step,
                   part,
                   sorted: sortedMs(
@@ -382,21 +388,22 @@ export const stepDeliveryLatencyMs: MeasurementDefinition = {
     params: z.object({}).strict(),
     unit: 'ms',
     measure: (evidence) =>
-        stepLatencies(evidence).flatMap(({ step, part, sorted }) =>
+        stepLatencies(evidence).flatMap(({ scale, part, sorted }) =>
             sorted.length === 0
                 ? []
                 : [
-                      { key: `${part}_p50_${step.scale}x`, value: nearestRank(sorted, 0.5) },
-                      { key: `${part}_p95_${step.scale}x`, value: nearestRank(sorted, 0.95) },
+                      { key: `${part}_p50_${scale}x`, value: nearestRank(sorted, 0.5) },
+                      { key: `${part}_p95_${scale}x`, value: nearestRank(sorted, 0.95) },
                   ]
         ),
 }
 
-function stepDeferrals(evidence: MeasureEvidence): { step: StepWindow; reason: string; increase: StepIncrease }[] {
+function stepDeferrals(evidence: MeasureEvidence): (ScaledPhase & { reason: string; increase: StepIncrease })[] {
     const samples = evidence.samples.filter(({ attachments }) => attachments !== undefined)
     const reasons = [...new Set(samples.flatMap(({ attachments }) => Object.keys(attachments!.deferrals)))].sort()
-    return stepWindowsOf(evidence).flatMap((step) =>
+    return stepPhasesOf(evidence.drive, evidence.steps).flatMap(({ scale, step }) =>
         reasons.map((reason) => ({
+            scale,
             step,
             reason,
             increase: stepIncrease(samples, evidence.missed, deferredFor(reason), step),
@@ -409,8 +416,8 @@ export const stepAttachmentDeferralsPerSecond: MeasurementDefinition = {
     params: z.object({}).strict(),
     unit: 'tokens/s',
     measure: (evidence) =>
-        stepDeferrals(evidence).map(({ step, reason, increase: { value, incomplete } }) => ({
-            key: `${reason}_${step.scale}x`,
+        stepDeferrals(evidence).map(({ scale, step, reason, increase: { value, incomplete } }) => ({
+            key: `${reason}_${scale}x`,
             value: value / seconds(step.to - step.from),
             ...(incomplete ? { incomplete } : {}),
         })),
@@ -426,7 +433,7 @@ function deferralOnsetOf(reason: string, deferrals: ReturnType<typeof stepDeferr
     const first = deferrals.find((deferral) => deferral.reason === reason && deferral.increase.value > 0)
     return first === undefined
         ? { key: reason, value: null, censored: true }
-        : { key: reason, value: first.step.scale, ...(first.increase.risesBeforeEnd ? {} : { incomplete: true }) }
+        : { key: reason, value: first.scale, ...(first.increase.risesBeforeEnd ? {} : { incomplete: true }) }
 }
 
 function plainSlowdownOf(evidence: MeasureEvidence): Measured[] {
@@ -449,7 +456,7 @@ function plainSlowdownOf(evidence: MeasureEvidence): Measured[] {
                   'plain_p95_doubled',
                   later
                       .filter((step) => step.sorted.length > 0 && p95Of(step) > PLAIN_SLOWDOWN * p95Of(opening))
-                      .map(({ step }) => step.scale)
+                      .map(({ scale }) => scale)
               ),
           ]
 }
@@ -465,6 +472,46 @@ export const rampOnsetScale: MeasurementDefinition = {
             ...plainSlowdownOf(evidence),
         ]
     },
+}
+
+const terminationsOf = (
+    timeline: readonly ValveTimelineEntry[]
+): (ValveTimelineEntry & Required<Pick<ValveTimelineEntry, 'exit'>>)[] =>
+    timeline.flatMap((entry) => (entry.exit === undefined ? [] : [{ ...entry, exit: entry.exit }]))
+
+const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
+
+export const roleExitMs: MeasurementDefinition = {
+    name: 'role_exit_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: ({ timeline }) => {
+        const terminations = terminationsOf(timeline)
+        if (timeline.filter(({ valve }) => valve === 'role.terminate').length > 1) {
+            return [unmeasured('the card terminates more than one role, so its exits have no stable key')]
+        }
+        return terminations.map(({ target, exit }) =>
+            exit.exitedAt === undefined
+                ? { key: 'sigterm', ...unmeasured(`${target} did not exit`) }
+                : exit.signal === 'SIGKILL'
+                  ? { key: 'sigterm', ...unmeasured('a SIGKILL exit is not measured in this release') }
+                  : { key: 'sigterm', value: Date.parse(exit.exitedAt) - Date.parse(exit.signalledAt) }
+        )
+    },
+}
+
+export const leaseReclaimMs: MeasurementDefinition = {
+    name: 'lease_reclaim_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: () => [unmeasured('not measured in this release')],
+}
+
+export const resentInvocations: MeasurementDefinition = {
+    name: 'resent_invocations',
+    params: z.object({}).strict(),
+    unit: 'invocations',
+    measure: () => [{ key: 'total', ...unmeasured('not measured: a run-scoped resend count is a follow-up') }],
 }
 
 export type Phase = { from: number; to: number }
@@ -768,26 +815,114 @@ function busyShareOf(span: readonly HostSample[], before: Opened<HostSample>['be
 export const stepHostBusyShareOf = (host: readonly HostSample[], step: Phase): number | undefined =>
     busyShareOf(inside(byTime(host), step))
 
-function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Phase): Measured {
-    let value = 0
+type StepRates = { rates: number[]; incomplete: boolean }
+
+function gappedIn(window: readonly MetricSample[], step: Phase): boolean {
+    const edges = [step.from, ...window.map(({ at }) => at), step.to]
+    return (
+        spanOf(window) <= 0 ||
+        edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
+        window.some(({ startedAt }) => startedAt * 1000 > step.from)
+    )
+}
+
+function stepRatesOf(replicas: readonly MetricSample[][], read: Counter, step: Phase): StepRates {
+    const rates: number[] = []
     let incomplete = false
-    for (const ofReplica of replicasOf(samples).filter((series) =>
-        series.some(({ processed }) => queue in processed)
-    )) {
+    for (const ofReplica of replicas) {
         const window = inside(ofReplica, step)
         const span = spanOf(window)
-        const edges = [step.from, ...window.map(({ at }) => at), step.to]
-        incomplete ||=
-            span <= 0 ||
-            edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
-            window.some(({ startedAt }) => startedAt * 1000 > step.from)
-        if (span <= 0) {
-            continue
+        incomplete ||= gappedIn(window, step)
+        if (span > 0) {
+            rates.push(increaseOf(window, read, window[0].at) / seconds(span))
         }
-        value += increaseOf(window, ({ processed }) => processed[queue] ?? 0, window[0].at) / seconds(span)
     }
-    return { value, ...(incomplete ? { incomplete: true as const } : {}) }
+    return { rates, incomplete }
 }
+
+const measuredOf = (value: number, incomplete: boolean): Measured => ({
+    value,
+    ...(incomplete ? { incomplete: true as const } : {}),
+})
+
+function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Phase): Measured {
+    const claiming = replicasOf(samples).filter((series) => series.some(({ processed }) => queue in processed))
+    const { rates, incomplete } = stepRatesOf(claiming, ({ processed }) => processed[queue] ?? 0, step)
+    return measuredOf(
+        rates.reduce((sum, rate) => sum + rate, 0),
+        incomplete
+    )
+}
+
+const stepCpuOf = (ofRole: readonly MetricSample[], step: Phase): StepRates =>
+    stepRatesOf(replicasOf(ofRole), ({ cpuSeconds }) => cpuSeconds, step)
+
+type ScaledPhase = { scale: number; step: Phase }
+
+const stepPhasesOf = (drive: DriveWindow, steps: readonly Step[]): ScaledPhase[] =>
+    steps.flatMap(({ scale, fromMs, toMs }) => {
+        const step = { from: drive.startedAt + fromMs, to: Math.min(drive.startedAt + toMs, drive.endedAt) }
+        return step.to <= step.from ? [] : [{ scale, step }]
+    })
+
+const perRoleStep = (
+    samples: readonly MetricSample[],
+    drive: DriveWindow,
+    steps: readonly Step[],
+    read: (ofRole: readonly MetricSample[], step: Phase) => Measured[]
+): Measured[] => {
+    const roles = [...byRole(samples)].sort(([a], [b]) => a.localeCompare(b))
+    return stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
+        roles.flatMap(([role, ofRole]) =>
+            read(ofRole, step).map((measured) => ({ key: `${role}_${scale}x`, ...measured }))
+        )
+    )
+}
+
+const meanBackendsOf = (
+    activity: readonly ActivitySample[],
+    step: Phase,
+    keyOf: (backend: WriterBackends[number]) => string | undefined
+): Measured[] => {
+    const taken = inside(activity, step)
+    const read = taken.flatMap((sample) => ('backends' in sample ? [sample.backends] : []))
+    const failed = taken.find((sample) => 'error' in sample)
+    if (taken.length === 0) {
+        return [{ value: null, censored: true, unmeasured: 'no pg_stat_activity read landed in the step' }]
+    }
+    if (read.length === 0 && failed !== undefined && 'error' in failed) {
+        return [
+            {
+                value: null,
+                censored: true,
+                unmeasured: `every pg_stat_activity read in the step failed: ${failed.error}`,
+            },
+        ]
+    }
+    const totals = new Map<string, number>()
+    for (const backend of read.flat()) {
+        const key = keyOf(backend)
+        if (key !== undefined) {
+            totals.set(key, (totals.get(key) ?? 0) + backend.count)
+        }
+    }
+    if (totals.size === 0 && read.length < taken.length) {
+        return [measuredOf(0, true)]
+    }
+    return [...totals]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, total]) => ({ key, ...measuredOf(total / read.length, read.length < taken.length) }))
+}
+
+const perWriterStep =
+    (keyOf: (backend: WriterBackends[number]) => string | undefined): MeasurementDefinition['measure'] =>
+    ({ activity = [], drive, steps }) =>
+        stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
+            meanBackendsOf(activity, step, keyOf).map(({ key, ...measured }) => ({
+                key: key === undefined ? `${scale}x` : `${key}_${scale}x`,
+                ...measured,
+            }))
+        )
 
 export type Baseline = {
     seconds: number
@@ -1127,13 +1262,60 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         name: 'step_claims_per_second',
         params: z.object({}).strict(),
         unit: 'jobs/s',
-        measure: (evidence) =>
-            stepWindowsOf(evidence).flatMap((step) =>
-                queuesOf(evidence.samples).map((queue) => ({
-                    key: `${queue}_${step.scale}x`,
-                    ...stepClaimRate(evidence.samples, queue, step),
+        measure: ({ samples, drive, steps }) =>
+            stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
+                queuesOf(samples).map((queue) => ({
+                    key: `${queue}_${scale}x`,
+                    ...stepClaimRate(samples, queue, step),
                 }))
             ),
+    },
+    {
+        name: 'step_writer_backends',
+        params: z.object({}).strict(),
+        unit: 'backends',
+        measure: perWriterStep(({ state }) => state.replace(/ /g, '_')),
+    },
+    {
+        name: 'step_writer_active_waits',
+        params: z.object({}).strict(),
+        unit: 'backends',
+        measure: perWriterStep(({ state, wait }) => (state === 'active' ? wait : undefined)),
+    },
+    {
+        name: 'step_host_busy_percent',
+        params: z.object({}).strict(),
+        unit: '%',
+        measure: ({ host, drive, steps }) =>
+            stepPhasesOf(drive, steps).flatMap(({ scale, step }) => {
+                const share = stepHostBusyShareOf(host, step)
+                return share === undefined ? [] : [{ key: `${scale}x`, value: share * 100 }]
+            }),
+    },
+    {
+        name: 'step_role_cpu_cores',
+        params: z.object({}).strict(),
+        unit: 'cores',
+        measure: ({ samples, drive, steps }) =>
+            perRoleStep(samples, drive, steps, (ofRole, step) => {
+                const { rates, incomplete } = stepCpuOf(ofRole, step)
+                return [
+                    measuredOf(
+                        rates.reduce((sum, rate) => sum + rate, 0),
+                        incomplete
+                    ),
+                ]
+            }),
+    },
+    {
+        name: 'step_role_busiest_cpu_cores',
+        params: z.object({}).strict(),
+        unit: 'cores',
+        measure: ({ samples, drive, steps }) =>
+            perRoleStep(samples, drive, steps, (ofRole, step) => {
+                const { rates, incomplete } = stepCpuOf(ofRole, step)
+                return [measuredOf(Math.max(0, ...rates), incomplete)]
+            }),
     },
     {
         name: 'baseline_new_jobs_per_second',
@@ -1161,6 +1343,9 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     stepDeliveryLatencyMs,
     stepAttachmentDeferralsPerSecond,
     rampOnsetScale,
+    roleExitMs,
+    leaseReclaimMs,
+    resentInvocations,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]

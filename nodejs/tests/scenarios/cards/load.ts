@@ -234,6 +234,28 @@ function checkAcceptedBoundary(card: Card): string[] {
     )
 }
 
+function checkTerminateTrigger(card: Card): string[] {
+    return card.valves.flatMap(({ valve, when }, i) =>
+        valve === roleTerminate.name && when?.name === 'running_on_queue'
+            ? [
+                  `valves.${i}.when: arm ${valve} on edge_accepted or at, since a worker given SIGTERM drains its jobs before it exits`,
+              ]
+            : []
+    )
+}
+
+function checkTerminationGrace(card: Card, profile: Profile): string[] {
+    return profile.terminationGrace !== undefined
+        ? []
+        : card.valves.flatMap(({ valve, dose }, i) =>
+              valve === roleTerminate.name && dose.grace === undefined
+                  ? [
+                        `valves.${i}.dose.grace: ${valve} needs a grace; give one here or terminationGrace in profile ${profile.name}`,
+                    ]
+                  : []
+          )
+}
+
 function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     if ((profile.replicas[EMAIL_WORKER] ?? 1) === 1) {
         return []
@@ -499,6 +521,7 @@ function check(
         ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
         ...checkAcceptedBoundary(card),
+        ...checkTerminateTrigger(card),
         ...('profile' in loaded
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
@@ -508,6 +531,7 @@ function check(
                   ...checkFaultFreeBaseline(card, loaded.profile),
                   ...checkIntakeReplicaValves(card, loaded.profile),
                   ...checkAcceptedBoundaryReplicas(card, loaded.profile),
+                  ...checkTerminationGrace(card, loaded.profile),
                   ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
                   ...checkAlerts(loaded.profile, readAlertFile !== undefined, target),
