@@ -12,10 +12,11 @@ from products.messaging.backend.facade.clickhouse import (
     KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL,
 )
 
-# The columns go in while the old view still consumes, because it writes only the columns it selects. Only then
-# are the view and the Kafka table replaced. The new Kafka table joins the same consumer group, so rows sent meanwhile
-# arrive late, not lost. email_status is untouched.
+# The view goes first, so no row is read from the topic until the storage table has the column. The new Kafka
+# table joins the same consumer group, so rows sent meanwhile arrive late, not lost. email_status is untouched.
 operations = [
+    run_sql_with_exceptions(DROP_EMAIL_STATUS_EVENTS_MV_SQL(), node_roles=[NodeRole.AUX]),
+    run_sql_with_exceptions(DROP_KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL(), node_roles=[NodeRole.AUX]),
     run_sql_with_exceptions(
         ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL(),
         node_roles=[NodeRole.AUX],
@@ -43,8 +44,6 @@ operations = [
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    run_sql_with_exceptions(DROP_EMAIL_STATUS_EVENTS_MV_SQL(), node_roles=[NodeRole.AUX]),
-    run_sql_with_exceptions(DROP_KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL(), node_roles=[NodeRole.AUX]),
     run_sql_with_exceptions(KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL(), node_roles=[NodeRole.AUX]),
     run_sql_with_exceptions(EMAIL_STATUS_EVENTS_MV_SQL(), node_roles=[NodeRole.AUX]),
 ]
