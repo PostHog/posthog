@@ -93,7 +93,7 @@ export function BatchExportConfiguration(): JSX.Element {
                         'data-attr': 'batch-export-new-events-table-banner',
                     }}
                 >
-                    All batch exports will be migrated to the new events table starting on November 30. Some properties
+                    All batch exports will be migrated to the new events table starting on December 2. Some properties
                     will be exported with a different type or format. You can switch this export over before then with
                     the Events table setting below.
                 </LemonBanner>
@@ -421,7 +421,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                     help={
                                         <>
                                             Some properties are exported with a different type or format from the new
-                                            events table. All exports will be migrated starting on November 30. You can
+                                            events table. All exports will be migrated starting on December 2. You can
                                             switch this export over before then. This switch has no effect once the
                                             migration is complete.{' '}
                                             <Link to={NEW_EVENTS_TABLE_BLOG_URL} target="_blank">
