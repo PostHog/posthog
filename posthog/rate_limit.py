@@ -960,6 +960,19 @@ class AEOKeywordReportSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+# An AEO search detail runs one aggregation over the window's searches per distinct search, and each
+# distinct search is a new cache entry. Expanding rows is a click per request, so the rates clear a
+# person reading the overview while bounding a loop of searches that start cold reads.
+class AEOSearchDetailBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_search_detail_burst"
+    rate = "60/minute"
+
+
+class AEOSearchDetailSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_search_detail_sustained"
+    rate = "600/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the

@@ -516,6 +516,12 @@ class AEOCheckSearch(TeamScopedRootMixin, UUIDModel):
                 include=["citation_check_id", "query"],
                 name="aeo_check_search_window_idx",
             ),
+            # The window index can only filter by query, so a lookup of one search would scan the whole window.
+            models.Index(
+                fields=["team_id", "query", "created_at"],
+                include=["citation_check_id"],
+                name="aeo_check_search_query_idx",
+            ),
         ]
 
     def __str__(self) -> str:

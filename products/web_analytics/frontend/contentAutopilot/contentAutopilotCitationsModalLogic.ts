@@ -30,6 +30,9 @@ export interface CitationsLookup {
     /** The last day, or null for today. A report passes its own `window_to`. */
     dateTo: string | null
     branded: BrandedSegmentEnumApi
+    /** The engine and topic filters of the report, so the list counts the same answers. Null or left out keeps them all. */
+    engine?: string | null
+    topic?: string | null
     /** Whether a `url` lookup is a page on your site, from a report that knows. A report lists a page without its
      *  tracking parameters, and the answers' target URLs keep them, so the answers alone can miss it. */
     isOwnPage?: boolean
@@ -179,6 +182,8 @@ export const contentAutopilotCitationsModalLogic = kea<contentAutopilotCitations
                 date_from: lookup.dateFrom,
                 ...(lookup.dateTo !== null ? { date_to: lookup.dateTo } : {}),
                 branded: lookup.branded,
+                ...(lookup.engine != null ? { engine: lookup.engine } : {}),
+                ...(lookup.topic != null ? { topic: lookup.topic } : {}),
                 include_answer_text: true,
                 limit: CITATIONS_PAGE_SIZE,
                 offset,
