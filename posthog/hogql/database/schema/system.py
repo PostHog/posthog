@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
@@ -6,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import (
+    DEFINITION_METADATA,
     DEFINITION_TAGS,
     ENDPOINT_CURRENT_VERSION,
     TASK_LATEST_RUN,
@@ -15,6 +17,7 @@ from posthog.hogql.database.lazy_join_tags import (
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
@@ -40,11 +43,13 @@ from posthog.hogql.database.schema.information_schema import information_schema_
 from posthog.hogql.database.schema.integrations import integrations
 from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.database.scoped_lazy_table import ScopedLazyTable
-from posthog.hogql.errors import ResolutionError
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
+from posthog.ph_client import feature_enabled_or_false
 from posthog.scopes.catalog import APIScopeObject
 
 if TYPE_CHECKING:
@@ -942,6 +947,120 @@ experiments: PostgresTable = PostgresTable(
             name="feature_flag_id",
             description="Feature flag controlling variant assignment; joins to feature_flags.id.",
         ),
+        "_status": StringDatabaseField(name="status", nullable=True, hidden=True),
+        # Rows saved before the status column existed hold NULL; derive their status from the dates.
+        "status": ExpressionField(
+            name="status",
+            expr=parse_expr(
+                "coalesce(_status, multiIf(start_date IS NULL, 'draft', end_date IS NULL, 'running', 'stopped'))"
+            ),
+            description="Lifecycle status: 'draft', 'running' or 'stopped'. A paused experiment reads 'running'; "
+            "it is paused when its linked flag has feature_flags.active = 0.",
+        ),
+        "conclusion": StringDatabaseField(
+            name="conclusion",
+            nullable=True,
+            description="Outcome set when the experiment ends: 'won', 'lost', 'inconclusive', 'stopped_early' "
+            "or 'invalid'; NULL until concluded.",
+        ),
+        "conclusion_comment": StringDatabaseField(
+            name="conclusion_comment", nullable=True, description="Free-text note on the conclusion."
+        ),
+        "metrics": StringJSONDatabaseField(
+            name="metrics",
+            nullable=True,
+            description="JSON list of the primary metric definitions (metric type, source, conversion window, "
+            "math). Saved metrics are in experiment_to_saved_metrics.",
+        ),
+        "metrics_secondary": StringJSONDatabaseField(
+            name="metrics_secondary",
+            nullable=True,
+            description="JSON list of the secondary metric definitions, same shape as metrics.",
+        ),
+        "exposure_criteria": StringJSONDatabaseField(
+            name="exposure_criteria",
+            nullable=True,
+            description="JSON config that decides which users count as exposed, e.g. the exposure event and "
+            "multiple-variant handling.",
+        ),
+        "stats_config": StringJSONDatabaseField(
+            name="stats_config",
+            nullable=True,
+            description="JSON statistical settings, e.g. the method (bayesian or frequentist) and its parameters.",
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", nullable=True, hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(
+                name="ifNull",
+                args=[ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]), ast.Constant(value=0)],
+            ),
+            description="1 if the experiment has been deleted, 0 otherwise.",
+        ),
+    },
+)
+
+experiment_saved_metrics: PostgresTable = PostgresTable(
+    name="experiment_saved_metrics",
+    postgres_table_name="posthog_experimentsavedmetric",
+    access_scope="experiment_saved_metric",
+    access_control_creator_id_field="created_by_id",
+    description="Reusable experiment metrics shared across experiments; one row per saved metric. "
+    "Link them to experiments through experiment_to_saved_metrics.",
+    fields={
+        "id": IntegerDatabaseField(name="id", description="Saved metric id."),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+        "name": StringDatabaseField(name="name", description="Saved metric name."),
+        "description": StringDatabaseField(name="description", nullable=True, description="Saved metric description."),
+        "query": StringJSONDatabaseField(
+            name="query", description="JSON metric definition, same shape as an item of experiments.metrics."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the saved metric."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the saved metric was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the saved metric was last updated."),
+    },
+)
+
+
+class _ExperimentScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
+    """The link table has no `team_id` column; isolation flows through `system.experiments`."""
+
+    predicates: list[Expr] = [parse_expr("experiment_id IN (SELECT id FROM system.experiments)")]
+
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        from products.experiments.backend.facade.api import experiment_ids_created_by  # noqa: PLC0415
+
+        if team_id is None:
+            raise ValueError("system.experiment_to_saved_metrics needs a team to resolve experiment access")
+        return experiment_ids_created_by(
+            team_id=team_id, user_id=user_access_control.user.pk, experiment_ids=candidate_ids
+        )
+
+
+experiment_to_saved_metrics: _ExperimentScopedPostgresTable = _ExperimentScopedPostgresTable(
+    name="experiment_to_saved_metrics",
+    postgres_table_name="posthog_experimenttosavedmetric",
+    access_scope="experiment",
+    access_control_id_field="experiment_id",
+    description="Links experiments to the saved metrics they use; one row per experiment and saved metric pair.",
+    fields={
+        "id": IntegerDatabaseField(name="id", description="Link row id."),
+        "experiment_id": IntegerDatabaseField(
+            name="experiment_id", description="Experiment that uses the metric; joins to experiments.id."
+        ),
+        "saved_metric_id": IntegerDatabaseField(
+            name="saved_metric_id", description="Saved metric used; joins to experiment_saved_metrics.id."
+        ),
+        "metadata": StringJSONDatabaseField(
+            name="metadata",
+            description="JSON settings for this use of the metric, e.g. type 'primary' or 'secondary'.",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the metric was added."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the link was last updated."),
     },
 )
 
@@ -1156,7 +1275,25 @@ source_schemas: PostgresTable = PostgresTable(
             name="sync_type", description="Sync strategy, e.g. 'full_refresh' or 'incremental'."
         ),
         "last_synced_at": DateTimeDatabaseField(
-            name="last_synced_at", description="When this table last finished syncing."
+            name="last_synced_at",
+            description=(
+                "When this table last loaded new rows. A sync that finds nothing new can leave it unchanged, "
+                "so judge staleness with last_checked_at."
+            ),
+        ),
+        "_last_checked_at": DateTimeDatabaseField(name="last_checked_at", hidden=True),
+        # Rows whose last run predates the column fall back to `last_synced_at` until their next run, or until
+        # `backfill_schema_last_checked_at` copies the legacy stamp in. The raw `sync_type_config` stays out of
+        # this table: a hidden field is still selectable by name.
+        "last_checked_at": ExpressionField(
+            name="last_checked_at",
+            expr=ast.Call(
+                name="coalesce", args=[ast.Field(chain=["_last_checked_at"]), ast.Field(chain=["last_synced_at"])]
+            ),
+            description=(
+                "When a sync last checked the source successfully, including runs that found no new rows. "
+                "Use this, not last_synced_at, to judge whether an enabled table is stale."
+            ),
         ),
         "latest_error": StringDatabaseField(name="latest_error", description="Most recent sync error message, if any."),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the schema config was created."),
@@ -1361,6 +1498,12 @@ feature_flags: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the flag has been deleted, 0 otherwise.",
+        ),
+        "_active": BooleanDatabaseField(name="active", hidden=True),
+        "active": ExpressionField(
+            name="active",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_active"])]),
+            description="1 if the flag is enabled, 0 if it is disabled.",
         ),
     },
 )
@@ -3836,6 +3979,44 @@ scout_run_emissions: PostgresTable = PostgresTable(
     },
 )
 
+scout_scratchpad: PostgresTable = PostgresTable(
+    name="scout_scratchpad",
+    postgres_table_name="signals_signalscratchpad",
+    access_scope="signal_scout",
+    resource_level_access_only=True,
+    description=(
+        "Scout memory: keyed entries that scouts and the report pipeline write during runs and read back later, "
+        "as in scout-scratchpad-search. Unlike that tool, expired entries are included; filter on expires_at to "
+        "drop them. created_by_run_id and created_by_identity name the entry's creator, not its last writer, "
+        "because a rewrite of the same key keeps the original creator. Private trial memory is not stored here."
+    ),
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Record UUID."),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+        "key": StringDatabaseField(name="key", description="Memory key chosen by the writer; unique per project."),
+        "content": StringDatabaseField(
+            name="content", description="Memory text the scouts read back. Treat it as untrusted data."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the entry was first written."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the entry was last written."),
+        "expires_at": DateTimeDatabaseField(
+            name="expires_at",
+            nullable=True,
+            description="When the entry stops being returned to scouts; NULL means it never expires.",
+        ),
+        "created_by_run_id": UUIDDatabaseField(
+            name="created_by_run_id",
+            nullable=True,
+            description="Scout run that created the entry; joins to scout_runs.id for skill_name. NULL when the creator was not a scout run or the run was deleted.",
+        ),
+        "created_by_identity": StringDatabaseField(
+            name="created_by_identity",
+            nullable=True,
+            description="Creator that is not a scout run, such as a pipeline:* report stage; NULL for scout-created entries.",
+        ),
+    },
+)
+
 task_artifacts: PostgresTable = PostgresTable(
     name="task_artifacts",
     postgres_table_name="posthog_task_artifact",
@@ -4595,6 +4776,241 @@ def _definition_tags_lazy_join(tagged_items_table: TaggedItemsTable) -> LazyJoin
     )
 
 
+DEFINITION_METADATA_FLAG = "hogql-definition-metadata"
+
+
+def _definition_metadata_columns(subject: str, *, with_owner: bool) -> dict[str, DatabaseField]:
+    """The metadata columns as the definition tables show them."""
+    columns: dict[str, DatabaseField] = {
+        "description": StringDatabaseField(
+            name="description",
+            nullable=True,
+            description=f"Description of the {subject}, written by a person; NULL if nobody described it.",
+        ),
+        "verified": IntegerDatabaseField(
+            name="verified", description=f"1 if a person marked the {subject} as verified, 0 otherwise."
+        ),
+        "verified_at": DateTimeDatabaseField(
+            name="verified_at", nullable=True, description=f"When a person marked the {subject} as verified."
+        ),
+        "verified_by_id": IntegerDatabaseField(
+            name="verified_by_id", nullable=True, description=f"User who marked the {subject} as verified."
+        ),
+        "hidden": IntegerDatabaseField(
+            name="hidden", description=f"1 if a person hid the {subject} from the lists in PostHog, 0 otherwise."
+        ),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at",
+            nullable=True,
+            description=f"When a person last edited the {subject}'s metadata; NULL if nobody edited it.",
+        ),
+        "updated_by_id": IntegerDatabaseField(
+            name="updated_by_id", nullable=True, description=f"User who last edited the {subject}'s metadata."
+        ),
+    }
+    if with_owner:
+        columns["owner_id"] = IntegerDatabaseField(
+            name="owner_id", nullable=True, description=f"User who owns the {subject}; NULL if it has no owner."
+        )
+    return columns
+
+
+_EVENT_DEFINITION_METADATA_COLUMNS = _definition_metadata_columns("event", with_owner=True)
+_PROPERTY_DEFINITION_METADATA_COLUMNS = _definition_metadata_columns("property", with_owner=False)
+# Nullable booleans in Postgres. The joined select coalesces them, see _definition_metadata_select.
+_DEFINITION_METADATA_FLAGS = ("verified", "hidden")
+
+
+class _PropertyDefinitionMetadataTable(PostgresTable):
+    """Hides the metadata of the properties that property-level access control hides.
+
+    It looks up the ids of the hidden definitions by name, so it reads only those few rows, not every
+    definition of the team.
+    """
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        if context is None or not context.restricted_properties:
+            return []
+        if context.team_id is None:
+            return [ast.Constant(value=False)]
+        if context.restricted_property_definition_ids is None:
+            context.restricted_property_definition_ids = _restricted_property_definition_ids(
+                context.team_id, context.restricted_properties
+            )
+        if not context.restricted_property_definition_ids:
+            return []
+        return [
+            parse_expr(
+                "toString(definition_id) NOT IN {ids}",
+                {"ids": ast.Constant(value=sorted(context.restricted_property_definition_ids), is_sensitive=True)},
+            )
+        ]
+
+
+def _restricted_property_definition_ids(team_id: int, restricted: set[RestrictedProperty]) -> frozenset[str]:
+    from django.db.models import Q  # noqa: PLC0415 — keeps the ORM off this module's import path
+
+    from products.event_definitions.backend.models import PropertyDefinition  # noqa: PLC0415
+
+    matches = Q()
+    for prop in restricted:
+        match = Q(name=prop.name, type=prop.property_type)
+        if prop.group_type_index is not None:
+            match &= Q(group_type_index=prop.group_type_index)
+        matches |= match
+    definition_ids = PropertyDefinition.objects.filter(matches, team_id=team_id).values_list("id", flat=True)
+    return frozenset(str(definition_id) for definition_id in definition_ids)
+
+
+def _definition_metadata_table(
+    table_class: type[PostgresTable],
+    *,
+    kind: str,
+    access_scope: APIScopeObject,
+    definition_column: str,
+    columns: dict[str, DatabaseField],
+    **kwargs,
+) -> PostgresTable:
+    postgres_table_name = f"event_definitions_{kind}definitionmetadata"
+    return table_class(
+        name=f"_{kind}_definition_metadata",
+        postgres_table_name=postgres_table_name,
+        access_scope=access_scope,
+        description=f"Internal table (PostgreSQL `{postgres_table_name}`) of the metadata people edit on {kind} definitions; not for direct querying — use the columns of `system.{kind}_definitions`.",
+        fields={
+            "definition_id": UUIDDatabaseField(
+                name=definition_column,
+                description=f"Definition this metadata belongs to; join to `system.{kind}_definitions.id`.",
+            ),
+            "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+            **columns,
+            **{name: BooleanDatabaseField(name=name, nullable=True) for name in _DEFINITION_METADATA_FLAGS},
+        },
+        **kwargs,
+    )
+
+
+event_definition_metadata: PostgresTable = _definition_metadata_table(
+    PostgresTable,
+    kind="event",
+    access_scope="event_definition",
+    definition_column="event_definition_id",
+    columns=_EVENT_DEFINITION_METADATA_COLUMNS,
+)
+property_definition_metadata: PostgresTable = _definition_metadata_table(
+    _PropertyDefinitionMetadataTable,
+    kind="property",
+    access_scope="property_definition",
+    definition_column="property_definition_id",
+    columns=_PROPERTY_DEFINITION_METADATA_COLUMNS,
+    # Keeps the team guard in the Postgres read when the restriction predicate applies.
+    push_team_guard_with_predicates=True,
+)
+
+
+def _definition_metadata_select(metadata_table: str, fields: Iterable[str]) -> ast.SelectQuery:
+    # A flag column must not be Nullable, so that a definition without a metadata row reads 0 through
+    # the LEFT JOIN: HogQL keeps ClickHouse's join_use_nulls = 0, which fills in the type default.
+    # toInt is no use here, because HogQL prints it as accurateCastOrNull.
+    columns: list[ast.Expr] = [
+        ast.Alias(
+            alias=field,
+            expr=ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="ifNull", args=[ast.Field(chain=[field]), ast.Constant(value=False)]),
+                    ast.Constant(value=1),
+                    ast.Constant(value=0),
+                ],
+            )
+            if field in _DEFINITION_METADATA_FLAGS
+            else ast.Field(chain=[field]),
+        )
+        for field in sorted(fields)
+        if field != "definition_id"
+    ]
+    return ast.SelectQuery(
+        select=[ast.Field(chain=["definition_id"]), *columns],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["system", metadata_table])),
+    )
+
+
+def _definition_metadata_enabled(context: HogQLContext) -> bool:
+    # Evaluated only when a query reads the metadata columns, so other queries never pay for it.
+    team = context.team
+    if team is None:
+        return False
+    organization_id = str(team.organization_id)
+    return feature_enabled_or_false(
+        DEFINITION_METADATA_FLAG,
+        str(team.uuid),
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
+class _DefinitionMetadataTable(LazyTable):
+    metadata_table: str
+    description: str = "Internal table backing the metadata columns of the definition tables: one row per definition that a person opened or edited in PostHog."
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _definition_metadata_select(self.metadata_table, table_to_add.fields_accessed)
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "definition_metadata"
+
+    def to_printed_hogql(self) -> str:
+        return "definition_metadata"
+
+
+def definition_metadata_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError(f"No fields requested from `{join_to_add.to_table}`")
+    if not _definition_metadata_enabled(context):
+        raise QueryError("The definition metadata columns are not available for this project yet.")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_definition_metadata_select(
+            join_to_add.lazy_join.resolver_params["metadata_table"], join_to_add.fields_accessed
+        ),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "definition_id"]),
+            ),
+        ),
+    )
+
+
+def _definition_metadata_fields(
+    metadata_table: PostgresTable, columns: dict[str, DatabaseField]
+) -> dict[str, FieldOrTable]:
+    return {
+        # Read through the columns below, which name what a query may select
+        "metadata": LazyJoin(
+            from_field=["id"],
+            join_table=_DefinitionMetadataTable(
+                metadata_table=metadata_table.name,
+                fields={"definition_id": metadata_table.fields["definition_id"], **columns},
+            ),
+            resolver=DEFINITION_METADATA,
+            resolver_params={"metadata_table": metadata_table.name},
+            hidden=True,
+        ),
+        **{
+            name: FieldTraverser(chain=["metadata", name], description=column.description)
+            for name, column in columns.items()
+        },
+    }
+
+
 event_definitions: PostgresTable = PostgresTable(
     name="event_definitions",
     postgres_table_name="posthog_eventdefinition",
@@ -4615,6 +5031,7 @@ event_definitions: PostgresTable = PostgresTable(
             description="When the event was last ingested; NULL if it has not been seen since this was tracked.",
         ),
         "tags": _definition_tags_lazy_join(event_definition_tagged_items),
+        **_definition_metadata_fields(event_definition_metadata, _EVENT_DEFINITION_METADATA_COLUMNS),
     },
 )
 
@@ -4696,6 +5113,7 @@ property_definitions: _PropertyDefinitionsTable = _PropertyDefinitionsTable(
             description="1 if the property's values can be used in numeric aggregations, 0 otherwise.",
         ),
         "tags": _definition_tags_lazy_join(property_definition_tagged_items),
+        **_definition_metadata_fields(property_definition_metadata, _PROPERTY_DEFINITION_METADATA_COLUMNS),
     },
 )
 
@@ -4781,6 +5199,9 @@ class SystemTables(TableNode):
         "_event_definition_tagged_items": TableNode(
             name="_event_definition_tagged_items", table=event_definition_tagged_items, hidden=True
         ),
+        "_event_definition_metadata": TableNode(
+            name="_event_definition_metadata", table=event_definition_metadata, hidden=True
+        ),
         "error_tracking_assignment_rules": TableNode(
             name="error_tracking_assignment_rules", table=error_tracking_assignment_rules
         ),
@@ -4804,6 +5225,8 @@ class SystemTables(TableNode):
         "evaluation_directories": TableNode(name="evaluation_directories", table=evaluation_directories),
         "evaluations": TableNode(name="evaluations", table=evaluations),
         "experiments": TableNode(name="experiments", table=experiments),
+        "experiment_saved_metrics": TableNode(name="experiment_saved_metrics", table=experiment_saved_metrics),
+        "experiment_to_saved_metrics": TableNode(name="experiment_to_saved_metrics", table=experiment_to_saved_metrics),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
         "feature_request_account_links": TableNode(
@@ -4860,11 +5283,15 @@ class SystemTables(TableNode):
         "_property_definition_tagged_items": TableNode(
             name="_property_definition_tagged_items", table=property_definition_tagged_items, hidden=True
         ),
+        "_property_definition_metadata": TableNode(
+            name="_property_definition_metadata", table=property_definition_metadata, hidden=True
+        ),
         "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "revenue_analytics_config": TableNode(name="revenue_analytics_config", table=revenue_analytics_config),
         "scout_configs": TableNode(name="scout_configs", table=scout_configs),
         "scout_run_emissions": TableNode(name="scout_run_emissions", table=scout_run_emissions),
         "scout_runs": TableNode(name="scout_runs", table=scout_runs),
+        "scout_scratchpad": TableNode(name="scout_scratchpad", table=scout_scratchpad),
         "_signal_spend_scout_runs": TableNode(
             name="_signal_spend_scout_runs", table=signal_spend_scout_runs, hidden=True
         ),

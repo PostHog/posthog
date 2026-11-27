@@ -119,6 +119,12 @@ async function ingest(store: RunStore, token: Buffer, request: IncomingMessage, 
     }
     const report = await reportOf(request)
     const stored = await store.put(report)
+    if (stored === 'elsewhere') {
+        throw new HttpError(
+            409,
+            `run ${report.scorecard.run_id} is stored with its evidence in another location, so this report does not replace it`
+        )
+    }
     send(response, stored === 'created' ? 201 : 200, { runId: report.scorecard.run_id, stored })
 }
 

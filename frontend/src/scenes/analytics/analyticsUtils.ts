@@ -248,8 +248,8 @@ export function fromPostHogProducts(): FromPostHogItem[] {
     ]
 }
 
-export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem[] {
-    return fromPostHogProducts().filter(({ item }) => isFileSystemImportShown(item, featureFlags))
+export function fromPostHogItems(featureFlags: FeatureFlagsSet, isOrganizationAdmin = false): FromPostHogItem[] {
+    return fromPostHogProducts().filter(({ item }) => isFileSystemImportShown(item, featureFlags, isOrganizationAdmin))
 }
 
 /** Scopes the Analytics list's drag ids and drop targets apart from the project tree's own. */

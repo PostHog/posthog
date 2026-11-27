@@ -4,6 +4,7 @@ import json
 import uuid
 import smtplib
 import datetime
+from contextlib import nullcontext
 from hashlib import sha256
 from types import SimpleNamespace
 from typing import Any, cast
@@ -52,6 +53,7 @@ from posthog.models.identity_provider_email_verification import IdentityProvider
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import UserType
 from posthog.redis import get_client
 from posthog.session.activity import session_public_id
 from posthog.tasks.email import login_from_new_device_notification
@@ -79,6 +81,13 @@ GITHUB_MOCK_SETTINGS = {
     "SOCIAL_AUTH_GITHUB_KEY": "github_key",
     "SOCIAL_AUTH_GITHUB_SECRET": "github_secret",
 }
+
+CHATGPT_MOCK_SETTINGS = {
+    "SOCIAL_AUTH_CHATGPT_KEY": "chatgpt_key",
+    "SOCIAL_AUTH_CHATGPT_SECRET": "chatgpt_secret",
+}
+CHATGPT_ISSUER = "https://auth.openai.com"
+CHATGPT_SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 CURRENT_FOLDER = os.path.dirname(__file__)
 
@@ -184,6 +193,8 @@ class TestOIDCAuthentication(APILicensedTest):
         email_verified: bool | None = True,
         reauth: bool = False,
         invite_id: str | None = None,
+        code: str | None = None,
+        callback_delay_seconds: int = 0,
     ) -> HttpResponse:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
@@ -221,7 +232,8 @@ class TestOIDCAuthentication(APILicensedTest):
             response._content = json.dumps(data).encode()
             return response
 
-        with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response):
+        callback_clock = time_machine.travel(timezone.now(), tick=False) if callback_delay_seconds else nullcontext()
+        with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response), callback_clock as clock:
             response = self.client.get(
                 "/login/oidc/",
                 {
@@ -231,6 +243,8 @@ class TestOIDCAuthentication(APILicensedTest):
                 },
             )
             self.assertEqual(response.status_code, 302)
+            if clock is not None:
+                clock.shift(datetime.timedelta(seconds=callback_delay_seconds))
             params = parse_qs(urlparse(response["Location"]).query)
             claims = {
                 "iss": self.config.oidc_issuer_url,
@@ -249,7 +263,7 @@ class TestOIDCAuthentication(APILicensedTest):
                     "id_token": jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "example-key"}),
                 }
             )
-            return self.client.get("/complete/oidc/", {"state": params["state"][0], "code": "example-code"})
+            return self.client.get("/complete/oidc/", {"state": params["state"][0], "code": code or uuid.uuid4().hex})
 
     @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
     def test_oidc_login_completes_without_storing_tokens(self, _name: str, email_verified: bool | None) -> None:
@@ -265,6 +279,47 @@ class TestOIDCAuthentication(APILicensedTest):
         social_auth = UserSocialAuth.objects.get(user=self.user, provider="oidc")
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(social_auth.extra_data, {})
+
+    @parameterized.expand([("identical", ""), ("trailing_space", " ")])
+    def test_a_replayed_authorization_code_is_rejected(self, _name: str, padding: str) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        code = uuid.uuid4().hex
+        first = self._complete_oidc_login("member@example.com", code=code)
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+
+        replayed = self._complete_oidc_login("member@example.com", code=f"{code}{padding}")
+        self.assertEqual(replayed.status_code, 302)
+        query = parse_qs(urlparse(replayed["Location"]).query)
+        self.assertEqual(query["error_code"], ["social_login_failure"])
+        self.assertIn("already been used", query["error_detail"][0])
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_oidc_login_rejects_a_redirect_older_than_the_timeout(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        response = self._complete_oidc_login("member@example.com", callback_delay_seconds=30 * 60 + 1)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("social_login_failure", response["Location"])
+        self.assertIn("took+too+long", response["Location"])
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
+
+    def test_oidc_login_accepts_a_redirect_inside_the_timeout(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        response = self._complete_oidc_login("member@example.com", callback_delay_seconds=30 * 60 - 1)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
     @parameterized.expand([("first_callback", False), ("restart", True)])
     @pytest.mark.disable_mock_code_based_verifier
@@ -2045,12 +2100,72 @@ class TestEEAuthenticationAPI(APILicensedTest):
             mock_request.return_value.json.return_value = userinfo
             return self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
 
+    @parameterized.expand([("email_match", False), ("linked_identity", True)])
+    def test_google_login_refuses_service_account(self, _name: str, linked: bool) -> None:
+        self.client.logout()
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT, is_email_verified=False)
+        if linked:
+            UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-new")
+        original_password = self.user.password
+        original_login = self.user.last_login
+        original_memberships = list(self.user.organization_memberships.values_list("pk", flat=True))
+
+        response = self._complete_google_login(self.user.email, True)
+
+        self.assertTrue(response["Location"].startswith("/login?error_code=social_login_failure"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertEqual(UserSocialAuth.objects.filter(user=self.user).count(), int(linked))
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.password, original_password)
+        self.assertEqual(self.user.last_login, original_login)
+        self.assertFalse(self.user.is_email_verified)
+        self.assertEqual(list(self.user.organization_memberships.values_list("pk", flat=True)), original_memberships)
+
+    def _complete_chatgpt_login(self, email: str, email_verified: bool | None, login_query: str = "") -> HttpResponse:
+        def provider_response(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+            if url.endswith("/.well-known/openid-configuration"):
+                document: dict[str, Any] = {
+                    "issuer": CHATGPT_ISSUER,
+                    "authorization_endpoint": f"{CHATGPT_ISSUER}/api/accounts/authorize",
+                    "token_endpoint": f"{CHATGPT_ISSUER}/api/accounts/oauth/token",
+                    "jwks_uri": f"{CHATGPT_ISSUER}/.well-known/jwks.json",
+                }
+            elif url.endswith("/.well-known/jwks.json"):
+                jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(CHATGPT_SIGNING_KEY.public_key()))
+                document = {"keys": [{**jwk, "kid": "chatgpt-test-key", "alg": "RS256", "use": "sig"}]}
+            else:
+                document = {"access_token": "123", "id_token": id_token}
+            return MagicMock(json=MagicMock(return_value=document), text=json.dumps(document))
+
+        with (
+            self.settings(**CHATGPT_MOCK_SETTINGS),
+            patch("social_core.backends.base.BaseAuth.request", side_effect=provider_response),
+        ):
+            authorize_query = parse_qs(urlparse(self.client.get(f"/login/chatgpt/?{login_query}")["Location"]).query)
+            now = int(timezone.now().timestamp())
+            claims: dict[str, Any] = {
+                "iss": CHATGPT_ISSUER,
+                "aud": "chatgpt_key",
+                "sub": "chatgpt-sub-new",
+                "iat": now,
+                "exp": now + 300,
+                "nonce": authorize_query["nonce"][0],
+                "email": email,
+                "name": "New Person",
+            }
+            if email_verified is not None:
+                claims["email_verified"] = email_verified
+            id_token = jwt.encode(claims, CHATGPT_SIGNING_KEY, algorithm="RS256", headers={"kid": "chatgpt-test-key"})
+            return self.client.get(f"/complete/chatgpt/?code=2&state={authorize_query['state'][0]}")
+
     @parameterized.expand(
         [
             ("github_unverified_primary", "github", False),
             ("google_unverified", "google-oauth2", False),
+            ("chatgpt_unverified", "chatgpt", False),
             ("github_verified_primary", "github", True),
             ("google_verified", "google-oauth2", True),
+            ("chatgpt_verified", "chatgpt", True),
         ]
     )
     def test_social_login_links_an_existing_account_only_by_a_provider_verified_email(
@@ -2065,6 +2180,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 github_id=4242,
                 emails=[{"email": self.user.email, "primary": True, "verified": provider_verified}],
             )
+        elif provider == "chatgpt":
+            response = self._complete_chatgpt_login(email=self.user.email, email_verified=provider_verified)
         else:
             response = self._complete_google_login(email=self.user.email, email_verified=provider_verified)
 
@@ -2086,6 +2203,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
             ("github_public_email_lookup_fails", "github", False, True, 502, GITHUB_EMAIL_LOOKUP_ERROR),
             ("google_unverified", "google-oauth2", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
             ("google_claim_missing", "google-oauth2", None, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("chatgpt_unverified", "chatgpt", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("chatgpt_claim_missing", "chatgpt", None, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
         ]
     )
     def test_social_signup_refuses_an_email_the_provider_has_not_verified(
@@ -2107,6 +2226,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 emails_status=emails_status,
                 profile_email=email if has_public_email else None,
             )
+        elif provider == "chatgpt":
+            response = self._complete_chatgpt_login(email=email, email_verified=email_verified)
         else:
             response = self._complete_google_login(email=email, email_verified=email_verified)
 
@@ -2116,6 +2237,24 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(User.objects.filter(email=email).exists())
         self.assertFalse(UserSocialAuth.objects.filter(provider=provider).exists())
+
+    def test_chatgpt_signup_paused_by_a_partial_step_stores_no_openai_token(self) -> None:
+        self.client.logout()
+
+        self._complete_chatgpt_login(email="new-person@example.com", email_verified=True)
+
+        stored = json.dumps(Partial.objects.get(backend="chatgpt").data)
+        self.assertIn("new-person@example.com", stored)
+        self.assertNotIn("access_token", stored)
+        self.assertNotIn("id_token", stored)
+
+    def test_chatgpt_login_is_refused_in_demo_mode(self) -> None:
+        self.client.logout()
+
+        with self.settings(**CHATGPT_MOCK_SETTINGS, DEMO=True):
+            response = self.client.get("/login/chatgpt/")
+
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     @parameterized.expand(
         [
@@ -2472,9 +2611,21 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     # Finish SAML flow (i.e. actual log in)
 
+    @parameterized.expand(
+        [("human", False, False), ("service_account", True, False), ("linked_service_account", True, True)]
+    )
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
-    def test_can_login_with_saml(self):
-        user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+    def test_can_login_with_saml(self, _name: str, service_account: bool, linked: bool) -> None:
+        user = User.objects.create(
+            email="engineering@posthog.com",
+            distinct_id=str(uuid.uuid4()),
+            type=UserType.SERVICE_ACCOUNT if service_account else UserType.HUMAN,
+        )
+        if linked:
+            config = self.organization_domain.saml_identity_provider_configs.get()
+            UserSocialAuth.objects.create(
+                user=user, provider="saml", uid=f"{config.saml_relay_state}:engineering@posthog.com"
+            )
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -2499,6 +2650,14 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             format="multipart",
         )
 
+        if service_account:
+            self.assertTrue(response.redirect_chain[0][0].startswith("/login?error_code=social_login_failure"))
+            self.assertNotIn("_auth_user_id", self.client.session)
+            self.assertEqual(UserSocialAuth.objects.filter(user=user).count(), int(linked))
+            self.assertFalse(user.organization_memberships.exists())
+            user.refresh_from_db()
+            self.assertIsNone(user.last_login)
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
         self.assertRedirects(response, "/")  # redirect to the home page
 

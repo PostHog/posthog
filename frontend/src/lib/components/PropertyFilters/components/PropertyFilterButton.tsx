@@ -8,7 +8,7 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { fullNameOrEmail, midEllipsis } from 'lib/utils/strings'
 
 import { cohortsModel } from '~/models/cohortsModel'

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 
+import { Text } from '@posthog/quill'
 import { ProportionBar } from '@posthog/quill-charts'
 import type { Series } from '@posthog/quill-charts'
 
@@ -26,11 +27,11 @@ export const ContentAutopilotSentimentBar = ({ summary }: { summary: PromptSenti
     )
     if (summary.scored === 0) {
         return (
-            <p className="m-0 text-muted">
+            <Text size="xs" variant="muted" render={<p className="m-0" />}>
                 {summary.unscored > 0
                     ? `${pluralize(summary.unscored, 'answer')} mention you but have not been scored yet.`
                     : 'No sentences mention you yet, so there is nothing to score.'}
-            </p>
+            </Text>
         )
     }
     return (

@@ -180,23 +180,40 @@ class TestReportRows:
 
 
 class TestListRows:
-    def test_follows_hypermedia_next_page_and_saves_state(self) -> None:
-        next_url = f"{PARTNERIZE_BASE_URL}/reference/country?page=2"
+    @parameterized.expand(
+        [
+            ("countries", "countries", "/reference/country", "countries", "country", "ref_country_id"),
+            (
+                "selfbills",
+                "selfbills",
+                "/user/publisher/111111l92/selfbill",
+                "selfbills",
+                "selfbill",
+                "publisher_self_bill_id",
+            ),
+        ]
+    )
+    def test_follows_hypermedia_next_page_and_saves_state(
+        self, _name: str, endpoint: str, path: str, data_key: str, item_key: str, id_field: str
+    ) -> None:
+        next_url = f"{PARTNERIZE_BASE_URL}{path}?page=2"
         result = _driver().run(
-            "countries",
+            endpoint,
             [
                 ScriptedResponse(
                     json={
-                        "countries": [{"country": {"ref_country_id": 1}}],
+                        data_key: [{item_key: {id_field: "1"}}],
                         "hypermedia": {"pagination": {"next_page": next_url}},
                     }
                 ),
-                ScriptedResponse(json={"countries": [{"country": {"ref_country_id": 2}}]}),
+                ScriptedResponse(json={data_key: [{item_key: {id_field: "2"}}]}),
             ],
         )
 
         assert result.raised is None
-        assert [row["ref_country_id"] for row in result.rows] == [1, 2]
+        assert result.paths[0] == path
+        assert result.params("start_date") == [None, None]
+        assert [row[id_field] for row in result.rows] == ["1", "2"]
         assert result.urls[1] == next_url
         assert result.saved_states == [PartnerizeResumeConfig(next_url=next_url)]
 
@@ -257,14 +274,57 @@ class TestListRows:
 
 
 class TestFanOutRows:
-    def test_commissions_fan_out_over_campaigns(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "commissions",
+                "commissions",
+                "/v2/campaigns/{campaign_id}/publishers/111111l92/commissions/active",
+                {"active_commissions": [{"id": "1", "type": "default"}]},
+                ["campaign_id", "type", "id"],
+                [("10l1", "default", "1")],
+            ),
+            (
+                "voucher_codes_unwrapped",
+                "voucher_codes",
+                "/user/publisher/111111l92/campaign/{campaign_id}/voucher",
+                {
+                    "count": 2,
+                    "voucher_codes": [
+                        {"voucher_code": {"voucher_code_id": "v1", "voucher_code": "SPRING", "campaign_id": "10l1"}},
+                        # A nested campaign_id that disagrees with the parent must not break the key.
+                        {"voucher_code": {"voucher_code_id": "v2", "voucher_code": "SUMMER", "campaign_id": "other"}},
+                    ],
+                },
+                ["campaign_id", "voucher_code_id", "voucher_code"],
+                [("10l1", "v1", "SPRING"), ("10l1", "v2", "SUMMER")],
+            ),
+            (
+                "voucher_codes_flat_row_passes_through",
+                "voucher_codes",
+                "/user/publisher/111111l92/campaign/{campaign_id}/voucher",
+                {"voucher_codes": [{"voucher_code_id": "v3", "voucher_code": "AUTUMN"}]},
+                ["campaign_id", "voucher_code_id", "voucher_code"],
+                [("10l1", "v3", "AUTUMN")],
+            ),
+        ]
+    )
+    def test_fans_out_over_campaigns_and_ignores_missing_campaign(
+        self,
+        _name: str,
+        endpoint: str,
+        child_path: str,
+        child_body: dict[str, Any],
+        columns: list[str],
+        expected_rows: list[tuple[str, ...]],
+    ) -> None:
         result = _driver().run(
-            "commissions",
+            endpoint,
             [
                 ScriptedResponse(
                     json={"campaigns": [{"campaign": {"campaign_id": "10l1"}}, {"campaign": {"campaign_id": "10l2"}}]}
                 ),
-                ScriptedResponse(json={"active_commissions": [{"id": "1", "type": "default"}]}),
+                ScriptedResponse(json=child_body),
                 ScriptedResponse(status=404, json={"error": "not found"}),
             ],
         )
@@ -272,10 +332,10 @@ class TestFanOutRows:
         assert result.raised is None
         assert result.paths == [
             "/user/publisher/111111l92/campaign/a",
-            "/v2/campaigns/10l1/publishers/111111l92/commissions/active",
-            "/v2/campaigns/10l2/publishers/111111l92/commissions/active",
+            child_path.format(campaign_id="10l1"),
+            child_path.format(campaign_id="10l2"),
         ]
-        assert [(row["campaign_id"], row["type"], row["id"]) for row in result.rows] == [("10l1", "default", "1")]
+        assert [tuple(row[column] for column in columns) for row in result.rows] == expected_rows
 
 
 class TestPartnerizeSourceResponse:

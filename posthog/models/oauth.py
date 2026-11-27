@@ -1,6 +1,8 @@
+import re
 import copy
 import enum
 import uuid
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
@@ -10,7 +12,7 @@ from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
-from django.db import connection, models, transaction
+from django.db import connection, models, router, transaction
 from django.db.models import Exists, Q
 from django.dispatch import receiver
 from django.utils import timezone
@@ -29,6 +31,7 @@ from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.validators import AllowedURIValidator
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 from posthog.models.utils import (
     UUIDT,
@@ -38,6 +41,7 @@ from posthog.models.utils import (
     mask_key_value,
 )
 from posthog.scopes.catalog import translate_renamed_scopes
+from posthog.security.url_validation import browser_host
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -105,6 +109,18 @@ OIDC_SIGNING_KEY_MISSING_MESSAGE = (
     "OAuth is not set up on this PostHog instance. "
     "Ask the instance admin to set the OIDC_RSA_PRIVATE_KEY environment variable to an RSA private key in PEM format."
 )
+
+
+# No character here is special in a URL path, so a browser requests "<callback><client_id>/" as written.
+_PROXY_CALLBACK_CLIENT_ID = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def proxy_callbacks_on_host_of(uri: str) -> list[str]:
+    """The OAuth proxy callbacks served by the host that a browser sends this URI to."""
+    host = browser_host(uri)
+    if host is None:
+        return []
+    return [callback for callback in settings.OAUTH_PROXY_CALLBACK_URLS if browser_host(callback) == host]
 
 
 def oidc_signing_key_configured() -> bool:
@@ -221,6 +237,11 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     def ceiling_scopes(self) -> list[str]:
         """The full grantable set: `scopes` plus `optional_scopes`, deduplicated, renamed scopes translated."""
         return translate_renamed_scopes([*self.scopes, *self.optional_scopes])
+
+    @property
+    def is_self_registered(self) -> bool:
+        """Registered by the client itself through DCR or CIMD, not created by a person or by staff."""
+        return self.is_dcr_client or self.is_cimd_client
 
     @property
     def required_scopes(self) -> list[str]:
@@ -404,10 +425,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def provisioning_signing(self) -> ProvisioningSigning:
-        provisioning = self.provisioning
-        if not self.is_provisioning_partner or not (
-            provisioning.can_create_accounts or provisioning.pays_for_customers
-        ):
+        """Every provisioning partner signs its requests with a private key, because its client_id alone is public."""
+        if not self.is_provisioning_partner:
             return ProvisioningSigning.NOT_REQUIRED
         return ProvisioningSigning.REQUIRED
 
@@ -417,16 +436,9 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def needs_organization_link(self) -> bool:
-        """A self-registered partner with no PostHog organization behind it, while staff require one. Staff-created
-        partners are exempt, because staff already know who runs them."""
-        from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
-
-        return (
-            self.is_cimd_client
-            and self.organization_id is None
-            and not self.organization_link_issuer
-            and bool(get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"))
-        )
+        """A self-registered partner with no PostHog organization behind it, which cannot provision until it links one.
+        Staff-created partners are exempt, because staff already know who runs them."""
+        return self.is_cimd_client and self.organization_id is None and not self.organization_link_issuer
 
     @property
     def provisioning_allowed(self) -> bool:
@@ -515,6 +527,14 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         for uri in self.redirect_uris.split():
             parsed_uri = urlparse(uri)
 
+            proxy_callbacks = proxy_callbacks_on_host_of(uri)
+            if proxy_callbacks and uri not in proxy_callbacks:
+                raise ValidationError(
+                    {
+                        "redirect_uris": f"Redirect URI {uri} is reserved for the PostHog OAuth proxy. Use your own callback URL."
+                    }
+                )
+
             # RFC 8252 Section 7.1 private-use scheme redirects (e.g. com.example.app:/oauth)
             # are authority-less by design; django-oauth-toolkit validator rejects them solely for lacking a host.
             # Everything else goes through validator unchanged.
@@ -593,7 +613,30 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     def save(self, *args, **kwargs):
         self.full_clean()
-        super().save(*args, **kwargs)
+
+        if not self._writes_partner_flag_off(kwargs.get("update_fields")):
+            super().save(*args, **kwargs)
+            return
+
+        # Every write of the flag goes through save. The stored flag is read under the app row lock, so
+        # a request that turns the flag on cannot commit between the read and the write. The revoke
+        # shares the transaction, so a failed revoke also undoes the flag change. The app row is locked
+        # before any token row, the order revoke_application_sessions and every token mint use.
+        with transaction.atomic():
+            stored_as_partner = (
+                OAuthApplication.objects.select_for_update()
+                .filter(pk=self.pk)
+                .values_list("is_provisioning_partner", flat=True)
+                .first()
+            )
+            super().save(*args, **kwargs)
+            if stored_as_partner:
+                revoke_application_sessions(self)
+
+    def _writes_partner_flag_off(self, update_fields: Iterable[str] | None) -> bool:
+        if self._state.adding or self.is_provisioning_partner:
+            return False
+        return update_fields is None or "is_provisioning_partner" in update_fields
 
     def allows_grant_type(self, *grant_types: str) -> bool:
         # The device grant's approval page can only show a client's self-declared name, so a device
@@ -602,6 +645,20 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         if self.authorization_grant_type == self.GRANT_DEVICE_CODE and not self.is_verified:
             return False
         return super().allows_grant_type(*grant_types)
+
+    def redirect_uri_allowed(self, uri: str) -> bool:
+        proxy_callbacks = proxy_callbacks_on_host_of(uri)
+        if not proxy_callbacks:
+            return super().redirect_uri_allowed(uri)
+        # Exact strings only: django-oauth-toolkit's parsed comparison lets other spellings through.
+        # Each client reaches only its own "<callback><client_id>/", so the proxy can route a code by
+        # path to the client it was issued to.
+        registered = [callback for callback in proxy_callbacks if callback in self.redirect_uris.split()]
+        if uri in registered:
+            return True
+        return _PROXY_CALLBACK_CLIENT_ID.fullmatch(self.client_id) is not None and uri in {
+            f"{callback}{self.client_id}/" for callback in registered
+        }
 
     def get_allowed_schemes(self) -> list[str]:
         """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""
@@ -932,7 +989,8 @@ def revoke_oauth_session(
     access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
 ) -> None:
     """Revoke all OAuth artifacts for the token's (user, application) pair - every access
-    token, every refresh token, and every grant, not just the given one.
+    token, every refresh token, every grant, and every personal API key the application
+    provisioned for the user, not just the given one.
 
     Use this where the user or client explicitly asked to disconnect the whole app
     (connected_apps.py, RFC 7009 revoke_token) - there, sweeping every session for that
@@ -986,6 +1044,12 @@ def revoke_oauth_session(
 
             # Delete all access tokens for this user+application
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
+
+            # Key by key, so the activity log records each deletion.
+            for key in PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey)).filter(
+                provisioned_by=application, user=user
+            ):
+                key.delete()
 
 
 def revoke_oauth_refresh_family(refresh_token: OAuthRefreshToken) -> None:
@@ -1114,7 +1178,8 @@ def revoke_oauth_token_session(
 
 
 def revoke_application_sessions(application: "OAuthApplication") -> None:
-    """Force-invalidate every outstanding token and grant for an application, across all users.
+    """Force-invalidate every outstanding token, grant, and provisioned personal API key for an
+    application, across all users.
 
     Lets a scope-ceiling narrowing take effect immediately by forcing every connection to
     re-authorize under the new ceiling, instead of waiting for each token to hit its next
@@ -1141,6 +1206,10 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
         OAuthDeviceGrant.objects.filter(client_id=application.client_id).delete()
         OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
         OAuthAccessToken.objects.filter(application=application).delete()
+
+        # Key by key, so the activity log records each deletion.
+        for key in PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey)).filter(provisioned_by=application):
+            key.delete()
 
 
 def generate_random_token_cimd_verification() -> str:

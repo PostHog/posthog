@@ -1,4 +1,4 @@
-"""Rate how hard a query is to write by hand, so the proposals that most need one shared definition come first.
+"""Rate how hard a query is to write by hand. The proposal rank weighs it against how many people use the number.
 
 A count of one event takes seconds to write again. A query with joins, subqueries, window functions or
 conditional aggregates takes real work, and two people rarely write it the same way.

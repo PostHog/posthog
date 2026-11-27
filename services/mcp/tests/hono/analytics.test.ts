@@ -45,6 +45,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             stateManager: {},
         } as any,
         useSingleExec: true,
+        splitWrites: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
         oauthClientId: undefined,
@@ -87,6 +88,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         gatewayToolsEnabled: false,
         distinctId: 'distinct-id',
         renderUiEnabled: false,
+        stepSeconds: {},
         ...overrides,
     }
 }
@@ -749,6 +751,26 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             ['the presigned upload tool through exec', 'exec', { command: 'call media-image-upload-start {}' }, false],
+            [
+                'SCIM token rotation',
+                'identity-provider-configs-scim-token-create-execute',
+                { confirmation: 'confirm' },
+                false,
+            ],
+            ['creating an IdP config', 'identity-provider-configs-create-execute', { confirmation: 'confirm' }, false],
+            [
+                'updating an IdP config',
+                'identity-provider-configs-partial-update-execute',
+                { confirmation: 'confirm' },
+                false,
+            ],
+            ['the skill-store install command', 'skill-store-install-command', { rotate: false }, false],
+            [
+                'a destination connect link',
+                'external-data-destinations-connect-link',
+                { destination_type: 'Postgres' },
+                false,
+            ],
             [
                 'execute-sql wrapped in a connection call',
                 'posthog-connection-call',

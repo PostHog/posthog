@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import type { ExportStatusFetcher } from 'lib/components/ExportButton/exportsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -55,10 +56,10 @@ export interface traceExportLogicActions {
     } // exportsLogic
     trackExport: (
         exportedAsset: ExportedAssetType,
-        fetchLatest?: import('lib/components/ExportButton/exportsLogic').ExportStatusFetcher | undefined
+        fetchLatest?: ExportStatusFetcher | undefined
     ) => {
         exportedAsset: ExportedAssetType
-        fetchLatest: import('lib/components/ExportButton/exportsLogic').ExportStatusFetcher | undefined
+        fetchLatest: ExportStatusFetcher | undefined
     } // exportsLogic
     copyTrace: () => {
         value: true

@@ -1,4 +1,5 @@
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
+import { ExternalDataSource } from '~/types'
 
 import {
     RecommendationsLoadStatus,
@@ -7,6 +8,7 @@ import {
     reconcileResolutionOverrides,
     recommendationsShownState,
     sectionRecommendations,
+    serverDataGaps,
     summarizeImpact,
     unresolved,
     withResolutionOverrides,
@@ -37,7 +39,51 @@ function recommendation(overrides: Partial<MarketingAnalyticsRecommendation>): M
     }
 }
 
+function googleAdsSource(id: string, prefix: string): ExternalDataSource {
+    const schema = (name: string): ExternalDataSource['schemas'][number] =>
+        ({
+            name,
+            should_sync: true,
+            table: { name: `${prefix}.google_ads.${name}` },
+        }) as ExternalDataSource['schemas'][number]
+    return {
+        id,
+        prefix,
+        source_type: 'GoogleAds',
+        schemas: [schema('campaign'), schema('campaign_stats')],
+    } as ExternalDataSource
+}
+
 describe('recommendations', () => {
+    describe('serverDataGaps', () => {
+        const sources = [googleAdsSource('source-a', 'us'), googleAdsSource('source-b', 'eu')]
+
+        it.each([
+            {
+                name: 'a conversion action gap manages the ad account it names',
+                gap: { kind: 'conversion_action_tables_not_synced' as const, campaignTable: 'eu.google_ads.campaign' },
+                utmAuditEnabled: true,
+                expected: { action: 'manage_source', sourceId: 'source-b', sourceName: 'eu' },
+            },
+            {
+                name: 'a conversion action gap of an unselected account has nothing to manage',
+                gap: { kind: 'conversion_action_tables_not_synced' as const, campaignTable: 'other.campaign' },
+                utmAuditEnabled: true,
+                expected: { action: null, sourceName: null },
+            },
+            {
+                name: 'unmatched campaigns have no action while the UTM audit is off',
+                gap: { kind: 'posthog_campaigns_unmatched' as const },
+                utmAuditEnabled: false,
+                expected: { action: null, sourceName: null },
+            },
+        ])('$name', ({ gap, utmAuditEnabled, expected }) => {
+            expect(serverDataGaps([{ ...gap, message: 'm' }], sources, utmAuditEnabled)).toEqual([
+                { kind: gap.kind, message: 'm', ...expected },
+            ])
+        })
+    })
+
     describe('groupRecommendations', () => {
         const rows = [
             recommendation({ rule: 'brand_overlap', key: 'keep', impactDirection: 'keep' }),
@@ -48,40 +94,27 @@ describe('recommendations', () => {
 
         it.each([
             {
-                name: 'puts groups that only say keep last and leaves out fully resolved rules',
-                showResolved: false,
+                name: 'puts groups that only say keep last and leaves out resolved rows and fully resolved rules',
                 keepRule: null,
                 expected: [
-                    ['spend_without_conversions', ['a'], 1],
-                    ['brand_overlap', ['keep'], 1],
+                    ['spend_without_conversions', ['a']],
+                    ['brand_overlap', ['keep']],
                 ],
             },
             {
                 name: 'keeps the open rule with no rows once all of it is resolved',
-                showResolved: false,
                 keepRule: 'keyword_gap' as const,
                 expected: [
-                    ['spend_without_conversions', ['a'], 1],
-                    ['keyword_gap', [], 0],
-                    ['brand_overlap', ['keep'], 1],
+                    ['spend_without_conversions', ['a']],
+                    ['keyword_gap', []],
+                    ['brand_overlap', ['keep']],
                 ],
             },
-            {
-                name: 'lists resolved rows while they are on show',
-                showResolved: true,
-                keepRule: null,
-                expected: [
-                    ['spend_without_conversions', ['a', 'b'], 1],
-                    ['keyword_gap', ['c'], 0],
-                    ['brand_overlap', ['keep'], 1],
-                ],
-            },
-        ])('$name', ({ showResolved, keepRule, expected }) => {
+        ])('$name', ({ keepRule, expected }) => {
             expect(
-                groupRecommendations(rows, showResolved, keepRule).map((group) => [
+                groupRecommendations(rows, keepRule).map((group) => [
                     group.rule,
                     group.recommendations.map((row) => row.key),
-                    group.activeCount,
                 ])
             ).toEqual(expected)
         })
@@ -93,30 +126,24 @@ describe('recommendations', () => {
             recommendation({ key: 'small', minor: true }),
             recommendation({ rule: 'keyword_gap', key: 'gap', minor: true, resolution: DISMISSED }),
             recommendation({ rule: 'policy_limited', key: 'policy', impact: null, minor: false }),
+            recommendation({ rule: 'brand_overlap', key: 'overlap', impactDirection: 'keep', minor: true }),
+            recommendation({ rule: 'brand_leak', key: 'leak-keep', impactDirection: 'keep' }),
+            recommendation({ rule: 'brand_leak', key: 'leak-save' }),
         ]
 
-        it.each([
-            { name: 'with resolved rows on show', showResolved: true, keepRule: null },
-            {
-                name: 'after the last row of a minor rule is resolved',
-                showResolved: false,
-                keepRule: 'keyword_gap' as const,
-            },
-        ])(
-            'moves a rule to the minor section only when all its rows are minor, $name',
-            ({ showResolved, keepRule }) => {
-                expect(
-                    sectionRecommendations(groupRecommendations(rows, showResolved, keepRule)).map((section) => [
-                        section.category,
-                        section.groups.map((group) => group.rule),
-                    ])
-                ).toEqual([
-                    ['waste', ['spend_without_conversions']],
-                    ['fix', ['policy_limited']],
-                    ['minor', ['keyword_gap']],
+        it('moves a rule to the minor or keep section only when all its rows are minor or keep, resolved ones included', () => {
+            expect(
+                sectionRecommendations(groupRecommendations(rows, 'keyword_gap')).map((section) => [
+                    section.category,
+                    section.groups.map((group) => group.rule),
                 ])
-            }
-        )
+            ).toEqual([
+                ['waste', ['spend_without_conversions', 'brand_leak']],
+                ['fix', ['policy_limited']],
+                ['keep', ['brand_overlap']],
+                ['minor', ['keyword_gap']],
+            ])
+        })
     })
 
     describe('withResolutionOverrides', () => {
@@ -125,11 +152,13 @@ describe('recommendations', () => {
                 recommendation({ key: '111' }),
                 recommendation({ key: '222', resolution: DISMISSED }),
                 recommendation({ key: '333', resolution: DISMISSED }),
+                recommendation({ key: '444', resolution: DISMISSED, detectedChange: 'negative_keyword' }),
             ]
 
             const shown = withResolutionOverrides(rows, {
                 '111': { ...DISMISSED, resolution: 'applied' },
                 '222': null,
+                '444': null,
             })
 
             expect(unresolved(shown).map((row) => row.key)).toEqual(['222'])

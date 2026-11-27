@@ -159,6 +159,11 @@ ROLE_CHOICES = (
 _join_current_organization: ContextVar[bool] = ContextVar("user_join_current_organization", default=False)
 
 
+class UserType(models.TextChoices):
+    HUMAN = "human", "Human"
+    SERVICE_ACCOUNT = "service_account", "Service account"
+
+
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
@@ -167,6 +172,9 @@ class UserManager(BaseUserManager):
         if _join_current_organization.get():
             queryset = queryset.select_related("current_organization")
         return queryset
+
+    def humans(self) -> "models.QuerySet[Any]":
+        return self.get_queryset().filter(type=UserType.HUMAN)
 
     @contextmanager
     def joining_current_organization(self) -> Iterator[None]:
@@ -304,6 +312,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         related_name="users_currently+",
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
+    # `db_default` keeps raw INSERTs from the Node and Rust services valid, because they do not list this column.
+    type = models.CharField(max_length=32, choices=UserType, default=UserType.HUMAN, db_default=UserType.HUMAN)
     email = models.EmailField(_("email address"), unique=True)
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
@@ -427,6 +437,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         self._withheld_is_staff = self.is_staff
         self.is_staff = False
 
+    @property
+    def staff_rights_withheld(self) -> bool:
+        """Whether this instance holds back staff rights that the stored user has."""
+        return bool(self._withheld_is_staff)
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         if self._withheld_is_staff is None:
             super().save(*args, **kwargs)
@@ -437,6 +452,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             super().save(*args, **kwargs)
         finally:
             self.is_staff = False
+
+    @property
+    def is_human(self) -> bool:
+        return self.type == UserType.HUMAN
+
+    @property
+    def is_service_account(self) -> bool:
+        return self.type == UserType.SERVICE_ACCOUNT
 
     @property
     def is_superuser(self) -> bool:  # type: ignore[override]

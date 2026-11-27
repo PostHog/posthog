@@ -28,6 +28,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from oauth2_provider.utils import jwk_from_pem
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.request import Request
 
 from posthog.api.id_jag import (
     ACCESS_TOKEN_TYPE,
@@ -38,8 +39,9 @@ from posthog.api.id_jag import (
     issue_access_token,
 )
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
-from posthog.auth import IDJagAccessTokenAuthentication
+from posthog.auth import ExportRendererAuthentication, IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
+from posthog.errors import InternalCHQueryError
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH
 from posthog.models.id_jag_identity import IdJagIdentity
@@ -50,9 +52,13 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.user import User as UserModel
+from posthog.models.utils import hash_key_value
 from posthog.permissions import get_authenticator_client
+from posthog.rate_limit import hashed_personal_api_key_for_throttling
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
+
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 # rsa operations are expensive, keep this at the module-level to avoid slow tests
 _IDP_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
@@ -150,6 +156,7 @@ def _make_id_jag(
 )
 class TestIdJagTokenEndpoint(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
+    oauth_application: OAuthApplication
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -169,7 +176,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             organization=cls.organization, name=_IDP_CONFIG_NAME, id_jag_issuer_url=_IDP_ISSUER
         )
         LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
-        _create_client(_RESOURCE_CLIENT_ID)
+        cls.oauth_application = _create_client(_RESOURCE_CLIENT_ID)
 
     def setUp(self) -> None:
         super().setUp()
@@ -273,7 +280,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
         assertion = _make_id_jag()
         with self.assertRaises(AccessDeniedError):
-            issue_access_token(assertion, requested_scope=None, authenticated_client_id=_RESOURCE_CLIENT_ID)
+            issue_access_token(assertion, requested_scope=None, authenticated_client=self.oauth_application)
 
     def test_email_claim_is_preferred_over_sub_for_user_lookup(self) -> None:
         # IdPs are not required to put an email in `sub` — it may be an opaque
@@ -374,18 +381,53 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.json()["error"], "invalid_grant")
         self.assertEqual(resp.json()["error_description"], "ID-JAG could not be verified")
 
-    def test_intersection_with_requested_scope(self) -> None:
-        assertion = _make_id_jag(scope="feature_flag:read feature_flag:write dashboard:read")
-        resp = self._post_token(
-            {
-                "grant_type": JWT_BEARER_GRANT_TYPE,
-                "assertion": assertion,
-                "scope": "feature_flag:read dashboard:write",
-            }
+    @parameterized.expand(
+        [
+            ("no_ceiling", [], [], "feature_flag:read dashboard:write", ["feature_flag:read"]),
+            (
+                "ceiling_with_scope_omitted",
+                ["feature_flag:read"],
+                ["dashboard:read"],
+                None,
+                ["openid", "feature_flag:read", "dashboard:read"],
+            ),
+            (
+                "ceiling_with_scope_requested",
+                ["feature_flag:read"],
+                [],
+                "feature_flag:read feature_flag:write openid",
+                ["feature_flag:read", "openid"],
+            ),
+        ]
+    )
+    def test_grants_intersection_of_assertion_request_and_ceiling(
+        self,
+        _name: str,
+        app_scopes: list[str],
+        optional_scopes: list[str],
+        requested_scope: str | None,
+        expected_scopes: list[str],
+    ) -> None:
+        OAuthApplication.objects.filter(client_id=_RESOURCE_CLIENT_ID).update(
+            scopes=app_scopes, optional_scopes=optional_scopes
         )
+        assertion = _make_id_jag(scope="openid feature_flag:read feature_flag:write dashboard:read")
+        body = {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}
+        if requested_scope is not None:
+            body["scope"] = requested_scope
+
+        resp = self._post_token(body)
+
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        # Only feature_flag:read intersects — dashboard:write was not in ID-JAG.
-        self.assertEqual(resp.json()["scope"], "feature_flag:read")
+        self.assertEqual(resp.json()["scope"].split(), expected_scopes)
+        claims = jwt.decode(
+            resp.json()["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=_RESOURCE_URL,
+            issuer=_AUTH_SERVER_URL,
+        )
+        self.assertEqual(claims["scope"].split(), expected_scopes)
 
     def test_empty_intersection_still_issues_token(self) -> None:
         """https://xaa.dev/docs/token-structure#scope-intersection-rule
@@ -1027,7 +1069,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
     def test_issue_access_token_helper(self) -> None:
         assertion = _make_id_jag()
         issued_access_token = issue_access_token(
-            assertion, requested_scope="feature_flag:read", authenticated_client_id=_RESOURCE_CLIENT_ID
+            assertion, requested_scope="feature_flag:read", authenticated_client=self.oauth_application
         )
         self.assertEqual(issued_access_token.granted_scopes, ["feature_flag:read"])
         self.assertEqual(issued_access_token.expires_in_seconds, 300)
@@ -1147,6 +1189,20 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self.assertEqual(
             get_authenticator_client(authenticator), {"credential_type": "id_jag", "client_id": "agent_client_id"}
         )
+
+    @parameterized.expand([(PersonalAPIKeyAuthentication,), (ExportRendererAuthentication,)])
+    def test_other_bearer_authenticators_leave_the_token_to_the_id_jag_authenticator(self, authenticator_class) -> None:
+        request = Request(
+            RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {self._mint_access_token(scope='user:read')}")
+        )
+
+        self.assertIsNone(authenticator_class().authenticate(request))
+
+    def test_rate_limiter_gives_the_token_its_own_bucket(self) -> None:
+        token = self._mint_access_token(scope="user:read")
+        request = Request(RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}"))
+
+        self.assertEqual(hashed_personal_api_key_for_throttling(request), hash_key_value(token))
 
     @covers_authentication(IDJagAccessTokenAuthentication)
     def test_valid_token_authenticates_user(self) -> None:
@@ -1401,3 +1457,47 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual([organization["id"] for organization in resp.json()["results"]], [str(self.organization.id)])
+
+    def test_a_staff_users_token_cannot_change_global_dashboard_templates(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        template = DashboardTemplate.objects.create(template_name="Global", scope=DashboardTemplate.Scope.GLOBAL)
+
+        token = self._mint_access_token(scope="dashboard_template:write")
+        resp = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboard_templates/{template.id}/",
+            {"template_name": "Changed"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        template.refresh_from_db()
+        self.assertEqual(template.template_name, "Global")
+
+    def test_a_staff_users_token_gets_no_internal_error_text_from_an_async_query(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        token = self._mint_access_token(scope="query:read")
+        error = InternalCHQueryError("DB::Exception: internal detail", code=47)
+
+        with (
+            patch("posthog.api.services.query.process_query_dict", side_effect=error),
+            patch("posthog.clickhouse.client.execute_async.capture_exception"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            resp = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "select 1"}, "refresh": "force_async"},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+
+        resp = self.client.get(
+            f"/api/environments/{self.team.id}/query/{resp.json()['query_status']['id']}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR, resp.content)
+        self.assertNotIn("internal detail", resp.json()["query_status"]["error_message"])

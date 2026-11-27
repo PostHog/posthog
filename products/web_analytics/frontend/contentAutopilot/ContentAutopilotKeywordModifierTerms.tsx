@@ -1,5 +1,3 @@
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
-
 import { percentage } from 'lib/utils/numbers'
 
 import type {
@@ -7,6 +5,8 @@ import type {
     BrandedSegmentEnumApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { isCitationGap } from './keywordsReport'
 import { engineLabel } from './utils'
@@ -15,16 +15,18 @@ import { engineLabel } from './utils'
 export const ContentAutopilotKeywordModifierTerms = ({
     modifiers,
     baselineCitedRate,
-    days,
+    dateFrom,
+    dateTo,
     branded,
 }: {
     modifiers: AEOKeywordModifierApi[]
     /** The window and branded split of the report, so a search opens the same answers the report counted. */
-    days: number
+    dateFrom: string
+    dateTo: string
     branded: BrandedSegmentEnumApi
     baselineCitedRate: number | null
 }): JSX.Element => (
-    <LemonTable<AEOKeywordModifierApi>
+    <AiVisibilityTable<AEOKeywordModifierApi>
         size="small"
         embedded
         dataSource={modifiers}
@@ -43,7 +45,8 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 tooltip: 'Share of answers whose searches used this word.',
                 render: (_, modifier) => (
                     <span className="tabular-nums">
-                        {percentage(modifier.share, 0)} <span className="text-muted">({modifier.answers})</span>
+                        {percentage(modifier.share, 0)}{' '}
+                        <span className="text-muted-foreground">({modifier.answers})</span>
                     </span>
                 ),
             },
@@ -55,13 +58,11 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 render: (_, modifier) => (
                     <span className="flex items-center justify-end gap-2 tabular-nums">
                         {isCitationGap(modifier, baselineCitedRate) ? (
-                            <LemonTag type="danger" size="small">
-                                Gap
-                            </LemonTag>
+                            <AiVisibilityTag type="danger">Gap</AiVisibilityTag>
                         ) : null}
                         {modifier.cited_rate === null ? '-' : percentage(modifier.cited_rate, 0)}
                         {baselineCitedRate !== null ? (
-                            <span className="text-muted">vs {percentage(baselineCitedRate, 0)}</span>
+                            <span className="text-muted-foreground">vs {percentage(baselineCitedRate, 0)}</span>
                         ) : null}
                     </span>
                 ),
@@ -70,7 +71,7 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 title: 'Engines',
                 key: 'engines',
                 render: (_, modifier) => (
-                    <span className="text-muted">
+                    <span className="text-muted-foreground">
                         {modifier.engines.map((engine) => `${engineLabel(engine.engine)} ${engine.answers}`).join(', ')}
                     </span>
                 ),
@@ -83,9 +84,8 @@ export const ContentAutopilotKeywordModifierTerms = ({
                         {modifier.example_searches.map((search) => (
                             <li key={search} className="flex min-w-0 text-xs">
                                 <ContentAutopilotCitationsLink
-                                    lookup={{ kind: 'search', value: search, days, branded }}
+                                    lookup={{ kind: 'search', value: search, dateFrom, dateTo, branded }}
                                     source="keyword-modifier-searches"
-                                    className="block truncate"
                                     title={search}
                                 >
                                     {search}

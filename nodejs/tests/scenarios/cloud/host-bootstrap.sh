@@ -56,8 +56,10 @@ add_service_hosts() {
 verify_inputs() {
     mkdir -p "$input"
     aws s3 cp --recursive --only-show-errors "$prefix/input/" "$input/"
+    (cd "$input" && printf '%s  manifest.json\n' "$SCENARIO_INPUT_MANIFEST_SHA256" | sha256sum --check --strict)
     [ "$(jq -r .runId "$input/manifest.json")" = "$SCENARIO_RUN_ID" ]
-    jq -r '.inputs | to_entries[] | "\(.value)  \(.key)"' "$input/manifest.json" >"$input/SHA256SUMS"
+    source "$repo/nodejs/tests/scenarios/cloud/host-input-checksums.sh"
+    manifest_input_checksums "$input" '' >"$input/SHA256SUMS"
     (cd "$input" && sha256sum --check --strict SHA256SUMS)
 }
 

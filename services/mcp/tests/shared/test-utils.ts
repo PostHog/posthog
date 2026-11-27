@@ -680,12 +680,13 @@ export function makeToolExecutorState(
             trackEvent: vi.fn(),
         } as any,
         useSingleExec: false,
+        splitWrites: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
         oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
-            isCliModeEnabled: vi.fn(() => false),
+            prefersFormattedText: vi.fn(() => false),
             isInlineExecUiHost: vi.fn(() => false),
             drawsTimeSeriesCharts: vi.fn(() => false),
             isCursor: vi.fn(() => false),
@@ -710,6 +711,7 @@ export function makeToolExecutorState(
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
+        stepSeconds: {},
         ...overrides,
     }
 }

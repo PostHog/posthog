@@ -23,7 +23,9 @@ use crate::fencing::{
 };
 use crate::inflight::InflightTracker;
 use crate::pg::PgFallback;
-use crate::warming::{run_fill, warm_from_sources, FillConfig, WarmClientPools, WarmingConfig};
+use crate::warming::{
+    run_fill, warm_from_sources, FillConfig, FillPace, FillSchedule, WarmClientPools, WarmingConfig,
+};
 
 /// The config a partition was acquired under.
 pub struct Capture {
@@ -115,11 +117,15 @@ pub struct LeaderHandoffHandler {
     freshly_fenced: Arc<dashmap::DashSet<u32>>,
     captures: ChangelogCaptures,
     changelog: LiveChangelog,
-    fill: Option<FillConfig>,
+    fill: Option<Fills>,
     /// Each partition's fill, stopped when the partition is released.
     fills: Arc<DashMap<u32, tokio::task::AbortHandle>>,
-    /// One fill at a time, so fills never crowd out serving.
-    fill_slot: Arc<tokio::sync::Semaphore>,
+}
+
+struct Fills {
+    config: FillConfig,
+    slots: Arc<tokio::sync::Semaphore>,
+    pace: Arc<FillPace>,
 }
 
 impl LeaderHandoffHandler {
@@ -154,12 +160,15 @@ impl LeaderHandoffHandler {
             changelog,
             fill: None,
             fills: Arc::new(DashMap::new()),
-            fill_slot: Arc::new(tokio::sync::Semaphore::new(1)),
         }
     }
 
-    pub fn with_fill(mut self, fill: Option<FillConfig>) -> Self {
-        self.fill = fill;
+    pub fn with_fill(mut self, fill: Option<FillConfig>, schedule: FillSchedule) -> Self {
+        self.fill = fill.map(|config| Fills {
+            config,
+            slots: Arc::new(tokio::sync::Semaphore::new(schedule.concurrency.max(1))),
+            pace: Arc::new(FillPace::new(schedule.offsets_per_sec)),
+        });
         self
     }
 
@@ -170,17 +179,19 @@ impl LeaderHandoffHandler {
         source: personhog_coordination::changelog::WarmSource,
         upper: i64,
     ) {
-        let (Some(fill), Some(cache)) = (self.fill, self.cache.serving_cache(partition)) else {
+        let (Some(fills), Some(cache)) = (&self.fill, self.cache.serving_cache(partition)) else {
             return;
         };
+        let fill = fills.config;
         let pools = Arc::clone(&self.pools);
         let warming = self.warming.clone();
-        let slot = Arc::clone(&self.fill_slot);
+        let slots = Arc::clone(&fills.slots);
+        let pace = Arc::clone(&fills.pace);
         let task = tokio::spawn(async move {
-            let Ok(_permit) = slot.acquire().await else {
+            let Ok(_permit) = slots.acquire().await else {
                 return;
             };
-            run_fill(&warming, &fill, &pools, &cache, &source, upper).await;
+            run_fill(&warming, &fill, &pace, &pools, &cache, &source, upper).await;
         });
         self.fills.insert(partition, task.abort_handle());
     }

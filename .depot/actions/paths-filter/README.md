@@ -104,14 +104,23 @@ The action reuses a result only when every one of these holds, and runs the suit
 
 - The event is a push to a same-repository pull request (`synchronize`) that is not a merge queue branch, and this is the run's first attempt.
   Re-running the workflow always runs the suite.
-- The action finds the proven head: it walks back from the previous head through the pull request's commits, at most 20, to the newest head where a proof check concluded `success`.
-  Every `reuse-checks` check passed on each head it reads, and a head where any of them failed, was cancelled or is still running stops the walk.
-  A gate that passed because the suite was skipped (a reused result, a superseded run, a bot push) is never the proven head.
-- The files the scoped filters match, plus the file that defines the filters, are the same set, with the same change status and the same content, on the previous head, the proven head and this one.
+- The action finds the proven head: the newest earlier head of the branch with the same inputs as this one, where every `reuse-checks` check passed and a proof check concluded `success`.
+  The earlier heads are the previous head plus every head the branch had in the last 24 hours, at most 30, read from the repository's branch activity and not from the pull request's commits.
+  So a push that reverts a change, a rebase and a force-push can all reuse a run from before them.
+  A gate that passed because the suite was skipped (a reused result, a bot push) is never the proven head.
+- A head with other inputs is never the proven head, and neither is a head whose run was cancelled, is still running or posted no check.
+  The search moves past those to an older head.
+  A `reuse-checks` check that failed on any head newer than the proven head stops the search, whatever that head's inputs.
+  A file no scoped filter matches can cause that failure, and it may still be on the branch.
+- The files the scoped filters match, plus the file that defines the filters, are the same set, with the same change status and the same content, on the proven head and this one.
   The comparison uses each file's blob SHA from the API, so a formatting-only edit counts as a change.
+  Before it reads any check run, the action drops the heads where up to five of those files, the ones this push changed first, have another blob. A push that changes an input therefore costs three API calls.
+  It then compares every file on each remaining head, and reads check runs only from a head whose files all match.
+- When the branch activity or the blobs on earlier heads cannot be read, only the previous head is considered.
   Each file also keeps the same Git mode on the proven head and this one, so a lost executable bit counts as a change.
 - Every check run the action reads comes from an App in `reuse-check-apps`.
 - No other pull request, open or merged, contains the proven head, because check runs on a shared commit can come from a pull request with a different base.
+  The proven run also started after this pull request was opened, because the branch activity includes heads from an earlier pull request on the same branch.
 - The proven run started less than 24 hours ago.
   Its start is the creation time of the earliest check suite among the check runs it reads, which is no later than the moment its filters were evaluated.
 - On a pull request that is ready for review, the proven run started after it was marked ready, because a draft can run a narrower suite.
@@ -133,6 +142,7 @@ Name every check whose failure should stop a reuse.
 A job that the scoped filters gate but no named check covers shows as skipped after a reuse, even when it failed on the previous head.
 
 Set `PATHS_FILTER_REUSE_POSTHOG_TOKEN` on the step to record each decision as a `posthog-ci-reuse-decision` event, with a closed `reason` and a free-text `detail`.
+`heads_behind` is how many heads back the proven head was (0 is the previous head), and `earlier_heads` is how many earlier heads the branch activity gave, or null when it could not be read.
 
 ## Shadow comparison (opt-in)
 

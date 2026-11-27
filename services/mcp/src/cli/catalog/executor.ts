@@ -245,14 +245,17 @@ async function shapeResponse(entry: CatalogEntry, context: Context, params: Para
 
     let value = result
     if (response.filter || response.stripNulls) {
-        value = response.list
-            ? {
-                  ...(result as Params),
-                  results: ((readPath(result, 'results') as unknown[] | undefined) ?? []).map((item) =>
-                      shapeItem(item)
-                  ),
-              }
-            : shapeItem(result)
+        // A list endpoint with `pagination_class = None` returns its rows as a bare array, not a page.
+        value = !response.list
+            ? shapeItem(result)
+            : Array.isArray(result)
+              ? result.map((item) => shapeItem(item))
+              : {
+                    ...(result as Params),
+                    results: ((readPath(result, 'results') as unknown[] | undefined) ?? []).map((item) =>
+                        shapeItem(item)
+                    ),
+                }
     }
 
     const enrich = response.enrich

@@ -11,6 +11,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -51,6 +52,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -98,6 +100,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -188,6 +191,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -385,7 +389,8 @@
          "posthog_integration"."sensitive_config",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
-         "posthog_integration"."created_by_id"
+         "posthog_integration"."created_by_id",
+         "posthog_integration"."row_version"
   FROM "posthog_integration"
   WHERE (("posthog_integration"."kind" = 'vercel'
           AND (("posthog_integration"."config" -> 'auth_type') IS NULL
@@ -411,6 +416,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -464,6 +470,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -506,7 +513,6 @@
          "posthog_organizationintegration"."kind",
          "posthog_organizationintegration"."integration_id",
          "posthog_organizationintegration"."config",
-         "posthog_organizationintegration"."sensitive_config",
          "posthog_organizationintegration"."created_by_id",
          "posthog_organizationintegration"."created_at",
          "posthog_organizationintegration"."updated_at"
@@ -617,6 +623,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -672,6 +679,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -756,6 +764,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -839,6 +848,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1045,6 +1055,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1256,6 +1267,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -1296,6 +1308,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1343,6 +1356,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1417,6 +1431,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1506,6 +1521,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -1554,7 +1570,8 @@
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.14
   '''
-  SELECT "feature_flags_organizationfeatureflagsconfig"."flag_evaluations_mode" AS "flag_evaluations_mode"
+  SELECT "feature_flags_organizationfeatureflagsconfig"."flag_evaluations_mode" AS "flag_evaluations_mode",
+         "feature_flags_organizationfeatureflagsconfig"."keep_writing_flag_calls_to_events" AS "keep_writing_flag_calls_to_events"
   FROM "feature_flags_organizationfeatureflagsconfig"
   WHERE "feature_flags_organizationfeatureflagsconfig"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   ORDER BY "feature_flags_organizationfeatureflagsconfig"."organization_id" ASC
@@ -1581,6 +1598,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1636,6 +1654,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1806,6 +1825,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1882,6 +1902,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",

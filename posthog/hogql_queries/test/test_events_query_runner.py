@@ -1492,6 +1492,112 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
 
+    def test_flag_evaluations_only_organization_lists_one_groups_flag_calls_by_group_key(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=FLAG_CALL_TIMESTAMP + timedelta(days=1),
+        )
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[FLAG_EVALUATIONS_DISTINCT_ID],
+            properties={"email": FLAG_EVALUATIONS_EMAIL},
+        )
+        group_call = self._create_flag_calls_in_both_tables(person_id=person.uuid)
+        self._create_events(
+            data=[
+                (
+                    "events-group-user",
+                    FLAG_CALL_TIMESTAMP.isoformat(),
+                    {"$feature_flag": EVENTS_FLAG_KEY, "$group_0": FLAG_EVALUATIONS_GROUP_KEY},
+                )
+            ],
+            event="$feature_flag_called",
+        )
+        flush_persons_and_events()
+        self._insert_flag_evaluation(
+            "other-group-user",
+            uuid.uuid4(),
+            properties={"$feature_flag": FLAG_EVALUATIONS_FLAG_KEY, "$group_0": "other-org"},
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=[
+                    "*",
+                    "properties.$feature_flag",
+                    "properties.$feature_flag_response",
+                    "person_display_name -- Person",
+                    "coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen",
+                    "properties.$lib",
+                    "timestamp",
+                ],
+                event="$feature_flag_called",
+                fixedProperties=[
+                    EventPropertyFilter(
+                        key="$group_0", value=FLAG_EVALUATIONS_GROUP_KEY, operator=PropertyOperator.EXACT
+                    )
+                ],
+                after="-24h",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
+        assert len(page_queries) == 1
+        assert "in(flag_evaluations.`$group_0`, tuple('flag-org'))" in page_queries[0], page_queries[0]
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [(str(star["uuid"]), *columns) for star, *columns in response.results] == [
+            (
+                str(group_call),
+                FLAG_EVALUATIONS_FLAG_KEY,
+                "variant-a",
+                {
+                    "display_name": FLAG_EVALUATIONS_EMAIL,
+                    "id": str(person.uuid),
+                    "distinct_id": FLAG_EVALUATIONS_DISTINCT_ID,
+                },
+                "https://example.com/pricing",
+                "web",
+                FLAG_CALL_TIMESTAMP,
+            ),
+        ]
+
+    @parameterized.expand(
+        [
+            ("missing_flag_key", "$feature_flag", "", {"$lib": "web"}),
+            ("missing_group_key", "$group_0", "", {"$lib": "web"}),
+            ("null_group_key", "$group_0", "null", {"$feature_flag": FLAG_EVALUATIONS_FLAG_KEY, "$group_0": None}),
+        ]
+    )
+    def test_flag_evaluations_only_organization_null_sentinel_filter_matches_no_flag_call(
+        self, _name: str, key: str, value: str, properties: dict[str, Any]
+    ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self._insert_flag_evaluation(FLAG_EVALUATIONS_DISTINCT_ID, uuid.uuid4(), properties=properties)
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["*"],
+                event="$feature_flag_called",
+                properties=[EventPropertyFilter(key=key, value=value, operator=PropertyOperator.EXACT)],
+                after="-24h",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
+        assert len(page_queries) == 1
+        assert "in(flag_evaluations.flag_key" not in page_queries[0]
+        assert "in(flag_evaluations.`$group_0`" not in page_queries[0]
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert response.results == []
+
     @parameterized.expand(
         [
             (

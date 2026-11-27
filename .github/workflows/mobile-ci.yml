@@ -4,6 +4,11 @@ name: Mobile CI
 # App checks install the standalone mobile workspace. The replay bundle check
 # installs only the two root workspace packages that produce the WebView player.
 #
+# The committed replay bundle is a pinned snapshot of the player, so a player change
+# does not have to regenerate a file the mobile team owns. A PR that changes the
+# bundle or its build script must match the current player source exactly. A PR
+# that changes only the player builds the bundle to prove it still compiles.
+#
 # "Mobile CI Pass" reports on every pull request so repository rules can require it.
 # PR housekeeping calls this workflow on each PR event. Change detection skips
 # validation when the app, its imported API types, and its replay bundle inputs are unchanged.
@@ -44,7 +49,10 @@ jobs:
             # trigger paths, and the release caller validates its exact commit.
             mobile: ${{ steps.filter.outputs.mobile || 'true' }}
             api_types: ${{ steps.filter.outputs.api_types || 'false' }}
-            replay_bundle: ${{ steps.filter.outputs.replay_bundle || 'true' }}
+            # The pinned bundle is behind the player source on most master commits, so a push checks it
+            # against the commit that last changed it (see the replay_bundle job) instead of against HEAD.
+            replay_bundle: ${{ steps.filter.outputs.replay_bundle || 'false' }}
+            replay_player: ${{ steps.filter.outputs.replay_player || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -72,10 +80,13 @@ jobs:
                           - 'products/posthog_ai/frontend/generated/api.schemas.ts'
                           - 'products/signals/frontend/generated/api.schemas.ts'
                           - 'products/error_tracking/frontend/generated/api.schemas.ts'
+                      # Only these can change what ships, so only they must match the source.
                       replay_bundle:
+                          - 'products/mobile/src/features/replay/web/phonePlayer.generated.replay'
+                          - 'common/replay-headless/build-phone.mjs'
+                      replay_player:
                           - 'common/replay-headless/**'
                           - 'common/replay-shared/**'
-                          - 'products/mobile/src/features/replay/web/**'
                           - 'patches/**'
                           - 'package.json'
                           - 'pnpm-lock.yaml'
@@ -192,9 +203,9 @@ jobs:
     replay_bundle:
         name: Check mobile replay bundle
         needs: changes
-        if: needs.changes.outputs.replay_bundle == 'true'
+        if: needs.changes.outputs.replay_bundle == 'true' || needs.changes.outputs.replay_player == 'true'
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 15
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -219,7 +230,110 @@ jobs:
 
             - name: Verify generated WebView player
               if: hashFiles('products/mobile/src/features/replay/web/playerHtml.ts', 'products/mobile/src/features/replay/web/phonePlayer.generated.replay') != ''
+              env:
+                  CHECK_COMMITTED_BUNDLE: ${{ needs.changes.outputs.replay_bundle }}
               run: |
+                  pnpm --filter @posthog/replay-headless... install --frozen-lockfile --ignore-scripts
+                  if [[ "$CHECK_COMMITTED_BUNDLE" == "true" ]]; then
+                    pnpm --filter @posthog/replay-headless run build:phone --check
+                  else
+                    pnpm --filter @posthog/replay-headless run build:phone
+                  fi
+
+            # The bundle is minified, so its diff cannot be reviewed. This lists the player source changes the
+            # refresh brings into the app, so the mobile team can review those instead of the bytes.
+            - name: Summarize the player changes this bundle brings in
+              if: github.event_name == 'pull_request' && needs.changes.outputs.replay_bundle == 'true'
+              env:
+                  REPO: ${{ github.repository }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  # The bundle check builds the merge commit, which includes base commits the PR head lacks,
+                  # so the list must cover the same commit or those player changes ship unlisted.
+                  MERGE_SHA: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  bundle=products/mobile/src/features/replay/web/phonePlayer.generated.replay
+                  inputs=(common/replay-shared common/replay-headless patches package.json pnpm-lock.yaml pnpm-workspace.yaml)
+                  # The range is computed from ancestry, not commit dates, because a committer date is whatever the author set.
+                  git fetch --quiet --no-tags --filter=blob:none --depth=500 origin "$BASE_SHA" "$MERGE_SHA"
+                  for attempt in $(seq 1 40); do
+                    previous=$(git log -1 --topo-order --format=%H "$BASE_SHA" -- "$bundle")
+                    shallow=$(cat "$(git rev-parse --git-path shallow)" 2>/dev/null || true)
+                    # A shallow root looks like it added every file, and a range that reaches one is cut short.
+                    if [[ -z "$shallow" ]] || { [[ -n "$previous" ]] && ! grep -qxF "$previous" <<<"$shallow" \
+                         && ! git rev-list "$previous..$MERGE_SHA" | grep -qxF -f <(echo "$shallow"); }; then
+                      break
+                    fi
+                    [[ "$attempt" == 40 ]] && { echo "History is too deep to find the previous bundle." >&2; exit 1; }
+                    git fetch --quiet --no-tags --filter=blob:none --deepen=500 origin "$BASE_SHA" "$MERGE_SHA"
+                  done
+                  {
+                    echo "## Player changes in this replay bundle"
+                    if [[ -z "$previous" ]]; then
+                      echo "This is the first bundle, so there is no earlier bundle to compare against."
+                    else
+                      echo "Review these commits instead of the minified bundle. They changed the player source or its dependencies after ${previous:0:10}, which built the previous bundle."
+                      echo
+                      commits=$(git log --topo-order --format='%H%x09%s' "$previous..$MERGE_SHA" -- "${inputs[@]}")
+                      if [[ -z "$commits" ]]; then
+                        echo "No player source or dependency commits."
+                      else
+                        # Commit titles come from contributors, so they are escaped rather than rendered as markdown.
+                        jq -R -r --arg repo "$REPO" 'split("\t") | "- [\(.[0][0:10])](https://github.com/\($repo)/commit/\(.[0])) " + (.[1:] | join("\t") | gsub("(?<c>[\\\\`*_{}\\[\\]()#+!<>|~-])"; "\\\(.c)"))' <<<"$commits"
+                      fi
+                    fi
+                  } >>"$GITHUB_STEP_SUMMARY"
+
+            # Release runs ship the committed bundle, and Mobile CI Pass is not a required check, so a
+            # bundle could reach master without its PR check passing. No later commit touched the bundle,
+            # so it is identical at the commit that last changed it, and that commit's source must build it.
+            - name: Find the commit that last changed the bundle
+              id: pinned
+              if: github.event_name != 'pull_request' && hashFiles('products/mobile/src/features/replay/web/phonePlayer.generated.replay') != ''
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  last_change() {
+                    gh api "repos/$REPO/commits?sha=$GITHUB_SHA&path=$1&per_page=1" --jq '.[0].sha // empty'
+                  }
+                  bundle_sha=$(last_change products/mobile/src/features/replay/web/phonePlayer.generated.replay)
+                  script_sha=$(last_change common/replay-headless/build-phone.mjs)
+                  if [[ -z "$bundle_sha" || -z "$script_sha" ]]; then
+                    echo "Could not find the commits that last changed the replay bundle and its build script."
+                    exit 1
+                  fi
+                  # "ahead" means the build script changed after the bundle, so the bundle must match that newer commit.
+                  if [[ "$(gh api "repos/$REPO/compare/$bundle_sha...$script_sha" --jq .status)" == "ahead" ]]; then
+                    echo "sha=$script_sha" >>"$GITHUB_OUTPUT"
+                  else
+                    echo "sha=$bundle_sha" >>"$GITHUB_OUTPUT"
+                  fi
+
+            - name: Check out the commit that last changed the bundle
+              if: steps.pinned.outputs.sha != ''
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  ref: ${{ steps.pinned.outputs.sha }}
+                  path: pinned
+                  sparse-checkout: |
+                      .nvmrc
+                      common/replay-headless
+                      common/replay-shared
+                      package.json
+                      patches
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                      products/mobile/src/features/replay/web
+                  sparse-checkout-cone-mode: false
+
+            - name: Verify the shipped bundle against the source it was built from
+              if: steps.pinned.outputs.sha != ''
+              working-directory: pinned
+              run: |
+                  cmp products/mobile/src/features/replay/web/phonePlayer.generated.replay \
+                    ../products/mobile/src/features/replay/web/phonePlayer.generated.replay
                   pnpm --filter @posthog/replay-headless... install --frozen-lockfile --ignore-scripts
                   pnpm --filter @posthog/replay-headless run build:phone --check
 
@@ -243,7 +357,7 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" && "${{ needs.changes.outputs.replay_bundle }}" != "true" ]]; then
+                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" && "${{ needs.changes.outputs.replay_bundle }}" != "true" && "${{ needs.changes.outputs.replay_player }}" != "true" ]]; then
                     echo "Mobile checks were skipped (no relevant changes)"
                     exit 0
                   fi

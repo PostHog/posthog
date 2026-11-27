@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { describeCron } from 'lib/cron'
@@ -36,8 +36,10 @@ import {
     weeklyCronToDayTime,
 } from '../../../utils/scoutRunsWindow'
 import { CustomImagePicker } from '../CustomImagePicker'
+import { confirmDeleteScout } from './confirmDeleteScout'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutPrecheckSection } from './ScoutPrecheckSection'
+import { ScoutReportActionsSection } from './ScoutReportActionsSection'
 import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutStructuredOutputSection } from './ScoutStructuredOutputSection'
@@ -94,7 +96,7 @@ export function ScoutEnabledSwitch({ config, onUpdate, updating = false }: Scout
                     onChange={(checked) => onUpdate(config.id, { enabled: checked })}
                     loading={updating}
                     disabledReason={updating ? 'Saving scout settings' : undefined}
-                    aria-label={`${config.skill_name} enabled`}
+                    aria-label={`${scoutDisplayName(config)} enabled`}
                 />
             </span>
         </Tooltip>
@@ -155,7 +157,7 @@ export function ScoutConfigForm({
                     // settable BEFORE the enable or the first run reaches the inbox anyway.
                     disabledReason={updating ? 'Saving scout settings' : undefined}
                     onChange={(checked) => onUpdate(config.id, { emit: checked })}
-                    aria-label={`${config.skill_name} write signals to the inbox`}
+                    aria-label={`${scoutDisplayName(config)} write signals to the inbox`}
                 />
             </div>
             <div className="flex items-center justify-between gap-4">
@@ -207,7 +209,7 @@ export function ScoutConfigForm({
                                 onUpdate(config.id, { run_cron_schedule: runCronSchedule })
                             }
                         }}
-                        aria-label={`${config.skill_name} run day`}
+                        aria-label={`${scoutDisplayName(config)} run day`}
                     />
                 </div>
             ) : null}
@@ -307,7 +309,7 @@ export function ScoutConfigForm({
                                 onUpdate(config.id, { model: value })
                             }
                         }}
-                        aria-label={`${config.skill_name} model`}
+                        aria-label={`${scoutDisplayName(config)} model`}
                     />
                 </div>
             ) : null}
@@ -334,7 +336,7 @@ export function ScoutConfigForm({
                     checked={config.auto_pause_exempt}
                     disabledReason={controlsDisabledReason}
                     onChange={(checked) => onUpdate(config.id, { auto_pause_exempt: checked })}
-                    aria-label={`${config.skill_name} opt out of auto-pause`}
+                    aria-label={`${scoutDisplayName(config)} opt out of auto-pause`}
                 />
             </div>
             <div className="flex items-center justify-between gap-4">
@@ -353,7 +355,7 @@ export function ScoutConfigForm({
                     // a paused scout.
                     disabledReason={updating ? 'Saving scout settings' : undefined}
                     onChange={(checked) => onUpdate(config.id, { lifecycle_locked: checked })}
-                    aria-label={`${config.skill_name} only the owner can pause or delete`}
+                    aria-label={`${scoutDisplayName(config)} only the owner can pause or delete`}
                 />
             </div>
             <div className="flex flex-col gap-1">
@@ -379,7 +381,7 @@ export function ScoutConfigForm({
                     onChange={(checked) =>
                         onUpdate(config.id, { output_destinations: { ...config.output_destinations, inbox: checked } })
                     }
-                    aria-label={`${config.skill_name} show in inbox`}
+                    aria-label={`${scoutDisplayName(config)} show in inbox`}
                 />
             </div>
             <ScoutSlackDestination
@@ -421,6 +423,13 @@ export function ScoutConfigForm({
             />
             <ScoutToolsSection config={config} onUpdate={onUpdate} updating={updating} surface={surface} />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
+            {/* Keyed by scout so an unsaved draft does not become the next scout's save. */}
+            <ScoutReportActionsSection
+                key={`report-actions-${config.id}`}
+                config={config}
+                onUpdate={onUpdate}
+                updating={updating}
+            />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}
             {onDelete && config.scout_origin === 'custom' ? (
@@ -496,35 +505,10 @@ function ScoutCustomCronField({
                     onChange={setDraft}
                     onBlur={save}
                     onPressEnter={save}
-                    aria-label={`${config.skill_name} cron expression`}
+                    aria-label={`${scoutDisplayName(config)} cron expression`}
                 />
                 {hint ? <span className={`text-[11.5px] ${error ? 'text-danger' : 'text-muted'}`}>{hint}</span> : null}
             </div>
         </div>
     )
-}
-
-/**
- * Confirm-then-delete for a custom scout. Deletion archives the scout's skill (the permanent off
- * switch — the coordinator won't re-seed a tombstoned skill or re-create its config) and removes
- * its config. Irreversible, so the dialog steers users toward disable when they only want a pause.
- */
-function confirmDeleteScout(config: SignalScoutConfig, onDelete: (configId: string) => void): void {
-    const displayName = scoutDisplayName(config)
-    LemonDialog.open({
-        title: `Delete the ${displayName} scout?`,
-        description: (
-            <span>
-                This archives the <span className="font-mono text-[11px]">{config.skill_name}</span> skill and removes
-                its config. The scout stops running and won't come back — this can't be undone. To pause a scout without
-                deleting it, disable it instead.
-            </span>
-        ),
-        primaryButton: {
-            children: 'Delete',
-            status: 'danger',
-            onClick: () => onDelete(config.id),
-        },
-        secondaryButton: { children: 'Cancel' },
-    })
 }

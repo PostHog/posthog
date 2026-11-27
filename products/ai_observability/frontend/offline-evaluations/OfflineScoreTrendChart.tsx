@@ -9,6 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { OfflineHistoryPointApi } from '../generated/api.schemas'
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
+import { experimentScoreLabel } from './ExperimentScoreResult'
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
 import {
     OFFLINE_HISTORY_BREAKDOWN_LABELS,
@@ -36,6 +37,7 @@ export interface OfflineScoreTrendChartProps {
     xDomain?: [number, number]
     showHeading?: boolean
     combineVersions?: boolean
+    passingRuleVersionId?: string
     breakdown?: OfflineHistoryBreakdown
 }
 
@@ -49,6 +51,7 @@ export function OfflineScoreTrendChart({
     xDomain,
     showHeading = true,
     combineVersions = false,
+    passingRuleVersionId,
     breakdown,
 }: OfflineScoreTrendChartProps): JSX.Element {
     const baseTheme = useChartTheme()
@@ -63,7 +66,7 @@ export function OfflineScoreTrendChart({
     )
     const panels = useMemo(
         () =>
-            buildOfflineTrendPanels(periods, combineVersions, breakdown).map((panel) => {
+            buildOfflineTrendPanels(periods, combineVersions, breakdown, passingRuleVersionId).map((panel) => {
                 const domain = !panel.elapsed && xDomain ? xDomain : panel.xDomain
                 return {
                     ...panel,
@@ -71,7 +74,7 @@ export function OfflineScoreTrendChart({
                     tickFormatter: createOfflineScoreTrendTickFormatter(domain, panel.elapsed, timezone),
                 }
             }),
-        [periods, xDomain, timezone, combineVersions, breakdown]
+        [periods, xDomain, timezone, combineVersions, breakdown, passingRuleVersionId]
     )
 
     if (panels.length === 0) {
@@ -119,6 +122,26 @@ export function OfflineScoreTrendChart({
                                         return null
                                     }
                                     const { experiment, summary } = meta.point
+                                    if (!summary) {
+                                        const score = experiment.experiment_score
+                                        return score ? (
+                                            <TooltipSurface data-attr="offline-score-trend-tooltip">
+                                                <div className="font-semibold">{experiment.name}</div>
+                                                <div>
+                                                    {score.name} · v{score.version}
+                                                </div>
+                                                <strong>{experimentScoreLabel(score, true)}</strong>
+                                                <div>
+                                                    {dayjs(experiment.started_at)
+                                                        .tz(timezone)
+                                                        .format('MMM D, YYYY HH:mm')}
+                                                </div>
+                                                {onPointClick && (
+                                                    <TooltipFooter>Click to inspect experiment</TooltipFooter>
+                                                )}
+                                            </TooltipSurface>
+                                        ) : null
+                                    }
                                     return (
                                         <TooltipSurface data-attr="offline-score-trend-tooltip">
                                             <div className="font-semibold text-sm break-words">{experiment.name}</div>
@@ -220,7 +243,7 @@ export function OfflineScoreTrendChart({
                                         />
                                         <ReferenceLine
                                             value={panel.passingRule.threshold}
-                                            label={`${panel.passingRule.operator === 'gte' ? '≥' : '≤'} ${panel.passingRule.threshold}`}
+                                            label={`${panel.passingRuleVersion != null ? `v${panel.passingRuleVersion} ` : ''}${panel.passingRule.operator === 'gte' ? '≥' : '≤'} ${panel.passingRule.threshold}`}
                                             fillSide={panel.passingRule.operator === 'gte' ? 'above' : 'below'}
                                             style={{
                                                 color: 'var(--color-text-success)',

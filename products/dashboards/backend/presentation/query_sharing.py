@@ -2,7 +2,7 @@ from django.db.models import TextChoices
 
 from rest_framework import serializers
 
-from products.dashboards.backend.facade.query_sharing import DashboardSharingOutcome
+from products.dashboards.backend.facade.query_sharing import MAX_CACHED_TILES_BATCH_SIZE, DashboardSharingOutcome
 
 
 class DashboardSharingRefreshType(TextChoices):
@@ -15,11 +15,21 @@ class DashboardQuerySharingParamsSerializer(serializers.Serializer):
         default=False,
         help_text="Include request-local sharing decisions and measured ClickHouse work in tile events.",
     )
-    tile_ids = serializers.CharField(max_length=512, help_text="Comma-separated insight tile IDs, at most 32.")
+    tile_ids = serializers.CharField(
+        max_length=1024,
+        help_text=f"Comma-separated insight tile IDs, at most {MAX_CACHED_TILES_BATCH_SIZE}. Visible tiles first: tiles compute in this order.",
+    )
     client_query_id = serializers.UUIDField(help_text="Cancellation ID for this dashboard refresh batch.")
     refresh = serializers.ChoiceField(
         choices=DashboardSharingRefreshType.choices,
         help_text="Use fresh cached results (blocking), or recalculate (force_blocking).",
+    )
+    cached_first = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Send every tile's cached result in one `cached` event first, stale results included and marked. "
+            "Then compute only the tiles whose result is missing or stale, or every tile with force_blocking."
+        ),
     )
 
     def validate_tile_ids(self, value: str) -> list[int]:
@@ -27,8 +37,14 @@ class DashboardQuerySharingParamsSerializer(serializers.Serializer):
             ids = [int(item) for item in value.split(",")]
         except ValueError:
             raise serializers.ValidationError("Expected comma-separated tile IDs.")
-        if not 1 <= len(ids) <= 32 or len(set(ids)) != len(ids) or any(item < 1 for item in ids):
-            raise serializers.ValidationError("Supply between 1 and 32 distinct positive tile IDs.")
+        if (
+            not 1 <= len(ids) <= MAX_CACHED_TILES_BATCH_SIZE
+            or len(set(ids)) != len(ids)
+            or any(item < 1 for item in ids)
+        ):
+            raise serializers.ValidationError(
+                f"Supply between 1 and {MAX_CACHED_TILES_BATCH_SIZE} distinct positive tile IDs."
+            )
         return ids
 
 

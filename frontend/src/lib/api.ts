@@ -26,7 +26,6 @@ import { HogQLQueryString } from 'lib/utils/hogql'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
-import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
@@ -225,7 +224,8 @@ import type {
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
-import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type { MessagingTemplatesListParams } from 'products/messaging/frontend/generated/api.schemas'
+import type { NotebookCollabCursorApi, NotebookVariableApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
     ColumnConfigurationApi,
@@ -244,7 +244,6 @@ import type {
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -913,10 +912,6 @@ export class ApiRequest {
 
     public cohortsRemovePersonFromStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
-    }
-
-    public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.cohortsDetail(cohortId, teamId).addPathComponent('calculation_history')
     }
 
     // # Customer Profile Configs
@@ -3345,7 +3340,10 @@ const api = {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
         determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
-            return `/api/cohort/${cohortId}/persons?${toParams(params)}`
+            return new ApiRequest()
+                .cohortsDetailPersons(cohortId)
+                .withQueryString(toParams(params))
+                .assembleFullUrl(true)
         },
         async listPaginated(
             params: {
@@ -3382,9 +3380,6 @@ const api = {
         async removePersonFromCohort(cohortId: CohortType['id'], personId: string): Promise<{ success: boolean }> {
             const payload = { person_id: personId }
             return await new ApiRequest().cohortsRemovePersonFromStatic(cohortId).update({ data: payload })
-        },
-        async getCalculationHistory(cohortId: CohortType['id']): Promise<CohortCalculationHistoryResponse> {
-            return await new ApiRequest().cohortsCalculationHistory(cohortId).get()
         },
     },
 
@@ -4784,7 +4779,7 @@ const api = {
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
-                variables?: { name: string; type: 'string' | 'number' | 'boolean' | 'date'; value: unknown }[]
+                variables?: NotebookVariableApi[]
                 node_type?: 'hogql' | 'python'
                 output_name?: string
                 connection_id?: string | null
@@ -6410,8 +6405,10 @@ const api = {
         },
     },
     messaging: {
-        async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
-            return await new ApiRequest().messagingTemplates().get()
+        async getTemplates(
+            params: MessagingTemplatesListParams = {}
+        ): Promise<CountedPaginatedResponse<MessageTemplate>> {
+            return await new ApiRequest().messagingTemplates().withQueryString(toParams(params, true)).get()
         },
         async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).get()
@@ -6478,14 +6475,6 @@ const api = {
             }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
-        },
-        async publishHogFlow(
-            hogFlowId: HogFlow['id'],
-            // Without `confirm` this only previews the impact and returns a `confirm_token`; a confirmed
-            // publish must send that token back.
-            data: { confirm: boolean; confirm_token?: string }
-        ): Promise<HogFlowPublishResponseApi> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create({ data })
         },
         async discardHogFlowDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()
@@ -6601,8 +6590,8 @@ const api = {
      * Stop the ClickHouse query that a request named with its `client_query_id`. Dropping the HTTP
      * request does not reach ClickHouse, which keeps working on the query until it finishes.
      */
-    async cancelQuery(clientQueryId: string): Promise<void> {
-        await new ApiRequest().queryCancel(clientQueryId).delete()
+    async cancelQuery(clientQueryId: string, teamId?: TeamType['id']): Promise<void> {
+        await new ApiRequest().queryCancel(clientQueryId, teamId).delete()
     },
 
     async query<T extends Record<string, any> = QuerySchema>(
@@ -6978,13 +6967,14 @@ const api = {
         return await getJSONFromSuccessResponse(response, 'POST', url)
     },
 
-    async delete(url: string): Promise<any> {
+    async delete(url: string, options?: ApiMethodOptions): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
                 headers: {
+                    ...objectClean(options?.headers ?? {}),
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
@@ -6992,6 +6982,7 @@ const api = {
                     ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
+                signal: options?.signal,
             })
         )
     },
@@ -7017,7 +7008,7 @@ const api = {
                   onError: (error: any) => void
                   /** Fires every time the underlying fetch returns a healthy response — i.e.
                    *  on initial open *and* on each successful internal reconnect by fetch-event-source. */
-                  onOpen?: () => void
+                  onOpen?: (response: Response) => void
                   /** Fires when the server cleanly closes the response body (not on errors,
                    *  not on abort). Use this to react to server-initiated stream rotation. */
                   onClose?: () => void
@@ -7030,7 +7021,7 @@ const api = {
                   data: any
                   onMessage: (data: EventSourceMessage) => void
                   onError: (error: any) => void
-                  onOpen?: () => void
+                  onOpen?: (response: Response) => void
                   onClose?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
@@ -7082,7 +7073,7 @@ const api = {
                     onError(error)
                     abortController.abort()
                 } else {
-                    onOpen?.()
+                    onOpen?.(response)
                     if (isLivestreamUrl) {
                         posthog.capture('livestream_sse_opened', {
                             url,

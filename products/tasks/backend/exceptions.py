@@ -113,6 +113,10 @@ class GitHubRateLimitedError(ProcessTaskTransientError):
         )
 
 
+class GitHubTokenRetryError(ProcessTaskTransientError, NonReportableError):
+    pass
+
+
 class TaskInvalidStateError(ProcessTaskFatalError):
     pass
 
@@ -130,14 +134,18 @@ class SandboxProvisionError(ProcessTaskTransientError):
 
 class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
     def __init__(self, context: dict[str, Any], reason: str = "posthog_code_billing_limit_exceeded"):
-        from products.tasks.backend.logic.services.compute_quota import ORGANIZATION_DEACTIVATED_DENIAL_CODE
+        from products.tasks.backend.logic.services.compute_quota import (
+            AI_CREDITS_DENIAL_CODE,
+            ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+        )
 
         self.reason = reason
-        message = (
-            "Your organization has been deactivated."
-            if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE
-            else "Your organization reached its PostHog Desktop usage limit."
-        )
+        if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE:
+            message = "Your organization has been deactivated."
+        elif reason == AI_CREDITS_DENIAL_CODE:
+            message = "Your organization reached its PostHog AI usage limit."
+        else:
+            message = "Your organization reached its PostHog Desktop usage limit."
         super().__init__(
             message,
             {**context, "reason": reason},
@@ -173,6 +181,19 @@ class SandboxExecutionError(ProcessTaskTransientError):
     """Error during sandbox command execution."""
 
     pass
+
+
+class ResumeSnapshotCredentialScrubError(ProcessTaskError):
+    """The restored filesystem could not be made safe to reuse."""
+
+    def __init__(self, run_id: str, sandbox_id: str):
+        super().__init__(
+            "Failed to clear credentials from restored sandbox snapshot",
+            {"run_id": run_id, "sandbox_id": sandbox_id},
+            None,
+            capture=False,
+            non_retryable=True,
+        )
 
 
 class SandboxControlPlaneError(SandboxExecutionError):

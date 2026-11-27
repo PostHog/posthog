@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { memo } from 'react'
 
 import { IconHide, IconUndo } from '@posthog/icons'
@@ -8,11 +9,12 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { derivePrState, prCiGlyphStatus } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
-import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
+import { scoutNameFromSlug } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { useReportCiStatus } from '../../logics/prCiStatusLogic'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalFeedback, heldBackLabel, isResolveReason } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
@@ -24,7 +26,6 @@ import {
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { ReportClaimAvatar } from '../badges/ReportClaimAvatar'
-import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import {
@@ -35,11 +36,13 @@ import {
 import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardLinkStrip } from './ReportCardLinkStrip'
 import { ReportCardMonitoringBand } from './ReportCardMonitoringBand'
 import { ReportCardMonitoringPanel } from './ReportCardMonitoringPanel'
 import { ReportCardPersonalReason } from './ReportCardPersonalReason'
 import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
+import { ReportCardTagChips } from './ReportCardTagChips'
 import { useMinuteClock } from './useMinuteClock'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
@@ -67,6 +70,7 @@ export function InboxCardSourceMeta({
     /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" label. */
     scoutSkillName?: string | null
 }): JSX.Element | null {
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const entries = knownSourceProductEntries(sourceProducts)
     const [primary, ...overflow] = entries
     if (!primary) {
@@ -74,7 +78,7 @@ export function InboxCardSourceMeta({
     }
     // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
     // and link the name straight to the scout's detail page.
-    const scoutName = scoutDisplayName(scoutSkillName)
+    const scoutName = scoutSkillName ? (scoutNamesBySkill[scoutSkillName] ?? scoutNameFromSlug(scoutSkillName)) : null
     const showScout = primary.key === SignalSourceProduct.SignalsScout && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
@@ -85,7 +89,7 @@ export function InboxCardSourceMeta({
                     {showScout && scoutSkillName ? (
                         <>
                             {' · '}
-                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                            <ScoutLink skillName={scoutSkillName} name={scoutName} className="text-tertiary" />
                         </>
                     ) : null}
                     {overflow.length > 0 ? ` + ${overflow.length}` : null}
@@ -166,8 +170,12 @@ function ReportCardRaw({
     // A Monitoring row names its merged PR in the band across its top, so it drops the corner PR badge
     // and puts the Monitoring evidence where the impact column would be.
     const isMonitoring = report.status === SignalReportStatus.MONITORING
+    const linkStripsEnabled = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
+    const linkSummary = linkStripsEnabled && !preview ? (report.link_summary ?? null) : null
     const monitoringSummary = isMonitoring ? (report.monitoring_summary ?? null) : null
     const showsPrBadge = hasPr && !isMonitoring
+    // The Monitoring band and the link strip attach to the row, so either one puts the row in a frame.
+    const framed = isMonitoring || !!linkSummary
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
@@ -180,7 +188,7 @@ function ReportCardRaw({
     const now = useMinuteClock(isMonitoring)
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
     const personalReason = personalSort ? report.personal_reason : null
-    const showsTagRow = showTags && !preview && (report.tags?.length ?? 0) > 0
+    const showsTags = showTags && !preview && (report.tags?.length ?? 0) > 0
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -229,6 +237,12 @@ function ReportCardRaw({
         // Too narrow to hold the impact column beside the content: let it drop to its own line rather
         // than squeeze the title into a column of single words.
         hasRightColumn && 'flex-wrap @lg:flex-nowrap'
+    )
+    const metaTimestamp = (
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+            {claimAvatar}
+            <TZLabel time={cardTime} className="shrink-0 text-xs text-tertiary tabular-nums" title={cardTimeTitle} />
+        </span>
     )
     const cardBody = (
         <>
@@ -308,15 +322,15 @@ function ReportCardRaw({
                     ) : rankingPill ? (
                         <ReportCardRankingPill report={report} personalSort={personalSort} />
                     ) : null}
-                    {!showImpactColumn && (
-                        <span className="ml-auto flex shrink-0 items-center gap-2">
-                            {claimAvatar}
-                            <TZLabel
-                                time={cardTime}
-                                className="shrink-0 text-xs text-tertiary tabular-nums"
-                                title={cardTimeTitle}
-                            />
+                    {showsTags ? (
+                        // The chips share the timestamp's line and fill the space it leaves, so tags
+                        // never add a row to the card.
+                        <span className="flex flex-1 items-center gap-2">
+                            <ReportCardTagChips report={report} />
+                            {!showImpactColumn && metaTimestamp}
                         </span>
+                    ) : (
+                        !showImpactColumn && metaTimestamp
                     )}
                 </div>
                 {personalReason && <ReportCardPersonalReason reason={personalReason} />}
@@ -355,13 +369,12 @@ function ReportCardRaw({
     const row = (
         <div
             className={clsx(
-                // Inside the Monitoring frame the row is attached: the frame carries the border.
-                inboxCardRowClassName(attached || isMonitoring, { dashed: !hasPr }),
-                !isMonitoring && rowStateClassName
+                // Inside the frame the row is attached: the frame carries the border.
+                inboxCardRowClassName(attached || framed, { dashed: !hasPr }),
+                !framed && rowStateClassName
             )}
         >
-            {/* The tag chips are buttons, so they sit under the body link rather than inside it. */}
-            <div className={clsx('relative flex min-w-0 flex-1', showsTagRow && 'flex-col gap-2')}>
+            <div className="relative flex min-w-0 flex-1">
                 {showsPrBadge && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
                         <PrBadge
@@ -386,7 +399,6 @@ function ReportCardRaw({
                         </Link>
                     </div>
                 )}
-                {showsTagRow && <ReportTagChips report={report} surface="card" />}
             </div>
 
             {/* Refund deliberately isn't offered at the card level – it lives in the report detail
@@ -432,7 +444,7 @@ function ReportCardRaw({
         </div>
     )
 
-    if (!isMonitoring) {
+    if (!framed) {
         return row
     }
     return (
@@ -445,8 +457,11 @@ function ReportCardRaw({
                 rowStateClassName
             )}
         >
-            <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
+            {isMonitoring ? (
+                <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
+            ) : null}
             {row}
+            {linkSummary ? <ReportCardLinkStrip report={report} summary={linkSummary} backUrl={backUrl} /> : null}
         </div>
     )
 }

@@ -4,6 +4,7 @@ The facade reaches this module through a call-time import, because it imports th
 the Temporal client and the HogQL parser, none of which may load on the ``django.setup()`` path.
 """
 
+import json
 import typing
 import contextlib
 import dataclasses
@@ -49,6 +50,7 @@ from products.batch_exports.backend.facade.enums import (
 from products.batch_exports.backend.hogql_source import load_hogql_modifiers, validate_hogql_query_for_batch_export
 from products.batch_exports.backend.logic.runs import to_run_detail
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportSource
+from products.batch_exports.backend.saved_restrictions import remove_saved_restrictions
 
 # S3-family destinations that may authenticate via an Integration, mapped to
 # the linked integration's kind. Adding a future S3-family destination (e.g. a
@@ -619,6 +621,14 @@ def _remove_secret_fields(destination_type: str, config: dict[str, typing.Any]) 
     secret_fields = _SECRET_FIELDS.get(destination_type, frozenset())
 
     for k, v in config.items():
+        if destination_type == "Redshift" and k == "copy_inputs" and isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(v, dict):
+                continue
+
         if k in secret_fields:
             continue
         elif isinstance(v, dict):
@@ -656,7 +666,7 @@ def _to_configuration(batch_export: BatchExport, *, include_latest_runs: bool) -
         primary_key=tuple(batch_export.primary_key) if batch_export.primary_key is not None else None,
         version_key=tuple(batch_export.version_key) if batch_export.version_key is not None else None,
         incremental_mode=batch_export.incremental_mode,
-        schema=batch_export.schema,
+        schema=remove_saved_restrictions(batch_export.schema),
         filters=batch_export.filters,
         timezone=batch_export.timezone,
         offset_day=batch_export.offset_day,

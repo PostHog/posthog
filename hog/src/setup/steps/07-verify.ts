@@ -5,7 +5,7 @@ import { runHogQL } from '@/posthog/query'
 
 import type { EventsContext } from '../result'
 import { runNext, type SetupRun, type Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
+import { SETUP_COMMAND } from '../state'
 
 // A client clock can run behind PostHog's, so events count by when PostHog received them, and the
 // timestamp bound only keeps the query on recent partitions.
@@ -76,7 +76,7 @@ export const verify: Step = {
             run.context.events = events
             return runNext(
                 'setup_verify_pending',
-                `Run \`${SETUP_NEXT}\` to wait up to 30 seconds for events PostHog received since ${events.since}.`
+                `Run \`${SETUP_COMMAND}\` to wait up to 30 seconds for events PostHog received since ${events.since}.`
             )
         }
 

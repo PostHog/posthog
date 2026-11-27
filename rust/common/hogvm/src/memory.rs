@@ -46,6 +46,10 @@ impl VmHeap {
         self.peak_bytes = self.peak_bytes.max(bytes);
     }
 
+    pub(crate) fn room(&self) -> usize {
+        self.max_bytes.saturating_sub(self.current_bytes)
+    }
+
     pub(crate) fn assert_can_allocate(&self, new_bytes: usize) -> Result<(), VmError> {
         if self.current_bytes.saturating_add(new_bytes) > self.max_bytes {
             Err(VmError::OutOfResource("Heap Memory".to_string()))
@@ -84,7 +88,7 @@ impl VmHeap {
     }
 
     pub(crate) fn get(&self, ptr: HeapReference) -> Result<&HogLiteral, VmError> {
-        if self.inner.len() < ptr.idx {
+        if self.inner.len() <= ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
 
@@ -101,7 +105,7 @@ impl VmHeap {
     // us allocate more than the strict limit. We assert the limits in places we use get_mut,
     // by calling assert_can_allocate above
     pub(crate) fn get_mut(&mut self, ptr: HeapReference) -> Result<&mut HogLiteral, VmError> {
-        if self.inner.len() < ptr.idx {
+        if self.inner.len() <= ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
 
@@ -112,5 +116,25 @@ impl VmHeap {
         }
 
         Ok(&mut to_load.value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reference_one_past_the_last_entry_is_out_of_bounds() {
+        let mut heap = VmHeap::new(1024);
+        let first = heap.emplace(HogLiteral::Null).unwrap();
+        let past = HeapReference {
+            idx: first.idx + 1,
+            epoch: first.epoch,
+        };
+        assert!(matches!(heap.get(past), Err(VmError::HeapIndexOutOfBounds)));
+        assert!(matches!(
+            heap.get_mut(past),
+            Err(VmError::HeapIndexOutOfBounds)
+        ));
     }
 }

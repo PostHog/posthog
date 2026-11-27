@@ -11,11 +11,13 @@ from enum import StrEnum
 from functools import lru_cache, partial
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
+from urllib.parse import quote, urlencode
 
 from django.conf import settings
 from django.contrib import auth
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.contrib.auth.middleware import AuthenticationMiddleware as DjangoAuthenticationMiddleware
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import (
@@ -23,7 +25,7 @@ from django.db import (
     connections as db_connections,
 )
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotFound, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve
@@ -44,6 +46,7 @@ from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
+from posthog.api.current_alias_deprecation import add_current_alias_deprecation_headers, successor_url
 from posthog.api.current_alias_usage import record_scope_usage
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
@@ -75,6 +78,7 @@ from posthog.models.event.new_events_schema import (
     NEW_EVENTS_SCHEMA_HEADER,
     new_events_schema_for_request,
 )
+from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -709,6 +713,8 @@ class CHQueries:
             # Lets the frontend put the id on its failure analytics, which then join to this request's logs.
             if is_api_request and http_request_id and "X-Request-ID" not in response:
                 response["X-Request-ID"] = str(http_request_id)
+            if is_api_request:
+                add_current_alias_deprecation_headers(request, response)
 
             if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
@@ -826,6 +832,8 @@ class QueryTimeCountingMiddleware:
                 # A client can send any method token, so unknown methods share one label.
                 "method": method if method in self.LABELLED_METHODS else "other",
                 "status_class": f"{response.status_code // 100}xx",
+                # Set by views that want the query count sliced further; other routes keep the base labels.
+                **(getattr(request, "_pg_queries_labels", None) or {}),
             },
         )
 
@@ -909,8 +917,7 @@ class EnvironmentsRewriteMiddleware:
             ENVIRONMENTS_PREFIX_REQUESTS.labels(outcome="env_only").inc()
             return self.get_response(request)
 
-        query_string = request.META.get("QUERY_STRING", "")
-        successor = f"{target_path}?{query_string}" if query_string else target_path
+        successor = successor_url(target_path, request.GET)
 
         # Re-route URL resolution to the projects viewset with no client-visible
         # redirect; method, body, query string, and auth stay on the same request.
@@ -921,11 +928,12 @@ class EnvironmentsRewriteMiddleware:
 
         response = self.get_response(request)
 
-        response["Deprecation"] = "true"
-        response["Link"] = f'<{successor}>; rel="successor-version"'
+        # A view that names a more specific deprecation or successor, such as @current resolved to an id, keeps it.
+        response.setdefault("Deprecation", "true")
+        response.setdefault("Link", f'<{successor}>; rel="successor-version"')
         sunset = self._sunset_http_date()
         if sunset:
-            response["Sunset"] = sunset
+            response.setdefault("Sunset", sunset)
         return response
 
     @staticmethod
@@ -1242,6 +1250,21 @@ def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
     return request.session.setdefault(settings.SESSION_COOKIE_CREATED_AT_KEY, time.time())
 
 
+SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
+# `next` lands in the `/login` URL, which analytics and the request log record, so a credential in the query gets none.
+# A path token is kept: returning to a share or preferences link outweighs it reaching the instance's own analytics.
+_NO_RETURN_QUERY_PARAMS = CREDENTIAL_QUERY_PARAMS | {"code"}
+
+
+def session_expired_login_url(request: HttpRequest) -> str:
+    params = {"message": SESSION_EXPIRED_MESSAGE}
+    next_url = request.get_full_path()
+    holds_credential = any(name.lower() in _NO_RETURN_QUERY_PARAMS for name in request.GET)
+    if request.method == "GET" and next_url != "/" and not holds_credential:
+        params["next"] = next_url
+    return settings.LOGIN_URL + "?" + urlencode(params, safe="/", quote_via=quote)
+
+
 class SessionAgeMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1266,7 +1289,7 @@ class SessionAgeMiddleware:
             current_time = time.time()
             if current_time - session_created_at > session_age:
                 logout(request)
-                return redirect("/login?message=Your session has expired. Please log in again.")
+                return redirect(session_expired_login_url(request))
 
         response = self.get_response(request)
         return response
@@ -1313,17 +1336,23 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     return min(idle_expiry_time, total_expiry_time)
 
 
+def _human_or_anonymous(user: Any) -> Any:
+    if isinstance(user, User) and not user.is_human:
+        return AnonymousUser()
+    return user
+
+
 def _get_session_user(request: HttpRequest) -> Any:
     if not hasattr(request, "_cached_user"):
         with User.objects.joining_current_organization():
-            setattr(request, "_cached_user", auth.get_user(request))  # noqa: B010
+            setattr(request, "_cached_user", _human_or_anonymous(auth.get_user(request)))  # noqa: B010
     return getattr(request, "_cached_user")  # noqa: B009
 
 
 async def _aget_session_user(request: HttpRequest) -> Any:
     if not hasattr(request, "_acached_user"):
         with User.objects.joining_current_organization():
-            setattr(request, "_acached_user", await auth.aget_user(request))  # noqa: B010
+            setattr(request, "_acached_user", _human_or_anonymous(await auth.aget_user(request)))  # noqa: B010
     return getattr(request, "_acached_user")  # noqa: B009
 
 
@@ -1368,7 +1397,7 @@ class AdminImpersonationMiddleware:
     def __call__(self, request: HttpRequest):
         if self._should_swap_user(request):
             original_user = get_original_user_from_session(request)
-            if original_user and original_user.is_active and original_user.is_staff:
+            if original_user and original_user.is_active and original_user.is_staff and original_user.is_human:
                 request.user = original_user
                 # Keep the lazy auth-middleware cache in sync with the swapped user.
                 request._cached_user = original_user  # type: ignore[attr-defined]
@@ -1458,6 +1487,24 @@ class UnversionedStaticPathMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponse:
         if is_hobby():
             request.path_info = self.VERSIONED_STATIC_PATH.sub("/static/", request.path_info, count=1)
+        return self.get_response(request)
+
+
+class MissingStaticFileMiddleware:
+    """Answers 404 for a /static/ path that WhiteNoise did not serve.
+
+    Without it the request goes on to the login middleware and to the frontend
+    catch-all route, so each missing file costs a database connection. A browser with developer
+    tools open asks for the source map of every chunk, and the production image ships no source
+    maps, so one page load can open more connections than Postgres allows.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.path_info.startswith(settings.STATIC_URL):
+            return HttpResponseNotFound(content_type="text/plain")
         return self.get_response(request)
 
 
@@ -1705,6 +1752,7 @@ class SocialAuthExceptionMiddleware:
                 "google_sso_enforced",
                 "github_sso_enforced",
                 "gitlab_sso_enforced",
+                "chatgpt_sso_enforced",
                 "sso_enforced",
                 "reauth_user_mismatch",
                 "access_blocked",
@@ -1970,7 +2018,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
         "POST",
         re.compile(
             r"^/api/(environments|projects)/([0-9]+|@current)/tracing/spans/"
-            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|aggregate|tree"
+            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|latency_percentiles|aggregate|tree"
             r"|attribute-breakdown|trace/[a-zA-Z0-9]+)/?$"
         ),
     ),

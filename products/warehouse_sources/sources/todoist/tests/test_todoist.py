@@ -145,6 +145,44 @@ class TestTopLevelPagination:
         assert result.requests[0].param("cursor") == "saved"
 
 
+class TestWorkspaceEndpoints:
+    def test_workspaces_reads_the_bare_array_in_one_request(self) -> None:
+        responses = {f"{BASE}/workspaces": [_resp([{"id": "W1", "name": "Acme"}, {"id": "W2", "name": "Beta"}])]}
+        result = _run("workspaces", responses)
+
+        assert result.raised is None
+        assert result.rows == [{"id": "W1", "name": "Acme"}, {"id": "W2", "name": "Beta"}]
+        assert len(result.requests) == 1
+
+    @parameterized.expand(
+        [
+            ("cursor_dropped_on_last_page", {"has_more": False}),
+            ("cursor_kept_on_last_page", {"has_more": False, "next_cursor": "c3"}),
+            ("has_more_missing", {}),
+        ]
+    )
+    def test_workspace_users_pages_until_the_last_page(self, _name: str, last_page: dict[str, Any]) -> None:
+        responses = {
+            f"{BASE}/workspaces/users?limit=100": [
+                _resp(
+                    {
+                        "workspace_users": [{"workspace_id": "W1", "user_id": "U1"}],
+                        "has_more": True,
+                        "next_cursor": "c2",
+                    }
+                )
+            ],
+            f"{BASE}/workspaces/users?limit=100&cursor=c2": [
+                _resp({"workspace_users": [{"workspace_id": "W2", "user_id": "U1"}], **last_page})
+            ],
+        }
+        result = _run("workspace_users", responses)
+
+        assert result.raised is None
+        assert result.rows == [{"workspace_id": "W1", "user_id": "U1"}, {"workspace_id": "W2", "user_id": "U1"}]
+        assert len(result.requests) == 2
+
+
 class TestCollaboratorsFanOut:
     def test_injects_project_id_onto_every_row(self) -> None:
         responses = {

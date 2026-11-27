@@ -1,7 +1,7 @@
 ---
 name: authoring-ci-workflows
 description: >
-  Use when adding or editing a GitHub Actions workflow, composite action, reusable workflow, or `actions.lock` under `.github/`: new CI jobs, triggers, matrices, checkout/clone tuning, action pinning and lockfiles, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, reusing an earlier passing result, caching, or runner choice.
+  Use when adding or editing a GitHub Actions workflow, composite action, reusable workflow, or `actions.lock` under `.github/`: new CI jobs, triggers, matrices, checkout/clone tuning, action pinning and lockfiles, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, reusing an earlier passing result, caching, runner choice, or a new host CI downloads from (Depot egress allow list).
   Covers PostHog's workflow-authoring conventions and the reasons behind them: the 500-runs/10s dispatch cap, shallow vs full clone, per-SHA push concurrency, dedicated App-token rate-limit buckets, and fork-safe secrets on a public repo.
   Points to the linters (`bin/hogli lint:workflows`, actionlint) that enforce the mechanical rules, and to the narrower skills for production deploys, secrets, and Depot runners.
   Not for debugging red CI (use debugging-ci-failures) or wiring a new secret end to end (use managing-github-actions-secrets).
@@ -343,6 +343,12 @@ curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10
 - No `--retry-delay` (it replaces exponential backoff with a fixed wait). Keep `-f`, or an error page lands in your output file at exit 0.
 - Don't retry anything non-idempotent (webhook posts, telemetry), or where a shell loop or readiness wait already retries.
 
+### New hosts need the egress allow list
+
+Depot runners reach only the hosts on the organization's egress allow list, which devex keeps in Depot, outside this repo.
+When a change makes a Depot job contact a host it did not before (a download, a new action or image, a webhook, a redirect target), tell the developer, add an `Egress:` line to the PR description, and send it to devex with `hogli devex:feedback`.
+[The egress reference](references/egress-allow-list.md) has the steps, what to try before asking for a rule, and how to see what a job contacts.
+
 ## Tokens — dedicated App tokens for high-volume calls
 
 `GITHUB_TOKEN` shares one ~15k req/hr bucket across every job of every run in the repo; it goes hot at merge peaks and change-detection jobs fail before real work starts.
@@ -498,6 +504,14 @@ What this still does not answer is whether a narrowed run would have **caught** 
 Only backend scores that, in `tools/test_selection_verdict.py`, which reads the run's JUnit and reports recall.
 The cheap oracle for the rest is the queue: the `trunk-merge/**` run tests the same code with the full suite, so a failure there whose file was reachable from the diff and was not selected is a miss, at no extra compute.
 
+### A repository-wide check can scan only what the diff changes
+
+A job that scans every file in the repository pays for the whole tree on every pull request, so its cost grows with the repository while its findings can only come from the files the diff changes.
+Narrow it whenever the tool's verdict is per file: no markdownlint rule reads two files, so on a given commit a file the diff left alone cannot change a result.
+`frontend-format`'s `Lint markdown files` scanned all 2018 markdown files in about 80s for that reason; a pull request now lints only the markdown it changes, about 1s, while master's push run and the merge queue keep the full scan, which is where drift no single diff shows up in stays covered.
+Keep the full scan for a diff that moves the tool's configuration or its ignore rules: those change the verdict for files the diff does not touch.
+The step logs which mode it took and how many files, so a fallback that bites is readable from the job log; a selector with no such line needs an event, see below.
+
 ### Reusing an earlier passing result
 
 Without reuse, every push to a PR re-runs each suite whose filter matches anything in the whole PR, even when the push touched none of its files.
@@ -524,11 +538,12 @@ The judgment calls when you adopt or change it:
   `ci-rust.yml` names `PersonHog e2e gate`, and backend names the `product.yaml` owners job.
   A job that is missing from both shows as skipped after a reuse, even when it failed on the previous head.
 - **A check name that embeds a runner label is brittle.**
-  Renaming the job or its runner silently stops reuse, and the only sign is `previous-not-green` with `no check run` in the `posthog-ci-reuse-decision` events.
+  Renaming the job or its runner silently stops reuse, and the only sign is a rise in `no-proven-run` in the `posthog-ci-reuse-decision` events.
   When you rename a job, update `reuse-checks` in the same change.
 - **`reuse-proof-checks` names a job that runs only when the suite really runs.**
   A gate also passes when its suite was skipped: a reused result, Playwright's debounce, the Storybook bot's baseline push, a `no-ci` label.
-  The action walks back to the newest head where a proof check concluded `success`, so a green skip is never the result it reuses.
+  The action searches the branch's earlier heads for the newest one with the same inputs where a proof check concluded `success`, so a green skip is never the result it reuses.
+  That head need not be the previous one: a revert, a rebase or a force-push can reuse a run from before it.
   Pick a job gated by the scoped filters and by nothing else, such as a build or a selection job, not one that also runs on unrelated changes.
 - **Keep filters out of scope when a job they gate must post on every head.**
   Backend leaves its migration filters out, so `check-migrations` still runs on a migration PR and posts the `Migration risk` check that stamphog waits for.
@@ -624,6 +639,7 @@ Before that date, fix or add to the baseline every violation that landed during 
 - [ ] Third-party actions SHA-pinned, or the already-onboarded workflow's lockfile regenerated and verified.
 - [ ] Node from `.nvmrc`; `setup-uv` version pinned; runner labels name an OS version (`ubuntu-24.04`, never `ubuntu-latest`).
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
+- [ ] Any host a Depot job did not contact before is flagged to the developer and devex ([egress allow list](references/egress-allow-list.md)).
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
 - [ ] No step pushes to a `trunk-merge/` branch: a step that commits to the PR head fails there instead.

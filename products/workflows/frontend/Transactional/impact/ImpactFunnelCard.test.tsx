@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -5,10 +7,12 @@ import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { TeamType } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { emailImpactLogic } from './emailImpactLogic'
+import { EmailImpactTab } from './EmailImpactTab'
 import { ImpactFunnelCard } from './ImpactFunnelCard'
 
 const { ToastContainer } = jest.requireActual('react-toastify')
@@ -20,10 +24,21 @@ const IMPACT: TransactionalEmailImpactApi = {
     clicked: 2,
     not_clicked: 7,
     untracked: 0,
+    clicks_untracked: 0,
     window_days: 7,
+    sessions: null,
+    link_tagging_enabled: true,
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },
 }
+
+const teamWithLinkTagging = (enabled: boolean | undefined): TeamType => ({
+    ...MOCK_DEFAULT_TEAM,
+    workflows_config: {
+        capture_workflows_engagement_events: true,
+        ...(enabled === undefined ? {} : { email_workflow_run_link_tag_enabled: enabled }),
+    },
+})
 
 describe('ImpactFunnelCard', () => {
     let answer: [number, unknown]
@@ -44,10 +59,10 @@ describe('ImpactFunnelCard', () => {
 
     afterEach(cleanup)
 
-    const renderCard = (): void => {
+    const renderCard = (sensitive = false): void => {
         render(
             <Provider>
-                <BindLogic logic={emailImpactLogic} props={{ workflowId: 'workflow-1' }}>
+                <BindLogic logic={emailImpactLogic} props={{ workflowId: 'workflow-1', alwaysSensitive: sensitive }}>
                     <ImpactFunnelCard />
                 </BindLogic>
                 <ToastContainer />
@@ -55,13 +70,60 @@ describe('ImpactFunnelCard', () => {
         )
     }
 
-    it('keeps the untracked note under an empty period', async () => {
-        answer = [200, { ...IMPACT, sent: 0, delivered: 0, opened: 0, clicked: 0, not_clicked: 0, untracked: 3 }]
-        renderCard()
+    it.each([
+        ['tagging is off', false, false, 'Needs link tagging', true],
+        ['tagging is on', true, false, 'Not measured yet', false],
+        ['the project never set tagging', undefined, false, 'Not measured yet', false],
+        ['the email protects sensitive data', false, true, 'Not measured', false],
+        ['the email protects sensitive data while tagging is on', true, true, 'Not measured', false],
+    ])(
+        "links the session step to the project's link tagging setting only when it would help, when %s",
+        async (_, enabled, sensitive, label, linked) => {
+            initKeaTests(true, teamWithLinkTagging(enabled))
+            answer = [200, IMPACT]
+            renderCard(sensitive)
 
-        expect(await screen.findByText('No sends of this email were recorded in this period.')).toBeInTheDocument()
-        expect(screen.getByText(/^3 sends in this period went out with tracking off/)).toBeInTheDocument()
+            const step = await screen.findByText(label)
+            expect(step.closest('a')?.getAttribute('href') ?? null).toEqual(
+                linked ? expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/) : null
+            )
+            expect(step.closest('a')?.getAttribute('target') ?? null).toBe(linked ? '_blank' : null)
+        }
+    )
+
+    it("shows a template's new sensitivity on a mounted Impact tab", async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
+        answer = [200, IMPACT]
+        const tab = (alwaysSensitive: boolean): JSX.Element => (
+            <Provider>
+                <EmailImpactTab workflowId="workflow-1" alwaysSensitive={alwaysSensitive} />
+            </Provider>
+        )
+        const { rerender } = render(tab(false))
+        await screen.findByText('Needs link tagging')
+
+        rerender(tab(true))
+
+        expect(await screen.findByText('Not measured')).toBeInTheDocument()
     })
+
+    it.each([
+        { untracked: 0, note: null },
+        { untracked: 3, note: /^3 sends in this period went out with tracking off/ },
+    ])(
+        'says no sends were recorded for an empty period with $untracked untracked sends',
+        async ({ untracked, note }) => {
+            answer = [200, { ...IMPACT, sent: 0, delivered: 0, opened: 0, clicked: 0, not_clicked: 0, untracked }]
+            renderCard()
+
+            expect(await screen.findByText('No sends of this email were recorded in this period.')).toBeInTheDocument()
+            if (note) {
+                expect(screen.getByText(note)).toBeInTheDocument()
+            } else {
+                expect(screen.queryByText(/tracking off/)).not.toBeInTheDocument()
+            }
+        }
+    )
 
     it('draws opens and clicks that arrived before their sends', async () => {
         answer = [
@@ -86,12 +148,7 @@ describe('ImpactFunnelCard', () => {
     })
 
     it.each([
-        [
-            'every click went untracked',
-            { opened: 0, clicked: 0, untracked: 10 },
-            'No clicks were recorded in this period.',
-            '',
-        ],
+        ['no tracked send was clicked', { clicked: 0 }, 'No clicks were recorded in this period.', ''],
         [
             'no clicked send could be followed',
             { clicked: 2 },
@@ -120,6 +177,40 @@ describe('ImpactFunnelCard', () => {
             )
         }
     )
+
+    it.each([
+        [
+            'every send went untracked',
+            { opened: 0, untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with tracking off.',
+        ],
+        [
+            'every send went untracked but an open was recorded',
+            { opened: 1, untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with click tracking off.',
+        ],
+        [
+            'every send went out with click tracking off',
+            { clicks_untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with click tracking off.',
+        ],
+    ])('says why no send is compared when %s', async (_, counts, reason) => {
+        answer = [
+            200,
+            {
+                ...IMPACT,
+                clicked: 0,
+                not_clicked: 0,
+                ...counts,
+                after_click: { sends: 0, converted: 0 },
+                without_click: { sends: 0, converted: 0 },
+            },
+        ]
+        renderCard()
+        emailImpactLogic({ workflowId: 'workflow-1' }).actions.setEvent('plan upgraded')
+
+        expect((await screen.findByText(reason)).closest('p')).toHaveTextContent(new RegExp(`^${reason}$`))
+    })
 
     it('says why no conversion is counted when no send in either group could be followed', async () => {
         answer = [

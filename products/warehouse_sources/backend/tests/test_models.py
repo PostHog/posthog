@@ -2180,11 +2180,17 @@ class TestFailureStreakMarker(SimpleTestCase):
         assert ExternalDataSchema(sync_type_config=config).failure_streak_last_failed_at == expected
 
     def test_a_failed_run_adds_to_the_streak_and_keeps_the_other_keys(self) -> None:
-        schema = ExternalDataSchema(sync_type_config={"incremental_field": "updated_at", "failure_streak": {"runs": 2}})
+        schema = ExternalDataSchema(
+            sync_type_config={
+                "incremental_field": "updated_at",
+                "failure_streak": {"runs": 2, "manual_run_requested": True},
+            }
+        )
 
         schema.note_failed_run(datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
 
         assert schema.failed_runs_in_a_row == 3
+        assert schema.manual_run_requested is False
         assert schema.failure_streak_last_failed_at == datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
         assert schema.sync_type_config["incremental_field"] == "updated_at"
 

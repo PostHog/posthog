@@ -18,6 +18,7 @@ const CONTEXT: AEOSetupContextApi = {
     ],
     own_domains: [],
     active_prompts: 0,
+    max_active_prompts: 100,
     paused_prompts: 0,
     keywords: 0,
     has_checks: false,
@@ -181,7 +182,9 @@ ContextLoadError.decorators = [
         get: { '/api/projects/:team_id/aeo_setup/context/': () => [500, { detail: 'Server error' }] },
     }),
 ]
-ContextLoadError.parameters = { testOptions: { waitForSelector: '.LemonBanner' } }
+ContextLoadError.parameters = {
+    testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-context-error"]' },
+}
 
 export const FirstChecksRunning: StoryFn = () => (
     <WithJob job={FIRST_RUN_QUEUED_JOB}>

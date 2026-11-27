@@ -5,6 +5,7 @@ import { EmailColorField } from './fields/EmailColorField'
 import { EmailNumberField } from './fields/EmailNumberField'
 import { EmailSectionTitle } from './fields/EmailSectionTitle'
 import { EmailSidesField } from './fields/EmailSidesField'
+import { NUMBER_LIMITS } from './fields/numberLimits'
 
 export function EmailBoxFields({
     style,
@@ -43,12 +44,14 @@ export function EmailBoxFields({
                 <>
                     <EmailNumberField
                         label="Corner radius"
+                        limit={NUMBER_LIMITS.cornerRadius}
                         value={style.borderRadius}
                         placeholder={0}
                         onChange={(borderRadius) => set({ borderRadius })}
                     />
                     <EmailNumberField
                         label="Border"
+                        limit={NUMBER_LIMITS.border}
                         value={style.borderWidth}
                         placeholder={0}
                         onChange={(borderWidth) => set({ borderWidth })}

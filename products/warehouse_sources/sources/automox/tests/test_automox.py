@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -18,12 +19,19 @@ from products.warehouse_sources.sources.automox.automox import (
     AutomoxRetryableError,
     _flatten_device_inventory,
     _incremental_param_value,
+    _shape_audit_event,
     resolve_organization,
     validate_credentials,
 )
 from products.warehouse_sources.sources.automox.settings import AUTOMOX_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.sources.automox.source import AutomoxSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
 
 ORGS_BODY = [
     {"id": 123, "uuid": "uuid-123", "name": "Org A"},
@@ -373,14 +381,168 @@ class TestFanOutAndUnpaginatedEndpoints:
         ]
 
 
+def _report_body(endpoint: str, device_ids: list[int]) -> dict[str, Any]:
+    section = "nonCompliant" if endpoint == "needs_attention_devices" else "prepatch"
+    return {section: {"total": len(device_ids), "devices": [{"id": i, "name": f"host-{i}"} for i in device_ids]}}
+
+
+class TestReportEndpoints:
+    @parameterized.expand([("needs_attention_devices",), ("prepatch_devices",)])
+    def test_pages_by_offset_until_an_empty_page(self, endpoint: str) -> None:
+        # A short page does not end the walk: `limit` may count nested patches rather than devices.
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=ORGS_BODY),
+                ScriptedResponse(json=_report_body(endpoint, [1, 2])),
+                ScriptedResponse(json=_report_body(endpoint, [3])),
+                ScriptedResponse(json=_report_body(endpoint, [])),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert result.params("offset")[1:] == ["0", "250", "500"]
+        assert result.params("o")[1:] == ["123", "123", "123"]
+        assert result.params("page")[1:] == [None, None, None]
+
+    @parameterized.expand(
+        [
+            ("report_object", {"nonCompliant": {"devices": [{"id": 1}]}}, [{"id": 1}]),
+            ("array_of_reports", [{"nonCompliant": {"devices": [{"id": 1}]}}], [{"id": 1}]),
+            ("no_section", {"total": 0}, []),
+            ("null_devices", {"nonCompliant": {"devices": None}}, []),
+        ]
+    )
+    def test_accepts_both_documented_report_shapes(self, _name: str, body: Any, expected: list[Any]) -> None:
+        responses = [ScriptedResponse(json=ORGS_BODY), ScriptedResponse(json=body)]
+        if expected:
+            responses.append(ScriptedResponse(json=[]))
+        result = _driver().run("needs_attention_devices", responses)
+        assert result.raised is None
+        assert result.rows == expected
+
+    def test_stops_when_the_server_ignores_the_offset(self) -> None:
+        # Offset paging only ends on an empty page; a repeated page must not loop forever.
+        page = _report_body("prepatch_devices", [1, 2])
+        result = _driver().run(
+            "prepatch_devices",
+            [ScriptedResponse(json=ORGS_BODY), ScriptedResponse(json=page), ScriptedResponse(json=page)],
+        )
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2]
+
+
+AUDIT_PATH = "/api/audit-service/v1/orgs/uuid-123/events"
+AUDIT_NOW = datetime(2026, 6, 1, tzinfo=UTC)
+
+
+def _audit_event(event_id: str, time: Any = 1774432800.123456, **extra: Any) -> dict[str, Any]:
+    return {"_id": event_id, "time": time, "message": "User Created", "metadata": {"uid": f"uid-{event_id}"}, **extra}
+
+
+def _audit_page(events: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
+    metadata: dict[str, Any] = {"count": len(events), "ocsf_version": "1.1.0"}
+    if next_cursor is not None:
+        metadata["next"] = f"https://console.automox.com/api{AUDIT_PATH[4:]}?cursor={next_cursor}&limit=1000"
+    return ScriptedResponse(json={"metadata": metadata, "data": events})
+
+
+def _audit_requests(result: Any) -> list[RecordedRequest]:
+    return [request for request in result.requests if request.path == AUDIT_PATH]
+
+
+class TestAuditEvents:
+    @time_machine.travel(AUDIT_NOW, tick=False)
+    def test_walks_windows_oldest_first_and_follows_the_cursor(self) -> None:
+        result = _driver().run(
+            "audit_events",
+            [
+                ScriptedResponse(json=ORGS_BODY),
+                _audit_page([_audit_event("a"), _audit_event("b")], next_cursor="b"),
+                _audit_page([_audit_event("c")]),
+                _audit_page([]),
+            ],
+            incremental_field="event_time",
+            db_incremental_field_last_value=datetime(2026, 4, 20, 1, 0, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a", "b", "c"]
+        requests_made = _audit_requests(result)
+        # The 1h lookback sets the start; the API rejects ranges over 31 days, so the walk splits.
+        assert [(r.param("start_time"), r.param("end_time"), r.param("cursor")) for r in requests_made] == [
+            ("2026-04-20T00:00:00Z", "2026-05-20T00:00:00Z", None),
+            ("2026-04-20T00:00:00Z", "2026-05-20T00:00:00Z", "b"),
+            ("2026-05-20T00:00:00Z", "2026-06-01T00:00:00Z", None),
+        ]
+        assert {r.param("sort") for r in requests_made} == {"asc"}
+        assert result.saved_states == [
+            AutomoxResumeConfig(
+                window_start="2026-04-20T00:00:00Z", cursor="b", incremental_param_value="2026-04-20T00:00:00Z"
+            ),
+            AutomoxResumeConfig(
+                window_start="2026-05-20T00:00:00Z", cursor=None, incremental_param_value="2026-04-20T00:00:00Z"
+            ),
+        ]
+
+    @time_machine.travel(AUDIT_NOW, tick=False)
+    def test_full_refresh_starts_a_year_back(self) -> None:
+        result = _driver().run(
+            "audit_events",
+            lambda request: ScriptedResponse(json=ORGS_BODY) if request.path == "/api/orgs" else _audit_page([]),
+        )
+        assert result.raised is None
+        requests_made = _audit_requests(result)
+        assert requests_made[0].param("start_time") == "2025-06-01T00:00:00Z"
+        assert requests_made[-1].param("end_time") == "2026-06-01T00:00:00Z"
+        assert len(requests_made) == 13
+
+    @time_machine.travel(AUDIT_NOW, tick=False)
+    def test_resume_continues_the_saved_window_and_cursor(self) -> None:
+        result = _driver().run(
+            "audit_events",
+            [ScriptedResponse(json=ORGS_BODY), _audit_page([_audit_event("d")])],
+            resume_state=AutomoxResumeConfig(window_start="2026-05-20T00:00:00Z", cursor="c"),
+        )
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["d"]
+        assert [(r.param("start_time"), r.param("cursor")) for r in _audit_requests(result)] == [
+            ("2026-05-20T00:00:00Z", "c")
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "epoch_seconds_and_underscore_id",
+                _audit_event("a", raw_data='{"password": "x"}'),
+                "a",
+                "2026-03-25T10:00:00.123456Z",
+            ),
+            ("epoch_milliseconds", _audit_event("a", time=1774432800000), "a", "2026-03-25T10:00:00.000000Z"),
+            ("legacy_id", {"id": "b", "time": 1774432800}, "b", "2026-03-25T10:00:00.000000Z"),
+            ("metadata_uid_only", {"metadata": {"uid": "m-1"}}, "m-1", None),
+        ]
+    )
+    def test_shapes_an_event_into_a_row(
+        self, _name: str, event: dict[str, Any], expected_id: str, expected_time: str | None
+    ) -> None:
+        row = _shape_audit_event(event)
+        assert row["id"] == expected_id
+        assert row["event_time"] == expected_time
+        # The raw request payload can carry secrets, and `_id` is now `id`.
+        assert "raw_data" not in row
+        assert "_id" not in row
+
+
 class TestAutomoxSourceResponse:
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_source_response_shape(self, name: str) -> None:
         config = AUTOMOX_ENDPOINTS[name]
-        terminal_body: Any = {"data": []} if name in {"policy_runs", "remediation_issues"} else []
+        terminal_body: Any = {"data": []} if name in {"policy_runs", "remediation_issues", "audit_events"} else []
         result = _driver().run(
             name,
-            [ScriptedResponse(json=ORGS_BODY), ScriptedResponse(json=terminal_body)],
+            lambda request: ScriptedResponse(json=ORGS_BODY if request.path == "/api/orgs" else terminal_body),
         )
         assert result.raised is None
         response = result.response
@@ -405,5 +567,6 @@ class TestAutomoxSourceResponse:
         # Guards against accidentally partitioning on a churning field like last_refresh_time.
         assert {cfg.partition_key for cfg in AUTOMOX_ENDPOINTS.values() if cfg.partition_key} == {
             "create_time",
+            "event_time",
             "run_time",
         }

@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -136,8 +135,9 @@ class FlagEvaluationsColumns:
 
 
 class EventsWithFlagCallsTable(LazyTable):
-    """`events` with its keyed flag calls read from `posthog.flag_evaluations` instead: since the coverage start on mode
-    1, and every call that table retains on mode 2.
+    """`events` with its keyed flag calls read from `posthog.flag_evaluations` instead, since the coverage start. On
+    mode 2 the flag_evaluations branch has no cutoff of its own. The ClickHouse printer's coverage floor drops rows
+    older than the coverage start, and events holds no older keyed flag call.
 
     Its `fields` is the events table's own dict, so every name binds as it does on `events`.
     """
@@ -197,7 +197,7 @@ class EventsWithFlagCallsTable(LazyTable):
 
         columns = FlagEvaluationsColumns(self, context.database.get_table(["posthog", "flag_evaluations"]))
         only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
-        cutoff = ast.Constant(value=flag_evaluations_coverage_start(datetime.now(UTC)))
+        cutoff = ast.Constant(value=flag_evaluations_coverage_start(context.flag_calls_now()))
         # Property type resolution ran before lazy tables, so the metadata holds the type of each property this query
         # reads, `$feature_flag` among them.
         filters = union_branch_filters(

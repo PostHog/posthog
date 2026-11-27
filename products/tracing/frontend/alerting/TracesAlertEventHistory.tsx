@@ -160,6 +160,7 @@ const CONTROL_PLANE_DESCRIPTIONS: Record<
     [PlatformAlertEventKindEnumApi.Snooze]: { label: 'Snoozed', type: 'highlight' },
     [PlatformAlertEventKindEnumApi.Unsnooze]: { label: 'Unsnoozed', type: 'highlight' },
     [PlatformAlertEventKindEnumApi.ConfigChange]: { label: 'Settings changed', type: 'completion' },
+    [PlatformAlertEventKindEnumApi.Handback]: { label: 'State restored', type: 'default' },
 }
 
 function describeEvent(

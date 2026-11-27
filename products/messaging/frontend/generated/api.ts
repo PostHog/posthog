@@ -29,8 +29,8 @@ import type {
     MessagePreferencesApi,
     MessageSuppressionApi,
     MessageTemplateApi,
-    MessageTemplatePlacementApi,
     MessagingCategoriesListParams,
+    MessagingEmailsStatusRetrieveParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
@@ -92,24 +92,24 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/attachments/uploads/`
+export const getMessagingSendEmailCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/email/`
 }
 
 /**
- * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
- * @summary Prepare attachment uploads
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional email
  */
-export const messagingAttachmentsUploadsCreate = async (
+export const messagingSendEmailCreate = async (
     projectId: string,
-    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    sendEmailApi: SendEmailApi,
     options?: RequestInit
-): Promise<AttachmentUploadsResponseApi> => {
-    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
+): Promise<SendTransactionalEmailResponseApi> => {
+    return apiMutator<SendTransactionalEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(attachmentUploadsRequestApi),
+        body: JSON.stringify(sendEmailApi),
     })
 }
 
@@ -132,6 +132,61 @@ export const messagingEmailsRetrieve = async (
     })
 }
 
+export const getMessagingEmailsStatusRetrieveUrl = (
+    projectId: string,
+    params?: MessagingEmailsStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging/emails/status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging/emails/status/`
+}
+
+/**
+ * Get the status of one transactional email by its `message_id`, or by the `idempotency_key` it was sent with when the send's response was lost. Name exactly one of them. A key gives the latest send with it that PostHog has a status for. Compare the response's `created_at` with when you sent: an earlier time means an earlier send with the same key, not the one whose response was lost. It answers like the read by `message_id`, for 30 days after the send, and needs the same `transactional_email:read` scope. A 404 doesn't mean the email wasn't sent: its first status can take a few seconds to arrive. To make sure it goes out, send it again with the same key within 24 hours.
+ * @summary Find a transactional email's status
+ */
+export const messagingEmailsStatusRetrieve = async (
+    projectId: string,
+    params?: MessagingEmailsStatusRetrieveParams,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsStatusRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/attachments/uploads/`
+}
+
+/**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const messagingAttachmentsUploadsCreate = async (
+    projectId: string,
+    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    options?: RequestInit
+): Promise<AttachmentUploadsResponseApi> => {
+    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(attachmentUploadsRequestApi),
+    })
+}
+
 export const getMessagingPreferencesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/preferences/`
 }
@@ -150,27 +205,6 @@ export const messagingPreferencesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(setPreferencesApi),
-    })
-}
-
-export const getMessagingSendEmailCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/send/email/`
-}
-
-/**
- * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
- * @summary Send a transactional email
- */
-export const messagingSendEmailCreate = async (
-    projectId: string,
-    sendEmailApi: SendEmailApi,
-    options?: RequestInit
-): Promise<SendTransactionalEmailResponseApi> => {
-    return apiMutator<SendTransactionalEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sendEmailApi),
     })
 }
 
@@ -639,7 +673,8 @@ export const getMessagingProviderImportsListUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the most recent provider imports
@@ -659,7 +694,8 @@ export const getMessagingProviderImportsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -682,7 +718,8 @@ export const getMessagingProviderImportsRetrieveUrl = (projectId: string, id: st
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Get a provider import and its progress
@@ -703,7 +740,8 @@ export const getMessagingProviderImportsProvidersListUrl = (projectId: string) =
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the providers and what each can import
@@ -1056,7 +1094,7 @@ export const getMessagingTemplatesMakeTransactionalCreateUrl = (projectId: strin
 }
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
+ * Make this template sendable over the transactional email API, or the transactional push API for a push template. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const messagingTemplatesMakeTransactionalCreate = async (
@@ -1070,24 +1108,6 @@ export const messagingTemplatesMakeTransactionalCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(makeTransactionalApi),
-    })
-}
-
-export const getMessagingTemplatesPlacementRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/messaging_templates/${id}/placement/`
-}
-
-/**
- * Read where the template sits in the project tree, so an undo of its delete can put it back.
- */
-export const messagingTemplatesPlacementRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<MessageTemplatePlacementApi> => {
-    return apiMutator<MessageTemplatePlacementApi>(getMessagingTemplatesPlacementRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
     })
 }
 
@@ -1282,7 +1302,7 @@ export const getTransactionalEmailLogImpactRetrieveUrl = (
 }
 
 /**
- * Count one email's sends that were sent, delivered, opened and clicked. With an event, also count the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.
+ * Count one email's sends that were sent, delivered, opened and clicked, and the sessions with a pageview from its links. With an event, also count the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.
  * @summary Get how far a transactional email's sends got
  */
 export const transactionalEmailLogImpactRetrieve = async (

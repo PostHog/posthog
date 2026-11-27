@@ -1,13 +1,11 @@
 import os
-import time
 import uuid
 from collections.abc import Iterable
 from typing import Any, Optional, cast
 
-from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model
+from django.db.models import Model, QuerySet
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
@@ -27,7 +25,6 @@ from posthog.auth import (
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
-    TeamSecretTokenAuthentication,
     WorkloadAccessTokenAuthentication,
     is_mcp_request,
 )
@@ -39,11 +36,13 @@ from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.oauth_provenance import is_id_jag_origin_request
 from posthog.organization_caching import get_cached_organization_membership
+from posthog.project_creation_limits import PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE, member_can_create_projects
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
-from posthog.session.reauth import sensitive_action_reference, step_up_required
+from posthog.session.reauth import sensitive_window_is_open, session_allows_sensitive_actions, step_up_required
 from posthog.utils import get_can_create_org
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -58,6 +57,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Parent, Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.authorization.backend.presentation.resources import MEMBERSHIP_RESOURCES, resource_for_object
 
 CREATE_ACTIONS = ["create", "update"]
@@ -139,6 +139,18 @@ def request_subject(request: Request) -> Optional[Subject]:
     """
     user = getattr(request, "user", None)
     return Subject(user_id=user.pk) if isinstance(user, User) and user.pk is not None else None
+
+
+def filter_visible_project_objects[M: Model](
+    queryset: QuerySet[M], *, team_id: int, include_all_if_admin: bool, user_id: int | None = None
+) -> QuerySet[M]:
+    """Filter rows already scoped to the project for the given user, or the current request's user."""
+    return filter_queryset(
+        queryset,
+        resource=Resource(type=ResourceType(cast(str, model_to_resource(queryset.model))), project_id=team_id),
+        subject=Subject(user_id=user_id) if user_id is not None else None,
+        include_all_if_admin=include_all_if_admin,
+    )
 
 
 def _can_in_organization(request: Request, organization: Organization, action: Action) -> bool:
@@ -269,9 +281,6 @@ class TeamMemberAccessPermission(BasePermission):
                 return view.team.id == psak.team_id
             except (AttributeError, KeyError, Team.DoesNotExist):
                 return False
-
-        if is_authenticated_via_team_secret_token(request):
-            return True
 
         try:
             team = view.team
@@ -428,22 +437,10 @@ def organization_deactivated_error(reason: Optional[str]) -> str:
 
 
 class ActiveOrganizationPermission(BasePermission):
-    """
-    Deny token-authenticated requests that target a deactivated organization.
+    """Deny requests that target an explicitly deactivated organization.
 
-    `ActiveOrganizationMiddleware` redirects the browser away from a deactivated organization, but
-    it skips every `/api` path, so API keys kept full read and write access. Appended to every
-    `TeamAndOrgViewSetMixin` view in `get_permissions`, so it holds regardless of a view's own
-    `authentication_classes`.
-
-    Session auth passes through. The middleware already covers the browser, and a member of a
-    deactivated organization still has to reach the app to see why and to pay an unpaid balance.
-
-    A null `is_active` counts as deactivated. The column is nullable because the field was added
-    with `null=True`, and treating an unknown state as deactivated fails closed.
-
-    Checked against the URL-resolved organization, never `user.current_organization`, because the
-    current organization is a UI preference the API doesn't validate.
+    Billing and organization discovery stay reachable so members can pay or switch organizations.
+    Check the URL-resolved organization because the current organization is only a UI preference.
     """
 
     # Billing stays reachable, so an integration can still read the state that explains the refusal.
@@ -487,9 +484,7 @@ class ActiveOrganizationPermission(BasePermission):
         return True
 
     def _applies(self, request: Request, view) -> bool:
-        if getattr(view, "scope_object", None) in self.EXEMPT_SCOPE_OBJECTS:
-            return False
-        return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
+        return getattr(view, "scope_object", None) not in self.EXEMPT_SCOPE_OBJECTS
 
     def _admits(self, organization: Organization) -> bool:
         if organization.is_pending_deletion:
@@ -497,7 +492,7 @@ class ActiveOrganizationPermission(BasePermission):
                 detail=ORGANIZATION_PENDING_DELETION_ERROR,
                 code="organization_pending_deletion",
             )
-        if not organization.is_active:
+        if organization.is_active is False:
             raise PermissionDenied(
                 detail=organization_deactivated_error(organization.is_not_active_reason),
                 code="organization_deactivated",
@@ -505,28 +500,12 @@ class ActiveOrganizationPermission(BasePermission):
         return True
 
 
-def is_authenticated_via_team_secret_token(request: Request) -> bool:
-    return isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
-
-
 def is_authenticated_via_project_secret_api_key(request: Request) -> bool:
     return isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
 
 
 def is_service_auth(request: Request) -> bool:
-    return is_authenticated_via_team_secret_token(request) or is_authenticated_via_project_secret_api_key(request)
-
-
-def _is_request_for_team_secret_token_secured_endpoint(request: Request) -> bool:
-    return bool(
-        request.resolver_match
-        and request.resolver_match.view_name
-        in {
-            "featureflag-local-evaluation",
-            "project_feature_flags-remote-config",
-            "project_feature_flags-local-evaluation",
-        }
-    )
+    return is_authenticated_via_project_secret_api_key(request)
 
 
 class TeamMemberLightManagementPermission(BasePermission):
@@ -715,15 +694,17 @@ class TimeSensitiveActionPermission(BasePermission):
         if allow_actions and view.action in allow_actions:
             return True
 
-        reference = sensitive_action_reference(request.session)
-        if reference is None:
-            # This should always be covered by the middleware but just in case
-            return False
+        return sensitive_window_is_open(request.session)
 
-        if time.time() - reference > settings.SESSION_SENSITIVE_ACTIONS_AGE:
-            return False
 
+def request_allows_sensitive_action(request: Request) -> bool:
+    """The check `TimeSensitiveActionPermission` makes, for a view that gates only some requests or must not 403.
+
+    Personal API keys and OAuth tokens always pass, because only a browser session can go stale.
+    """
+    if not isinstance(request.successful_authenticator, SessionAuthentication):
         return True
+    return session_allows_sensitive_actions(request.session)
 
 
 class ScopeBasePermission(BasePermission):
@@ -1043,6 +1024,12 @@ def scopes_missing_after_legacy_fallback(
     return missing_scopes
 
 
+ID_JAG_CANNOT_WRITE_TASKS = (
+    "ID-JAG tokens can't start or change tasks, because a task run gets wider access than the token and outlives it. "
+    "Sign in to PostHog with OAuth to work with tasks."
+)
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -1112,6 +1099,17 @@ class APIScopePermission(ScopeBasePermission):
         if isinstance(authenticator, OAuthAccessTokenAuthentication) and not self._sandbox_tool_policy_allows(
             request, view, authenticator.access_token, required_scopes
         ):
+            return False
+
+        # A task run gets its own credential, with wider scopes and a longer life than the token that started it.
+        # An ID-JAG token lives only as long as the identity provider allows, so it must not start or drive a run,
+        # directly or through a PostHog connection.
+        if (
+            "task:write" in required_scopes
+            and not getattr(view, "id_jag_may_write_tasks", False)
+            and is_id_jag_origin_request(request)
+        ):
+            self.message = ID_JAG_CANNOT_WRITE_TASKS
             return False
 
         # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets
@@ -1340,6 +1338,28 @@ REQUIRED_LEVEL_ACTIONS: dict[AccessControlLevel, Action] = {
 }
 
 
+def user_can_access_resource(
+    team: Team,
+    user: User,
+    scope: str,
+    level: AccessControlLevel,
+    *,
+    user_access_control: Optional[UserAccessControl] = None,
+) -> bool:
+    """Whether the user has `level` on the `scope` resource type in the team, outside a DRF permission.
+
+    For a product that checks access to another product's resource type, which it cannot import the authorization
+    facade for without closing a product cycle. Pass the caller's `UserAccessControl` to reuse the rules it loaded.
+    """
+    if user_access_control is not None:
+        authorization.reuse_current_rules(user_access_control)
+    return authorization.check(
+        resource=Resource(type=ResourceType(scope), project_id=team.pk),
+        action=REQUIRED_LEVEL_ACTIONS[level],
+        subject=Subject(user_id=user.pk),
+    )
+
+
 def is_outside_any_project(scope: str, obj: Model, team: Optional[Team]) -> bool:
     """Whether neither the object nor its view has a project, as for an organization's plugins."""
     return team is None and getattr(obj, "team_id", None) is None and ResourceType(scope) not in MEMBERSHIP_RESOURCES
@@ -1407,7 +1427,7 @@ class AccessControlPermission(ScopeBasePermission):
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
 
-        # Service credentials (TST, PSAK) are synthetic users UserAccessControl can't evaluate.
+        # Service credentials (PSAK) are synthetic users UserAccessControl can't evaluate.
         # They're gated by API scope + project membership, so scopes grant project-wide access
         # within that resource type and object-level RBAC restrictions don't apply.
         if is_service_auth(request):
@@ -1602,6 +1622,32 @@ def posthog_feature_flag_enabled(
     )
 
 
+DASHBOARD_V2_FLAG = "dashboard-v2"
+DASHBOARD_V2_USERS_FLAG = "dashboard-v2-users"
+
+
+def dashboard_v2_enabled(team: Team, user: object | None) -> bool:
+    """`dashboard-v2` picks the projects and `dashboard-v2-users` picks the people in them, as the web app does.
+    Without a signed-in user, such as a shared link or a background job, the answer is no."""
+    if not isinstance(user, User):
+        return False
+    distinct_id = str(user.distinct_id or user.uuid)
+    return posthog_feature_flag_enabled(
+        DASHBOARD_V2_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        only_evaluate_locally=True,
+    ) and posthog_feature_flag_enabled(
+        DASHBOARD_V2_USERS_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        person_properties={"email": user.email},
+        only_evaluate_locally=True,
+    )
+
+
 # DRF error code for a flag-gated 403, so a client can tell "not on this alpha yet" apart from a
 # plain access-control denial. Early access enrollment reaches the server as an ingested person
 # property, so a user who has just turned a feature preview on keeps getting denied for a few
@@ -1653,35 +1699,6 @@ class PostHogFeatureFlagPermission(BasePermission):
         return True
 
 
-class TeamSecretTokenPermission(BasePermission):
-    """
-    Controls access to the local_evaluation and remote_config endpoints when authenticated via
-    the legacy team-level Team.secret_api_token (see TeamSecretTokenAuthentication).
-
-    Also validates that the authenticated team matches the resolved team (analogous to
-    TeamMemberAccessPermission for personal keys).
-    """
-
-    def has_permission(self, request, view) -> bool:
-        if not isinstance(request.successful_authenticator, TeamSecretTokenAuthentication):
-            return True
-
-        # Check that the endpoint is allowed for team secret tokens
-        if not _is_request_for_team_secret_token_secured_endpoint(request):
-            return False
-
-        # Check team consistency: authenticated team must match resolved team
-        # This prevents cross-team access when project_api_key is provided in request body
-        authenticated_team = request.user.team  # From TeamSecretTokenUser
-        try:
-            resolved_team = view.team  # From routing logic (may use project_api_key override)
-        except (AttributeError, KeyError, Team.DoesNotExist):
-            # If team resolution fails, let it be handled as a 404 in the viewset
-            return True
-
-        return authenticated_team.id == resolved_team.id
-
-
 class UserCanInvitePermission(BasePermission):
     """
     Only allows Admins+, and Members if members_can_invite flag is True
@@ -1698,15 +1715,10 @@ class UserCanInvitePermission(BasePermission):
         if not org_invite_settings_available:
             return True
 
-        membership = get_required_organization_membership(request, organization)
-
-        members_can_invite = bool(organization.members_can_invite)
-        user_is_admin = membership.effective_level >= OrganizationMembership.Level.ADMIN
-
-        if user_is_admin:
+        if _can_in_required_organization(request, organization, Action.EDIT):
             return True
 
-        return members_can_invite
+        return bool(organization.members_can_invite)
 
 
 class UserCanCreateProjectPermission(BasePermission):
@@ -1716,7 +1728,7 @@ class UserCanCreateProjectPermission(BasePermission):
     behaves exactly like the admin-write permission (members blocked), regardless of the toggle.
     """
 
-    message = "You need to be an organization admin or above to create new projects."
+    message = PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE
 
     def has_permission(self, request: Request, view) -> bool:
         try:
@@ -1725,15 +1737,7 @@ class UserCanCreateProjectPermission(BasePermission):
             return True
 
         membership = get_required_organization_membership(request, organization)
-
-        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
-            return True
-
-        # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
-        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
-            return False
-
-        return bool(organization.members_can_create_projects)
+        return member_can_create_projects(cast(User, membership.user), organization)
 
 
 def is_mcp_built_in_agent_oauth_request(request: Request) -> bool:

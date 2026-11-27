@@ -19,6 +19,16 @@ class UnlayerRenderError(UnlayerError):
     pass
 
 
+@frozen
+class MessageTemplateListFilter:
+    """Which of a team's templates a list returns. Every set field narrows the list, and an empty one leaves it whole."""
+
+    transactional: bool | None = None
+    search: str = ""
+    created_by_id: int | None = None
+    tags: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class EmailTemplateSummary:
     id: UUID
@@ -88,6 +98,11 @@ class IdempotencyKeyInFlight(TransactionalEmailError):
 
 class IdempotencyKeyReused(TransactionalEmailError):
     code = "idempotency_key_reused"
+
+
+class CategoryNotFound(TransactionalEmailError):
+    code = "category_not_found"
+    attr = "category"
 
 
 class SendingSuspended(TransactionalEmailError):
@@ -189,6 +204,14 @@ class EmailAttachment:
     content_id: str | None = None
 
 
+@frozen
+class ReplyHeaders:
+    """Message-IDs, each in angle brackets, that thread a reply under the message it answers. At most 100 references."""
+
+    in_reply_to: str
+    references: tuple[str, ...] = ()
+
+
 class SenderRequired(TransactionalEmailError):
     code = "sender_required"
 
@@ -221,11 +244,22 @@ class SandboxSenderNotAvailable(TransactionalEmailError):
     code = "sandbox_sender_unavailable"
 
 
+class BatchUnavailable(TransactionalEmailError):
+    code = "batch_unavailable"
+
+
 @frozen
 class EmailTracking:
     opens: bool = True
     clicks: bool | None = None
     engagement: bool = True
+
+
+@frozen
+class EmailCategory:
+    id: UUID
+    type: str
+    archived: bool = False
 
 
 @frozen
@@ -241,6 +275,8 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    reply_headers: ReplyHeaders | None = None
+    category: EmailCategory | None = None
 
 
 class DeliveryUnavailable(Exception):
@@ -259,6 +295,11 @@ class SendWarning:
     agent_action: str
 
 
+class QueuedEmailStatus(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    SCHEDULED = "scheduled", "Scheduled"
+
+
 @frozen
 class QueuedEmail:
     message_id: str
@@ -267,7 +308,35 @@ class QueuedEmail:
     warnings: tuple[SendWarning, ...] = ()
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
+    status: QueuedEmailStatus = QueuedEmailStatus.QUEUED
+    # The CDP service's answer as it sent it, so a replay returns the first request's time unchanged.
+    scheduled_at: str | None = None
     sent_from_sandbox: bool = False
+
+
+class BatchTooLarge(Exception):
+    pass
+
+
+@frozen
+class BatchRecipient:
+    to: str
+    idempotency_key: str
+    distinct_id: str | None = None
+    message_data: dict[str, Any] = field(default_factory=dict)
+    refusal: InvalidRecipient | None = None
+
+
+@frozen
+class EmailNotQueued:
+    message_id: str
+    error: TransactionalEmailError | DeliveryUnavailable
+
+
+@frozen
+class EmailBatchSent:
+    results: tuple[QueuedEmail | EmailNotQueued, ...]
+    warnings: tuple[SendWarning, ...] = ()
 
 
 class SupabaseEmailActionType(LabeledStrEnum):
@@ -394,6 +463,12 @@ class TransactionalEmailLogEvent:
 
 
 @frozen
+class TransactionalEmailTracking:
+    opens: bool
+    clicks: bool
+
+
+@frozen
 class TransactionalEmailLogDetail:
     entry: TransactionalEmailLogEntry
     timeline: list[TransactionalEmailLogEvent]
@@ -404,6 +479,7 @@ class TransactionalEmailLogDetail:
     action_id: str
     # True when the template keeps no rendered body.
     sensitive: bool
+    tracking: TransactionalEmailTracking
 
 
 class EmailStatsInterval(LabeledStrEnum):
@@ -476,9 +552,12 @@ class TransactionalEmailImpact:
     clicked: int
     not_clicked: int
     untracked: int
+    clicks_untracked: int
     window_days: int
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None
+    sessions: int | None
+    link_tagging_enabled: bool
 
 
 class CodeEmailSourceOrigin(LabeledStrEnum):

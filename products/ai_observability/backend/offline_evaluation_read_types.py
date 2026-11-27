@@ -91,7 +91,43 @@ class OfflineExperimentAuthor:
 
 
 @frozen
+class ExperimentScoreSource:
+    version_id: UUID
+    version: int
+    successful_items: int
+    value: float | None
+
+
+@frozen
+class ExperimentScoreInput:
+    alias: str
+    statistic: str
+    version_policy: str
+    status: str
+    value: float | None
+    sources: list[ExperimentScoreSource]
+
+
+@frozen
+class ExperimentScore:
+    definition_id: UUID
+    kind: str
+    config: dict[str, JSONValue]
+    scorer_version_id: UUID
+    version: int
+    name: str
+    status: str
+    value: ResultValue | None
+    passed: bool | None
+    inputs: list[ExperimentScoreInput]
+
+
+@frozen
 class OfflineExperimentRead:
+    experiment_score: ExperimentScore | None = None
+    suite_has_score: bool | None = None
+    updated_at: datetime | None = None
+    closed_item_count: int | None = None
     tags: tuple[str, ...] = ()
     created_by: OfflineExperimentAuthor | None = None
     id: UUID
@@ -135,6 +171,9 @@ class OfflineScorerVersionRead:
 
 @frozen
 class OfflineResultRead:
+    is_stale: bool
+    revision: int = 0
+    score_updated_at: datetime | None = None
     input_result_ids: list[UUID] | None = None
     id: UUID
     item_id: UUID
@@ -157,6 +196,8 @@ class OfflineResultCells:
 
 @frozen
 class OfflineItemRead:
+    revision: int = 0
+    content_updated_at: datetime | None = None
     model_version: str | None = None
     id: UUID
     experiment_id: UUID
@@ -179,6 +220,8 @@ class OfflineItemPage(CursorPage[OfflineItemRead]):
 
 @frozen
 class OfflinePayloadRead:
+    revision: int = 0
+    deleted_at: datetime | None = None
     id: UUID
     payload_state: str
     payload_expires_at: datetime | None
@@ -228,5 +271,5 @@ class OfflineScorerSummary:
 @frozen
 class OfflineHistoryPoint:
     experiment: OfflineExperimentRead
-    summary: OfflineScorerSummary
+    summary: OfflineScorerSummary | None
     breakdown_value: str | None = None

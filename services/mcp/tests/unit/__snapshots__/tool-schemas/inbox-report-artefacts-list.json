@@ -12,6 +12,10 @@
         "report_id": {
             "description": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
             "type": "string"
+        },
+        "type": {
+            "description": "Comma-separated artefact types to return, for example `signal_finding,note`. Omit it to return every type. `signal_finding` holds the evidence behind the report, `note` holds free-form notes such as the `## Verification plan`, and `task_run` records research and implementation runs. Values match the `type` of the returned artefacts. `count` and pagination cover only the matching artefacts. An unknown type returns 400 with the accepted values.",
+            "type": "string"
         }
     },
     "required": ["report_id"],

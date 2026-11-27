@@ -54,10 +54,14 @@ export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
             }
             return outcomes
         }),
-        findIdempotencyKey: jest.fn((id: string) => {
-            const fingerprint = claims.get(id)
-            return Promise.resolve(fingerprint === undefined ? null : { fingerprint })
-        }),
+        findIdempotencyKeys: jest.fn((ids: string[]) =>
+            Promise.resolve(
+                ids.map((id) => {
+                    const fingerprint = claims.get(id)
+                    return fingerprint === undefined ? null : { fingerprint, reply: null }
+                })
+            )
+        ),
     }
     return queue as jest.Mocked<IdempotentJobQueue>
 }

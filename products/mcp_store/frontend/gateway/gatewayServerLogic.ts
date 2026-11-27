@@ -37,6 +37,7 @@ import {
 } from '../generated/api.schemas'
 import type { MCPServiceAccountApi } from '../generated/api.schemas'
 import type { TeamMCPGatewayConfigApi } from '../generated/api.schemas'
+import type { ToolPolicyEntryApi } from '../generated/api.schemas'
 import { defaultAgentGrantPolicy, isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { AgentServerShare, agentServerShare, mcpGatewayLogic } from './mcpGatewayLogic'
 
@@ -226,11 +227,11 @@ export interface gatewayServerLogicActions {
         serverId: string,
         enabled: boolean,
         scope?: MCPAgentGrantScopeEnumApi | undefined,
-        policies?: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
+        policies?: ToolPolicyEntryApi[] | undefined
     ) => {
         accountId: string
         enabled: boolean
-        policies: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
+        policies: ToolPolicyEntryApi[] | undefined
         scope: MCPAgentGrantScopeEnumApi
         serverId: string
     } // mcpGatewayLogic

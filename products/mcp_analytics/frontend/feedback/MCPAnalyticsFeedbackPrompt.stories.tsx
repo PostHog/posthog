@@ -121,6 +121,8 @@ export const SessionReview: Story = {
                             session_start: '2026-09-01T12:00:00Z',
                             session_end: '2026-09-01T12:00:02Z',
                             tool_calls: 1,
+                            error_calls: 0,
+                            tools_used: ['deployment-status'],
                             intent: 'Check the status of a deployment.',
                             mcp_client_name: 'Example client',
                         },

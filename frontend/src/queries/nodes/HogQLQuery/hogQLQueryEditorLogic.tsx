@@ -37,6 +37,7 @@ import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery } from '../../../types'
+import type { PreflightStatus } from '../../../types'
 
 export interface HogQLQueryEditorLogicProps {
     key: string | number
@@ -116,7 +117,7 @@ export interface hogQLQueryEditorLogicActions {
 export interface hogQLQueryEditorLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
-        aiAvailable: (preflight: null | import('../../../types').PreflightStatus) => boolean | undefined
+        aiAvailable: (preflight: PreflightStatus | null) => boolean | undefined
     }
 }
 

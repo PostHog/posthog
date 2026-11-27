@@ -141,4 +141,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "threat_level": "Persona's assessed network threat level for the session.",
         },
     },
+    "lists": {
+        "description": "A blocklist or allowlist of values (such as email addresses, IP addresses, or ID numbers) that Persona can flag during an inquiry.",
+        "docs_url": "https://docs.withpersona.com/api-reference/lists/list-all-lists",
+        "columns": {
+            "id": "Unique identifier for the list.",
+            "type": "The kind of value the list holds (e.g. list/email-address, list/ip-address, list/government-id-number).",
+            "name": "The name of the list.",
+            "status": "Whether the list is `active` or `archived`.",
+            "archived_at": "Timestamp when the list was archived, if it was.",
+            "created_at": "Timestamp when the list was created.",
+            "updated_at": "Timestamp when the list was last updated.",
+        },
+    },
+    "devices": {
+        "description": "A device that Persona saw during an inquiry session, identified by its device and browser fingerprints.",
+        "docs_url": "https://docs.withpersona.com/api-reference/devices/list-all-devices",
+        "columns": {
+            "id": "Unique identifier for the device (prefixed `dev_`).",
+            "inquiry_session_id": "The inquiry session the device was seen in (prefixed `iqse_`).",
+            "device_vendor_id": "The vendor identifier of the device, if one was collected.",
+            "device_fingerprint": "Persona's fingerprint of the device.",
+            "browser_fingerprint": "Persona's fingerprint of the browser.",
+        },
+    },
+    "report_history": {
+        "description": "One entry in the history of a report: a manual or scheduled run, or a reviewer action such as a review, dismissal, pause, or resume.",
+        "docs_url": "https://docs.withpersona.com/api-reference/reports/list-report-history",
+        "columns": {
+            "id": "Unique identifier for the history entry.",
+            "report_id": "The report this entry belongs to (prefixed `rep_`).",
+            "type": "The kind of entry: run, dismiss, pause, resume, or review.",
+            "run_type": "For a run, whether it was `manual` or `scheduled`.",
+            "scheduled_date": "For a run, the date the report was scheduled to run on.",
+            "completed_at": "For a run, the timestamp when the run completed.",
+            "matches": "For a completed run, the number of matches found.",
+            "created_at": "For a reviewer action, the timestamp when the action was taken.",
+            "creator_name": "For a reviewer action, the name of the user who took it.",
+        },
+    },
 }

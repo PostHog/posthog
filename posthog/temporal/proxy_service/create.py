@@ -6,23 +6,27 @@ import typing as t
 import asyncio
 import datetime as dt
 import ipaddress
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from django.conf import settings
+from django.db import DatabaseError
 
 import grpc.aio
 import requests
 import dns.resolver
 import temporalio.common
+from redis.exceptions import RedisError
 from structlog import get_logger
 from temporalio import activity, workflow
 from temporalio.client import (
+    Client,
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleAlreadyRunningError,
     ScheduleIntervalSpec,
     ScheduleSpec,
 )
+from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
 from posthog.cloud_utils import is_cloud
@@ -32,12 +36,11 @@ from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule
+from posthog.temporal.common.utils import on_asyncify_pool
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     CustomHostnameSSLStatus,
-    create_custom_hostname,
     get_custom_hostname_by_domain,
-    update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
@@ -47,7 +50,7 @@ from posthog.temporal.proxy_service.common import (
     activity_send_proxy_created_email,
     activity_update_proxy_record,
     get_grpc_client,
-    get_record,
+    is_cloudflare_proxy_by_cname,
     record_exists,
     update_record,
     use_cloudflare_proxy,
@@ -59,7 +62,7 @@ from posthog.temporal.proxy_service.proto import CertificateState_READY, CreateR
 LOGGER = get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=False)
 class CreateManagedProxyInputs:
     """Inputs for the CreateManagedProxy Workflow and Activity."""
 
@@ -67,6 +70,7 @@ class CreateManagedProxyInputs:
     proxy_record_id: uuid.UUID
     domain: str
     target_cname: str
+    use_cloudflare: bool | None = None
 
     @property
     def properties_to_log(self) -> dict[str, t.Any]:
@@ -76,6 +80,30 @@ class CreateManagedProxyInputs:
             "domain": self.domain,
             "target_cname": self.target_cname,
         }
+
+
+async def start_proxy_provisioning(
+    temporal: Client,
+    inputs: CreateManagedProxyInputs,
+    *,
+    resume: bool = False,
+    id_conflict_policy: WorkflowIDConflictPolicy = WorkflowIDConflictPolicy.USE_EXISTING,
+) -> bool:
+    workflow_id = f"proxy-create-{inputs.proxy_record_id}"
+    if resume:
+        # Runs started before retries switched to the stable ID can still be waiting for DNS.
+        query = f'WorkflowId STARTS_WITH "{workflow_id}-retry-" AND ExecutionStatus = "Running"'
+        async for _ in temporal.list_workflows(query=query, limit=1, page_size=1):
+            return False
+
+    await temporal.start_workflow(
+        "create-proxy",
+        replace(inputs, use_cloudflare=is_cloudflare_proxy_by_cname(inputs.target_cname)),
+        id=workflow_id,
+        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        id_conflict_policy=id_conflict_policy,
+    )
+    return True
 
 
 @dataclass
@@ -290,43 +318,19 @@ class CreateCloudflareProxyInputs:
 
 
 @activity.defn
-async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs):
-    """Activity that creates a Custom Hostname in Cloudflare for SaaS."""
-    logger = LOGGER.bind(organization_id=inputs.organization_id)
-    logger.info(
-        "Creating Cloudflare Custom Hostname for domain %s",
-        inputs.domain,
-    )
-
-    record = await get_record(inputs.proxy_record_id)
-    if record is None:
-        raise RecordDeletedException("proxy record was deleted while creating Cloudflare Custom Hostname")
+async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs) -> None:
+    # Package registration imports this activity while managed_proxy loads its Cloudflare helpers.
+    from posthog.managed_proxy import provision_cloudflare_hostname  # noqa: PLC0415
 
     try:
-        result = await asyncio.to_thread(create_custom_hostname, inputs.domain)
-        logger.info(
-            "Created Cloudflare Custom Hostname %s for domain %s with status %s",
-            result.id,
-            inputs.domain,
-            result.status.value,
-        )
-    except CloudflareAPIError as e:
-        if any(err.get("code") == 1406 for err in e.errors):
-            # Custom hostname already exists
-            logger.info("Cloudflare Custom Hostname already exists for domain %s", inputs.domain)
-        elif e.is_rate_limited():
-            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
+        active = await on_asyncify_pool(provision_cloudflare_hostname)(inputs.organization_id, inputs.proxy_record_id)
+    except CloudflareAPIError as error:
+        if error.is_rate_limited():
             raise
-        else:
-            raise NonRetriableException(f"Cloudflare API error: {e}") from e
+        raise NonRetriableException(f"Cloudflare API error: {error}") from error
 
-    if record.root_redirect_url:
-        try:
-            await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, record.root_redirect_url)
-        except CloudflareAPIError as e:
-            if e.is_rate_limited():
-                raise
-            raise NonRetriableException(f"Cloudflare KV error: {e}") from e
+    if not active:
+        raise RecordDeletedException("proxy record is unavailable for provisioning")
 
 
 @activity.defn
@@ -345,6 +349,13 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         hostname_info = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
 
         if hostname_info is None:
+            from posthog.managed_proxy import provision_cloudflare_hostname  # noqa: PLC0415
+
+            # Reused workflows have verified DNS but do not revisit hostname creation.
+            if await on_asyncify_pool(provision_cloudflare_hostname)(
+                inputs.organization_id, inputs.proxy_record_id, recovering_certificate=True
+            ):
+                raise ApplicationError("Cloudflare hostname was restored and is waiting for a certificate")
             raise NonRetriableException(f"Custom Hostname not found for domain {inputs.domain}")
 
         if hostname_info.ssl.status == CustomHostnameSSLStatus.ACTIVE:
@@ -367,7 +378,7 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
     except ApplicationError:
         raise
-    except (ConnectionError, TimeoutError, OSError):
+    except (ConnectionError, TimeoutError, OSError, DatabaseError, RedisError):
         raise
     except NonRetriableException:
         raise
@@ -472,8 +483,8 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> CreateManagedProxyInputs:
         """Parse inputs from the management command CLI."""
-        loaded = json.loads(inputs[0])
-        return CreateManagedProxyInputs(**loaded)
+        parsed = CreateManagedProxyInputs(**json.loads(inputs[0]))
+        return replace(parsed, use_cloudflare=is_cloudflare_proxy_by_cname(parsed.target_cname))
 
     @temporalio.workflow.run
     async def run(self, inputs: CreateManagedProxyInputs) -> None:
@@ -545,8 +556,9 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 ),
             )
 
-            # Branch based on whether to use Cloudflare or the legacy proxy provisioner
-            if use_cloudflare_proxy():
+            # Histories started before the backend was recorded still replay their original branch.
+            use_cloudflare = use_cloudflare_proxy() if inputs.use_cloudflare is None else inputs.use_cloudflare
+            if use_cloudflare:
                 # Cloudflare for SaaS path: Create Custom Hostname and Worker Route
                 cloudflare_inputs = CreateCloudflareProxyInputs(
                     organization_id=inputs.organization_id,
@@ -572,7 +584,8 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     wait_for_cloudflare_certificate,
                     cloudflare_inputs,
                     schedule_to_close_timeout=dt.timedelta(minutes=60),
-                    start_to_close_timeout=dt.timedelta(seconds=10),
+                    # A resumed check can restore the hostname and redirect under the reconciliation lock.
+                    start_to_close_timeout=dt.timedelta(seconds=75),
                     retry_policy=temporalio.common.RetryPolicy(
                         backoff_coefficient=1.1,
                         initial_interval=dt.timedelta(seconds=5),
