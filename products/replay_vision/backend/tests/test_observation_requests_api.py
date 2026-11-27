@@ -17,13 +17,12 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
-from posthog.models import ProjectSecretAPIKey, Team
+from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
-from products.replay_vision.backend.api.observation_requests import LISTED_REQUESTS_WINDOW, MAX_LISTED_REQUESTS
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -216,6 +215,12 @@ class TestObservationRequestAPI(APIBaseTest):
         return str(request.id)
 
     def test_lists_the_recent_readable_requests_with_a_reference_newest_first(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         newer = self._stored_request("email:welcome", 5, session_id="s-newer")
         older = self._stored_request("email:welcome", 10, session_id="s-older")
         self._stored_request("email:receipt", 1)
@@ -231,6 +236,9 @@ class TestObservationRequestAPI(APIBaseTest):
             experiment_targeting={"experiment_id": experiment.id, "variant": "test"},
         )
         self._stored_request("email:welcome", 1, scanner=hidden_scanner)
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment.id), access_level="none"
+        )
         for session_id, snapshot_scanner in (("s-newer", hidden_scanner), ("s-older", self.scanner)):
             ReplayObservation.objects.create(
                 scanner=self.scanner,
@@ -241,8 +249,7 @@ class TestObservationRequestAPI(APIBaseTest):
                 status=ObservationStatus.RUNNING,
             )
 
-        with hide_experiment_from_access_filter(experiment.id):
-            response = self.client.get(self.url, {"reference": "email:welcome"})
+        response = self.client.get(self.url, {"reference": "email:welcome"})
 
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(
@@ -253,8 +260,8 @@ class TestObservationRequestAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("exactly at the window edge", LISTED_REQUESTS_WINDOW, True),
-            ("a minute past the window edge", LISTED_REQUESTS_WINDOW + timedelta(minutes=1), False),
+            ("exactly 30 days old", timedelta(days=30), True),
+            ("a minute past 30 days old", timedelta(days=30, minutes=1), False),
         ]
     )
     def test_lists_requests_as_old_as_the_window(self, _name: str, age: timedelta, listed: bool) -> None:
@@ -266,12 +273,12 @@ class TestObservationRequestAPI(APIBaseTest):
 
     def test_a_full_page_of_requests_made_at_the_same_moment_keeps_the_highest_ids(self) -> None:
         with time_machine.travel(datetime(2026, 11, 20, 12, tzinfo=UTC), tick=False):
-            request_ids = [self._stored_request("email:welcome", 5) for _ in range(MAX_LISTED_REQUESTS + 1)]
+            request_ids = [self._stored_request("email:welcome", 5) for _ in range(21)]
             response = self.client.get(self.url, {"reference": "email:welcome"})
 
         self.assertEqual(
             [r["id"] for r in response.json()],
-            sorted(request_ids, key=UUID, reverse=True)[:MAX_LISTED_REQUESTS],
+            sorted(request_ids, key=UUID, reverse=True)[:20],
         )
 
     def test_a_request_that_waits_for_the_session_to_end_starts_nothing_yet(self) -> None:
