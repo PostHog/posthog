@@ -13,6 +13,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
+from posthog.notebook_model_permissions import can_read_model_upstream_views, can_replace_model_output
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -67,10 +68,10 @@ def notebook_dag_status(team_id: int, node_id: UUID, request_id: UUID) -> dict[s
         raise
 
 
-def require_table_access(model: NotebookModel, access: UserAccessControl) -> None:
+def require_table_access(model: NotebookModel, user: User) -> None:
     if model.table_id:
         table = DataWarehouseTable.objects.filter(team_id=model.team_id, pk=model.table_id, deleted=False).first()
-        if table is None or not access.check_access_level_for_object(table, "editor"):
+        if table is None or not can_replace_model_output(table, user_id=user.pk):
             raise PermissionDenied("You need edit access to the output table.")
 
 
@@ -84,7 +85,7 @@ def require_notebook_node_edit_access(
         if model.owner_id != access.user.pk:
             raise PermissionDenied("Only the notebook model owner can change its node or dependencies.")
         notebook_model_executor().authorize(team_id, model.notebook_id, access.user)
-        require_table_access(model, access)
+        require_table_access(model, access.user)
 
 
 def _binding(model: NotebookModel) -> NotebookModelBinding:
@@ -99,13 +100,12 @@ def _binding(model: NotebookModel) -> NotebookModelBinding:
 def owned_notebook_model(team_id: int, notebook_id: UUID, node_id: UUID, user: User) -> NotebookModelBinding:
     model = (
         NotebookModel.objects.for_team(team_id)
-        .select_related("team")
         .filter(notebook_id=notebook_id, node_id=node_id, owner_id=user.pk)
         .first()
     )
     if model is None:
         raise ValidationError("Choose a warehouse model you declared for this notebook.")
-    require_table_access(model, UserAccessControl(team=model.team, user=user))
+    require_table_access(model, user)
     return _binding(model)
 
 
@@ -120,7 +120,6 @@ def declare_notebook_model(
     upstream_node_ids: list[UUID],
     daily_refresh: bool,
 ) -> NotebookModelBinding:
-    access = UserAccessControl(team=team, user=user)
     database = Database.create_for(team_id=team.pk, user=user)
     parents = set(upstream_node_ids)
     with transaction.atomic():
@@ -133,13 +132,12 @@ def declare_notebook_model(
             .filter(node_id__in=parents, owner_id=user.pk, table_id__isnull=True)
             .values_list("node_id", flat=True)
         )
-        if len(upstream) != len(parents) or any(
-            (parent.pk not in unpublished and not database.has_table(parent.name))
-            or (
-                parent.saved_query is not None
-                and not access.check_access_level_for_object(parent.saved_query, "viewer")
+        if (
+            len(upstream) != len(parents)
+            or any(parent.pk not in unpublished and not database.has_table(parent.name) for parent in upstream)
+            or not can_read_model_upstream_views(
+                (parent.saved_query for parent in upstream if parent.saved_query is not None), user_id=user.pk
             )
-            for parent in upstream
         ):
             raise ValidationError("Choose upstream nodes you can read in this project's modeling DAG.")
         model = (
@@ -148,7 +146,7 @@ def declare_notebook_model(
         if model:
             if model.notebook_id != notebook_id or model.owner_id != user.pk:
                 raise PermissionDenied("This output name already belongs to another model.")
-            require_table_access(model, access)
+            require_table_access(model, user)
             node = model.node
         else:
             if nodes.filter(name=name).exists() or database.has_table(name) or get_view_or_table_by_name(team.pk, name):

@@ -10,7 +10,6 @@ from posthog.models import User
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.utils import close_db_connections
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.notebook_model_hooks import notebook_model_executor
 from products.data_modeling.backend.logic.notebook_model import require_table_access
 from products.data_modeling.backend.models import DataModelingJob, NotebookModel
@@ -86,7 +85,7 @@ def prepare_notebook_model(run: ModelRun) -> PreparedNotebookModel | None:
         if binding.latest_run_id != run.run_id:
             raise ValueError("This run has been superseded.")
         user = User.objects.get(pk=binding.owner_id, is_active=True)
-        require_table_access(binding, UserAccessControl(team=binding.team, user=user))
+        require_table_access(binding, user)
         nodes = notebook_model_executor().prepare(
             run.team_id, binding.notebook_id, binding.output_cell, binding.definition_hash, user.pk, run.run_id
         )
@@ -127,13 +126,12 @@ def publish_frame(run: ModelRun, upload: UploadedFileRef, row_count: int) -> Non
         if job.status != DataModelingJob.Status.RUNNING:
             raise ValueError("This model run is already closed.")
         owner = User.objects.get(pk=binding.owner_id, is_active=True)
-        access = UserAccessControl(team=binding.team, user=owner)
         notebook_model_executor().authorize(run.team_id, binding.notebook_id, owner)
         if binding.table_id:
             table = DataWarehouseTable.objects.select_for_update(of=("self",)).get(
                 pk=binding.table_id, team_id=run.team_id, deleted=False
             )
-            require_table_access(binding, access)
+            require_table_access(binding, owner)
             if table.name != binding.node.name or table.external_data_source_id or table.credential_id:
                 raise ValueError("The output table changed. Check the model destination before retrying.")
         else:

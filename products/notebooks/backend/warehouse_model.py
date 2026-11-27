@@ -14,8 +14,8 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from posthog.hogql.constants import MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT
 
 from posthog.models import User
+from posthog.notebook_model_permissions import can_publish_notebook_model
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import PlannedCell, interrupt_notebook_run, plan_notebook_cells
@@ -33,15 +33,7 @@ def check_model_author(notebook: Notebook, user: User | None) -> User:
         SubjectInput(email=user.email, user_uuid=str(user.uuid)), Surface.APP, call_site="notebook_warehouse_model"
     ):
         raise PermissionDenied("This account cannot publish notebook models.")
-    access = UserAccessControl(user=user, team=notebook.team)
-    if not (
-        access.organization_membership
-        and access.has_project_access
-        and access.check_access_level_for_object(notebook, "editor")
-        and access.check_access_level_for_resource("query", "viewer")
-        and access.check_access_level_for_resource("warehouse_table", "editor")
-        and access.check_access_level_for_resource("warehouse_view", "editor")
-    ):
+    if not can_publish_notebook_model(notebook, user_id=user.pk):
         raise PermissionDenied("Publishing a model requires notebook, warehouse, and query access.")
     return user
 
