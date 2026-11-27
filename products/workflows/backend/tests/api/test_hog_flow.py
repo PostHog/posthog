@@ -2896,9 +2896,9 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         expected = (
-            "Open the cohort's page to turn realtime on"
+            "Open the cohort's page to turn real-time on"
             if cohort_kind == "realtime_off"
-            else "isn't ready for realtime"
+            else "isn't ready for real-time"
         )
         assert expected in response.json()["detail"]
 
