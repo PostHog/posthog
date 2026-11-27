@@ -14,6 +14,7 @@ import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariabl
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
 import { expect, userEvent } from 'storybook/test'
@@ -56,6 +57,8 @@ const notebook = {
     app_published: layout,
     variables: appBuilderDemoVariables,
 }
+let shortcuts: FileSystemEntry[] = []
+let failShortcutLoad = false
 let runNumber = 0
 let results = appBuilderDemoResults(appBuilderDemoVariables)
 let saved = structuredClone(notebook)
@@ -65,6 +68,8 @@ const meta: Meta = {
     component: App,
     title: 'Scenes-App/Notebooks/App builder',
     beforeEach: () => {
+        shortcuts = []
+        failShortcutLoad = false
         saved = structuredClone(notebook)
         failNextQuery = false
         runNumber = 0
@@ -84,6 +89,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/file_system_shortcut': () =>
+                    failShortcutLoad ? [503, {}] : [200, { count: shortcuts.length, next: null, results: shortcuts }],
                 '/api/projects/:team_id/notebooks/kernel/compute_options': {
                     currency: 'USD',
                     presets: [],
@@ -149,7 +156,21 @@ const meta: Meta = {
                     return [200, saved]
                 },
             },
+            delete: {
+                '/api/projects/:team_id/file_system_shortcut/:id': ({ params }) => {
+                    shortcuts = shortcuts.filter((entry) => entry.id !== params.id)
+                    return [204, null]
+                },
+            },
             post: {
+                '/api/projects/:team_id/file_system_shortcut': async ({ request }) => {
+                    const view = {
+                        ...((await request.json()) as Pick<FileSystemEntry, 'path' | 'type' | 'href' | 'ref'>),
+                        id: crypto.randomUUID(),
+                    }
+                    shortcuts.push(view)
+                    return [201, view]
+                },
                 '/api/projects/:team_id/notebooks/app-builder-demo/app_preview': () => [
                     200,
                     { has_previous: true, problems: [], results_as_of: '2026-10-18T09:00:00Z' },
@@ -329,6 +350,41 @@ export const SharedView: Story = {
         await userEvent.click(app.getByRole('tab', { name: 'Overview' }))
         await waitFor(() => expect(app.getByText('222', { exact: true })).toBeVisible(), { timeout: 60000 })
         expect(app.getByRole('button', { name: 'Copy view link' })).toBeEnabled()
+    },
+}
+
+export const SavedViews: Story = {
+    ...SharedView,
+    beforeEach: () => {
+        saved.user_access_level = AccessControlLevel.Viewer
+        failShortcutLoad = true
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Overview' }, { timeout: 60000 }))
+        await canvas.findByText('222', { exact: true }, { timeout: 60000 })
+        await userEvent.click(canvas.getByRole('button', { name: 'Saved views' }))
+        const heading = await within(document.body).findByRole('heading', { name: 'Saved views' })
+        const modal = within(heading.closest<HTMLElement>('.LemonModal__container')!)
+        await modal.findByText('Could not load saved views.')
+        expect(modal.queryByText('No saved views for this app yet.')).not.toBeInTheDocument()
+        failShortcutLoad = false
+        await userEvent.click(modal.getByRole('button', { name: 'Try again' }))
+        await modal.findByText('No saved views for this app yet.')
+        failShortcutLoad = true
+        await userEvent.type(modal.getByLabelText('View name'), 'Europe / biweekly')
+        const save = modal.getByRole('button', { name: 'Save view' })
+        await waitFor(() => expect(save).toHaveAttribute('aria-disabled', 'false'), { timeout: 10000 })
+        await userEvent.click(save)
+        const link = await modal.findByRole('link', { name: 'Europe / biweekly' }, { timeout: 10000 })
+        expect(shortcuts[0].ref).toBe(SHORT_ID)
+        const url = new URL(link.getAttribute('href')!, window.location.origin)
+        expect(JSON.parse(new URLSearchParams(url.hash.slice(1)).get('appView')!)).toMatchObject({
+            tab: 'overview',
+            inputs: { region: 'Europe', weeks: 2 },
+        })
+        await userEvent.click(modal.getByRole('button', { name: 'Remove Europe / biweekly' }))
+        await modal.findByText('No saved views for this app yet.')
     },
 }
 

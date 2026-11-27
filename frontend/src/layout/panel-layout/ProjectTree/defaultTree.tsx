@@ -681,11 +681,7 @@ export function getSidebarProduct(href: string | undefined): FileSystemImport | 
 
 let sidebarProductHrefsByName: Map<string, string> | undefined
 
-// Stars created by the backend carry no href, because product URLs exist only in the frontend.
-export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry {
-    if (entry.href || entry.ref || entry.type === 'folder') {
-        return entry
-    }
+function sidebarProductHrefByName(path: string): string | undefined {
     if (!sidebarProductHrefsByName) {
         sidebarProductHrefsByName = new Map()
         for (const item of [...getDefaultTreeProducts(), ...getDefaultTreeData()]) {
@@ -695,7 +691,21 @@ export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry
             }
         }
     }
-    const href = sidebarProductHrefsByName.get(entry.path)
+    return sidebarProductHrefsByName.get(path)
+}
+
+// Stars created by the backend carry no href, because product URLs exist only in the frontend.
+export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry {
+    if (entry.type === 'notebook' && !entry.ref && entry.href) {
+        const notebook = /^\/project\/[^/]+\/notebooks\/([^/?#]+)\?view=app#appView=/.exec(entry.href)
+        if (notebook) {
+            return { ...entry, ref: notebook[1] }
+        }
+    }
+    if (entry.href || entry.ref || entry.type === 'folder') {
+        return entry
+    }
+    const href = sidebarProductHrefByName(entry.path)
     return href ? { ...entry, href } : entry
 }
 

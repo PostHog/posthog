@@ -243,6 +243,7 @@ export interface projectTreeDataLogicValues {
     shortcutDataHasLoaded: boolean
     shortcutDataLoading: boolean
     shortcutEntryIdMap: Map<string, string>
+    shortcutLoadFailed: boolean
     shortcutNonFolderPaths: Set<string>
     sortedItems: FileSystemEntry[]
     starredNavigationRef:
@@ -613,6 +614,12 @@ export interface projectTreeDataLogicActions {
         href: string | undefined
         ref: ProjectTreeRef | null
     }
+    shortcutCreated: (shortcut: FileSystemEntry) => {
+        shortcut: FileSystemEntry
+    }
+    shortcutRemoved: (id: string) => {
+        id: string
+    }
     syncTypeAndRef: (
         type: string,
         ref: string
@@ -778,6 +785,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         setLastNewFolder: (folder: string | null) => ({ folder }),
 
+        shortcutCreated: (shortcut: FileSystemEntry) => ({ shortcut }),
+        shortcutRemoved: (id: string) => ({ id }),
         addShortcutItem: (item: FileSystemEntry, successMessage?: string) => ({ item, successMessage }),
         deleteShortcut: (id: FileSystemEntry['id'], successMessage?: string) => ({ id, successMessage }),
         loadShortcuts: true,
@@ -1338,6 +1347,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             [] as FileSystemEntry[],
             SHORTCUTS_PERSIST_OPTIONS,
             {
+                shortcutCreated: (state, { shortcut }) =>
+                    state.some((item) => item.id === shortcut.id) ? state : [...state, shortcut],
+                shortcutRemoved: (state, { id }) => state.filter((item) => item.id !== id),
                 deleteTypeAndRef: (state, { type, ref }) => state.filter((s) => s.type !== type || s.ref !== ref),
                 addLoadedResults: (state, { results }) => {
                     const filesByTypeAndRef = Object.fromEntries(
@@ -1345,7 +1357,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     )
                     return state.map((item) => {
                         const file = filesByTypeAndRef[`${item.type}//${item.ref}`]
-                        if (file) {
+                        if (file && !(item.type === 'notebook' && item.href?.includes('?view=app#appView='))) {
                             return { ...item, path: escapePath(splitPath(file.path).pop() ?? 'Unnamed') }
                         }
                         return item
@@ -1353,6 +1365,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 // Apply reorder optimistically so the UI updates immediately while the API call is in flight.
                 reorderShortcuts: (state, { orderedIds }) => applyOrder(state, orderedIds),
+            },
+        ],
+        shortcutLoadFailed: [
+            false,
+            {
+                loadShortcuts: () => false,
+                loadShortcutsSuccess: () => false,
+                loadShortcutsFailure: () => true,
             },
         ],
         shortcutDataHasLoaded: [

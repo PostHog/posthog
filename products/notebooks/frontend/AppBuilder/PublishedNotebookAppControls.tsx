@@ -1,16 +1,50 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { Suspense, useState } from 'react'
 
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
-import { notebookAppViewLink } from './notebookAppViewLink'
+import { notebookAppViewPath } from './notebookAppViewLink'
+
+const NotebookAppSavedViews = lazyWithRetry(() => import('./NotebookAppSavedViews'))
+
+function SavedViewsButton({
+    viewer,
+    viewPath,
+    dirty,
+}: {
+    viewer: ViewerProps
+    viewPath: () => string
+    dirty: boolean
+}): JSX.Element {
+    const [open, setOpen] = useState(false)
+    return (
+        <>
+            <LemonButton size="small" onClick={() => setOpen(true)}>
+                Saved views
+            </LemonButton>
+            {open && (
+                <Suspense fallback={null}>
+                    <NotebookAppSavedViews
+                        project={viewer.project}
+                        shortId={viewer.shortId}
+                        href={viewPath()}
+                        dirty={dirty}
+                        onClose={() => setOpen(false)}
+                    />
+                </Suspense>
+            )}
+        </>
+    )
+}
 
 function ResultTimestamp({
     updatedAt,
@@ -44,6 +78,7 @@ export function PublishedNotebookAppControls({
     const logic = notebookAppViewerLogic(viewer)
     const { variables, results, resultsLoading: busy, auto, dirty } = useValues(logic)
     const { setAuto, refresh } = useActions(logic)
+    const viewPath = (): string => notebookAppViewPath(viewer.project, shortId, activeTab, variables)
     const hasNativeSql = cells.some(
         (cell) =>
             cell.type === 'component' &&
@@ -73,12 +108,7 @@ export function PublishedNotebookAppControls({
                 size="small"
                 disabledReason={dirty ? 'Apply your filters before copying this view.' : undefined}
                 onClick={async () => {
-                    if (
-                        await copyToClipboard(
-                            notebookAppViewLink(viewer.project, shortId, activeTab, variables),
-                            'view link'
-                        )
-                    ) {
+                    if (await copyToClipboard(urls.absolute(viewPath()), 'view link')) {
                         posthog.capture('notebook app view link copied', {
                             short_id: shortId,
                             revision: release.revision,
@@ -88,6 +118,7 @@ export function PublishedNotebookAppControls({
             >
                 Copy view link
             </LemonButton>
+            <SavedViewsButton viewer={viewer} viewPath={viewPath} dirty={dirty} />
             {variables.length > 0 && <LemonCheckbox label="Auto-update results" checked={auto} onChange={setAuto} />}
             {(hasNativeSql || variables.length > 0) && (
                 <LemonButton type="secondary" size="small" loading={busy} onClick={() => refresh(!dirty)}>
