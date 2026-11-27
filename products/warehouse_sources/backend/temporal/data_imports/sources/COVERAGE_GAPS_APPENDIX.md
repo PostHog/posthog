@@ -15161,14 +15161,14 @@ Note: Docs are a JS-rendered ReadMe site with no downloadable OAS, so the endpoi
 
 ## TrafficStars — gaps
 
-Today (3): `campaign_statistics_daily`, `campaigns`, `creatives`
+Today (9): `campaign_statistics_daily`, `campaigns`, `countries`, `country_statistics_daily`, `creative_statistics_daily`, `creatives`, `device_statistics_daily`, `os_statistics_daily`, `spot_statistics_daily`
 
 Diffed against: <https://docs.trafficstars.com/_reports.md>
 
-- [ ] `Advertiser custom report by group type (GET /v1.1/advertiser/custom/report/by-{group_type})` — Spend and results split by country, creative, spot, device, os, hour or subid, the breakdowns the daily campaign table lacks (high)
-- [ ] `Advertiser stats by section (GET /v1/stats/advertiser/{section})` — Older advertiser statistics by section, a second cut of campaign performance (low)
-- [ ] `Countries (GET /v1.1/countries)` — Code to name lookup for country values on the breakdown reports and campaign targeting (medium)
-- [ ] `Spots (GET /v1.1/spots)` — Ad placements with type and status, resolves spot ids in spot breakdown reports (medium)
+- [x] `Advertiser custom report by group type (GET /v1.1/advertiser/custom/report/by-{group_type})` — Spend and results split by country, creative, spot, device, os, hour or subid, the breakdowns the daily campaign table lacks (high)
+- [ ] `Advertiser stats by section (GET /v1/stats/advertiser/{section})` — Older advertiser statistics by section, a second cut of campaign performance (low) Skipped: the vendor marks this route deprecated in favor of the custom reports.
+- [x] `Countries (GET /v1.1/countries)` — Code to name lookup for country values on the breakdown reports and campaign targeting (medium)
+- [ ] `Spots (GET /v1.1/spots)` — Ad placements with type and status, resolves spot ids in spot breakdown reports (medium) Skipped: publisher spot management API, and spot_statistics_daily already carries the spot id and name.
 - [ ] `Retargeting lists (GET /v1/retargeting/list/{id})` — Retargeting audiences with their fields for an advertiser user id (low)
 - [ ] `User balance (GET /v2/userinfo/balance)` — Current account balance and credit, one row per snapshot, for spend monitoring (low)
 
