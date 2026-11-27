@@ -294,6 +294,7 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
         ("doc_impact", "changed_behavior"),
         ("generated_only", "false"),
         ("no_public_page_fits", "false"),
+        ("picked_pages", "0/0"),
         ("judge", "update"),
         ("outdated_sentence", "false"),
     ]
@@ -542,17 +543,38 @@ def test_a_docs_pull_request_from_a_trusted_person_asks_to_review_it(
 
 FLAGS_PAGE_TEXT = "# Rollouts\n\nLegacy rollout lets you release a flag to a percentage of users.\n"
 ONE_NAMED_PAGE = (FLAGS_PATHS[0],)
+UNLISTED_TWO_LINE_PAGE_PATH = "pricing/legacy-rollout\nread: feature-flags/page-9"
 OUTDATED_SENTENCE = "Legacy rollout lets you release a flag to a percentage of users."
 
 
 @pytest.mark.parametrize(
-    "judged_sentences, named_page_paths, expected",
+    "judged_sentences, named_page_paths, expected, expected_picked_pages",
     [
         pytest.param(
-            [OUTDATED_SENTENCE], ONE_NAMED_PAGE, (True, (FLAGS_PAGES[0],), False), id="judge_quotes_page_sentence"
+            [OUTDATED_SENTENCE],
+            ONE_NAMED_PAGE,
+            (True, (FLAGS_PAGES[0],), False),
+            ("1/1", f"read: {FLAGS_PATHS[0]}"),
+            id="judge_quotes_page_sentence",
         ),
         pytest.param(
-            ["Rollouts are great."], ONE_NAMED_PAGE, (True, (FLAGS_PAGES[0],), True), id="judge_unquoted_sentence"
+            ["Rollouts are great."],
+            ONE_NAMED_PAGE,
+            (True, (FLAGS_PAGES[0],), True),
+            ("1/1", f"read: {FLAGS_PATHS[0]}"),
+            id="judge_unquoted_sentence",
+        ),
+        pytest.param(
+            [OUTDATED_SENTENCE],
+            (FLAGS_PATHS[0], UNLISTED_TWO_LINE_PAGE_PATH, FLAGS_PATHS[1], FLAGS_PATHS[0]),
+            (True, (FLAGS_PAGES[0],), False),
+            (
+                "1/3",
+                f"read: {FLAGS_PATHS[0]}\n"
+                "not_listed: pricing/legacy-rollout read: feature-flags/page-9\n"
+                f"read_failed: {FLAGS_PATHS[1]}",
+            ),
+            id="picker_names_unlisted_and_unreadable_pages",
         ),
     ],
 )
@@ -560,6 +582,7 @@ def test_the_decision_reads_named_pages_and_trusts_only_quoted_sentences(
     judged_sentences: list[str],
     named_page_paths: tuple[str, ...],
     expected: tuple[bool, tuple[str, ...], bool],
+    expected_picked_pages: tuple[str, str],
 ) -> None:
     commit_sha = "9" * 40
     judge_requests: list[dict] = []
@@ -579,6 +602,8 @@ def test_the_decision_reads_named_pages_and_trusts_only_quoted_sentences(
     assert all(OUTDATED_SENTENCE in request["messages"][0]["content"] for request in judge_requests)
     assert (f'- {FLAGS_PAGES[0]} (update): "{DIFF_QUOTE}"' in report.evidence) == (FLAGS_PAGES[0] in report.page_urls)
     assert (f'- outdated: "{OUTDATED_SENTENCE}"' in report.evidence) == (OUTDATED_SENTENCE in judged_sentences)
+    picked_pages = next(row for row in report.criteria if row.criterion == "picked_pages")
+    assert (picked_pages.value, picked_pages.evidence) == expected_picked_pages
 
 
 def test_a_check_past_its_deadline_stops_before_a_model_call() -> None:

@@ -452,7 +452,7 @@ select = [
 # Not portable to explicit re-exports without losing the settings-loading semantics.
 "posthog/settings/**" = ["F403", "F405"]
 
-# PLC0415 exemptions. products/ and services/llm-gateway/ have their own ruff configs.
+# PLC0415 exemptions. products/ has its own ruff config.
 # Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
 ".github/**" = ["PLC0415"]
 "bin/**" = ["PLC0415"]

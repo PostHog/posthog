@@ -130,6 +130,7 @@ from products.aeo.backend.facade.contracts import (
     VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
+from products.aeo.backend.page_urls import page_url, page_url_sql
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scope_sql_params, scope_without_segment
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
@@ -346,6 +347,15 @@ _CITES_DOMAIN_SQL = """EXISTS (
     ) AS host
     WHERE lower(host) = %s OR right(lower(host), %s) = %s
 )"""
+# Compares pages without their tracking parameters, the way the page reports group them, so a page opens
+# the answers that cited any of its variants.
+_CITES_PAGE_SQL = f"""EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(
+        CASE WHEN jsonb_typeof("posthog_aeo_citation_check"."cited_urls") = 'array'
+            THEN "posthog_aeo_citation_check"."cited_urls" ELSE '[]'::jsonb END
+    ) AS cited_url(url)
+    WHERE {page_url_sql("cited_url.url")} = %s
+)"""
 # Normalizes each search the same way as `_TOP_SEARCHES_SQL`, so a search from the overview finds its checks.
 _RAN_SEARCH_SQL = """EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(
@@ -389,7 +399,10 @@ def list_prompt_set_citations(
         mode=CheckMode.WEB_SEARCH,
     )
     if url is not None:
-        checks = checks.filter(cited_urls__contains=[url])
+        checks = checks.filter(
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the URL is a bound parameter
+            RawSQL(_CITES_PAGE_SQL, [page_url(url)], output_field=BooleanField())
+        )
     elif domain is not None:
         domain = domain.strip().lower()
         checks = checks.filter(

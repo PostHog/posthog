@@ -1128,8 +1128,11 @@ export function captureSignalSourceSteeringChanged(params: {
     })
 }
 
-export function captureSlackChannelScoutFormOpened(params: { channelCount: number }): void {
-    captureInboxEvent(INBOX_EVENTS.SLACK_CHANNEL_SCOUT_FORM_OPENED, { channel_count: params.channelCount })
+export function captureSlackChannelScoutFormOpened(params: { channelCount: number; sourceCount: number }): void {
+    captureInboxEvent(INBOX_EVENTS.SLACK_CHANNEL_SCOUT_FORM_OPENED, {
+        channel_count: params.channelCount,
+        source_count: params.sourceCount,
+    })
 }
 
 export function captureSlackChannelScoutCreateFailed(params: { channelCount: number; status: number | null }): void {

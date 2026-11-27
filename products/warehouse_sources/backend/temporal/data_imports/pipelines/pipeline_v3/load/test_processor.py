@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 import tempfile
 from collections.abc import Callable, Iterator
@@ -73,6 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _sync_frequency_label,
+    _trigger_ducklake_register_data_imports,
     _trigger_post_import_workflow,
     process_message,
     process_messages,
@@ -1797,6 +1799,48 @@ class TestSourceCopiesHeldThroughTheUpsert:
         result = _dedupe_before_write(pa.table(columns), ["id"])
 
         assert result.column("pos").to_pylist() == kept_positions
+
+
+class TestDuckLakeRegistrationTrigger:
+    @parameterized.expand(
+        [
+            ("allowed", True, True),
+            ("refused", False, False),
+            ("check_raises", RuntimeError("flag definitions not loaded"), None),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.logger")
+    @patch("posthog.models.Team.objects")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_the_start_always_happens_and_logs_the_shadow_answer(
+        self,
+        _name: str,
+        answer: bool | Exception,
+        expected_logged: bool | None,
+        mock_connect: AsyncMock,
+        _mock_teams: MagicMock,
+        mock_logger: MagicMock,
+    ) -> None:
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=None)
+        mock_connect.return_value = client
+        signal = MagicMock()
+        signal.sync_type = "incremental"
+        signal.cdc_write_mode = None
+        signal.team_id = 1
+        signal.job_id = "job-1"
+        signal.schema_id = str(uuid.uuid4())
+
+        with patch(
+            "products.managed_warehouse.backend.facade.access.data_imports_registration_allowed",
+            side_effect=answer if isinstance(answer, Exception) else None,
+            return_value=answer,
+        ):
+            _trigger_ducklake_register_data_imports(signal, "prepared/folder")
+
+        assert client.start_workflow.call_count == 1
+        started = [c for c in mock_logger.info.call_args_list if c.args[0] == "ducklake_registration_workflow_started"]
+        assert [c.kwargs["registration_allowed"] for c in started] == [expected_logged]
 
 
 class TestPostImportTrigger:

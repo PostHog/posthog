@@ -1089,7 +1089,7 @@ export namespace Schemas {
          */
       previous_visibility: number | null;
       /**
-         * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+         * The share (0-1) of scored answers naming the brand whose sentences about it were positive. Null when none of them was scored yet.
          * @nullable
          */
       positive_share: number | null;
@@ -10556,6 +10556,8 @@ export namespace Schemas {
     }
 
     export interface WebVitalsPathBreakdownResultItem {
+      /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+      count?: number | null;
       path: string;
       value: number;
     }
@@ -10815,6 +10817,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
@@ -11738,6 +11741,8 @@ export namespace Schemas {
       interval?: IntervalType | null;
       kind?: 'WebVitalsPathBreakdownQuery';
       metric: WebVitalsMetric;
+      /** Drop pages with fewer samples than this in the period, so a page with a handful of slow loads does not outrank a busy page with a real problem. No floor when omitted. */
+      minSamples?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
@@ -24522,6 +24527,52 @@ export namespace Schemas {
     }
 
     /**
+     * * `slack_message` - Slack message
+     */
+    export type BroadcastRequestDeliveryKindEnum = typeof BroadcastRequestDeliveryKindEnum[keyof typeof BroadcastRequestDeliveryKindEnum];
+
+
+    export const BroadcastRequestDeliveryKindEnum = {
+      SlackMessage: 'slack_message',
+    } as const;
+
+    /**
+     * * `github` - Pull request comment
+     * * `slack` - Slack
+     * * `api` - API
+     * * `slack_link` - Slack link
+     */
+    export type BroadcastRequestSourceEnum = typeof BroadcastRequestSourceEnum[keyof typeof BroadcastRequestSourceEnum];
+
+
+    export const BroadcastRequestSourceEnum = {
+      Github: 'github',
+      Slack: 'slack',
+      Api: 'api',
+      SlackLink: 'slack_link',
+    } as const;
+
+    /**
+     * * `pending` - Waiting for Stamphog
+     * * `open` - Waiting for a person
+     * * `approved` - Approved by a person
+     * * `stamphog_approved` - Approved by Stamphog
+     * * `merged` - Merged
+     * * `closed` - Closed
+     */
+    export type BroadcastRequestStatusEnum = typeof BroadcastRequestStatusEnum[keyof typeof BroadcastRequestStatusEnum];
+
+
+    export const BroadcastRequestStatusEnum = {
+      Pending: 'pending',
+      Open: 'open',
+      Approved: 'approved',
+      StamphogApproved: 'stamphog_approved',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
+
+    /**
      * * `breaking_master` - Breaking Master
      * * `blocking_merge_queue` - Blocking Merge Queue
      * * `novel_burst` - Novel Burst
@@ -30255,6 +30306,58 @@ export namespace Schemas {
       readonly has_installation: boolean;
     }
 
+    export interface CodeReviewApprovalBroadcastRequestDelivery {
+      /** Where the request was posted. 'slack_message' is a message in the repository's Slack channel.
+       *
+       * * `slack_message` - Slack message */
+      readonly kind: BroadcastRequestDeliveryKindEnum;
+      /**
+         * Link that opens the posted message, as Slack returned it. Null when Slack did not return one.
+         * @nullable
+         */
+      readonly url: string | null;
+    }
+
+    export interface CodeReviewApprovalBroadcastRequest {
+      /** ID of the Broadcast request. */
+      readonly id: string;
+      /** 'pending' while auto-approval reviews the head, so nothing is posted yet. 'open' when auto-approval did not approve and the request waits for a person. 'approved' when a person approved the current head; a new push sets 'open' again. 'stamphog_approved' when auto-approval approved, so no person needs to look. 'merged' or 'closed' when the pull request merged or closed. Only 'pending', 'open' and 'approved' are active, and a pull request has at most one active request.
+       *
+       * * `pending` - Waiting for Stamphog
+       * * `open` - Waiting for a person
+       * * `approved` - Approved by a person
+       * * `stamphog_approved` - Approved by Stamphog
+       * * `merged` - Merged
+       * * `closed` - Closed */
+      readonly status: BroadcastRequestStatusEnum;
+      /** The pull request head the request follows. A push moves it. */
+      readonly head_sha: string;
+      /** Where the request came from: a pull request comment ('github'), a Slack mention ('slack') or the API ('api').
+       *
+       * * `github` - Pull request comment
+       * * `slack` - Slack
+       * * `api` - API
+       * * `slack_link` - Slack link */
+      readonly requested_via: BroadcastRequestSourceEnum;
+      /** The requester's note for the people who review, shown in Slack only. Blank when there is none. */
+      readonly note: string;
+      /** Slack display names of the people who said they will look, in the order they said it. */
+      readonly looking: readonly string[];
+      /** GitHub login of the person whose approval of the current head set 'approved'. Blank otherwise. */
+      readonly approved_by_login: string;
+      /** Where the request was posted. Empty until auto-approval does not approve. */
+      readonly deliveries: readonly CodeReviewApprovalBroadcastRequestDelivery[];
+      /**
+         * How many broadcast messages the requester caused in the 7 days up to this request's message, this one included. Counted once when the message is posted. Null until then.
+         * @nullable
+         */
+      readonly requester_card_count: number | null;
+      /** When somebody asked for people to review. */
+      readonly created_at: string;
+      /** When the request last changed. */
+      readonly updated_at: string;
+    }
+
     /**
      * One installation of the App the authorizing user can reach, offered for an explicit pick.
      */
@@ -30431,6 +30534,8 @@ export namespace Schemas {
       readonly routing_mode: RoutingModeEnum;
       /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
       readonly routing: CodeReviewApprovalPullRequestRouting | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
@@ -30483,8 +30588,14 @@ export namespace Schemas {
       readonly routing_fork_labels: CodeReviewApprovalRepositoryRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       readonly review_on_clean_external_review: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      readonly broadcast_enabled: boolean;
+      /** Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set. */
+      readonly broadcast_slack_channel_id: string;
+      /** Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go. */
+      readonly broadcast_slack_channel_name: string;
       /**
-         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
+         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, broadcast_enabled, broadcast_slack_channel_id or broadcast_slack_channel_name.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -30535,6 +30646,18 @@ export namespace Schemas {
       routing_fork_labels?: CodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      broadcast_enabled?: boolean;
+      /**
+         * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+         * @maxLength 64
+         */
+      broadcast_slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+         * @maxLength 255
+         */
+      broadcast_slack_channel_name?: string;
     }
 
     export interface CodeReviewApprovalRoutingFile {
@@ -41881,7 +42004,7 @@ export namespace Schemas {
       date_to: string;
       /** Project timezone for the period boundaries. */
       timezone: string;
-      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Follows the project's "Filter out internal and test users" default, like the query-web-* tools. Goal conversions include them either way. */
       filter_test_accounts: boolean;
       /** Metric definitions to use when you compare the digest with a direct query. */
       notes: string[];
@@ -69067,6 +69190,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -69124,6 +69248,7 @@ export namespace Schemas {
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -69181,6 +69306,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -69349,6 +69475,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -85694,6 +85821,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly approval_dismissed_at: string | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. It belongs to the pull request, so every run of the pull request shows it. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
       /** When the review run was created. */
       readonly created_at: string;
       /** When the review run was last updated. */
@@ -93075,6 +93204,18 @@ export namespace Schemas {
       routing_fork_labels?: PatchedCodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      broadcast_enabled?: boolean;
+      /**
+         * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+         * @maxLength 64
+         */
+      broadcast_slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+         * @maxLength 255
+         */
+      broadcast_slack_channel_name?: string;
     }
 
     export interface PatchedCohort {
@@ -98652,7 +98793,7 @@ export namespace Schemas {
       /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
       /**
-         * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.
+         * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with Origin, or with Referer when Origin names no domain.
          * @maxItems 1000
          * @items.maxLength 2000
          */
@@ -98664,13 +98805,13 @@ export namespace Schemas {
          */
       blocked_ips?: string[];
       /**
-         * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.
+         * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests without Origin or Referer, such as from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosts such as vercel.app are rejected. A blocked domain wins.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       allowed_hosts?: string[];
       /**
-         * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.
+         * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, all other callers get no flags, even browsers on allowed domains. Add IPv6 addresses too, as callers may connect over IPv6. Behind a proxy, such as the managed reverse proxy, the proxy's address is checked. Same entry rules as blocked_ips. A blocked address wins.
          * @maxItems 1000
          * @items.maxLength 2000
          */
@@ -99520,6 +99661,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      /** A list sent replaces the saved one. Omitted fields are kept. */
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
@@ -106115,6 +106257,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      /** A list sent replaces the saved one. Omitted fields are kept. */
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
@@ -106947,6 +107090,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      /** A list sent replaces the saved one. Omitted fields are kept. */
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
@@ -117165,6 +117309,13 @@ export namespace Schemas {
          * @minimum 1
          */
       pr_number: number;
+      /** Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have broadcasting turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review. */
+      allow_broadcast?: boolean;
+      /**
+         * A short note for the people who review, shown in Slack only and never on GitHub. Needs allow_broadcast set to true. A request that is already active keeps its note.
+         * @maxLength 200
+         */
+      note?: string;
     }
 
     /**
@@ -117187,6 +117338,8 @@ export namespace Schemas {
       readonly run: ReviewRun;
       /** True when this request queued a new run. False when a queued, running, or finished run already covered the current head, which is returned instead. */
       readonly created: boolean;
+      /** The request for people to review that this request made or found active. Null unless allow_broadcast was true. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
     }
 
     export interface ReviewResolutionConfig {
@@ -124405,6 +124558,8 @@ export namespace Schemas {
     export interface SlackScoutChannelSource {
       /** Id of the Slack data warehouse source. */
       id: string;
+      /** Name that tells the project's Slack sources apart: the source's table prefix, or the date it was connected when it has no prefix. */
+      label: string;
       /** Channels the source syncs, ordered by name. */
       channels: SlackScoutChannel[];
     }
@@ -150166,6 +150321,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -150234,6 +150390,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -157481,11 +157638,11 @@ export namespace Schemas {
 
     export type WebAnalyticsWeeklyDigestParams = {
     /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     * When true (default), include period-over-period change for each metric comparing against the `days` complete days before the window. Set to false to skip the comparison query (faster).
      */
     compare?: boolean;
     /**
-     * Lookback window in days (1–90). Defaults to 7.
+     * Number of complete days to summarize (1–90), ending yesterday in the project timezone. Defaults to 7.
      */
     days?: number;
     };

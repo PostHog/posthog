@@ -81,7 +81,7 @@ case "$RS_SVC" in
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
-    export ADDRESS=0.0.0.0:3309 # avoid port conflict in local dev (3308 is used by llm-gateway)
+    export ADDRESS=0.0.0.0:3309
     export KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST="$DEFAULT_KAFKA"
     export CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC=events_plugin_ingestion_ai
     export REDIS_URL="$DEFAULT_REDIS"

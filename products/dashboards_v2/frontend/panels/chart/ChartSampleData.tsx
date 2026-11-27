@@ -28,7 +28,10 @@ export function ChartSampleData<Options>({
                     This chart shows made-up data. Your real data shows here once it starts coming in.
                 </TooltipContent>
             </Tooltip>
-            <div className="pointer-events-none flex min-h-0 flex-1 flex-col opacity-50" aria-hidden="true">
+            <div
+                className="pointer-events-none relative flex min-h-0 w-full flex-1 flex-col opacity-50"
+                aria-hidden="true"
+            >
                 <Suspense fallback={<Loading options={options} />}>
                     <viz.Component frames={SAMPLE_FRAMES} options={options} />
                 </Suspense>

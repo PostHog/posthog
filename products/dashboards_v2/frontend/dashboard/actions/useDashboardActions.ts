@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 
 import type { MenuAction } from '../../menu/menuAction'
-import { showAction } from '../../presentation/tileAppearance'
-import { useDashboard } from '../dashboardContext'
+import { showAction } from '../../tiles/menu/appearanceActions'
+import { useDashboard } from '../core/dashboardContext'
 import { gridTabs } from '../document/dashboardTypes'
 import { everyTile } from '../document/tileTree'
 import { downloadImageAction } from './dashboardImage'

@@ -125,8 +125,10 @@ tools:
         description: >
             Change the settings of one repo config by id. Send only the fields to change. Turning reviews on (`enabled:
             true`) and `digest_enabled` need the Editor level on code review auto-approval. Turning reviews off
-            (`enabled: false`), `review_mode`, `trigger_label`, `routing_mode`, `routing_fork_labels` and
-            `review_on_clean_external_review` need the Manager level, and a request without it is refused.
+            (`enabled: false`), `review_mode`, `trigger_label`, `routing_mode`, `routing_fork_labels`,
+            `review_on_clean_external_review`, `broadcast_enabled`, `broadcast_slack_channel_id` and
+            `broadcast_slack_channel_name` need the Manager level, and a request without it is refused. Turning
+            `broadcast_enabled` on needs `broadcast_slack_channel_id`, in the same request or set earlier.
             `review_on_clean_external_review` works only with `review_mode: label`: the API refuses it with `all`, and
             setting `review_mode` to `all` turns it off. Turn it on only in a repository where PostHog Review runs
             automatic reviews when a pull request opens or is marked ready. To have reviewers requested only when
@@ -233,7 +235,11 @@ tools:
             again when people changed what the reviewer reads since then (the title or description, a trusted person's
             comment or review, or a review thread resolved or reopened), at most three times per head. Bot comments do
             not count, and returning to evidence a review already saw starts nothing. After the third, push a change to
-            get another review.
+            get another review. Set `allow_broadcast: true` to also ask people: when auto-approval does not approve, the
+            PR is posted to the repository's Slack channel for someone to review, and `broadcast_request` in the
+            response tracks it. The repository must have broadcasting turned on. Asking again returns the active request
+            rather than posting again. `note` (up to 200 characters, needs `allow_broadcast`) is shown in Slack only.
+            Only set `allow_broadcast` when the user explicitly asks for people to review.
         feature_flag: stamphog
     code-review-approvals-runs-get:
         operation: code_review_approvals_runs_retrieve

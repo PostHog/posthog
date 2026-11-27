@@ -1,8 +1,7 @@
 import { z } from 'zod'
 
-import { Duration, durationMs } from '../duration'
+import { Duration, MAX_TIMER_MS, durationMs } from '../duration'
 
-const MAX_TIMER_MS = 2 ** 31 - 1
 const MAX_SEED = 2 ** 32 - 1
 
 export const SeedOverride = z.number().int().min(0).max(MAX_SEED)

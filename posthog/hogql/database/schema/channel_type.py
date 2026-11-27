@@ -1,3 +1,4 @@
+import string
 from dataclasses import dataclass
 from functools import cache
 from typing import TYPE_CHECKING, Optional, Union
@@ -121,6 +122,71 @@ def create_initial_channel_type(
     )
 
 
+# RE2 treats these characters as syntax when they are not escaped.
+_REGEX_METACHARACTERS = frozenset("\\.+*?()|[]{}^$")
+_ESCAPABLE_PUNCTUATION = frozenset(string.punctuation) - {"_"}
+# multiSearchAny accepts fewer than 256 needles.
+_MULTI_SEARCH_MAX_NEEDLES = 255
+
+
+def regex_literal_alternatives(pattern: Optional[str]) -> Optional[list[str]]:
+    """Return the literals of a pattern like `(?:a\\.com|b\\.com)`, or None when the pattern uses any other regex syntax.
+
+    An unanchored regex that is only an alternation of literals matches exactly when the value contains one of
+    the literals, so `multiSearchAny` gives the same result without running the regex engine on every row.
+    """
+    if not isinstance(pattern, str) or not pattern:
+        return None
+    body = pattern
+    if body.startswith("(?:") and body.endswith(")"):
+        body = body[3:-1]
+    elif body.startswith("(") and body.endswith(")"):
+        body = body[1:-1]
+
+    alternatives: list[str] = []
+    current: list[str] = []
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char == "\\":
+            if index + 1 >= len(body):
+                return None
+            escaped = body[index + 1]
+            # An escaped letter, digit or underscore is a class, an assertion or invalid (\d, \b), not a literal.
+            if escaped not in _ESCAPABLE_PUNCTUATION:
+                return None
+            current.append(escaped)
+            index += 2
+            continue
+        if char == "|":
+            if not current:
+                return None
+            alternatives.append("".join(current))
+            current = []
+        elif char in _REGEX_METACHARACTERS:
+            return None
+        else:
+            current.append(char)
+        index += 1
+    if not current:
+        return None
+    alternatives.append("".join(current))
+    if len(alternatives) > _MULTI_SEARCH_MAX_NEEDLES:
+        return None
+    return alternatives
+
+
+def _regex_match_expr(expr: ast.Expr, value: Optional[str]) -> ast.Expr:
+    haystack = ast.Call(name="toString", args=[expr])
+    literals = regex_literal_alternatives(value)
+    if literals is None:
+        return ast.Call(name="match", args=[haystack, ast.Constant(value=value)])
+    return ast.Call(
+        name="multiSearchAny",
+        args=[haystack, ast.Array(exprs=[ast.Constant(value=literal) for literal in literals])],
+    )
+
+
 def custom_condition_to_expr(
     expr: ast.Expr,
     value: Optional[str],
@@ -168,23 +234,12 @@ def custom_condition_to_expr(
     elif operator == CustomChannelOperator.REGEX:
         return ast.Call(
             name="ifNull",
-            args=[
-                ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)]),
-                ast.Constant(value=0),
-            ],
+            args=[_regex_match_expr(expr, value), ast.Constant(value=0)],
         )
     elif operator == CustomChannelOperator.NOT_REGEX:
         return ast.Call(
             name="ifNull",
-            args=[
-                ast.Call(
-                    name="not",
-                    args=[
-                        ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)])
-                    ],
-                ),
-                ast.Constant(value=1),
-            ],
+            args=[ast.Call(name="not", args=[_regex_match_expr(expr, value)]), ast.Constant(value=1)],
         )
 
     else:
