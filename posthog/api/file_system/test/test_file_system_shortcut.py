@@ -7,8 +7,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.starred_products import start_without_default_starred_products
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -250,15 +252,31 @@ class TestFileSystemShortcutAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("retrieve", "get", status.HTTP_404_NOT_FOUND, True),
-            ("update", "patch", status.HTTP_404_NOT_FOUND, True),
-            ("delete", "delete", status.HTTP_204_NO_CONTENT, False),
+            (f"{name}_{file_type}", file_type, method, expected_status, still_exists)
+            for file_type in ("link", "hog_flow", "message_template")
+            for name, method, expected_status, still_exists in (
+                ("retrieve", "get", status.HTTP_404_NOT_FOUND, True),
+                ("update", "patch", status.HTTP_404_NOT_FOUND, True),
+                (
+                    "delete",
+                    "delete",
+                    *(
+                        (status.HTTP_204_NO_CONTENT, False)
+                        if file_type == "link"
+                        else (status.HTTP_404_NOT_FOUND, True)
+                    ),
+                ),
+            )
         ]
     )
-    def test_retired_shortcut_is_hidden_except_from_delete(
-        self, _name: str, method: str, expected_status: int, still_exists: bool
+    def test_shortcut_of_a_type_the_tree_no_longer_files_is_hidden_and_only_a_retired_one_deletable(
+        self, _name: str, file_type: str, method: str, expected_status: int, still_exists: bool
     ) -> None:
-        retired = FileSystemShortcut.objects.create(team=self.team, path="Old link", type="link", user=self.user)
+        retired = FileSystemShortcut.objects.create(
+            team=self.team, path="Old link", type=file_type, ref="0190a1b2-0000-7000-8000-000000000003", user=self.user
+        )
+        listed = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/")
+        self.assertNotIn(str(retired.pk), [row["id"] for row in listed.json()["results"]])
 
         response = getattr(self.client, method)(
             f"/api/projects/{self.team.id}/file_system_shortcut/{retired.pk}/", {"path": "Renamed"}, format="json"
@@ -267,19 +285,49 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(FileSystemShortcut.objects.filter(pk=retired.pk, path="Old link").exists(), still_exists)
 
+    @parameterized.expand([("hog_flow",), ("message_template",)])
+    def test_a_token_scoped_to_one_environment_cannot_delete_a_star_of_an_unfiled_type_in_another(
+        self, file_type: str
+    ) -> None:
+        sibling = Team.objects.create(project=self.project, organization=self.organization, name="Env-2")
+        star = FileSystemShortcut.objects.create(
+            team=sibling, path="Welcome", type=file_type, ref="0190a1b2-0000-7000-8000-000000000003", user=self.user
+        )
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scoped",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["file_system_shortcut:read", "file_system_shortcut:write"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/file_system_shortcut/{star.pk}/", headers={"Authorization": f"Bearer {key}"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
+        self.assertTrue(FileSystemShortcut.objects.filter(pk=star.pk).exists())
+
     @parameterized.expand(
         [
-            ("create", "", {"path": "Old link", "type": "link"}),
-            ("bulk_update", "bulk_update/", {"add": [{"path": "Old link", "type": "link"}]}),
+            (f"{action}_{file_type}", url_suffix, file_type)
+            for file_type in ("link", "hog_flow", "message_template")
+            for action, url_suffix in (("create", ""), ("bulk_update", "bulk_update/"))
         ]
     )
-    def test_rejects_new_shortcut_of_retired_type(self, _name: str, url_suffix: str, body: dict) -> None:
+    def test_rejects_new_shortcut_of_a_type_the_tree_no_longer_files(
+        self, _name: str, url_suffix: str, file_type: str
+    ) -> None:
+        item = {"path": "Old item", "type": file_type, "ref": "0190a1b2-0000-7000-8000-000000000003"}
+        body = {"add": [item]} if url_suffix else item
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system_shortcut/{url_suffix}", body, format="json"
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        self.assertFalse(FileSystemShortcut.objects.filter(type="link").exists())
+        self.assertFalse(FileSystemShortcut.objects.filter(type=file_type).exists())
 
     def test_reorder_rejects_empty_list(self):
         response = self.client.post(

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -123,8 +124,9 @@ export function SuggestionRow({
 
                 {suggestion.unlocks.length > 0 && (
                     <div className="flex items-center gap-1 flex-wrap text-xs text-secondary">
+                        <span>Unlocks</span>
                         <Tooltip title="The metrics this fix makes available. They stay empty or wrong until it's done.">
-                            <span className="border-b border-dotted border-secondary cursor-help">Unlocks</span>
+                            <IconInfo className="shrink-0 text-sm" />
                         </Tooltip>
                         {suggestion.unlocks.map((capability) => (
                             <Tooltip key={capability} title={CAPABILITY_COPY[capability]?.what}>

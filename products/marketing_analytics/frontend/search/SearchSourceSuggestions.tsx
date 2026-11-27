@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 import { SEARCH_PLATFORM_LABELS } from './searchPerformance'
 import { searchPerformanceLogic } from './searchPerformanceLogic'
 
@@ -27,12 +28,10 @@ export function SearchSourceSuggestions(): JSX.Element {
                         children: `Connect ${SEARCH_PLATFORM_LABELS[source]}`,
                         icon: <SourceIcon type={source} size="xsmall" disableTooltip />,
                         disabledReason: restrictedReason,
-                        to: urls.dataWarehouseSourceNew(
+                        to: marketingSourceConnectUrl(
                             source,
-                            `${urls.marketingAnalyticsApp()}?tab=search-performance`,
-                            'Marketing analytics',
-                            undefined,
-                            'marketing_analytics_search_suggestions'
+                            'marketing_analytics_search_suggestions',
+                            `${urls.marketingAnalyticsApp()}?tab=search-performance`
                         ),
                     }}
                 >

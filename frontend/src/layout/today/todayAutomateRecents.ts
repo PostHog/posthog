@@ -3,7 +3,13 @@
 // pinned: shortcut `type` values. Pins are saved with them, so renaming one drops everyone's pins of that type.
 // A destination uses its file system type, because the backend keeps only `hog_function/*` shortcuts to the environment
 // they were pinned in, and a destination belongs to one environment.
-export const TODAY_AUTOMATE_RECENT_TYPES = ['workflow', 'hog_function/destination', 'subscription', 'scout'] as const
+export const TODAY_AUTOMATE_RECENT_TYPES = [
+    'workflow',
+    'broadcast',
+    'hog_function/destination',
+    'subscription',
+    'scout',
+] as const
 
 export type TodayAutomateRecentType = (typeof TODAY_AUTOMATE_RECENT_TYPES)[number]
 
@@ -11,4 +17,9 @@ export interface TodayAutomateRecent {
     type: TodayAutomateRecentType
     name: string
     href: string
+}
+
+/** A stored Automate recent. Recents saved before `viewedAt` existed have none, and count as the oldest. */
+export interface StoredAutomateRecent extends TodayAutomateRecent {
+    viewedAt?: number
 }

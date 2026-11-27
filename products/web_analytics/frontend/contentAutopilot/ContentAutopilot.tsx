@@ -1,14 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
-
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AI_VISIBILITY_TAB_FILTERS, type AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
-import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
-import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
@@ -17,8 +14,11 @@ import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOvervi
 import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSettings } from './ContentAutopilotSettings'
-import { ContentAutopilotSetup } from './ContentAutopilotSetup'
-import { ContentAutopilotSitePicker } from './ContentAutopilotSitePicker'
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
+import {
+    type ContentAutopilotWorkspaceTabDefinition,
+    ContentAutopilotWorkspaceTabs,
+} from './ContentAutopilotWorkspaceTabs'
 
 const FilteredTab = ({
     tab,
@@ -36,89 +36,76 @@ const FilteredTab = ({
 export const ContentAutopilot = (): JSX.Element => {
     // Mounted here, so a prompt's own URL opens it whatever tab was last open.
     const { promptId } = useValues(contentAutopilotPromptDetailLogic)
-    const { profile, workspaceTab, onboardingOpen, siteProfilesLoading, workspaceError } =
-        useValues(contentAutopilotLogic)
-    const { loadWorkspace, setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { workspaceTab } = useValues(contentAutopilotLogic)
+    const { onboarding, setupContext, setupContextError, setupContextLoading } = useValues(contentAutopilotSetupLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { loadSetupContext } = useActions(contentAutopilotSetupLogic)
 
-    return (
-        <div className="flex flex-col gap-4 pb-4">
-            {workspaceError ? (
-                <LemonBanner
-                    type="error"
-                    action={{ children: 'Try again', onClick: loadWorkspace, loading: siteProfilesLoading }}
-                >
-                    Some AI visibility data could not be loaded. {workspaceError}
-                </LemonBanner>
-            ) : null}
-
-            {profile && onboardingOpen ? (
-                <ContentAutopilotSetup onboarding />
-            ) : promptId ? (
-                <ContentAutopilotPromptDetail />
-            ) : workspaceTab === 'settings' && profile ? (
+    const tabs: ContentAutopilotWorkspaceTabDefinition[] = [
+        {
+            key: 'overview',
+            label: 'Overview',
+            content: (
+                <FilteredTab tab="overview">
+                    <ContentAutopilotPromptsOverview />
+                </FilteredTab>
+            ),
+        },
+        {
+            key: 'rankings',
+            label: 'Rankings',
+            content: (
+                <FilteredTab tab="rankings">
+                    <ContentAutopilotRankings />
+                </FilteredTab>
+            ),
+        },
+        {
+            key: 'prompts',
+            label: 'Prompts',
+            content: <ContentAutopilotPrompts />,
+        },
+        {
+            key: 'keywords',
+            label: 'Keywords',
+            content: (
+                <FilteredTab tab="keywords">
+                    <ContentAutopilotKeywords />
+                </FilteredTab>
+            ),
+        },
+        {
+            key: 'settings',
+            label: 'Settings',
+            // pinned: was the settings gear's data-attr
+            'data-attr': 'content-autopilot-settings',
+            content: (
                 <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
-                    <ContentAutopilotPageHeader
-                        title="Settings"
-                        backLabel="Overview"
-                        backDataAttr="content-autopilot-settings-back"
-                        onBack={() => setWorkspaceTab('overview')}
-                    />
-                    <ContentAutopilotSitePicker />
                     <ContentAutopilotSettings />
                 </div>
+            ),
+        },
+    ]
+
+    return (
+        <div className="flex flex-col gap-4 pb-4" data-quill>
+            {promptId ? (
+                <ContentAutopilotPromptDetail />
+            ) : setupContextError && !setupContext ? (
+                // Without the context neither the setup wizard nor the overview can tell what to show.
+                <div data-attr="content-autopilot-setup-context-error">
+                    <AiVisibilityBanner
+                        type="error"
+                        action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
+                    >
+                        Couldn't load AI visibility. Try again, and if it keeps happening contact support.
+                    </AiVisibilityBanner>
+                </div>
+            ) : onboarding && workspaceTab === 'overview' ? (
+                // Setup runs as a wizard in place of the tabs, until the first results are in.
+                <ContentAutopilotPromptsOverview />
             ) : (
-                <LemonTabs<ContentAutopilotWorkspaceTab>
-                    activeKey={workspaceTab}
-                    onChange={setWorkspaceTab}
-                    data-attr="content-autopilot-workspace-tabs"
-                    rightSlot={
-                        profile ? (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconGear />}
-                                onClick={() => setWorkspaceTab('settings')}
-                                tooltip="Settings"
-                                aria-label="Settings"
-                                data-attr="content-autopilot-settings"
-                            />
-                        ) : null
-                    }
-                    tabs={[
-                        {
-                            key: 'overview',
-                            label: 'Overview',
-                            content: (
-                                <FilteredTab tab="overview">
-                                    <ContentAutopilotPromptsOverview />
-                                </FilteredTab>
-                            ),
-                        },
-                        {
-                            key: 'rankings',
-                            label: 'Rankings',
-                            content: (
-                                <FilteredTab tab="rankings">
-                                    <ContentAutopilotRankings />
-                                </FilteredTab>
-                            ),
-                        },
-                        {
-                            key: 'prompts',
-                            label: 'Prompts',
-                            content: <ContentAutopilotPrompts />,
-                        },
-                        {
-                            key: 'keywords',
-                            label: 'Keywords',
-                            content: (
-                                <FilteredTab tab="keywords">
-                                    <ContentAutopilotKeywords />
-                                </FilteredTab>
-                            ),
-                        },
-                    ]}
-                />
+                <ContentAutopilotWorkspaceTabs tabs={tabs} activeKey={workspaceTab} onChange={setWorkspaceTab} />
             )}
             <ContentAutopilotPromptAddModal />
             <ContentAutopilotPromptSuggestModal />

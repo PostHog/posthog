@@ -40,6 +40,7 @@ class ExperimentSubmission:
     expected_item_count: int | None = None
     expected_result_count: int | None = None
     suite_key: str | None = None
+    experiment_scorer_version_id: UUID | None = None
     dataset_source: str | None = None
     dataset_identifier: str | None = None
     dataset_revision_identifier: str | None = None

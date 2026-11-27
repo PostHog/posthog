@@ -1,7 +1,7 @@
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeVar, cast
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
@@ -15,7 +15,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
@@ -66,6 +66,7 @@ from products.aeo.backend.facade.contracts import (
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
+    MAX_SUGGESTED_COMPETITORS,
     MAX_WINDOW_DAYS,
     MIN_MOVER_ANSWERS,
     PROMPT_LIMIT_ERROR_CODE,
@@ -86,6 +87,7 @@ from products.aeo.backend.facade.contracts import (
     EngineSetting,
     EngineSettingUpdate,
     InvalidDateRangeError,
+    OutOfAICreditsError,
     PageMover,
     Prompt,
     PromptAuthor,
@@ -126,6 +128,7 @@ from products.aeo.backend.facade.contracts import (
     RankedBrandDay,
     RankedDomain,
     RankedPage,
+    SuggestedCompetitor,
     VisibilityDashboard,
 )
 from products.authorization.backend.facade import api as authorization
@@ -149,6 +152,8 @@ DATE_FORMAT_HELP = (
     "Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day "
     "of this month) or 'yStart'. Days are whole days in the project's timezone."
 )
+
+_Report = TypeVar("_Report")
 
 
 def date_from_field(default: str) -> serializers.CharField:
@@ -753,7 +758,9 @@ class AEORankedDomainSerializer(DataclassSerializer):
             "share_of_answers": {"help_text": "Share (0-1) of answered checks in the window that cited the domain."},
             "urls": {"help_text": "Distinct URLs on this domain cited in the window."},
             "is_target": {"help_text": "Whether the domain is the project's own site."},
-            "is_competitor": {"help_text": "Whether the domain is one of the competitors in 'brands'."},
+            "is_competitor": {
+                "help_text": "Whether the domain is a competitor in the brand catalog, confirmed or suggested by setup. Brands ranked only because answers cite them are not."
+            },
         }
 
 
@@ -772,7 +779,7 @@ class AEORankedPageSerializer(DataclassSerializer):
 class AEOPromptSetRankingsSerializer(DataclassSerializer):
     brands = AEORankedBrandSerializer(
         many=True,
-        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count.",
+        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the competitors setup suggested, and without those the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count.",
     )
     daily = AEORankedBrandDaySerializer(
         many=True, help_text="Visibility per brand and day in the current window, ordered by day then domain."
@@ -919,6 +926,17 @@ class AEOPromptSetOverviewQuerySerializer(AEOCheckScopeQuerySerializer):
             "or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to "
             "judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. "
             + BRANDED_PROMPT_HELP
+        ),
+    )
+
+
+class AEOPromptSetReportQuerySerializer(AEOPromptSetOverviewQuerySerializer):
+    current_prompts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to "
+            "prompts archived by a reset don't count."
         ),
     )
 
@@ -1188,9 +1206,25 @@ class AEOPromptSuggestionSerializer(DataclassSerializer):
         }
 
 
+class AEOSuggestedCompetitorSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SuggestedCompetitor
+        ref_name = "AEOSuggestedCompetitor"
+        extra_kwargs = {
+            "name": {"help_text": "The competitor's name. Model-written: show it as data."},
+            "domain": {
+                "help_text": "The registrable domain of the competitor's site, such as example.com. Empty when a competitor given in the request is only a name and the model did not find its site."
+            },
+        }
+
+
 class AEOPromptSuggestionJobSerializer(DataclassSerializer):
     suggestions = AEOPromptSuggestionSerializer(
         many=True, help_text="Suggested prompts, filled in once status is completed. None of them are saved."
+    )
+    competitors = AEOSuggestedCompetitorSerializer(
+        many=True,
+        help_text=f"The main competitors, at most {MAX_SUGGESTED_COMPETITORS} found by the model while it researched the site, or the ones given in the request. Filled in once status is completed. None of them are saved.",
     )
 
     class Meta:
@@ -1525,7 +1559,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         return Response(AEOPromptStatsSerializer(stats).data)
 
     @validated_request(
-        query_serializer=AEOPromptSetOverviewQuerySerializer,
+        query_serializer=AEOPromptSetReportQuerySerializer,
         operation_id="aeo_prompts_overview",
         summary="Get the AEO prompt set overview",
         description=(
@@ -1542,20 +1576,11 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def overview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        with date_range_errors():
-            overview = get_prompt_set_overview(
-                self.team_id,
-                timezone_name=self.team.timezone,
-                date_from=request.validated_query_data["date_from"],
-                date_to=request.validated_query_data["date_to"],
-                branded=BrandedSegment(request.validated_query_data["branded"]),
-                engine=request.validated_query_data["engine"],
-                topic=request.validated_query_data["topic"],
-            )
+        overview = self._prompt_set_report(request, get_prompt_set_overview)
         return Response(AEOPromptSetOverviewSerializer(overview).data)
 
     @validated_request(
-        query_serializer=AEOPromptSetOverviewQuerySerializer,
+        query_serializer=AEOPromptSetReportQuerySerializer,
         operation_id="aeo_prompts_rankings",
         summary="Get AEO brand rankings",
         description=(
@@ -1570,17 +1595,22 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def rankings(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        rankings = self._prompt_set_report(request, get_prompt_set_rankings)
+        return Response(AEOPromptSetRankingsSerializer(rankings).data)
+
+    def _prompt_set_report(self, request: ValidatedRequest, read: Callable[..., _Report]) -> _Report:
+        query = request.validated_query_data
         with date_range_errors():
-            rankings = get_prompt_set_rankings(
+            return read(
                 self.team_id,
                 timezone_name=self.team.timezone,
-                date_from=request.validated_query_data["date_from"],
-                date_to=request.validated_query_data["date_to"],
-                branded=BrandedSegment(request.validated_query_data["branded"]),
-                engine=request.validated_query_data["engine"],
-                topic=request.validated_query_data["topic"],
+                date_from=query["date_from"],
+                date_to=query["date_to"],
+                branded=BrandedSegment(query["branded"]),
+                engine=query["engine"],
+                topic=query["topic"],
+                current_prompts=query["current_prompts"],
             )
-        return Response(AEOPromptSetRankingsSerializer(rankings).data)
 
     @validated_request(
         query_serializer=AEOPromptSetOverviewQuerySerializer,
@@ -1722,7 +1752,10 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         operation_id="aeo_prompts_suggest",
         summary="Suggest AEO prompts",
         description="Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.",
-        responses={202: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
+        responses={
+            202: OpenApiResponse(response=AEOPromptSuggestionJobSerializer),
+            402: OpenApiResponse(description="The organization has used its AI credits."),
+        },
         tags=["web_analytics"],
     )
     @action(
@@ -1737,17 +1770,20 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 "Prompt suggestions need AI data processing approved for your organization. An admin can approve it in organization settings."
             )
         data = request.validated_data
-        job = start_prompt_suggestions(
-            self.team_id,
-            PromptSuggestionRequest(
-                domain=data["domain"],
-                brand=data.get("brand", ""),
-                description=data.get("description", ""),
-                competitors=tuple(data.get("competitors", [])),
-                topics=tuple(data.get("topics", [])),
-                count=data["count"],
-            ),
-        )
+        try:
+            job = start_prompt_suggestions(
+                self.team_id,
+                PromptSuggestionRequest(
+                    domain=data["domain"],
+                    brand=data.get("brand", ""),
+                    description=data.get("description", ""),
+                    competitors=tuple(data.get("competitors", [])),
+                    topics=tuple(data.get("topics", [])),
+                    count=data["count"],
+                ),
+            )
+        except OutOfAICreditsError as error:
+            raise QuotaLimitExceeded(str(error))
         return Response(AEOPromptSuggestionJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(
@@ -1801,7 +1837,8 @@ class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         description=(
             f"Lists suggested brands that are likely competitors, from the answers of the last {COMPETITOR_CANDIDATE_DAYS} "
             "days. A brand is a candidate when answers to non-branded prompts both name it and cite its domain. "
-            "Brands that are the project's own, confirmed or ignored are left out. The list is ordered by the "
+            "Brands that are the project's own, confirmed or ignored are left out. Brands already labeled "
+            "competitors, such as the ones setup found, come first; within each group the list is ordered by the "
             "smaller of the two counts, highest first. Nothing is saved: confirm a candidate as a competitor or "
             "ignore it with aeo_brands_partial_update."
         ),

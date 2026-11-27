@@ -10,6 +10,7 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from posthog.api.tagged_item import current_tag_names
 from posthog.dataclasses import frozen
 
+from products.messaging.backend.facade.contracts import MessageTemplateListFilter
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services import message_templates as templates_service
 from products.messaging.backend.services.lazy_list import LazyList
@@ -38,6 +39,7 @@ class MessageTemplateRow:
     transactional_hog_flow_id: UUID | None
     draft_content: dict[str, Any] | None
     sensitive: bool
+    click_tracking_enabled: bool | None
     # Tag names, sorted. Keeps its default last, so every field without one stays above it.
     tags: tuple[str, ...] = ()
 
@@ -61,6 +63,7 @@ class MessageTemplateBasicRow:
     deleted: bool
     transactional_hog_flow_id: UUID | None
     sensitive: bool
+    click_tracking_enabled: bool | None
     has_draft: bool
     tags: tuple[str, ...]
 
@@ -80,6 +83,7 @@ def _to_contract(row: MessageTemplate, *, with_tags: bool = True) -> MessageTemp
         transactional_hog_flow_id=row.transactional_hog_flow_id,
         draft_content=row.draft_content,
         sensitive=row.sensitive,
+        click_tracking_enabled=row.click_tracking_enabled,
         tags=tuple(sorted(current_tag_names(row))) if with_tags else (),
     )
 
@@ -97,22 +101,23 @@ def _to_basic_contract(row: MessageTemplate) -> MessageTemplateBasicRow:
         deleted=row.deleted,
         transactional_hog_flow_id=row.transactional_hog_flow_id,
         sensitive=row.sensitive,
+        click_tracking_enabled=row.click_tracking_enabled,
         has_draft=row.has_draft,  # type: ignore[attr-defined]
         tags=tuple(sorted(current_tag_names(row))),
     )
 
 
-def list_templates(team_id: int, *, transactional: bool | None = None) -> Sequence[MessageTemplateRow]:
-    """The team's templates that are not deleted, newest first. Sizing is a COUNT, and a slice reads one page.
+def list_templates(team_id: int, filters: MessageTemplateListFilter) -> Sequence[MessageTemplateRow]:
+    """The team's templates that are not deleted and match `filters`, newest first.
 
-    `transactional` keeps only the templates that have a transactional workflow (True) or only those without (False).
+    Sizing is a COUNT, and a slice reads one page.
     """
-    return LazyList(templates_service.team_templates(team_id, transactional=transactional), _to_contract)
+    return LazyList(templates_service.team_templates(team_id, filters), _to_contract)
 
 
-def list_basic_templates(team_id: int, *, transactional: bool | None = None) -> Sequence[MessageTemplateBasicRow]:
+def list_basic_templates(team_id: int, filters: MessageTemplateListFilter) -> Sequence[MessageTemplateBasicRow]:
     """Like `list_templates`, but the content and the draft never leave the database."""
-    return LazyList(templates_service.team_basic_templates(team_id, transactional=transactional), _to_basic_contract)
+    return LazyList(templates_service.team_basic_templates(team_id, filters), _to_basic_contract)
 
 
 def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = True) -> MessageTemplateRow:
@@ -124,19 +129,21 @@ def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = Tru
 
 
 @frozen
-class MessageTemplatePlacement:
-    id: UUID
-    # The path of the template's own file, not a shortcut, whether or not the project tree shows it.
-    path: str | None
+class TransactionalTemplateTracking:
+    sensitive: bool
+    click_tracking_enabled: bool | None
 
 
-def get_template_placement(team_id: int, template_id: UUID | str) -> MessageTemplatePlacement:
-    """Where the team's template that is not deleted sits in the project tree. Reads no template content."""
-    try:
-        found_id = templates_service.team_template_id(team_id, template_id)
-    except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
-        raise MessageTemplateMissing() from e
-    return MessageTemplatePlacement(id=found_id, path=templates_service.file_path(team_id, found_id))
+def get_transactional_template_tracking(team_id: int, hog_flow_id: UUID) -> TransactionalTemplateTracking | None:
+    """Return sensitivity and click tracking for the live template linked to a transactional workflow, or None."""
+    row = (
+        MessageTemplate.objects.filter(team_id=team_id, transactional_hog_flow_id=hog_flow_id, deleted=False)
+        .values_list("sensitive", "click_tracking_enabled")
+        .first()
+    )
+    if row is None:
+        return None
+    return TransactionalTemplateTracking(sensitive=bool(row[0]), click_tracking_enabled=row[1])
 
 
 def team_category_id(team_id: int, category_id: Any) -> UUID:

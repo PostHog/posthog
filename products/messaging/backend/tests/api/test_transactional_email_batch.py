@@ -337,6 +337,7 @@ class TestTransactionalEmailBatch(APIBaseTest):
             ("shared_unknown_field", "template", {"mesage_data": {"link": "https://example.com/a"}}, "mesage_data"),
             ("shared_legacy_identifiers", "template", {"identifiers": {"distinct_id": "person-1"}}, "identifiers"),
             ("shared_attachments", "template", {"attachments": []}, "attachments"),
+            ("shared_category", "code", {"category": "newsletter"}, "category"),
             ("shared_code_field_with_template_id", "template", {"subject": "Hi"}, "subject"),
             (
                 "recipient_unknown_field",

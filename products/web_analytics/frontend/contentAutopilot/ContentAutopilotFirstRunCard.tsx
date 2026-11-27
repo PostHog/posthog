@@ -1,23 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
+import { Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@posthog/quill'
 
-import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { AiVisibilityAddBrandForm } from './AiVisibilityAddBrandForm'
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotSetupCostNote } from './ContentAutopilotSetupCostNote'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 
-const CHECKLIST = [
-    { tab: 'prompts', label: 'Review your prompts', detail: 'Edit or pause the questions PostHog saved.' },
-    { tab: 'keywords', label: 'Review your keywords', detail: "Remove any you don't need." },
-    { tab: 'settings', label: 'Choose engines', detail: 'Turn engines on or off and set how often they run.' },
-] as const
-
 const SKIP_REASONS: Record<string, string> = {
     not_available: "Checks aren't available for this project yet.",
-    nothing_to_run:
-        'Checks need your brand and at least one active prompt. Add them in settings and on the Prompts tab.',
+    nothing_to_run: 'Checks need your brand and at least one active prompt. Turn on a prompt on the Prompts tab.',
     already_run: 'Checks already ran for this project.',
 }
 
@@ -34,127 +27,109 @@ export const ContentAutopilotFirstRunCard = ({
         firstRunDisabledReason,
         starting,
         startError,
-        jobRunning,
         firstRunQueued,
         firstRunStep,
         pollError,
+        setupContext,
     } = useValues(contentAutopilotSetupLogic)
-    const { startFirstRun, retryJob, dismissJob, watchFirstChecks } = useActions(contentAutopilotSetupLogic)
-    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { startFirstRun, retryJob, dismissJob, setWizardStep } = useActions(contentAutopilotSetupLogic)
 
-    // After a reload the overview still has to notice when the queued checks land.
-    useEffect(() => {
-        if (firstRunQueued) {
-            watchFirstChecks()
-        }
-    }, [firstRunQueued, watchFirstChecks])
+    const needsBrand = !!setupContext && setupContext.own_domains.length === 0
 
     const skipReason =
         firstRunStep?.status === 'skipped' && firstRunStep.detail ? SKIP_REASONS[firstRunStep.detail] : undefined
 
+    const runNow = paused
+        ? {
+              title: 'Your prompts are saved, paused',
+              description: `Nothing runs and nothing is spent until you turn them on. Run your ${prompts} prompts once to see your first results.`,
+              label: 'Turn on and run once',
+              dataAttr: 'content-autopilot-first-run-activate',
+          }
+        : {
+              title: 'Your prompts are ready',
+              description: 'Each engine checks your prompts on its schedule. To see results sooner, run them now.',
+              label: 'Run checks now',
+              dataAttr: 'content-autopilot-first-run-now',
+          }
+
     return (
-        <LemonCard hoverEffect={false} className="p-6" data-attr="content-autopilot-first-run">
-            {firstRunQueued ? (
-                <div data-attr="content-autopilot-first-run-queued">
-                    <h3 className="m-0">The first checks are running</h3>
-                    <p className="m-0 mt-1 text-muted">
-                        Each engine is answering your prompts. This page updates as the checks finish, which takes a few
-                        minutes.
-                    </p>
-                </div>
-            ) : jobRunning ? (
-                <div className="flex items-center gap-2" data-attr="content-autopilot-first-run-starting">
-                    <Spinner />
-                    <h3 className="m-0">Queuing the first checks</h3>
-                </div>
-            ) : paused ? (
+        <Card data-attr="content-autopilot-first-run">
+            {needsBrand ? (
                 <>
-                    <h3 className="m-0">Your prompts are saved, paused</h3>
-                    <p className="m-0 mt-1 text-muted">
-                        Nothing runs and nothing is spent until you turn them on. Run your {prompts} prompts once to see
-                        your first results.
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
-                        <div className="min-w-0 flex-1 basis-80">
-                            <ContentAutopilotSetupCostNote prompts={prompts} engines={activeEngineCount} />
-                        </div>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => startFirstRun(true)}
-                            loading={starting}
-                            disabledReason={firstRunDisabledReason}
-                            data-attr="content-autopilot-first-run-activate"
-                        >
-                            Turn on and run once
-                        </LemonButton>
-                    </div>
+                    <CardHeader data-attr="content-autopilot-first-run-needs-brand">
+                        <CardTitle role="heading" aria-level={3}>
+                            Set your brand to run the checks
+                        </CardTitle>
+                        <CardDescription>
+                            PostHog counts an answer as yours when it names or links to this site.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <AiVisibilityAddBrandForm formKey="first-run" kinds={['own']} placeholder="yoursite.com" />
+                    </CardContent>
                 </>
             ) : (
                 <>
-                    <h3 className="m-0">Your prompts are ready</h3>
-                    <p className="m-0 mt-1 text-muted">
-                        Each engine runs the first checks on its schedule. To see results sooner, run them now.
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
+                    <CardHeader>
+                        <CardTitle role="heading" aria-level={3}>
+                            {runNow.title}
+                        </CardTitle>
+                        <CardDescription>{runNow.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-wrap items-end justify-between gap-4">
                         <div className="min-w-0 flex-1 basis-80">
                             <ContentAutopilotSetupCostNote prompts={prompts} engines={activeEngineCount} />
                         </div>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => startFirstRun(false)}
+                        <Button
+                            variant="primary"
+                            onClick={() => startFirstRun(paused)}
                             loading={starting}
                             disabledReason={firstRunDisabledReason}
-                            data-attr="content-autopilot-first-run-now"
+                            data-attr={runNow.dataAttr}
                         >
-                            Run checks now
-                        </LemonButton>
-                    </div>
+                            {runNow.label}
+                        </Button>
+                    </CardContent>
                 </>
             )}
-            {startError ? (
-                <LemonBanner type="error" className="mt-4">
-                    {startError}
-                </LemonBanner>
-            ) : firstRunStep?.status === 'failed' ? (
-                <LemonBanner
-                    type="error"
-                    className="mt-4"
-                    action={{ children: 'Try again', onClick: () => startFirstRun(paused) }}
-                >
-                    {firstRunStep.detail || "The checks couldn't be queued. Try again."}
-                </LemonBanner>
-            ) : skipReason && !firstRunQueued ? (
-                <LemonBanner type="info" className="mt-4" onClose={dismissJob}>
-                    {skipReason}
-                </LemonBanner>
-            ) : null}
-            {pollError ? (
-                <LemonBanner
-                    type="error"
-                    className="mt-4"
-                    action={{ children: 'Try again', onClick: retryJob }}
-                    onClose={dismissJob}
-                >
-                    {pollError}
-                </LemonBanner>
-            ) : null}
-            <ul className="m-0 mt-5 flex list-none flex-col gap-2 border-t p-0 pt-4">
-                {CHECKLIST.map((item) => (
-                    <li key={item.tab}>
-                        <LemonButton
-                            fullWidth
-                            sideIcon={<IconArrowRight />}
-                            onClick={() => setWorkspaceTab(item.tab)}
-                            data-attr={`content-autopilot-first-run-${item.tab}`}
+            {startError || firstRunStep?.status === 'failed' || (skipReason && !firstRunQueued) || pollError ? (
+                <CardContent className="flex flex-col gap-2">
+                    {startError ? (
+                        <AiVisibilityBanner type="error">{startError}</AiVisibilityBanner>
+                    ) : firstRunStep?.status === 'failed' ? (
+                        <AiVisibilityBanner
+                            type="error"
+                            action={{ children: 'Try again', onClick: () => startFirstRun(paused) }}
                         >
-                            <span className="flex flex-col items-start">
-                                <span>{item.label}</span>
-                                <span className="text-xs font-normal text-secondary">{item.detail}</span>
-                            </span>
-                        </LemonButton>
-                    </li>
-                ))}
-            </ul>
-        </LemonCard>
+                            {firstRunStep.detail || "The checks couldn't be queued. Try again."}
+                        </AiVisibilityBanner>
+                    ) : skipReason && !firstRunQueued ? (
+                        <AiVisibilityBanner type="info" onClose={dismissJob}>
+                            {skipReason}
+                        </AiVisibilityBanner>
+                    ) : null}
+                    {pollError ? (
+                        <AiVisibilityBanner
+                            type="error"
+                            action={{ children: 'Try again', onClick: retryJob }}
+                            onClose={dismissJob}
+                        >
+                            {pollError}
+                        </AiVisibilityBanner>
+                    ) : null}
+                </CardContent>
+            ) : null}
+            <CardFooter className="flex justify-end">
+                <Button
+                    variant="outline"
+                    onClick={() => setWizardStep('review')}
+                    data-attr="content-autopilot-first-run-review"
+                >
+                    Review your setup
+                    <IconArrowRight />
+                </Button>
+            </CardFooter>
+        </Card>
     )
 }

@@ -3148,6 +3148,11 @@
                     "csv": false
                 },
                 {
+                    "param": "current_prompts",
+                    "key": "current_prompts",
+                    "csv": false
+                },
+                {
                     "param": "date_from",
                     "key": "date_from",
                     "csv": false
@@ -3203,6 +3208,11 @@
                 {
                     "param": "branded",
                     "key": "branded",
+                    "csv": false
+                },
+                {
+                    "param": "current_prompts",
+                    "key": "current_prompts",
                     "csv": false
                 },
                 {
@@ -3504,6 +3514,38 @@
             "validators": []
         }
     },
+    "aeo-setup-cancel": {
+        "name": "aeo-setup-cancel",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/{id}/cancel/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "aeo-setup-context-get": {
         "name": "aeo-setup-context-get",
         "kind": "http",
@@ -3568,6 +3610,38 @@
             "validators": []
         }
     },
+    "aeo-setup-reset": {
+        "name": "aeo-setup-reset",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/reset/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "aeo-setup-start": {
         "name": "aeo-setup-start",
         "kind": "http",
@@ -3608,8 +3682,44 @@
                 {
                     "param": "activate_paused_prompts",
                     "key": "activate_paused_prompts"
+                },
+                {
+                    "param": "prompt_count",
+                    "key": "prompt_count"
                 }
             ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "aeo-setup-stop-checks": {
+        "name": "aeo-setup-stop-checks",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/stop_checks/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
@@ -7571,6 +7681,10 @@
                 {
                     "param": "source_record",
                     "key": "source_record"
+                },
+                {
+                    "param": "entry_attempt_id",
+                    "key": "entry_attempt_id"
                 },
                 {
                     "param": "trigger_masking",
@@ -19212,6 +19326,10 @@
                     "key": "description"
                 },
                 {
+                    "param": "color",
+                    "key": "color"
+                },
+                {
                     "param": "filters",
                     "key": "filters"
                 },
@@ -19323,6 +19441,10 @@
                 {
                     "param": "description",
                     "key": "description"
+                },
+                {
+                    "param": "color",
+                    "key": "color"
                 },
                 {
                     "param": "filters",
@@ -33133,6 +33255,10 @@
                     "key": "suite_key"
                 },
                 {
+                    "param": "experiment_scorer_version_id",
+                    "key": "experiment_scorer_version_id"
+                },
+                {
                     "param": "dataset_source",
                     "key": "dataset_source"
                 },
@@ -33813,6 +33939,55 @@
                 {
                     "param": "error_code",
                     "key": "error_code"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "llma-offline-experiment-score-preview": {
+        "name": "llma-offline-experiment-score-preview",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/ai_observability/offline_experiments/{id}/score_previews/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "scope",
+                    "key": "scope"
+                },
+                {
+                    "param": "kind",
+                    "key": "kind"
+                },
+                {
+                    "param": "composition",
+                    "key": "composition"
+                },
+                {
+                    "param": "config",
+                    "key": "config"
                 }
             ],
             "injectBody": {},
@@ -35029,6 +35204,11 @@
                     "csv": false
                 },
                 {
+                    "param": "scope",
+                    "key": "scope",
+                    "csv": false
+                },
+                {
                     "param": "search",
                     "key": "search",
                     "csv": false
@@ -35083,6 +35263,14 @@
                 {
                     "param": "tags",
                     "key": "tags"
+                },
+                {
+                    "param": "apply_to_suite_keys",
+                    "key": "apply_to_suite_keys"
+                },
+                {
+                    "param": "suite_version_id",
+                    "key": "suite_version_id"
                 },
                 {
                     "param": "name",
@@ -37742,6 +37930,11 @@
                 {
                     "param": "date_to",
                     "key": "date_to",
+                    "csv": false
+                },
+                {
+                    "param": "feedback_only",
+                    "key": "feedback_only",
                     "csv": false
                 },
                 {
@@ -43262,7 +43455,27 @@
         },
         "response": {
             "list": true,
-            "filter": null,
+            "filter": {
+                "kind": "pick",
+                "fields": [
+                    "id",
+                    "skill_name",
+                    "display_name",
+                    "description",
+                    "scout_origin",
+                    "scout_role",
+                    "enabled",
+                    "status",
+                    "pause_reason",
+                    "emit",
+                    "run_interval_minutes",
+                    "run_cron_schedule",
+                    "last_run_at",
+                    "tags",
+                    "source_product"
+                ],
+                "selectable": false
+            },
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
@@ -43296,6 +43509,38 @@
                     "key": "precheck_query"
                 }
             ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "scout-config-retrieve": {
+        "name": "scout-config-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/signals/scout/configs/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
@@ -44780,6 +45025,11 @@
                     "csv": false
                 },
                 {
+                    "param": "exclude_skill_name",
+                    "key": "exclude_skill_name",
+                    "csv": false
+                },
+                {
                     "param": "limit",
                     "key": "limit",
                     "csv": false
@@ -44807,7 +45057,25 @@
         },
         "response": {
             "list": true,
-            "filter": null,
+            "filter": {
+                "kind": "pick",
+                "fields": [
+                    "run_id",
+                    "skill_name",
+                    "skill_version",
+                    "status",
+                    "created_at",
+                    "started_at",
+                    "completed_at",
+                    "summary_lead",
+                    "failure_reason",
+                    "emitted_count",
+                    "emitted_finding_ids",
+                    "emitted_report_ids",
+                    "edited_report_ids"
+                ],
+                "selectable": false
+            },
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
@@ -45053,6 +45321,11 @@
                 {
                     "param": "content_max_chars",
                     "key": "content_max_chars",
+                    "csv": false
+                },
+                {
+                    "param": "content_offset",
+                    "key": "content_offset",
                     "csv": false
                 },
                 {
@@ -46841,6 +47114,11 @@
                     "csv": false
                 },
                 {
+                    "param": "exclude_skill_name",
+                    "key": "exclude_skill_name",
+                    "csv": false
+                },
+                {
                     "param": "limit",
                     "key": "limit",
                     "csv": false
@@ -47077,6 +47355,11 @@
                 {
                     "param": "content_max_chars",
                     "key": "content_max_chars",
+                    "csv": false
+                },
+                {
+                    "param": "content_offset",
+                    "key": "content_offset",
                     "csv": false
                 },
                 {
@@ -57282,6 +57565,10 @@
                     "key": "source_record"
                 },
                 {
+                    "param": "entry_attempt_id",
+                    "key": "entry_attempt_id"
+                },
+                {
                     "param": "trigger_masking",
                     "key": "trigger_masking"
                 },
@@ -57385,6 +57672,10 @@
                 {
                     "param": "sensitive",
                     "key": "sensitive"
+                },
+                {
+                    "param": "click_tracking_enabled",
+                    "key": "click_tracking_enabled"
                 }
             ],
             "injectBody": {},
@@ -58310,6 +58601,11 @@
                     "csv": false
                 },
                 {
+                    "param": "created_by",
+                    "key": "created_by",
+                    "csv": false
+                },
+                {
                     "param": "limit",
                     "key": "limit",
                     "csv": false
@@ -58317,6 +58613,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 },
                 {
@@ -59517,6 +59818,10 @@
                 {
                     "param": "sensitive",
                     "key": "sensitive"
+                },
+                {
+                    "param": "click_tracking_enabled",
+                    "key": "click_tracking_enabled"
                 }
             ],
             "injectBody": {},

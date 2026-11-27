@@ -552,6 +552,10 @@ mod tests {
         "OPTIONAL group image_ref_sketch LIST",
         "REPEATED group image_ref_sketch.list",
         "REQUIRED INT32 image_ref_sketch.list.element",
+        "OPTIONAL INT32 json_ld_events",
+        "OPTIONAL group json_ld_root_types LIST",
+        "REPEATED group json_ld_root_types.list",
+        "REQUIRED BYTE_ARRAY json_ld_root_types.list.element UTF8",
     ];
 
     fn describe(schema: &SchemaType, path: &mut Vec<String>, out: &mut Vec<String>) {
