@@ -17,6 +17,8 @@
             </div>
         </div>
         <div class="ml-auto flex flex-wrap gap-2">
+            {# Links to a panel whose only action moved to the header land on the header buttons. #}
+            {% for key in header_panel_keys %}<span id="panel-{{ key }}"></span>{% endfor %}
             {% for link in record_links %}
                 <a class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
                    href="{{ link.href }}"

@@ -2074,6 +2074,7 @@ class TestAdminConsoleLogInAsUser(BaseTest):
         record_page = self.client.get(f"/admin/console/users/{self.target.pk}/", {"ticket": self.ticket})
         operation_url = f"{self.url}?{urlencode({'ticket': self.ticket})}"
         assert record_page.content.decode().count(f'href="{escape(operation_url)}"') == 1
+        assert 'id="panel-log-in-as"' in record_page.content.decode()
         assert operation_url in [link.href for link in record_page.context["record_links"]]
 
         form = self.client.get(operation_url).context["form"]

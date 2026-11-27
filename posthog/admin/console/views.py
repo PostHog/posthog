@@ -328,6 +328,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
     RecentRecords.remember(request, record_type, obj)
     panels: list[RenderedPanel] = []
     header_links: list[RecordLink] = []
+    header_panel_keys: list[str] = []
     for panel in console.panels_for(record_type.key):
         facts = panel.facts(obj)
         operations = []
@@ -348,11 +349,14 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
                 operations.append(_rendered_operation(request, operation, panel.owner, url))
         if facts or operations or not in_header:
             panels.append(RenderedPanel(panel=panel, facts=facts, operations=operations))
+        else:
+            header_panel_keys.append(panel.key)
     return render(
         request,
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
+            "header_panel_keys": header_panel_keys,
             "record_links": [*header_links, *(_with_kept_ticket(link, request) for link in record_type.links(obj))],
             "related": RelatedRecords(record_type, obj).previews(),
             "attention": [

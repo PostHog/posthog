@@ -185,9 +185,9 @@ class Operation:
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
-        if self.header and self.gate is not None:
+        if self.header and (self.gate is not None or self.danger):
             raise ValueError(
-                f"Operation {self.key!r} sits in the header, which cannot show who may run it. Drop the gate"
+                f"Operation {self.key!r} sits in the header, which shows neither who may run it nor that it is risky"
             )
         if self.preview is not None and self.form_class is None:
             raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
