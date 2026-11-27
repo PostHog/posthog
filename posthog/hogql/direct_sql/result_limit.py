@@ -12,6 +12,15 @@ from posthog.hogql.errors import ExposedHogQLError
 RESULT_TOO_LARGE = "The result is too large. Narrow the inputs or aggregate the source data."
 
 
+def _available_name(base: str, used_names: set[str]) -> str:
+    candidate = base
+    suffix = 0
+    while candidate in used_names:
+        suffix += 1
+        candidate = f"{base}_{suffix}"
+    return candidate
+
+
 def _bounded_sql(engine: str, sql: str, schema: DirectQueryResult, byte_limit: int, *, pyformat: bool) -> str:
     from sqlglot import exp
 
@@ -23,28 +32,31 @@ def _bounded_sql(engine: str, sql: str, schema: DirectQueryResult, byte_limit: i
     used_names = {name.casefold() for name in columns}
     if len(used_names) != len(columns):
         raise ExposedHogQLError("Give each result column a unique name before running this calculation.")
-    size_name = "_posthog_result_bytes"
-    while size_name in used_names:
-        size_name += "_"
+    size_name = _available_name("_posthog_result_bytes", used_names)
+    source_alias = _available_name("source_row", used_names)
     match engine:
         case "postgres":
-            row_size = "octet_length(convert_to(row_to_json(source_row)::text, 'UTF8'))"
+            row_size = f"octet_length(convert_to(row_to_json({source_alias}.*)::text, 'UTF8'))"
         case "bigquery":
-            row_size = "BYTE_LENGTH(TO_JSON_STRING(source_row))"
+            row_size = f"BYTE_LENGTH(TO_JSON_STRING({source_alias}))"
         case "snowflake":
-            row_size = "OCTET_LENGTH(TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(source_row.*)))"
+            row_size = f"OCTET_LENGTH(TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL({source_alias}.*)))"
         case "motherduck" | "duckgres":
-            row_size = "octet_length(encode(CAST(to_json(source_row) AS VARCHAR)))"
+            row_size = f"octet_length(encode(CAST(to_json({source_alias}) AS VARCHAR)))"
         case "mysql":
-            row_size = " + ".join(f"COALESCE(OCTET_LENGTH(CAST(source_row.{name} AS BINARY)), 4)" for name in names)
+            row_size = " + ".join(f"COALESCE(OCTET_LENGTH(CAST({source_alias}.{name} AS BINARY)), 4)" for name in names)
         case "redshift":
             values = [
-                f"CAST(source_row.{name} AS VARCHAR)" if column in schema.json_text_columns else f"source_row.{name}"
+                f"CAST({source_alias}.{name} AS VARCHAR)"
+                if column in schema.json_text_columns
+                else f"{source_alias}.{name}"
                 for column, name in zip(columns, names, strict=True)
             ]
             row_size = " + ".join(f"JSON_SIZE(OBJECT('v', {value}))" for value in values)
         case "trino":
-            row_size = " + ".join(f"COALESCE(length(to_utf8(format('%s', source_row.{name}))), 4)" for name in names)
+            row_size = " + ".join(
+                f"COALESCE(length(to_utf8(format('%s', {source_alias}.{name}))), 4)" for name in names
+            )
         case _:
             raise ExposedHogQLError("This connection cannot bound the size of a private result.")
     masked = ", ".join(
@@ -52,7 +64,7 @@ def _bounded_sql(engine: str, sql: str, schema: DirectQueryResult, byte_limit: i
     )
     return (
         f"SELECT {masked}, result_rows.{size_name} FROM ("
-        f"SELECT source_row.*, SUM({len(columns)} + {row_size}) OVER () AS {size_name} FROM (\n{sql}\n) AS source_row"
+        f"SELECT {source_alias}.*, SUM({len(columns)} + {row_size}) OVER () AS {size_name} FROM (\n{sql}\n) AS {source_alias}"
         ") AS result_rows"
     )
 
