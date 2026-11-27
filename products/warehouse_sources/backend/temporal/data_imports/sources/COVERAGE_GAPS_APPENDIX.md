@@ -12852,7 +12852,7 @@ Note: SafetyCulture's warehouse-oriented surface is the /feed/\* family, and rou
 
 ## Sage Intacct — **thin**
 
-Today (10): `ARPayments`, `BillLines`, `Bills`, `Customers`, `GLAccounts`, `InvoiceLines`, `Invoices`, `JournalEntries`, `JournalEntryLines`, `Vendors`
+Today (14): `APPayments`, `ARPayments`, `BillLines`, `Bills`, `Customers`, `Departments`, `GLAccounts`, `GLBudgets`, `InvoiceLines`, `Invoices`, `JournalEntries`, `JournalEntryLines`, `Locations`, `Vendors`
 
 Diffed against: <https://developer.sage.com/intacct/llms.txt>
 
@@ -12860,12 +12860,12 @@ Diffed against: <https://developer.sage.com/intacct/llms.txt>
 - [x] `Invoice lines (GET /objects/accounts-receivable/invoice-line)` — Line-level revenue per invoice we already sync (high)
 - [x] `Bill lines (GET /objects/accounts-payable/bill-line)` — Line-level spend per bill we already sync (high)
 - [x] `AR payments (GET /objects/accounts-receivable/payment)` — Customer payments, to track cash collected against invoices (high)
-- [ ] `AP payments (GET /objects/accounts-payable/payment)` — Vendor payments, to track cash paid against bills (high)
-- [ ] `Locations (GET /objects/company-config/location)` — Lookup for location dimension IDs on invoices, bills and journal lines (high)
-- [ ] `Departments (GET /objects/company-config/department)` — Lookup for department dimension IDs on transactions (high)
+- [x] `AP payments (GET /objects/accounts-payable/payment)` — Vendor payments, to track cash paid against bills (high)
+- [x] `Locations (GET /objects/company-config/location)` — Lookup for location dimension IDs on invoices, bills and journal lines (high)
+- [x] `Departments (GET /objects/company-config/department)` — Lookup for department dimension IDs on transactions (high)
 - [ ] `Employees (GET /objects/company-config/employee)` — Employee records for expense and timesheet attribution (medium)
 - [ ] `Projects (GET /objects/projects/project)` — Project dimension used on transactions and time (medium)
-- [ ] `GL budgets (GET /objects/general-ledger/budget)` — Budget against actuals for variance reporting (medium)
+- [x] `GL budgets (GET /objects/general-ledger/budget)` — Budget against actuals for variance reporting (medium)
 
 Note: Parsed llms.txt from developer.sage.com (the OpenAPI JSON URL is behind a Cloudflare challenge) and read the route from each of the 540 List pages. Routes sit under https://api.intacct.com/ia/api/v1 and match the style our source uses. Many modules are unsynced (cash management, contracts, expenses, fixed assets, inventory, order entry, purchasing, tax, time, construction); only the core finance gaps are listed. List endpoints return only object references, so an implementer must use the query service for full rows. Modules need the matching Intacct subscription.
 
