@@ -72,7 +72,7 @@ export function CloudGithubSetupDialogContent({
           <DialogDescription
             className={
               hasError || isTimedOut
-                ? "text-balance text-destructive"
+                ? "text-balance text-destructive-foreground"
                 : "text-balance"
             }
           >
