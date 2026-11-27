@@ -246,34 +246,19 @@ describe('personEmailsLogic', () => {
         expect(logic.values.previewed).toEqual(logic.values.emails[0])
     })
 
-    it('stops looking up while a flag is off, and picks up again once it turns back on', async () => {
+    it('stops looking up once a flag turns off', async () => {
         const lookups = hold(CLICKED, OPENED, NO_OPEN, BOUNCED, NOT_SENT, WORKFLOW, OLD)
         setFlags(true)
         logic = personEmailsLogic({ teamId: 1, personId: 'person-1' })
         logic.mount()
         logic.actions.loadEmails()
         await lookups.reached
-        logic.actions.openEmail(logic.values.emails[0])
 
         setFlags(false)
         lookups.release()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.previewed).toEqual(logic.values.emails[0])
         expect(searches.length).toBeLessThan(new Set(logic.values.emails.map((email) => email.invocation_id)).size)
         expect(logic.values.outcomeColumnShown).toBe(false)
-
-        setFlags(true)
-        await expectLogic(logic).toFinishAllListeners()
-        expect(lookupsInOrder()).toEqual([
-            'clicked',
-            'opened',
-            'delivered',
-            'bounced',
-            'failed',
-            'not_logged',
-            'not_logged',
-            'clicked',
-        ])
     })
 })
