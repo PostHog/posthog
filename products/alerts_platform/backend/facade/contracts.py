@@ -1588,8 +1588,8 @@ class SourceConfigSpec:
     # Narrows a read through the platform API to the alerts whose watched object the reader may view.
     # None when read access to the kind is enough.
     object_access: SourceObjectAccess | None = None
-    # The platform API reads the kind's alerts and refuses writes to them: its source's own API makes them.
-    # It reads only the ones the platform holds, as a copy the source owns is a stale shadow.
+    # A read through the platform API shows only the kind's alerts the platform holds:
+    # a copy its source owns is a shadow.
     read_only: bool = False
 
     @property
