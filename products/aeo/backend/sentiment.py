@@ -9,7 +9,7 @@ module only prepares its input and folds its output back into one label per answ
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.sentiment_labeling import select_sentiment_label
@@ -17,6 +17,8 @@ from posthog.hogql_queries.ai.sentiment_labeling import select_sentiment_label
 from products.aeo.backend.brand import brand_pattern
 
 SENTIMENT_LABELS = ("negative", "neutral", "positive")
+# Stored on a brand row whose mentions no sentence of the answer holds, so the backlog moves past it.
+UNSCORABLE = "unscorable"
 # Bounds the classifier input per answer: an answer that names the brand in more sentences than
 # this is scored on the first ones, and the model truncates a sentence longer than this anyway.
 MAX_BRAND_SENTENCES = 20
@@ -53,26 +55,50 @@ def brand_sentences(answer_text: str | None, target_domains: list[str]) -> list[
     return matching_sentences(answer_text, brand_pattern(target_domains))
 
 
-def surface_pattern(surfaces: Iterable[str]) -> re.Pattern[str] | None:
-    """A word-bounded pattern for the words an answer named a catalog brand with, as `AEOCheckBrand.mentions` stores them."""
-    words = sorted({surface.strip() for surface in surfaces if surface and surface.strip()}, key=len, reverse=True)
-    if not words:
-        return None
-    return re.compile(r"(?<!\w)(" + "|".join(re.escape(word) for word in words) + r")(?!\w)", re.IGNORECASE)
+def mention_sentences(answer_text: str | None, spans: Iterable[tuple[int, int]]) -> list[BrandSentence]:
+    """The sentences of an answer that hold one of the mention spans, in order, trimmed and bounded.
+
+    `spans` are (start, end) offsets in Unicode code points, as `AEOCheckBrand.mentions` stores them. A break
+    inside a mention, or right after punctuation that ends one, does not end the sentence, so `Dr. Martens is
+    fast.` and `Yahoo! is fast.` each stay one sentence with their brand in it."""
+    mentions = sorted(spans)
+    if not answer_text or not mentions:
+        return []
+
+    def in_mention(position: int) -> bool:
+        return any(start <= position < end for start, end in mentions)
+
+    return _sentences(
+        answer_text,
+        wanted=lambda start, end: any(
+            start < mention_end and mention_start < end for mention_start, mention_end in mentions
+        ),
+        # The break's first character follows the punctuation that ends the sentence.
+        breaks_at=lambda break_start, break_end: not in_mention(break_start - 1) and not in_mention(break_start),
+    )
 
 
 def matching_sentences(answer_text: str | None, pattern: re.Pattern[str] | None) -> list[BrandSentence]:
     """The sentences of an answer that the pattern matches, in order, trimmed and bounded."""
     if not answer_text or pattern is None:
         return []
+    return _sentences(answer_text, wanted=lambda start, end: bool(pattern.search(answer_text, start, end)))
+
+
+def _sentences(
+    answer_text: str,
+    *,
+    wanted: Callable[[int, int], bool],
+    breaks_at: Callable[[int, int], bool] = lambda break_start, break_end: True,
+) -> list[BrandSentence]:
     sentences: list[BrandSentence] = []
     position = 0
-    breaks = [match.span() for match in _SENTENCE_BREAK.finditer(answer_text)]
+    breaks = [match.span() for match in _SENTENCE_BREAK.finditer(answer_text) if breaks_at(*match.span())]
     for break_start, break_end in [*breaks, (len(answer_text), len(answer_text))]:
         raw = answer_text[position:break_start]
         text = raw.strip()
-        if text and pattern.search(text):
-            start = position + len(raw) - len(raw.lstrip())
+        start = position + len(raw) - len(raw.lstrip())
+        if text and wanted(start, start + len(text)):
             sentences.append(BrandSentence(start=start, end=start + len(text), text=text[:MAX_SENTENCE_CHARS]))
             if len(sentences) == MAX_BRAND_SENTENCES:
                 break

@@ -569,7 +569,7 @@ class AEOCheckBrand(TeamScopedRootMixin, UUIDModel):
         max_length=16,
         null=True,
         blank=True,
-        help_text="Sentiment of the answer's sentences that name this brand: positive, neutral or negative. Null until scored, for brands the answer only cites, and for the own brand, whose sentiment is on the check.",
+        help_text="Sentiment of the answer's sentences that name this brand: positive, neutral or negative, or 'unscorable' when no sentence holds its stored mentions. Null until scored, for brands the answer only cites, and for the own brand, whose sentiment is on the check.",
     )
     sentiment_score = models.FloatField(
         null=True,

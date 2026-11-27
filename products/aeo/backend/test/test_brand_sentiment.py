@@ -19,6 +19,7 @@ from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandS
 from products.aeo.backend.models import AEOBrand, AEOCheckBrand, AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
+from products.aeo.backend.sentiment import UNSCORABLE
 from products.aeo.backend.temporal.brand_sentiment import AEOBrandSentimentInputs, classify_aeo_brand_sentiment
 from products.aeo.backend.test.factories import create_own_brand, store_what_the_runner_stores
 
@@ -214,6 +215,49 @@ async def test_activity_scores_each_other_brand_on_the_sentences_that_name_it(se
         ("recent", "rival.io", "negative"),
         ("old", "rival.io", None),
     }
+
+
+def _seed_an_unscorable_row_before_a_scorable_one(team: Team) -> tuple[AEOCitationCheck, AEOCitationCheck]:
+    _, recent, _ = _seed_competitor_answers(team)
+    with team_scope(team.pk):
+        prompt = AEOPrompt.objects.get(team=team)
+    blocked = _check(team, prompt, uuid.uuid4(), "Rival is fine.")
+    _age(blocked, 2)
+    store_what_the_runner_stores(blocked.id)
+    # A stored mention whose offset no longer reads as its surface has no sentence to score.
+    with team_scope(team.pk):
+        AEOCheckBrand.objects.filter(team=team, citation_check=blocked).update(
+            mentions=[{"surface": "Rival", "kind": "name", "start": 40}]
+        )
+    return blocked, recent
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_unscorable_brand_rows_are_marked_so_the_backlog_moves_past_them(settings) -> None:
+    team = await sync_to_async(_team)()
+    blocked, recent = await sync_to_async(_seed_an_unscorable_row_before_a_scorable_one)(team)
+    classify = MagicMock(return_value=[_result(positive=0.05, neutral=0.15, negative=0.8)])
+
+    def rival_sentiments() -> dict[str, str | None]:
+        with team_scope(team.pk):
+            rows = AEOCheckBrand.objects.filter(
+                team=team, brand__domain="rival.io", citation_check__in=[blocked, recent]
+            )
+            return {
+                ("blocked" if row.citation_check_id == blocked.id else "recent"): row.sentiment
+                for row in rows.only("citation_check_id", "sentiment")
+            }
+
+    # With one row per pass, the oldest row is the unscorable one. The first pass marks it, the second scores the next.
+    with (
+        patch("posthog.temporal.ai_observability.sentiment.model.classify", classify),
+        patch(f"{_MODULE}.MAX_ROWS_PER_RUN", 1),
+    ):
+        for _ in range(2):
+            await ActivityEnvironment().run(classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id))
+
+    assert await sync_to_async(rival_sentiments)() == {"blocked": UNSCORABLE, "recent": "negative"}
 
 
 @pytest.mark.django_db(transaction=True)

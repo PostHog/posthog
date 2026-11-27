@@ -45,6 +45,7 @@ from products.aeo.backend.scope import (
     scope_filter,
     scope_sql_params,
 )
+from products.aeo.backend.sentiment import SENTIMENT_LABELS
 from products.aeo.backend.window import CheckWindow
 
 # Registrable names of sites answers cite whatever the brand, so they are never a competitor.
@@ -397,7 +398,7 @@ def _brand_positive_shares(
         return {}
     rows = (
         AEOCheckBrand.objects.for_team(team_id)
-        .filter(brand_id__in=brand_ids, citation_check_id__in=answered.values("id"), sentiment__isnull=False)
+        .filter(brand_id__in=brand_ids, citation_check_id__in=answered.values("id"), sentiment__in=SENTIMENT_LABELS)
         .values("brand_id")
         .annotate(scored=Count("id"), positive=Count("id", filter=Q(sentiment="positive")))
     )

@@ -40,14 +40,14 @@ from products.aeo.backend.engines import own_domains_key
 from products.aeo.backend.facade.contracts import BrandKind
 from products.aeo.backend.models import AEOCheckBrand, AEOCitationCheck
 from products.aeo.backend.sentiment import (
+    UNSCORABLE,
     AnswerSentiment,
     BrandSentence,
     SentenceSentiment,
     aggregate_sentiment,
     brand_sentences,
-    matching_sentences,
+    mention_sentences,
     sentence_sentiment,
-    surface_pattern,
 )
 from products.aeo.backend.stored_results import bump_data_version_on_commit
 
@@ -175,12 +175,29 @@ def _write_scores(team_id: int, own_domains_key: str, scored: Sequence[_ScoredAn
     return len(rows)
 
 
-def _load_pending_brands(team_id: int) -> list[_PendingBrand]:
-    """The recent brand rows that name a brand other than the own one and have no score yet, oldest first,
-    capped like the answers. The own brand's sentiment is on the check, so its rows are skipped.
+@dataclasses.dataclass(frozen=True)
+class _PendingBrands:
+    brands: list[_PendingBrand]
+    # Rows whose mentions no sentence of the answer holds. They are marked, so the next pass moves past them.
+    unscorable: list[str]
 
-    A row is picked by the words its mentions stored, so a row whose answer was edited away from them
-    would keep being picked. Answers are never edited, and a re-resolved row is a new unscored row."""
+
+def _mention_spans(answer_text: str, mentions: list[dict[str, Any]]) -> list[tuple[int, int]]:
+    """The mentions the row stored, as spans of the answer. A span whose text no longer reads as the stored
+    surface is left out, so a sentence is never picked for a mention it does not hold."""
+    spans = []
+    for mention in mentions:
+        start, surface = mention.get("start"), mention.get("surface")
+        if isinstance(start, int) and surface and answer_text[start : start + len(surface)] == surface:
+            spans.append((start, start + len(surface)))
+    return spans
+
+
+def _load_pending_brands(team_id: int) -> _PendingBrands:
+    """The recent brand rows that name a brand other than the own one and have no score yet, oldest first,
+    capped like the answers. The own brand's sentiment is on the check, so its rows are skipped. The sentences
+    are the ones that hold the mentions the row stored, by their offsets, so a name with punctuation such as
+    `Dr. Martens` stays whole."""
     rows = list(
         AEOCheckBrand.objects.for_team(team_id)
         .filter(created_at__gte=timezone.now() - BACKLOG_WINDOW, mentioned=True, sentiment__isnull=True)
@@ -194,16 +211,24 @@ def _load_pending_brands(team_id: int) -> list[_PendingBrand]:
         .filter(id__in={check_id for _, check_id, _ in rows}, check_failed=False)
         .values_list("id", "answer_text")
     )
-    pending = [
-        _PendingBrand(
-            check_brand_id=str(row_id),
-            sentences=matching_sentences(
-                texts.get(check_id), surface_pattern(mention.get("surface", "") for mention in mentions)
-            ),
-        )
-        for row_id, check_id, mentions in rows
-    ]
-    return [brand for brand in pending if brand.sentences]
+    brands: list[_PendingBrand] = []
+    unscorable: list[str] = []
+    for row_id, check_id, mentions in rows:
+        text = texts.get(check_id) or ""
+        sentences = mention_sentences(text, _mention_spans(text, mentions))
+        if sentences:
+            brands.append(_PendingBrand(check_brand_id=str(row_id), sentences=sentences))
+        else:
+            unscorable.append(str(row_id))
+    return _PendingBrands(brands=brands, unscorable=unscorable)
+
+
+def _mark_unscorable(team_id: int, row_ids: list[str]) -> int:
+    return (
+        AEOCheckBrand.objects.for_team(team_id)
+        .filter(id__in=row_ids, sentiment__isnull=True)
+        .update(sentiment=UNSCORABLE)
+    )
 
 
 def _write_brand_scores(team_id: int, scored: Mapping[str, AnswerSentiment]) -> int:
@@ -219,12 +244,13 @@ def _write_brand_scores(team_id: int, scored: Mapping[str, AnswerSentiment]) -> 
     return written
 
 
-async def _classify(model: Any, texts: list[str]) -> list[Mapping[str, float]]:
+async def _classify(texts: list[str]) -> list[Mapping[str, float]]:
+    import posthog.temporal.ai_observability.sentiment.model as sentiment_model  # noqa: PLC0415 -- ONNX deps
+
     scores: list[Mapping[str, float]] = []
     for offset in range(0, len(texts), CLASSIFY_BATCH):
-        scores.extend(
-            result.scores for result in await model.classify_in_executor(texts[offset : offset + CLASSIFY_BATCH])
-        )
+        results = await sentiment_model.classify_in_executor(texts[offset : offset + CLASSIFY_BATCH])
+        scores.extend(result.scores for result in results)
     return scores
 
 
@@ -239,12 +265,18 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
     rows read as "not scored yet" until the worker image carries the model."""
     batch = await database_sync_to_async(_load_pending, thread_sensitive=False)(inputs)
     pending = batch.answers
-    brands = await database_sync_to_async(_load_pending_brands, thread_sensitive=False)(inputs.team_id)
+    pending_brands = await database_sync_to_async(_load_pending_brands, thread_sensitive=False)(inputs.team_id)
+    brands = pending_brands.brands
+    if pending_brands.unscorable:
+        await database_sync_to_async(_mark_unscorable, thread_sensitive=False)(
+            inputs.team_id, pending_brands.unscorable
+        )
     if not pending and not brands:
         return {"scored": 0, "answers": 0, "brands_scored": 0}
 
+    # Fails fast when the worker image lacks the ONNX dependencies, before any answer is classified.
     try:
-        import posthog.temporal.ai_observability.sentiment.model as sentiment_model  # noqa: PLC0415 -- ONNX deps
+        import posthog.temporal.ai_observability.sentiment.model  # noqa: F401, PLC0415 -- ONNX deps
     except (ImportError, FileNotFoundError) as error:
         return _model_unavailable(inputs, pending, error)
 
@@ -257,9 +289,7 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
             break
         group = pending[start : start + ANSWERS_PER_WRITE]
         try:
-            all_scores = await _classify(
-                sentiment_model, [sentence.text for answer in group for sentence in answer.sentences]
-            )
+            all_scores = await _classify([sentence.text for answer in group for sentence in answer.sentences])
         except (ImportError, FileNotFoundError) as error:
             return _model_unavailable(inputs, pending, error)
         scored: list[_ScoredAnswer] = []
@@ -292,9 +322,7 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
             break
         group_brands = brands[start : start + BRANDS_PER_WRITE]
         try:
-            all_scores = await _classify(
-                sentiment_model, [sentence.text for brand in group_brands for sentence in brand.sentences]
-            )
+            all_scores = await _classify([sentence.text for brand in group_brands for sentence in brand.sentences])
         except (ImportError, FileNotFoundError) as error:
             return _model_unavailable(inputs, pending, error)
         brand_scores: dict[str, AnswerSentiment] = {}
