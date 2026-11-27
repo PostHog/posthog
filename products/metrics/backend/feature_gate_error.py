@@ -7,6 +7,8 @@ class MetricsFeatureGateError(UserAccessControlError):
 
     def __init__(self, flag: str) -> None:
         super().__init__("metrics", "viewer")
+        # Shared dashboards are read without signing in, so they get the base message, which names no flag.
+        self.public_message = str(self)
         self.args = (
             f"The `{flag}` feature flag is not enabled for this user or project, so metrics queries cannot run. "
             "This is a feature flag gate, not a role or permission problem.",
