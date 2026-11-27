@@ -17,6 +17,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
+from django.db.models import JSONField, Value
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
@@ -16977,13 +16978,11 @@ class TestFeatureFlagLaunchCheck(APIBaseTest):
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["rollout_percentage"] == 50
 
-    def test_save_succeeds_when_describing_the_flag_fails(self):
+    def test_save_succeeds_when_the_stored_flag_cannot_be_described(self):
         flag = self._flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=Value(None, JSONField()))
 
-        with patch(
-            "products.feature_flags.backend.api.feature_flag.describe_flag", side_effect=RecursionError("too deep")
-        ):
-            response = self._patch(flag, {"filters": FULL})
+        response = self._patch(flag, {"filters": FULL})
 
         assert response.status_code == status.HTTP_200_OK, response.content
         flag.refresh_from_db()
