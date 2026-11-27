@@ -250,6 +250,7 @@ type StalledSesCall = { transport: SesTransport; reachedTheSesCall: Promise<void
 const sesThatNeverFinishesTheTlsHandshake = async (): Promise<{
     endpoint: string
     connected: Promise<void>
+    sawAConnection: () => boolean
     close: () => Promise<void>
 }> => {
     const sockets: Socket[] = []
@@ -265,6 +266,7 @@ const sesThatNeverFinishesTheTlsHandshake = async (): Promise<{
     return {
         endpoint: `https://127.0.0.1:${port}`,
         connected: firstConnection,
+        sawAConnection: () => sockets.length > 0,
         close: async () => {
             sockets.forEach((socket) => socket.destroy())
             await new Promise((resolve) => server.close(resolve))
@@ -2925,6 +2927,28 @@ describe('EmailService', () => {
                     }
                 )
 
+                it('fails a send without sending it again when a stop cuts it off after SES took it on a connection an earlier send left open', async () => {
+                    send([])
+                    const emailService = sender()
+                    await emailService.executeSendEmail(invocation)
+                    ses.failOnce('accept-then-hold-answer')
+
+                    const sending = emailService.executeSendEmail(invocation)
+                    await waitForExpect(() => expect(deliveredTo(ses, recipient)).toHaveLength(2))
+                    emailService.stopSending()
+                    const result = await sending
+
+                    expect({
+                        finished: result.finished,
+                        error: result.error,
+                        timesSesRecordedIt: deliveredTo(ses, recipient).length,
+                    }).toEqual({
+                        finished: true,
+                        error: expect.stringMatching(/^Failed to send email via SES: /),
+                        timesSesRecordedIt: 2,
+                    })
+                })
+
                 it('sends nothing when the ownership check answers that the job is lost after it failed on each of its retries', async () => {
                     const emailService = sender()
                     let jobLost = false
@@ -3351,7 +3375,10 @@ describe('EmailService', () => {
                     async (emailService: EmailService) => {
                         const handshake = await sesThatNeverFinishesTheTlsHandshake()
                         emailService.sesTransport = sesTransportFor(handshake, { maxAttempts: 1 })
-                        return handshake.close
+                        return async () => {
+                            expect(handshake.sawAConnection()).toBe(true)
+                            await handshake.close()
+                        }
                     },
                 ],
             ])(

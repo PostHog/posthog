@@ -3,6 +3,8 @@ import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { subscribe } from 'node:diagnostics_channel'
 import type { ClientRequest } from 'node:http'
+import type { Socket } from 'node:net'
+import type { TLSSocket } from 'node:tls'
 import { Counter, Histogram } from 'prom-client'
 
 import { LoadedAttachment, settleBeforeAbortEvenWhileCredentialsStall } from './attachment-store'
@@ -116,6 +118,33 @@ const failedBeforeTheRequestLeft = (error: unknown): boolean =>
         isOneOf(SYSCALLS_THAT_FAIL_BEFORE_THE_REQUEST_LEAVES, syscallOf(connectionTry))
     )
 
+type Attempt = {
+    requestStarted: boolean
+    connectionEstablished: boolean
+    failedToConnect: boolean
+    sesRefusedIt: boolean
+}
+
+const neverHadAnEstablishedConnection = (attempt: Attempt): boolean =>
+    attempt.failedToConnect || (attempt.requestStarted && !attempt.connectionEstablished)
+
+function markOnceEstablished(request: ClientRequest, attempt: Attempt): void {
+    const established = (): void => {
+        attempt.connectionEstablished = true
+    }
+    request.once('socket', (socket: Socket) => {
+        if (request.reusedSocket) {
+            established()
+        } else if ((socket as TLSSocket).encrypted) {
+            socket.once('secureConnect', established)
+        } else if (socket.connecting) {
+            socket.once('connect', established)
+        } else {
+            established()
+        }
+    })
+}
+
 function classifiedFailure(error: unknown, deadline: AbortSignal): ClassifiedFailure {
     if (deadline.aborted) {
         return { kind: 'not_sent', reason: 'before_deadline', cause: error }
@@ -145,38 +174,39 @@ type SendAttempts = {
     whyTheLastNeverLeftTheWorker: () => string | null
 }
 
-type Attempt = { requestStarted: boolean; requestWritten: boolean; sesNeverTookIt: boolean }
-
 const attemptOnTheWire = new AsyncLocalStorage<Attempt>()
 
 subscribe('http.client.request.created', (message) => {
     const attempt = attemptOnTheWire.getStore()
     if (attempt) {
         attempt.requestStarted = true
-        ;(message as { request: ClientRequest }).request.once('finish', () => {
-            attempt.requestWritten = true
-        })
+        markOnceEstablished((message as { request: ClientRequest }).request, attempt)
     }
 })
 
 const sesMayHaveAccepted = (attempt: Attempt): boolean =>
-    !attempt.sesNeverTookIt && !(attempt.requestStarted && !attempt.requestWritten)
+    !attempt.sesRefusedIt && !neverHadAnEstablishedConnection(attempt)
 
 function trackAttempts(command: SendEmailCommand): SendAttempts {
     const attempts: Attempt[] = []
     let whyTheLastNeverLeftTheWorker: string | null = null
     command.middlewareStack.add(
         (next) => async (args) => {
-            const attempt: Attempt = { requestStarted: false, requestWritten: false, sesNeverTookIt: false }
+            const attempt: Attempt = {
+                requestStarted: false,
+                connectionEstablished: false,
+                failedToConnect: false,
+                sesRefusedIt: false,
+            }
             attempts.push(attempt)
             whyTheLastNeverLeftTheWorker = null
             try {
                 const httpAnswer = await attemptOnTheWire.run(attempt, () => next(args))
-                attempt.sesNeverTookIt = sesReadAndRefused(httpAnswer.response)
+                attempt.sesRefusedIt = sesReadAndRefused(httpAnswer.response)
                 return httpAnswer
             } catch (error) {
                 if (failedBeforeTheRequestLeft(error)) {
-                    attempt.sesNeverTookIt = true
+                    attempt.failedToConnect = true
                     whyTheLastNeverLeftTheWorker = connectionTriesOf(error).map(messageOf).join('; ')
                 }
                 throw error
