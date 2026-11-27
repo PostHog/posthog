@@ -319,7 +319,7 @@ describe('SesTransport', () => {
             const labels = { result: 'may_have_sent' }
             const before = await metricValue('cdp_ses_send_results_total', labels)
 
-            const outcome = await transport.send({ email })
+            const outcome = await transport.send({ email, deadline: new AbortController().signal })
 
             expect({
                 outcome,
