@@ -49,21 +49,32 @@ export function useContentTileActions(id: string, panel: SavedPanel): MenuAction
     return tileActions ? tileActions(withPanel, { id, panel }) : withPanel
 }
 
-/** What a person can do to where a content tile sits on the dashboard: its slideshow, its tab, and removing it. */
+/**
+ * What a person can do to where a content tile sits on the dashboard: its slideshow, its tab, a copy, and removing it.
+ * A tile that is not movable gets only the copy, and only when its panel type allows one.
+ */
 export function useContentTilePlacementActions(id: string, panel: SavedPanel): MenuAction[] {
-    const { dashboard, activeTab, disabledReasonFor, onEdit, tilePlacementActions, showSlideshow } = useDashboard()
+    const { dashboard, activeTab, panels, disabledReasonFor, onEdit, tilePlacementActions, showSlideshow } =
+        useDashboard()
+    const panelType = findPanel(panels, panel.type)
+    const movable = panelType?.movable(panel) ?? true
+    const duplicable = panelType?.duplicable(panel) ?? true
+    if (!movable && !duplicable) {
+        return NO_ACTIONS
+    }
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
-    const actions: MenuAction[] = [
-        {
+    const actions: MenuAction[] = []
+    if (movable) {
+        actions.push({
             key: 'slideshow',
             label: 'Slideshow',
             dataAttr: 'dashboard-v2-tile-slideshow-open',
             group: 'view',
             disabledReason: null,
             onSelect: () => showSlideshow(id),
-        },
-    ]
-    if (otherTabs.length > 0) {
+        })
+    }
+    if (movable && otherTabs.length > 0) {
         actions.push({
             key: 'move',
             label: 'Move to tab',
@@ -99,16 +110,30 @@ export function useContentTilePlacementActions(id: string, panel: SavedPanel): M
             }),
         })
     }
-    actions.push({
-        key: 'remove',
-        label: 'Remove tile',
-        dataAttr: 'dashboard-v2-tile-remove',
-        disabledReason: disabledReasonFor('removeTile'),
-        destructive: true,
-        onSelect: () => onEdit({ edit: 'removeTile', id }),
-    })
+    if (duplicable) {
+        actions.push({
+            key: 'duplicate',
+            label: 'Duplicate',
+            dataAttr: 'dashboard-v2-tile-duplicate',
+            group: 'dashboard',
+            disabledReason: disabledReasonFor('duplicateTile'),
+            onSelect: () => onEdit({ edit: 'duplicateTile', id }),
+        })
+    }
+    if (movable) {
+        actions.push({
+            key: 'remove',
+            label: 'Remove tile',
+            dataAttr: 'dashboard-v2-tile-remove',
+            disabledReason: disabledReasonFor('removeTile'),
+            destructive: true,
+            onSelect: () => onEdit({ edit: 'removeTile', id }),
+        })
+    }
     return tilePlacementActions ? tilePlacementActions(actions, { id, panel }) : actions
 }
+
+const NO_ACTIONS: MenuAction[] = []
 
 // pinned: `dashboard-v2-tile-parts` data-attrs shipped before border joined this menu.
 const TILE_SHOW = { key: 'parts', label: 'Show', dataAttr: 'dashboard-v2-tile-parts' }
