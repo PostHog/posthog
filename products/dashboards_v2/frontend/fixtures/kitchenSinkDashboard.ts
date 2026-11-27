@@ -17,12 +17,12 @@ const chartOf = (title: string, query: PanelQuery, viz: ChartConfig['viz']): Con
 const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'hogql', query: sql }, viz)
 const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
-    chartOf(title, { language: 'metrics', query: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql } }, viz)
+    chartOf(title, { language: 'query', query: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql } }, viz)
 const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(
         title,
         {
-            language: 'traces',
+            language: 'query',
             query: { kind: NodeKind.TraceSpansAggregationQuery, dateRange: { date_from: '-24h' }, serviceNames: [service] },
         },
         viz
@@ -235,7 +235,7 @@ export const kitchenSinkDashboard: Dashboard = {
                         title: 'Insight query, last 24 hours',
                         config: {
                             query: {
-                                language: 'insight',
+                                language: 'query',
                                 query: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
                             },
                             viz: { type: 'line' },
@@ -259,7 +259,7 @@ export const kitchenSinkDashboard: Dashboard = {
                                 {
                                     refId: 'B',
                                     query: {
-                                        language: 'insight',
+                                        language: 'query',
                                         query: {
                                             kind: NodeKind.TrendsQuery,
                                             interval: 'hour',

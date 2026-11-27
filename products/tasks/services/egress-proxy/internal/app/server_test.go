@@ -27,6 +27,7 @@ type runtimeMessage struct {
 	Message string `json:"msg"`
 	Listen  string `json:"listen_address"`
 	Admin   string `json:"admin_address"`
+	Metrics string `json:"metrics_address"`
 	Error   string `json:"error"`
 }
 
@@ -176,6 +177,7 @@ func TestRunRecoversAfterAuditSaturation(t *testing.T) {
 
 func TestRunSeparatesAdministrationAndStopsListeners(t *testing.T) {
 	f := newProxyFixture(t)
+	f.config.MetricsAddress = "127.0.0.1:0"
 	config, err := json.Marshal(f.config)
 	if err != nil {
 		t.Fatal(err)
@@ -221,6 +223,36 @@ func TestRunSeparatesAdministrationAndStopsListeners(t *testing.T) {
 	requestStatus(t, client, public+"/v1/probe", token, http.StatusNoContent)
 	requestStatus(t, http.DefaultClient, "http://"+address.Admin+"/metrics", "", http.StatusOK)
 	requestStatus(t, client, public+"/metrics", token, http.StatusNotFound)
+	monitoring := "http://" + address.Metrics
+	requestStatus(t, http.DefaultClient, monitoring+"/metrics", "", http.StatusOK)
+	for _, route := range []string{"/livez", "/readyz", "/v1/probe", "/metrics?", "/metrics?x=1", "/%6detrics"} {
+		t.Run(route, func(t *testing.T) {
+			requestStatus(t, http.DefaultClient, monitoring+route, "", http.StatusNotFound)
+		})
+	}
+	response, err := http.Post(monitoring+"/metrics", "text/plain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("metrics POST status = %d", response.StatusCode)
+	}
+	for attempt := range 100 {
+		response, err := http.Get(monitoring + "/metrics")
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, response.Body)
+		response.Body.Close()
+		if response.StatusCode == http.StatusServiceUnavailable {
+			break
+		}
+		if response.StatusCode != http.StatusOK || attempt == 99 {
+			t.Fatalf("metrics budget did not reject excess scrapes: %d", response.StatusCode)
+		}
+	}
+	requestStatus(t, http.DefaultClient, "http://"+address.Admin+"/metrics", "", http.StatusOK)
 	nextSigner, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -270,6 +302,10 @@ func TestRunSeparatesAdministrationAndStopsListeners(t *testing.T) {
 	if response, err := client.Get(public + "/v1/probe"); err == nil {
 		response.Body.Close()
 		t.Fatal("request listener remained open after shutdown")
+	}
+	if response, err := http.Get(monitoring + "/metrics"); err == nil {
+		response.Body.Close()
+		t.Fatal("metrics listener remained open after shutdown")
 	}
 }
 
