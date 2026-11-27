@@ -8,7 +8,7 @@ from django.db.models.functions import Coalesce
 from opentelemetry import trace
 
 # Minimum trigram word similarity for a name match. Calibrated against the
-# `test_list_filter_by_search_*` tests in posthog/api/test/dashboards/test_dashboard.py.
+# `test_list_filter_by_search_*` tests in products/dashboards/backend/tests/api/test_dashboard.py.
 # Tighten it and typo cases stop matching, loosen it and unrelated rows leak in.
 MIN_NAME_TRIGRAM_SIMILARITY = 0.3
 # Description thresholds run higher because descriptions are freeform prose where short
