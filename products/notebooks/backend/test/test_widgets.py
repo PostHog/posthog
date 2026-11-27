@@ -568,6 +568,17 @@ class TestWidgetData(APIBaseTest):
             },
         )
 
+    def _region_query_run(self, node_id: str, status: NotebookNodeRun.Status) -> NotebookNodeRun:
+        return NotebookNodeRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            notebook=self.notebook,
+            user=self.user,
+            node_id=node_id,
+            node_type=NotebookNodeRun.NodeType.HOGQL,
+            code="SELECT 'All' AS region LIMIT 50000",
+            status=status,
+        )
+
     def _mapping(self, *, pinned: bool = True, with_version: bool = True) -> NotebookWidgetInstance:
         widget = GeneratedWidget.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -952,15 +963,7 @@ class TestWidgetData(APIBaseTest):
         self.notebook.app_published = {"blocks": [block, {"kind": "input", "variable": "region"}]}
         self.notebook.save(update_fields=["content", "variables", "app_published"])
         assert plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"}) == []
-        run = NotebookNodeRun.objects.for_team(self.team.id).create(
-            team=self.team,
-            notebook=self.notebook,
-            user=self.user,
-            node_id="source",
-            node_type=NotebookNodeRun.NodeType.HOGQL,
-            code="SELECT 'All' AS region LIMIT 50000",
-            status=NotebookNodeRun.Status.DONE,
-        )
+        run = self._region_query_run("source", NotebookNodeRun.Status.DONE)
         markdown = (
             f'<SQLV2 nodeId="source" code="SELECT {{region}} AS region" returnVariable="regions" runId="{run.id}" result={{{{}}}} />\n\n'
             f'<Widget nodeId="{self.NODE_ID}" />'
@@ -993,9 +996,10 @@ class TestWidgetData(APIBaseTest):
     )
     def test_draft_widget_resolves_only_its_declared_dataframe_without_a_release(self, _flag) -> None:
         instance = self._mapping()
+        run = self._region_query_run("points", NotebookNodeRun.Status.RUNNING)
         self.notebook.variables = [{"name": "region", "type": "string", "value": "All"}]
         self.notebook.content = markdown_content(
-            f'<SQLV2 nodeId="points" code="SELECT {{region}} AS region" returnVariable="{self.INPUT_NAME}" />\n\n'
+            f'<SQLV2 nodeId="points" code="SELECT {{region}} AS region" returnVariable="{self.INPUT_NAME}" runId="{run.id}" />\n\n'
             '<SQLV2 nodeId="hidden" code="SELECT 1" returnVariable="hidden_rows" />\n\n'
             f'<Widget nodeId="{self.NODE_ID}" />'
         )
@@ -1013,12 +1017,20 @@ class TestWidgetData(APIBaseTest):
             "revision": self.notebook.version,
             "variables": [{"name": "region", "type": "string", "value": "Europe"}],
         }
+        assert self.client.post(url, payload, format="json").json() == []
+        run.status = NotebookNodeRun.Status.DONE
+        run.save(update_fields=["status"])
         response = self.client.post(url, payload, format="json")
         assert response.status_code == 200, response.json()
         [plan] = response.json()
         assert plan["node_id"] == "points" and "Europe" in plan["query"]
         assert plan["widget_slots"] == [
-            {"node_id": self.NODE_ID, "slot": self.INPUT_NAME, "version_id": str(self._pinned_version(instance).id)}
+            {
+                "node_id": self.NODE_ID,
+                "slot": self.INPUT_NAME,
+                "version_id": str(self._pinned_version(instance).id),
+                "run_id": str(run.id),
+            }
         ]
         layout["blocks"].pop()
         assert self.client.post(url, payload, format="json").json() == []
