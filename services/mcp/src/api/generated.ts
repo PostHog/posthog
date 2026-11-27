@@ -24144,6 +24144,7 @@ export namespace Schemas {
      * * `github` - Pull request comment
      * * `slack` - Slack
      * * `api` - API
+     * * `slack_link` - Slack link
      */
     export type BroadcastRequestSourceEnum = typeof BroadcastRequestSourceEnum[keyof typeof BroadcastRequestSourceEnum];
 
@@ -24152,6 +24153,7 @@ export namespace Schemas {
       Github: 'github',
       Slack: 'slack',
       Api: 'api',
+      SlackLink: 'slack_link',
     } as const;
 
     /**
@@ -29921,7 +29923,8 @@ export namespace Schemas {
        *
        * * `github` - Pull request comment
        * * `slack` - Slack
-       * * `api` - API */
+       * * `api` - API
+       * * `slack_link` - Slack link */
       readonly requested_via: BroadcastRequestSourceEnum;
       /** The requester's note for the people who review, shown in Slack only. Blank when there is none. */
       readonly note: string;
