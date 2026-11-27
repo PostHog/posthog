@@ -21,6 +21,7 @@ export const INTEGRATION_OPS = [
     'write_by_external_id',
     'delete_by_external_id',
     'delete_owner',
+    'mirror',
 ] as const
 
 export type IntegrationOp = (typeof INTEGRATION_OPS)[number]
@@ -137,6 +138,9 @@ const GITHUB_APP_OPS = ['read', 'resolve', 'refresh', 'mint'] as const satisfies
 // Callers that read, resolve and mint for GitHub but never refresh a token themselves.
 const GITHUB_READ_OPS = ['read', 'resolve', 'mint'] as const satisfies readonly IntegrationOp[]
 
+// The changes feed has its own deployment, and only the Celery mirror task may write by legacy id.
+const WEB_EXCLUDED_OPS: readonly IntegrationOp[] = ['reverse_sync', 'mirror']
+
 const RESOLVE_ANY_KIND: DeploymentPolicy = { ops: ['resolve'], kinds: ALL_KINDS }
 
 /**
@@ -144,16 +148,17 @@ const RESOLVE_ANY_KIND: DeploymentPolicy = { ops: ['resolve'], kinds: ALL_KINDS 
  * charts in PostHog/charts, the same names as the `<deployment>.pub` files.
  */
 const TABLE: Record<string, DeploymentPolicy> = {
-    // Web Django: every op but the changes feed. The web-two, frontdoor and streaming pools
-    // sign with this key.
-    'posthog-web-django': { ops: INTEGRATION_OPS.filter((op) => op !== 'reverse_sync'), kinds: ALL_KINDS },
+    // Web Django: every op but WEB_EXCLUDED_OPS. The web-two, frontdoor and streaming pools
+    // sign with this key. A new op reaches web unless it is added to WEB_EXCLUDED_OPS.
+    'posthog-web-django': { ops: INTEGRATION_OPS.filter((op) => !WEB_EXCLUDED_OPS.includes(op)), kinds: ALL_KINDS },
     // The dedicated Celery queue that copies service rows back to Django during the migration.
     // The changes feed is the one route that returns plaintext in bulk, so nothing else gets it.
     'posthog-integrations-reverse-sync': { ops: ['reverse_sync'], kinds: ALL_KINDS },
 
     // Celery, admin Django and the general-purpose Temporal worker run sweeps and jobs over
-    // every OAuth kind (posthog/tasks/integrations.py) and many others.
-    'posthog-worker-django': { ops: WORKER_OPS, kinds: ALL_KINDS },
+    // every OAuth kind (posthog/tasks/integrations.py) and many others. Only the Celery task
+    // that copies Django rows to the service mirrors.
+    'posthog-worker-django': { ops: [...WORKER_OPS, 'mirror'], kinds: ALL_KINDS },
     'posthog-admin-django': { ops: WORKER_OPS, kinds: ALL_KINDS },
     'temporal-worker-general-purpose': { ops: WORKER_OPS, kinds: ALL_KINDS },
     // HogQL `system.integrations` lists every kind of the team.

@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { userLogic } from 'scenes/userLogic'
@@ -63,8 +64,11 @@ describe('adventCalendarLogic', () => {
 
     it('keeps a door shut until its day comes, then unlocks it on an open page', () => {
         logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
         logic.actions.answerDoor('door-2', 'james')
+        logic.actions.finishReveal()
         logic.actions.activateDoor('door-3-upper')
+        logic.actions.finishReveal()
         logic.actions.activateDoor('door-4-upper')
 
         expect(doorOf(logic, 'door-3-upper')?.status).toBe('open')
@@ -85,6 +89,20 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.openCount).toBe(0)
     })
 
+    it('ignores another door while a reveal runs, then opens it once the reveal ends', () => {
+        logic.actions.activateDoor('door-1')
+        logic.actions.answerDoor('door-2', 'tim')
+
+        expect(logic.values.revealingDoor?.id).toBe('door-1')
+        expect(doorOf(logic, 'door-2')?.status).toBe('ready')
+
+        logic.actions.finishReveal()
+        logic.actions.answerDoor('door-2', 'tim')
+
+        expect(logic.values.revealingDoor?.id).toBe('door-2')
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+    })
+
     it.each(['null', `{"${UUID}":{"opened":3}}`])('keeps working when storage holds %s at load', (value) => {
         const uncaught: ErrorEvent[] = []
         const onError = (event: ErrorEvent): number => uncaught.push(event)
@@ -94,6 +112,7 @@ describe('adventCalendarLogic', () => {
         logic = adventCalendarLogic()
         logic.mount()
         logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
         logic.actions.answerDoor('door-2', 'tim')
         window.removeEventListener('error', onError)
 
@@ -107,9 +126,18 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.openCount).toBe(2)
     })
 
-    it('opens a question door with the answer and drops the path not taken', () => {
+    it('opens a question door with the answer and puffs away the path not taken', async () => {
         logic.actions.activateDoor('door-1')
-        logic.actions.answerDoor('door-2', 'tim')
+        logic.actions.finishReveal()
+
+        await expectLogic(logic, () => {
+            logic.actions.answerDoor('door-2', 'tim')
+        }).toMatchValues({
+            snowPuffs: [
+                expect.objectContaining({ id: 'door-3-upper' }),
+                expect.objectContaining({ id: 'door-4-upper' }),
+            ],
+        })
 
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
         expect(doorOf(logic, 'door-3-upper')).toBeNull()

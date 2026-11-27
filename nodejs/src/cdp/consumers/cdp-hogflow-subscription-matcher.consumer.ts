@@ -205,6 +205,47 @@ type FilterFirstMode = 'off' | 'shadow' | 'on'
 // eventNames: every event name the goal can match, or null when it can match any.
 type PinnedGoalEntry = { functionId: string; goal: PinnedConversionGoal; key: string; eventNames: Set<string> | null }
 
+const WATCHER_LOOKUP_SQL = `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at, expires_at
+    FROM conversion_watchers
+    WHERE expires_at > $5
+      AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
+    UNION
+    SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at, expires_at
+    FROM conversion_watchers
+    WHERE expires_at > $5
+      AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`
+
+// Two index-friendly branches with UNION (dedupes rows that match both keys).
+// A single OR across distinct_id and person_id often forces Postgres into a
+// sequential scan; splitting lets each branch hit its own composite index.
+// Each branch correlates (team_id, id) as a tuple via `unnest(teams, ids)`, which
+// zips the parallel arrays row-wise — a job only matches when its team and its id
+// came from the SAME event. Filtering team_id and distinct_id independently with
+// ANY/ANY would match a job whose team and distinct_id came from two different
+// events in the batch (a cross-team false-positive candidate). The function_id
+// filter further scopes to flows the matcher can act on.
+//
+// We deliberately do NOT filter by queue_name: a parked wait can sit on a queue
+// other than 'hogflow'. When a step (e.g. email) routes the invocation to a
+// dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
+// filter would silently miss it. function_id already scopes to hogflow jobs, and
+// waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
+const PARKED_LOOKUP_SQL = `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled, status
+    FROM cyclotron_jobs
+    WHERE ((status = 'available' AND scheduled > $6) OR status = 'running')
+      AND function_id = ANY($5::uuid[])
+      AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
+    UNION
+    SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled, status
+    FROM cyclotron_jobs
+    WHERE ((status = 'available' AND scheduled > $6) OR status = 'running')
+      AND function_id = ANY($5::uuid[])
+      AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`
+
+function shiftPlaceholders(sql: string, by: number): string {
+    return sql.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + by}`)
+}
+
 // Past this, the rest of a batch is looked up without the check, so slow or numerous filters cannot hold the batch.
 const FILTER_FIRST_BUDGET_MS = 50
 
@@ -369,9 +410,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private eventWakes: BatchCoalescer<HogFunctionInvocationGlobals>
     private eventArrivals = new WeakMap<HogFunctionInvocationGlobals, Date>()
     private filterFirst: FilterFirstMode
+    private combinedLookup: boolean
+    private preparedLookups: boolean
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
+        this.combinedLookup = config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_COMBINED_LOOKUP
+        this.preparedLookups = config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PREPARED_LOOKUPS
         this.filterFirst = parseFilterFirstMode(config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST)
         this.postgres = deps.postgres
         this.pinnedGoalsMode = parseFilterFirstMode(
@@ -607,22 +652,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 }
             }
         }
-        if (watcherCheck.lookup.length > 0) {
-            const conversionsCounted = await this.claimConversionWatchers(
-                indexBatch(watcherCheck.lookup),
-                filterGlobalsFor,
-                eventsOnly,
-                earliestArrival,
-                arrivedAt,
-                watcherCheck.noteMatch
-            )
-            counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
-        }
-
         // Build the set of actionable flows from the in-memory hogflow cache (same pattern as
         // cdp-events). Only flows with a wait_until_condition step or an event-based conversion
-        // goal can ever be woken; scoping to them keeps the function_id list in findParkedJobs
-        // small and skips cyclotron entirely when a batch has none.
+        // goal can ever be woken; scoping to them keeps the function_id list in the parked-job lookup
+        // small and skips it entirely when a batch has none.
         const hogflows: Record<string, HogFlow> = {}
         for (const flows of Object.values(hogFlowsByTeam)) {
             for (const flow of flows) {
@@ -630,10 +663,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     hogflows[flow.id] = flow
                 }
             }
-        }
-
-        if (Object.keys(hogflows).length === 0) {
-            return
         }
 
         const actionableFlowsByTeam = new Map<number, HogFlow[]>()
@@ -645,32 +674,46 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
             return flows
         }
-        const parkedCheck = await this.checkFilters(
-            filterFirst,
-            'parked',
-            invocationGlobals,
-            filterBudgetMs,
-            (globals, spent) =>
-                this.couldMoveRun(actionableFlowsOf(globals.project.id), filterGlobalsFor(globals), spent)
-        )
-        if (parkedCheck.lookup.length === 0) {
+        const parkedCheck =
+            Object.keys(hogflows).length > 0
+                ? await this.checkFilters(filterFirst, 'parked', invocationGlobals, filterBudgetMs, (globals, spent) =>
+                      this.couldMoveRun(actionableFlowsOf(globals.project.id), filterGlobalsFor(globals), spent)
+                  )
+                : null
+
+        const watcherIndexed = watcherCheck.lookup.length > 0 ? indexBatch(watcherCheck.lookup) : null
+        const parkedIndexed =
+            parkedCheck && parkedCheck.lookup.length > 0
+                ? parkedCheck.lookup === invocationGlobals
+                    ? indexed
+                    : indexBatch(parkedCheck.lookup)
+                : null
+        if (!watcherIndexed && !parkedIndexed) {
             return
         }
-        const { distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } =
-            parkedCheck.lookup === invocationGlobals ? indexed : indexBatch(parkedCheck.lookup)
-
-        const candidates = await this.findParkedJobs(
-            distinctTeamIds,
-            distinctIds,
-            personTeamIds,
-            personIds,
-            Object.keys(hogflows),
+        const { watcherRows, parkedCandidates: candidates } = await this.lookUpCandidates(
+            watcherIndexed,
+            parkedIndexed ? { indexed: parkedIndexed, functionIds: Object.keys(hogflows) } : null,
             source,
             earliestArrival
         )
-        if (candidates.length === 0) {
+
+        if (watcherIndexed) {
+            const conversionsCounted = await this.claimConversionWatchers(
+                watcherIndexed,
+                watcherRows,
+                filterGlobalsFor,
+                eventsOnly,
+                arrivedAt,
+                watcherCheck.noteMatch
+            )
+            counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
+        }
+
+        if (!parkedCheck || !parkedIndexed || candidates.length === 0) {
             return
         }
+        const { byDistinctId, byPersonId } = parkedIndexed
         counterHogflowMatcherCandidatesEvaluated.inc(candidates.length)
 
         const matchedJobs: MatchedJob[] = []
@@ -990,52 +1033,78 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return false
     }
 
-    private async findParkedJobs(
-        distinctTeamIds: number[],
-        distinctIds: string[],
-        personTeamIds: number[],
-        personIds: string[],
-        functionIds: string[],
+    // With the combined lookup on, a batch that needs both lookups sends them as one query, so the database sees
+    // one round trip, parse and plan instead of two. Each side keeps its own statement, and its own index plan.
+    private async lookUpCandidates(
+        watchers: IndexedBatch | null,
+        parked: { indexed: IndexedBatch; functionIds: string[] } | null,
         source: WakeSource,
         earliestArrival: Date
-    ): Promise<ParkedCandidate[]> {
-        // Two index-friendly branches with UNION (dedupes rows that match both keys).
-        // A single OR across distinct_id and person_id often forces Postgres into a
-        // sequential scan; splitting lets each branch hit its own composite index.
-        // Each branch correlates (team_id, id) as a tuple via `unnest(teams, ids)`, which
-        // zips the parallel arrays row-wise — a job only matches when its team and its id
-        // came from the SAME event. Filtering team_id and distinct_id independently with
-        // ANY/ANY would match a job whose team and distinct_id came from two different
-        // events in the batch (a cross-team false-positive candidate). The function_id
-        // filter further scopes to flows the matcher can act on.
-        //
-        // We deliberately do NOT filter by queue_name: a parked wait can sit on a queue
-        // other than 'hogflow'. When a step (e.g. email) routes the invocation to a
-        // dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
-        // filter would silently miss it. function_id already scopes to hogflow jobs, and
-        // waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
-        const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
-        let result
-        try {
-            result = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled, status
-             FROM cyclotron_jobs
-             WHERE ((status = 'available' AND scheduled > $6) OR status = 'running')
-               AND function_id = ANY($5::uuid[])
-               AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
-             UNION
-             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled, status
-             FROM cyclotron_jobs
-             WHERE ((status = 'available' AND scheduled > $6) OR status = 'running')
-               AND function_id = ANY($5::uuid[])
-               AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
-                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds, earliestArrival]
-            )
-        } finally {
-            stopTimer()
+    ): Promise<{ watcherRows: any[]; parkedCandidates: ParkedCandidate[] }> {
+        const watcherParams = watchers
+            ? [
+                  watchers.distinctTeamIds,
+                  watchers.distinctIds,
+                  watchers.personTeamIds,
+                  watchers.personIds,
+                  earliestArrival,
+              ]
+            : []
+        const parkedParams = parked
+            ? [
+                  parked.indexed.distinctTeamIds,
+                  parked.indexed.distinctIds,
+                  parked.indexed.personTeamIds,
+                  parked.indexed.personIds,
+                  parked.functionIds,
+                  earliestArrival,
+              ]
+            : []
+        let watcherRows: any[] = []
+        let parkedRows: any[] = []
+        if (watchers && parked && this.combinedLookup) {
+            const stopWatcherTimer = histogramHogflowMatcherFindWatchers.startTimer()
+            const stopParkedTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
+            let rows: any[]
+            try {
+                rows = await this.runLookup(
+                    'hogflow-matcher-watchers-and-parked',
+                    `SELECT 'watcher' AS source, id, team_id, function_id, run_id, parent_run_id::text AS parent_run_id,
+                        NULL::text AS action_id, distinct_id, person_id, flow_version, goal, created_at, expires_at,
+                        NULL::timestamptz AS scheduled, NULL::text AS status
+                     FROM (${WATCHER_LOOKUP_SQL}) w
+                     UNION ALL
+                     SELECT 'parked' AS source, id, team_id, function_id, NULL::uuid, parent_run_id, action_id, distinct_id,
+                        person_id, NULL::int, NULL::jsonb, NULL::timestamptz, NULL::timestamptz, scheduled, status::text
+                     FROM (${shiftPlaceholders(PARKED_LOOKUP_SQL, watcherParams.length)}) p`,
+                    [...watcherParams, ...parkedParams]
+                )
+            } finally {
+                stopWatcherTimer()
+                stopParkedTimer()
+            }
+            watcherRows = rows.filter((row) => row.source === 'watcher')
+            parkedRows = rows.filter((row) => row.source === 'parked')
+        } else {
+            if (watchers) {
+                const stopTimer = histogramHogflowMatcherFindWatchers.startTimer()
+                try {
+                    watcherRows = await this.runLookup('hogflow-matcher-watchers', WATCHER_LOOKUP_SQL, watcherParams)
+                } finally {
+                    stopTimer()
+                }
+            }
+            if (parked) {
+                const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
+                try {
+                    parkedRows = await this.runLookup('hogflow-matcher-parked', PARKED_LOOKUP_SQL, parkedParams)
+                } finally {
+                    stopTimer()
+                }
+            }
         }
 
-        return result.rows.map((row) => ({
+        const parkedCandidates: ParkedCandidate[] = parkedRows.map((row) => ({
             id: row.id,
             teamId: row.team_id,
             functionId: row.function_id,
@@ -1047,6 +1116,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             scheduledAt: new Date(row.scheduled).getTime(),
             status: row.status,
         }))
+        return { watcherRows, parkedCandidates }
+    }
+
+    private async runLookup(name: string, text: string, values: unknown[]): Promise<any[]> {
+        // A named statement is planned once per connection instead of on every lookup.
+        const query = this.preparedLookups ? { name, text, values } : { text, values }
+        return (await this.cyclotronPool.query(query)).rows
     }
 
     // Only ever resumes runs. Conversions are counted by claimConversionWatchers, which is what keeps
@@ -1144,36 +1220,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
      */
     private async claimConversionWatchers(
         indexed: IndexedBatch,
+        rows: any[],
         filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals,
         eventsOnly: boolean,
-        earliestArrival: Date,
         arrivedAt: (globals: HogFunctionInvocationGlobals) => Date,
         noteMatch: (globals: HogFunctionInvocationGlobals) => void = () => {}
     ): Promise<number> {
-        const { distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
+        const { byDistinctId, byPersonId } = indexed
 
-        const stopTimer = histogramHogflowMatcherFindWatchers.startTimer()
-        let found
-        try {
-            found = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at, expires_at
-                 FROM conversion_watchers
-                 WHERE expires_at > $5
-                   AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
-                 UNION
-                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at, expires_at
-                 FROM conversion_watchers
-                 WHERE expires_at > $5
-                   AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
-                [distinctTeamIds, distinctIds, personTeamIds, personIds, earliestArrival]
-            )
-        } finally {
-            stopTimer()
-        }
-        if (found.rows.length === 0) {
+        if (rows.length === 0) {
             return 0
         }
-        counterHogflowMatcherWatchersEvaluated.inc(found.rows.length)
+        counterHogflowMatcherWatchersEvaluated.inc(rows.length)
 
         const converted: {
             row: any
@@ -1182,7 +1240,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             eventName?: string
             eventUuid?: string
         }[] = []
-        for (const row of found.rows) {
+        for (const row of rows) {
             // A watcher with no usable goal can never convert. Skipping it keeps a malformed row from
             // throwing out of the whole batch, which also carries the unrelated wake path.
             if (!row.goal || typeof row.goal !== 'object') {

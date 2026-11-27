@@ -1,4 +1,6 @@
+import re
 from collections.abc import Callable
+from ipaddress import ip_address
 from math import factorial
 
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -1285,6 +1287,85 @@ def _ipv4_cidr_to_range(args: list[str]) -> str:
     )
 
 
+_IPV6_OR_DOTTED_IPV4_SHAPE = r"'^(?:[0-9]{1,3}(?:\.[0-9]{1,3}){3}|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*)$'"
+_IPV6_OR_STRICT_DOTTED_IPV4_SHAPE = r"'^(?:(?:0|[1-9][0-9]{0,2})(?:\.[0-9]{1,3}){3}|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*)$'"
+
+
+_IP_ADDRESS_LITERAL = re.compile(r"'([0-9A-Fa-f:.]+)'")
+
+
+def _is_ip_address_literal(sql: str) -> bool:
+    match = _IP_ADDRESS_LITERAL.fullmatch(sql)
+    if match is None:
+        return False
+    try:
+        ip_address(match.group(1))
+    except ValueError:
+        return False
+    return True
+
+
+def _to_ipv6(name: str, fallback: str | None) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        if len(args) not in ({1, 2} if name == "toIPv6OrDefault" else {1}):
+            raise _invalid_arguments(name, f"{name} received an invalid number of arguments.")
+        if _is_ip_address_literal(args[0]):
+            return f"IPADDRESS {args[0]}"
+        value = "__hogql_ipv6"
+        shape = _IPV6_OR_STRICT_DOTTED_IPV4_SHAPE
+        if name == "toIPv6OrDefault":
+            default = f"CAST({args[1]} AS IPADDRESS)" if len(args) == 2 else "IPADDRESS '::'"
+            shape = _IPV6_OR_DOTTED_IPV4_SHAPE
+        elif fallback is None:
+            default = "fail('Invalid IPv6 address')"
+        elif fallback == "NULL":
+            default = "CAST(NULL AS IPADDRESS)"
+        else:
+            default = "IPADDRESS '::'"
+        parsed = f"IF(regexp_like({value}, {shape}), TRY_CAST({value} AS IPADDRESS))"
+        result = f"coalesce({parsed}, {default})"
+        if name != "toIPv6OrDefault":
+            result = f"IF({value} IS NULL, NULL, {result})"
+        return f"element_at(transform(ARRAY[CAST({args[0]} AS VARCHAR)], {value} -> {result}), 1)"
+
+    return handler
+
+
+_IPV6_CIDR = "__hogql_ipv6_cidr"
+
+
+def _ipv6_cidr_bound(upper: bool) -> str:
+    prefix = f"{_IPV6_CIDR}[2]"
+    masks = (
+        f"bitwise_left_shift(BIGINT '-1', CAST(64 - least({prefix}, 64) AS INTEGER))",
+        f"bitwise_left_shift(BIGINT '-1', CAST(128 - greatest({prefix}, 64) AS INTEGER))",
+    )
+    words = []
+    for start, mask in zip((1, 9), masks):
+        word = f"from_big_endian_64(substr({_IPV6_CIDR}[1], {start}, 8))"
+        bounded = f"bitwise_or({word}, bitwise_not({mask}))" if upper else f"bitwise_and({word}, {mask})"
+        words.append(f"to_big_endian_64({bounded})")
+    return f"CAST(concat({words[0]}, {words[1]}) AS IPADDRESS)"
+
+
+def _ipv6_cidr_expression(args: list[str], result_type: str, result: str) -> str:
+    _require_args("IPv6CIDRToRange", args, 2)
+    return (
+        f"element_at(transform(ARRAY[ROW(CAST(CAST({args[0]} AS IPADDRESS) AS VARBINARY), "
+        f"least(CAST({args[1]} AS BIGINT), 128))], {_IPV6_CIDR} -> "
+        f"IF({_IPV6_CIDR}[1] IS NULL OR {_IPV6_CIDR}[2] IS NULL, CAST(NULL AS {result_type}), {result})), 1)"
+    )
+
+
+def _ipv6_cidr_to_range(args: list[str]) -> str:
+    bounds = f"ROW({_ipv6_cidr_bound(upper=False)}, {_ipv6_cidr_bound(upper=True)})"
+    return _ipv6_cidr_expression(args, "ROW(IPADDRESS, IPADDRESS)", bounds)
+
+
+def ipv6_cidr_range_bound(args: list[str], index: int) -> str:
+    return _ipv6_cidr_expression(args, "IPADDRESS", _ipv6_cidr_bound(upper=index == 2))
+
+
 def _query_string_and_fragment(args: list[str]) -> str:
     _require_args("queryStringAndFragment", args, 1)
     query = _raw_url_query("__hogql_url")
@@ -1980,6 +2061,11 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toIPv4OrNull": _to_ipv4("toIPv4OrNull", "NULL"),
     "toIPv4OrZero": _to_ipv4("toIPv4OrZero", "zero"),
     "IPv4CIDRToRange": _ipv4_cidr_to_range,
+    "toIPv6": _to_ipv6("toIPv6", None),
+    "toIPv6OrDefault": _to_ipv6("toIPv6OrDefault", "default"),
+    "toIPv6OrNull": _to_ipv6("toIPv6OrNull", "NULL"),
+    "toIPv6OrZero": _to_ipv6("toIPv6OrZero", "zero"),
+    "IPv6CIDRToRange": _ipv6_cidr_to_range,
     "toValidUTF8": _identity("toValidUTF8"),
     "mapContains": _map_contains,
     "mapApply": _map_apply,

@@ -21,13 +21,11 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.query_stats import notify_query_started, query_stats_scope, record
 
 from products.dashboards.backend.constants import MAX_CACHED_TILES_BATCH_SIZE
+from products.dashboards.backend.facade.contracts import DashboardQuerySharingTileEvent
 from products.dashboards.backend.presentation.query_sharing import DashboardQuerySharingParamsSerializer
 from products.dashboards.backend.query_sharing import DashboardQuerySharing
 from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, sharing_debug
-from products.dashboards.backend.query_sharing_stream import (
-    DashboardQuerySharingStream,
-    DashboardQuerySharingStreamEvent,
-)
+from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingStream
 
 
 class TestDashboardQuerySharing(SimpleTestCase):
@@ -122,15 +120,15 @@ class TestDashboardQuerySharing(SimpleTestCase):
     def test_stream_delivers_fast_tile_before_slow_tile(self, _name: str, debug: bool) -> None:
         release = Event()
 
-        def slow() -> DashboardQuerySharingStreamEvent:
+        def slow() -> DashboardQuerySharingTileEvent:
             if not release.wait(timeout=10):
                 raise AssertionError("Slow tile never released")
             record(rows_read=20, duration_ms=2)
-            return {"type": "tile", "tile": {"id": 1}}
+            return DashboardQuerySharingTileEvent(tile={"id": 1})
 
-        def fast() -> DashboardQuerySharingStreamEvent:
+        def fast() -> DashboardQuerySharingTileEvent:
             record(rows_read=10, duration_ms=1)
-            return {"type": "tile", "tile": {"id": 2}}
+            return DashboardQuerySharingTileEvent(tile={"id": 2})
 
         stream = DashboardQuerySharingStream(
             jobs=[slow, fast], team_id=1, query_id="test", debug_tile_ids=[1, 2] if debug else ()
@@ -166,7 +164,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
     def test_stream_that_cannot_start_reports_error_without_running_tiles(
         self, _name: str, asynchronous: bool, startup_fails: bool
     ) -> None:
-        job = Mock(return_value={"type": "tile", "tile": {"id": 1}})
+        job = Mock(return_value=DashboardQuerySharingTileEvent(tile={"id": 1}))
         stream = DashboardQuerySharingStream(jobs=[job], team_id=1, query_id="test")
 
         async def collect() -> list[bytes]:
@@ -205,7 +203,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
 
         before = count()
         stream = DashboardQuerySharingStream(
-            jobs=[Mock(return_value={"type": "tile", "tile": {"id": 1}})],
+            jobs=[Mock(return_value=DashboardQuerySharingTileEvent(tile={"id": 1}))],
             team_id=1,
             query_id="test",
             kind=kind,
@@ -224,19 +222,19 @@ class TestDashboardQuerySharing(SimpleTestCase):
         finished = Event()
         executor = self.executor("SELECT * FROM events")
 
-        def slow() -> DashboardQuerySharingStreamEvent:
+        def slow() -> DashboardQuerySharingTileEvent:
             try:
                 if not release.wait(timeout=10):
                     raise AssertionError("Slow tile never released")
                 stream._sharing.execute(executor)
                 raise AssertionError("Cancelled tile executed")
             except CancelledError:
-                return {"type": "tile", "tile": {"id": 1}}
+                return DashboardQuerySharingTileEvent(tile={"id": 1})
             finally:
                 finished.set()
 
-        def fast() -> DashboardQuerySharingStreamEvent:
-            return {"type": "tile", "tile": {"id": 2}}
+        def fast() -> DashboardQuerySharingTileEvent:
+            return DashboardQuerySharingTileEvent(tile={"id": 2})
 
         stream = DashboardQuerySharingStream(jobs=[slow, fast], team_id=1, query_id="test")
 

@@ -58,7 +58,7 @@ _BYTECODE_CACHE_DIR = "__pycache__"
 # bypasses the service layer, so they're checked at parse time).
 _MAX_SKILL_BODY_BYTES = 1_000_000
 _MAX_SKILL_FILE_BYTES = 1_000_000
-_MAX_SKILL_FILE_COUNT = 200
+_MAX_SKILL_FILE_COUNT = 500
 _MAX_SKILL_FILE_PATH_LENGTH = 500
 
 # Stamped on `LLMSkill.metadata.seeded_by` for every ReviewHog-managed row. Its presence is the

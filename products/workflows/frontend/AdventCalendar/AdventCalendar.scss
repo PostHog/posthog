@@ -18,6 +18,20 @@
     transition: opacity 320ms ease-out;
 }
 
+.AdventStage--revealing .AdventStage__workflow {
+    pointer-events: none;
+    opacity: 0.14;
+}
+
+.AdventStage__scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    cursor: default;
+    background: transparent;
+    border: 0;
+}
+
 .AdventStage__grain {
     position: absolute;
     inset: 0;

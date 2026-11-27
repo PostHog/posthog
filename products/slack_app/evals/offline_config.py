@@ -5,6 +5,15 @@ from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite, OfflineScorer
 
 _SCORERS: dict[str, dict[str, OfflineScorer]] = {
+    "daily_focus_agent": {
+        "agent_covers": OfflineScorer(kind="numeric", version=UUID("01a217ea-3b2c-7d7b-983a-51ab9aa5f972")),
+        "agent_sections": OfflineScorer(kind="boolean", version=UUID("01a217ea-3b2c-7715-bf5f-2a244a6f5326")),
+        "agent_omits_known": OfflineScorer(kind="boolean", version=UUID("01a217ea-3b2c-78eb-a539-c70b8be82aa8")),
+        "agent_offer_recall": OfflineScorer(kind="numeric", version=UUID("01a217ea-3b2c-7ea1-97cd-8dbab295f179")),
+        "no_reacted_offer": OfflineScorer(kind="boolean", version=UUID("01a217ea-3b2c-7ce0-ba68-f7da6be83ad4")),
+        "summary_voice": OfflineScorer(kind="boolean", version=UUID("01a217ea-3b2c-7472-a2b6-25968d2bdf6b")),
+        "summary_faithful": OfflineScorer(kind="boolean", version=UUID("01a217ea-3b2c-7149-8f8c-e9a2d12a5d5d")),
+    },
     "daily_summary": {
         "daily_summary_rank": OfflineScorer(kind="boolean", version=UUID("01a20812-34f2-7b87-8f71-e1526d57a727")),
         "summary_covers": OfflineScorer(kind="numeric", version=UUID("01a20813-2f71-7465-a149-77450d2f39d4")),

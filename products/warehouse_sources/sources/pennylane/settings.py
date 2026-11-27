@@ -1,6 +1,12 @@
 from datetime import timedelta
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    ResponseAction,
+    frozen,
+)
 
 API_VERSION = "v2"
 API_BASE_URL = f"https://app.pennylane.com/api/external/{API_VERSION}"
@@ -30,6 +36,32 @@ class PennylaneEndpointConfig:
     # created during the walk land at its end.
     sortable: bool = True
     page_size: int = PAGE_SIZE
+    # Set on an endpoint that is read once per row of its parent table. Its path holds the parent id.
+    fanout: DependentEndpointConfig | None = None
+    # Child ids are only documented as unique within their parent, so child tables key on both.
+    primary_keys: tuple[str, ...] = ("id",)
+
+
+# A parent deleted between the parent listing and its child request answers 404.
+_SKIP_DELETED_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
+
+def _fanout_endpoint(path: str, scope: str, parent_name: str, parent_id_column: str) -> PennylaneEndpointConfig:
+    return PennylaneEndpointConfig(
+        path=path,
+        scope=scope,
+        fanout=DependentEndpointConfig(
+            parent_name=parent_name,
+            resolve_param=parent_id_column,
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": parent_id_column},
+            parent_params={"sort": "id"},
+            child_params={"sort": "id"},
+            child_response_actions=_SKIP_DELETED_PARENT,
+        ),
+        primary_keys=(parent_id_column, "id"),
+    )
 
 
 ENDPOINTS: dict[str, PennylaneEndpointConfig] = {
@@ -79,6 +111,27 @@ ENDPOINTS: dict[str, PennylaneEndpointConfig] = {
     "fiscal_years": PennylaneEndpointConfig(path="/fiscal_years", scope="fiscal_years:readonly"),
     "categories": PennylaneEndpointConfig(path="/categories", scope="categories:readonly"),
     "category_groups": PennylaneEndpointConfig(path="/category_groups", scope="categories:readonly", sortable=False),
+    "customer_invoice_lines": _fanout_endpoint(
+        "/customer_invoices/{customer_invoice_id}/invoice_lines",
+        "customer_invoices:readonly",
+        "customer_invoices",
+        "customer_invoice_id",
+    ),
+    "customer_invoice_payments": _fanout_endpoint(
+        "/customer_invoices/{customer_invoice_id}/payments",
+        "customer_invoices:readonly",
+        "customer_invoices",
+        "customer_invoice_id",
+    ),
+    "supplier_invoice_lines": _fanout_endpoint(
+        "/supplier_invoices/{supplier_invoice_id}/invoice_lines",
+        "supplier_invoices:readonly",
+        "supplier_invoices",
+        "supplier_invoice_id",
+    ),
+    "customer_contacts": _fanout_endpoint(
+        "/customers/{customer_id}/contacts", "customers:readonly", "customers", "customer_id"
+    ),
 }
 
 _UPDATED_AT: IncrementalField = {

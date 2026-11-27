@@ -43,7 +43,7 @@ class SamCartSource(ResumableSource[SamCartSourceConfig, SamCartResumeConfig]):
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="SamCart",
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Enter your SamCart API key to pull your SamCart orders, charges, subscriptions, and refunds into the PostHog Data warehouse.
+            caption="""Enter your SamCart API key to pull your SamCart orders, charges, failed charges, subscriptions, refunds, customers, products, and coupons into the PostHog Data warehouse.
 
 Create a key in the SamCart dashboard under **Settings → API Keys**. A **Read only** key is enough. Your SamCart plan must include API access.
 """,

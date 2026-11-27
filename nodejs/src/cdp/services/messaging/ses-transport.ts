@@ -1,4 +1,5 @@
 import { SESv2Client, SESv2ClientConfig, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { Counter, Histogram } from 'prom-client'
 
 import { LoadedAttachment, settleBeforeAbortEvenWhileCredentialsStall } from './attachment-store'
@@ -7,10 +8,7 @@ export type { MessageHeader } from '@aws-sdk/client-sesv2'
 
 export type SesEmail = SendEmailCommandInput
 
-export type SesClientOptions = Pick<
-    SESv2ClientConfig,
-    'region' | 'endpoint' | 'credentials' | 'retryStrategy' | 'maxAttempts'
->
+export type SesClientOptions = Pick<SESv2ClientConfig, 'region' | 'endpoint' | 'credentials' | 'maxAttempts'>
 
 export type SesSend = { email: SesEmail } | { email: SesEmail; files: LoadedAttachment[]; deadline: AbortSignal }
 
@@ -28,10 +26,13 @@ const SES_REFUSAL_NAMES = [
 ] as const
 export type SesRefusalName = (typeof SES_REFUSAL_NAMES)[number]
 
+const SYSCALLS_THAT_FAIL_BEFORE_THE_REQUEST_LEAVES = ['getaddrinfo', 'connect'] as const
+
 export type SesSendOutcome =
     | { kind: 'accepted'; messageId: string }
     | { kind: 'not_sent'; reason: 'throttled'; errorName: SesThrottleErrorName; message: string }
     | { kind: 'not_sent'; reason: 'before_deadline'; cause: unknown }
+    | { kind: 'not_sent'; reason: 'before_connect'; message: string }
     | { kind: 'refused'; errorName: SesRefusalName; message: string }
     | { kind: 'unknown'; message: string }
 
@@ -42,6 +43,16 @@ export type SesSendOutcomeOf<K extends SesSendOutcomeKind> = Extract<SesSendOutc
 type SendKind = 'plain' | 'files'
 
 const WITH_FILES_LABEL = { plain: 'false', files: 'true' } satisfies Record<SendKind, 'true' | 'false'>
+
+const ONE_REQUEST_PER_CONNECTION = { keepAlive: false, maxSockets: Infinity }
+
+const oneAttemptOnANewConnection = (): Partial<SESv2ClientConfig> => ({
+    maxAttempts: 1,
+    requestHandler: new NodeHttpHandler({
+        httpAgent: ONE_REQUEST_PER_CONNECTION,
+        httpsAgent: ONE_REQUEST_PER_CONNECTION,
+    }),
+})
 
 const MAY_HAVE_SENT_BEFORE_DEADLINE =
     'SES did not answer before the send deadline. It may have sent the email, so it is not sent again.'
@@ -54,7 +65,7 @@ const sesThrottleResponsesTotal = new Counter({
 
 const sesSendResultsTotal = new Counter({
     name: 'cdp_ses_send_results_total',
-    help: 'SES SendEmail calls by result: success, throttled (rescheduled, with the error code in cdp_ses_throttle_responses_total), a known SES error name, or other.',
+    help: 'SES SendEmail calls by result: success, throttled (rescheduled, with the error code in cdp_ses_throttle_responses_total), before_connect (a send with files that failed its DNS lookup or connect, so it never reached SES), a known SES error name, or other.',
     labelNames: ['result'],
 })
 
@@ -82,6 +93,21 @@ function boundedSendResultLabel(error: unknown): string {
     return isOneOf(SES_REFUSAL_NAMES, name) || name === 'TimeoutError' ? name : 'other'
 }
 
+const syscallOf = (error: unknown): string | undefined => {
+    const syscall = (error as { syscall?: unknown } | null | undefined)?.syscall
+    return typeof syscall === 'string' ? syscall : undefined
+}
+
+const connectionTriesOf = (error: unknown): unknown[] => {
+    const tries = (error as { errors?: unknown } | null | undefined)?.errors
+    return Array.isArray(tries) && tries.length > 0 ? tries : [error]
+}
+
+const failedBeforeTheRequestLeft = (error: unknown): boolean =>
+    connectionTriesOf(error).every((connectionTry) =>
+        isOneOf(SYSCALLS_THAT_FAIL_BEFORE_THE_REQUEST_LEAVES, syscallOf(connectionTry))
+    )
+
 function failureOf(error: unknown, deadline: AbortSignal | undefined, mayHaveReachedSes: boolean): SesSendOutcome {
     if (deadline?.aborted) {
         return mayHaveReachedSes
@@ -108,20 +134,38 @@ const sesRefused = (response: unknown): boolean => {
     return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
 }
 
-function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
+type SendAttempts = {
+    mayHaveReachedSes: () => boolean
+    whyTheLastNeverLeftTheWorker: () => string | null
+}
+
+function trackAttempts(command: SendEmailCommand): SendAttempts {
     let attemptsSesMayHaveAccepted = 0
+    let whyTheLastNeverLeftTheWorker: string | null = null
     command.middlewareStack.add(
         (next) => async (args) => {
             attemptsSesMayHaveAccepted++
-            const httpAnswer = await next(args)
-            if (sesRefused(httpAnswer.response)) {
-                attemptsSesMayHaveAccepted--
+            whyTheLastNeverLeftTheWorker = null
+            try {
+                const httpAnswer = await next(args)
+                if (sesRefused(httpAnswer.response)) {
+                    attemptsSesMayHaveAccepted--
+                }
+                return httpAnswer
+            } catch (error) {
+                if (failedBeforeTheRequestLeft(error)) {
+                    attemptsSesMayHaveAccepted--
+                    whyTheLastNeverLeftTheWorker = connectionTriesOf(error).map(messageOf).join('; ')
+                }
+                throw error
             }
-            return httpAnswer
         },
-        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
+        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttempts' }
     )
-    return () => attemptsSesMayHaveAccepted > 0
+    return {
+        mayHaveReachedSes: () => attemptsSesMayHaveAccepted > 0,
+        whyTheLastNeverLeftTheWorker: () => whyTheLastNeverLeftTheWorker,
+    }
 }
 
 function withAttachments(email: SesEmail, files: LoadedAttachment[]): SesEmail {
@@ -143,15 +187,18 @@ export class SesTransport {
     private readonly clients: Record<SendKind, SESv2Client>
 
     constructor(options: SesClientOptions) {
-        const client = new SESv2Client(options)
-        this.clients = { plain: client, files: client }
+        const { region, endpoint, credentials } = options
+        this.clients = {
+            plain: new SESv2Client(options),
+            files: new SESv2Client({ region, endpoint, credentials, ...oneAttemptOnANewConnection() }),
+        }
     }
 
     async send(send: SesSend): Promise<SesSendOutcome> {
         const kind: SendKind = 'files' in send ? 'files' : 'plain'
         const deadline = 'files' in send ? send.deadline : undefined
         const command = new SendEmailCommand('files' in send ? withAttachments(send.email, send.files) : send.email)
-        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
+        const attempts = trackAttempts(command)
         const startedAt = performance.now()
         const observeDuration = (result: 'success' | 'error'): void =>
             sesSendDurationMs
@@ -172,8 +219,13 @@ export class SesTransport {
             return { kind: 'accepted', messageId: response.MessageId }
         } catch (error: unknown) {
             observeDuration('error')
+            const whyItNeverLeft = attempts.whyTheLastNeverLeftTheWorker()
+            if (kind === 'files' && whyItNeverLeft !== null) {
+                sesSendResultsTotal.inc({ result: 'before_connect' })
+                return { kind: 'not_sent', reason: 'before_connect', message: whyItNeverLeft }
+            }
             sesSendResultsTotal.inc({ result: boundedSendResultLabel(error) })
-            return failureOf(error, deadline, anAttemptSesMayHaveAccepted())
+            return failureOf(error, deadline, attempts.mayHaveReachedSes())
         }
     }
 

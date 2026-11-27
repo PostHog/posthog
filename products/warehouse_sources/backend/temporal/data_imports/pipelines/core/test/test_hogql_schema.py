@@ -14,11 +14,15 @@ class TestHogQLSchemaJsonDetection:
             ("null_then_json", [None, '{"key": "value"}'], "StringJSONDatabaseField"),
             ("all_nulls", [None, None], "StringDatabaseField"),
             ("empty_column", [], "StringDatabaseField"),
+            ("invalid_utf8_first", [b"\x90\x01", '{"key": "value"}'], "StringDatabaseField"),
+            ("json_with_invalid_utf8", [None, b'{"key": "\x90"}'], "StringJSONDatabaseField"),
         ]
     )
     def test_json_detection_from_first_non_null_value(self, _name, values, expected_type):
         schema = HogQLSchema()
-        table = pa.table({"col": pa.array(values, type=pa.string())})
+        # Arrow skips UTF-8 validation on IPC and Parquet reads, so a string column can carry raw bytes.
+        raw = [value.encode() if isinstance(value, str) else value for value in values]
+        table = pa.table({"col": pa.array(raw, type=pa.binary()).view(pa.string())})
         schema.add_pyarrow_table(table)
         assert schema.schema["col"] == expected_type
 

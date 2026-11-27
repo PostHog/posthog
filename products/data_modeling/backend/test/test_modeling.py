@@ -193,6 +193,34 @@ class TestGetParentsFromModelQuery(BaseTest):
         with pytest.raises(QueryError, match="Unknown table"):
             get_parents_from_model_query(self.team, "test_model", "select * from some_random_view")
 
+    def test_join_on_a_view_whose_backing_table_has_no_columns_yet(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="fake", access_secret="fake")
+        unpublished_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="staff",
+            format="DeltaS3Wrapper",
+            credential=credential,
+            columns={},
+        )
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="staff",
+            query={"kind": "HogQLQuery", "query": "SELECT distinct_id AS person FROM events"},
+            columns={"person": "String"},
+            table=unpublished_table,
+            is_materialized=True,
+        )
+        unpublished_table.url_pattern = f"https://example.com/{view.folder_path}/staff"
+        unpublished_table.save(update_fields=["url_pattern"])
+
+        parents = get_parents_from_model_query(
+            self.team,
+            "test_model",
+            "SELECT e.event FROM events AS e JOIN staff AS s ON s.person = e.distinct_id",
+        )
+
+        assert parents == {"events", "models.staff"}
+
 
 class TestRenameModelReferences(BaseTest):
     def setUp(self):
