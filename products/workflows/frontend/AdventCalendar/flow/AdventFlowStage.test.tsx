@@ -138,21 +138,88 @@ describe('AdventFlowStage', () => {
         expect([focusInCard, document.activeElement === door(day)]).toEqual(['advent-door-card-close', true])
     })
 
-    it.each([
-        ['Tab from Close', 2, '[data-attr="advent-door-card-close"]', false, 3],
-        ['Shift+Tab from its face', 2, '.AdventCard__face', true, 2],
-        ["Tab from the last door's link", 24, '[data-attr="advent-tip-link"]', false, 24],
-    ])('leaves a pinned card on %s and closes the card', (_, pinned, from, shiftKey, landsOn) => {
-        seed([1, 2, 24], { 2: 'tim' })
-        renderStage({ width: 1200, height: 830 })
+    type CardSetup = 'pinned' | 'overflowing' | 'answered' | 'hovered'
+    const CLOSE = '[data-attr="advent-door-card-close"]'
+    const FACE = '.AdventCard__face'
+    const LINK = '[data-attr="advent-tip-link"]'
+    const BODY = '.AdventCard__body'
+    const LAST_ANSWER = '[data-attr="advent-door-answer"]:last-of-type'
 
-        act(() => fireEvent.click(door(pinned) as HTMLElement))
-        act(() => card()?.querySelector<HTMLElement>(from)?.focus())
-        act(() => void fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Tab', shiftKey }))
-        waitForTheCardToClose()
+    it.each<
+        [
+            string,
+            'Tab' | 'Shift+Tab' | 'Escape',
+            string,
+            number | 'start',
+            boolean,
+            boolean,
+            number,
+            number[],
+            CardSetup,
+        ]
+    >([
+        ['day 1 with a link', 'Tab', LINK, 2, true, false, 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Tab', CLOSE, 'start', false, true, 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Shift+Tab', FACE, 1, true, false, 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Escape', LINK, 1, false, false, 1, [1, 2], 'pinned'],
+        ['day 1 with a link and a body that overflows', 'Tab', LINK, 2, true, false, 1, [1, 2], 'overflowing'],
+        ['day 2 without a link', 'Tab', CLOSE, 3, true, false, 2, [1, 2], 'pinned'],
+        ['day 2 without a link', 'Shift+Tab', FACE, 2, true, false, 2, [1, 2], 'pinned'],
+        ['day 2 without a link', 'Escape', CLOSE, 2, false, false, 2, [1, 2], 'pinned'],
+        ['day 2 with a body that overflows', 'Tab', CLOSE, 'start', false, true, 2, [1, 2], 'overflowing'],
+        ['day 2 with a body that overflows', 'Tab', BODY, 3, true, false, 2, [1, 2], 'overflowing'],
+        ['day 2 with a body that overflows', 'Shift+Tab', FACE, 2, true, false, 2, [1, 2], 'overflowing'],
+        ['day 2 with a body that overflows', 'Escape', BODY, 2, false, false, 2, [1, 2], 'overflowing'],
+        ['day 24', 'Tab', LINK, 24, false, false, 24, [1, 2, 24], 'pinned'],
+        ['day 24', 'Shift+Tab', FACE, 24, true, false, 24, [1, 2, 24], 'pinned'],
+        ['a poll before an answer', 'Tab', LAST_ANSWER, 3, true, false, 2, [1], 'pinned'],
+        ['a poll before an answer', 'Tab', CLOSE, 'start', false, true, 2, [1], 'pinned'],
+        ['a poll before an answer', 'Shift+Tab', FACE, 2, true, false, 2, [1], 'pinned'],
+        ['a poll after a keyboard answer', 'Tab', CLOSE, 3, true, false, 2, [1], 'answered'],
+        ['a poll after a keyboard answer', 'Shift+Tab', FACE, 2, true, false, 2, [1], 'answered'],
+        ['a hover-only card', 'Tab', FACE, 'start', false, true, 4, [1, 2], 'hovered'],
+        ['a hover-only card', 'Shift+Tab', FACE, 'start', false, true, 4, [1, 2], 'hovered'],
+        ['a hover-only card', 'Escape', FACE, 4, false, false, 4, [1, 2], 'hovered'],
+    ])(
+        'on %s, %s from %s moves focus to %s, handled by the stage: %s, card open: %s',
+        async (_, key, from, focusTarget, isPrevented, staysOpen, day, opened, setup) => {
+            jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
+            seed(opened, opened.includes(2) ? { 2: 'tim' } : {})
+            renderStage({ width: 1200, height: 830 })
 
-        expect([document.activeElement === door(landsOn), card()]).toEqual([true, null])
-    })
+            if (setup === 'hovered') {
+                act(() => fireEvent.mouseEnter(door(day) as HTMLElement))
+            } else {
+                act(() => fireEvent.click(door(day) as HTMLElement))
+            }
+            if (setup === 'answered') {
+                const option = card()?.querySelector<HTMLElement>('[data-attr="advent-door-answer"]') as HTMLElement
+                act(() => option.focus())
+                act(() => fireEvent.click(option))
+                await act(async () => {
+                    await jest.advanceTimersByTimeAsync(700)
+                })
+            }
+            const body = card()?.querySelector<HTMLElement>(BODY) as HTMLElement
+            if (setup === 'overflowing') {
+                Object.defineProperties(body, { scrollHeight: { value: 400 }, clientHeight: { value: 120 } })
+                body.tabIndex = -1
+            }
+            const start = card()?.querySelector<HTMLElement>(from) as HTMLElement
+            act(() => start.focus())
+            let wasPrevented = false
+            act(() => {
+                wasPrevented = !fireEvent.keyDown(start, {
+                    key: key === 'Escape' ? key : 'Tab',
+                    shiftKey: key === 'Shift+Tab',
+                })
+            })
+            waitForTheCardToClose()
+
+            const focused = focusTarget === 'start' ? start : door(focusTarget)
+            expect([document.activeElement === focused, wasPrevented, !!card()]).toEqual([true, isPrevented, staysOpen])
+        }
+    )
 
     it('keeps focus in a pinned card after a keyboard answer opens its door', async () => {
         jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)

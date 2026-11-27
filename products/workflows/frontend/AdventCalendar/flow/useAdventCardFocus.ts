@@ -14,6 +14,13 @@ function focusIsLost(root: HTMLElement): boolean {
 
 const doorOfNode = (nodeId: string): string => `button[aria-describedby="advent-flow-caption-${nodeId}"]`
 
+function tabStopsOf(card: Element | null): Element[] {
+    const stops = Array.from(card?.querySelectorAll('button, a[href]') ?? [])
+    const body = card?.querySelector('.AdventCard__body')
+    const isScrollStop = !!body && body.scrollHeight > body.clientHeight && !body.querySelector('button, a[href]')
+    return isScrollStop ? [...stops, body] : stops
+}
+
 // The card renders after the track, so without this a keyboard user tabs through every later door
 // before reaching the answers, and on the phone the first offscreen door scrolls the card away.
 export function useAdventCardFocus(
@@ -23,6 +30,8 @@ export function useAdventCardFocus(
     onTabOut: () => void
 ): void {
     const lastPinned = useRef<string | null>(null)
+    const lastShown = useRef<string | null>(null)
+    const shownNodeId = cardNode?.id ?? null
     const pinnedNodeId = isPinned ? (cardNode?.id ?? null) : null
     // An answer swaps the focused option for the shares while the card stays pinned, so a change of the door's
     // status runs the effect again.
@@ -38,16 +47,18 @@ export function useAdventCardFocus(
                 root.querySelector<HTMLElement>('[data-attr="advent-door-card-close"]')?.focus({ preventScroll: true })
             }
             lastPinned.current = pinnedNodeId
+            lastShown.current = shownNodeId
             return
         }
-        const nodeId = lastPinned.current
+        const nodeId = lastPinned.current ?? (lastShown.current !== shownNodeId ? lastShown.current : null)
         lastPinned.current = null
+        lastShown.current = shownNodeId
         if (nodeId && focusIsLost(root)) {
             root.querySelector<HTMLElement>(doorOfNode(nodeId))?.focus({
                 preventScroll: true,
             })
         }
-    }, [stage, pinnedNodeId, pinnedStatus])
+    }, [stage, pinnedNodeId, shownNodeId, pinnedStatus])
 
     // Focus moved into the card, which sits after every door, so Tab from its last control goes on to the door
     // after the pinned one, and Shift+Tab from its first control back to the pinned door. Both close the card.
@@ -57,7 +68,7 @@ export function useAdventCardFocus(
             return
         }
         const onKeyDown = (event: KeyboardEvent): void => {
-            const controls = root.querySelectorAll('[data-attr="advent-door-card"] :is(button, a[href])')
+            const controls = tabStopsOf(root.querySelector('[data-attr="advent-door-card"]'))
             const edge = event.shiftKey ? controls[0] : controls[controls.length - 1]
             if (event.key !== 'Tab' || document.activeElement !== edge) {
                 return
