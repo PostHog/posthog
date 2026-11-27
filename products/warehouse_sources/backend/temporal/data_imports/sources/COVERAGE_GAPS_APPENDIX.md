@@ -204,7 +204,7 @@ Diffed against: <https://raw.githubusercontent.com/AdobeDocs/analytics-2.0-apis/
 
 - [x] `Users (GET /api/{globalCompanyId}/users)` — resolve owner login IDs in segments and calculated metrics to identifiable users (high)
 - [x] `Annotations (GET /api/{globalCompanyId}/annotations)` — explain traffic and conversion changes with recorded launches, incidents, and campaign dates (medium)
-- [ ] `Usage logs (GET /api/{globalCompanyId}/auditlogs/usage)` — analyze report adoption, user activity, and access across report suites (medium)
+- [ ] `Usage logs (GET /api/{globalCompanyId}/auditlogs/usage)` — analyze report adoption, user activity, and access across report suites (medium). Skipped: Requires an IMS user token; the source uses OAuth Server-to-Server credentials.
 
 Note: Parsed all collection GET operations in the official Adobe Swagger reference. The configurable report table already accepts a dimension and metrics, so equivalent report variants were excluded. Users resolve component owner IDs; annotations and usage logs need separate tables. The usage endpoint requires an IMS user token, unlike the source server credential.
 
@@ -12123,10 +12123,10 @@ Diffed against: <https://api.usepylon.com/openapi.json>
 - [x] `GET /issues/{id}/messages` — the actual conversation messages behind each issue - response times, volume, and content analysis all need this (high)
 - [x] `GET /surveys/{id}/responses` — CSAT survey responses, the headline support-quality metric (high)
 - [x] `GET /knowledge-bases/{id}/articles` — article inventory per knowledge base; the knowledge_bases table alone has no content rows (high)
-- [ ] `GET /surveys` — survey definitions that give the responses their questions and scales (medium)
-- [ ] `GET /accounts/{account_id}/relationships` — account hierarchy (parent/child orgs), needed to roll ticket volume up to a customer group (medium)
-- [ ] `GET /issues/{id}/threads` — per-issue thread breakdown across Slack/email channels (medium)
-- [ ] `GET /custom-objects/{type}` — customer-defined object records already referenced from issues and accounts (medium)
+- [x] `GET /surveys` — survey IDs, names, and types for joining to survey responses (medium)
+- [x] `GET /accounts/{account_id}/relationships` — account hierarchy (parent/child orgs), needed to roll ticket volume up to a customer group (medium)
+- [x] `GET /issues/{id}/threads` — per-issue thread breakdown across Slack/email channels (medium)
+- [ ] `GET /custom-objects/{type}` — customer-defined object records already referenced from issues and accounts (medium). Skipped: Requires a type slug; the public API has no endpoint to list type slugs.
 - [x] `GET /activity-types` — lookup resolving activity type IDs used across issues and accounts (medium)
 - [ ] `GET /knowledge-bases/{id}/collections` — collection grouping for knowledge base articles (medium)
 - [ ] `GET /issues/{id}/followers` — who is watching each ticket - useful for internal-involvement analysis (medium)
