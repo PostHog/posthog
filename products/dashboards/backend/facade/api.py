@@ -586,24 +586,31 @@ def insight_ids_on_dashboard(dashboard_id: int, *, include_removed_tiles: bool =
 
     With `include_removed_tiles`, a soft-deleted tile counts too, as it does in the `Insight.dashboards` relation.
     """
-    return insight_ids_on_dashboards([dashboard_id], include_removed_tiles=include_removed_tiles)[int(dashboard_id)]
+    manager = DashboardTile.objects_including_soft_deleted if include_removed_tiles else DashboardTile.objects
+    # Filtering a list the caller has already scoped to its own team.
+    # nosemgrep: idor-lookup-without-team
+    tiles = manager.filter(dashboard_id=dashboard_id, insight_id__isnull=False)
+    return frozenset(tiles.values_list("insight_id", flat=True))
 
 
 def insight_ids_on_dashboards(
-    dashboard_ids: Collection[int], *, include_removed_tiles: bool = False
+    dashboard_ids: Collection[int], *, team_id: int, include_removed_tiles: bool = False
 ) -> dict[int, frozenset[int]]:
-    """Ids of the insights with a tile on each of these dashboards, read in one query.
+    """Ids of the insights with a tile on each of these dashboards of the team, read in one query.
 
-    Every requested dashboard is a key, and maps to an empty set when it has no tile. With `include_removed_tiles`,
-    a soft-deleted tile counts too, as it does in the `Insight.dashboards` relation.
+    Every requested dashboard is a key. It maps to an empty set when it has no tile or is not a dashboard of the
+    team. With `include_removed_tiles`, a soft-deleted tile counts too, as it does in the `Insight.dashboards`
+    relation.
     """
     if not dashboard_ids:
         return {}
     manager = DashboardTile.objects_including_soft_deleted if include_removed_tiles else DashboardTile.objects
     insight_ids: dict[int, set[int]] = {int(dashboard_id): set() for dashboard_id in dashboard_ids}
-    # Filtering a list the caller has already scoped to its own team.
+    # The ids can come from a request, so only the team's own dashboards are read.
+    team_dashboards = Dashboard.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids.keys())
+    # Scoped to the team through the dashboard subquery above.
     # nosemgrep: idor-lookup-without-team
-    tiles = manager.filter(dashboard_id__in=insight_ids.keys(), insight_id__isnull=False).values_list(
+    tiles = manager.filter(dashboard_id__in=team_dashboards.values("id"), insight_id__isnull=False).values_list(
         "dashboard_id", "insight_id"
     )
     for dashboard_id, insight_id in tiles:
