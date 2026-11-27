@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 
 from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
@@ -12,6 +14,7 @@ _DATA_SELECTOR = {
     "Contracts": "contracts",
     "Transactions": "transactions",
     "ActionExecutions": "response",
+    "Audit": "audit",
 }
 
 
@@ -55,15 +58,108 @@ class TestToriiSourceResumeBehavior:
 
         assert result.params("cursor") == [None]
 
-    def test_roles_stops_after_one_page(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, path, key",
+        [
+            ("Roles", "/v1.0/roles", "roles"),
+            ("Workflows", "/v1.0/workflows", "workflows"),
+        ],
+    )
+    def test_single_page_endpoints_stop_after_one_page(self, endpoint: str, path: str, key: str) -> None:
         result = self._driver().run(
-            "Roles",
-            [ScriptedResponse(json={"roles": [{"id": 1, "name": "Admin"}], "nextCursor": "ignored"})],
+            endpoint,
+            [ScriptedResponse(json={key: [{"id": 1, "name": "First"}], "nextCursor": "ignored"})],
         )
 
         assert result.raised is None
-        assert result.paths == ["/v1.0/roles"]
+        assert result.paths == [path]
         assert [row["id"] for row in result.rows] == [1]
+
+
+def _audit_event(**overrides: object) -> dict:
+    return {
+        "performedBy": 1000,
+        "performedByFirstName": "Ada",
+        "performedByLastName": "Example",
+        "performedByEmail": "ada@example.com",
+        "idTargetOrg": 42,
+        "creationTime": "2026-03-10T05:00:00.000Z",
+        "type": "update_contract",
+        "requestDetails": {"path": "/api/orgs/42/contracts/7", "method": "put", "remoteAddress": "192.0.2.1"},
+        "properties": {"idContract": 7, "status": "active"},
+        **overrides,
+    }
+
+
+class TestToriiAudit:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(ToriiSource(), ToriiSourceConfig(api_key="test-key"))
+
+    @pytest.mark.parametrize(
+        "inputs, expected_start, expected_sort_mode",
+        [
+            ({}, None, None),
+            ({"incremental_field": "creationTime"}, None, "asc"),
+            (
+                {
+                    "incremental_field": "creationTime",
+                    "db_incremental_field_last_value": datetime.datetime(2026, 3, 10, 5, 0, tzinfo=datetime.UTC),
+                },
+                "2026-03-09",
+                "asc",
+            ),
+            (
+                {
+                    "incremental_field": "creationTime",
+                    "db_incremental_field_last_value": datetime.datetime(2026, 3, 1, 0, 0, tzinfo=datetime.UTC),
+                },
+                "2026-02-28",
+                "asc",
+            ),
+            (
+                {
+                    "should_use_incremental_field": False,
+                    "incremental_field": "creationTime",
+                    "db_incremental_field_last_value": datetime.datetime(2026, 3, 10, 5, 0, tzinfo=datetime.UTC),
+                },
+                None,
+                None,
+            ),
+        ],
+    )
+    def test_request_shape_for_full_refresh_and_incremental(
+        self, inputs: dict, expected_start: str | None, expected_sort_mode: str | None
+    ) -> None:
+        result = self._driver().run("Audit", [ScriptedResponse(json={"audit": [_audit_event()]})], **inputs)
+
+        assert result.raised is None
+        assert result.paths == ["/v1.0/audit"]
+        assert result.params("sort") == ["asc"]
+        assert result.params("startTime") == [expected_start]
+        assert result.response is not None
+        assert result.response.sort_mode == expected_sort_mode
+
+    @pytest.mark.parametrize(
+        "other, same_id",
+        [
+            (_audit_event(), True),
+            (_audit_event(performedByFirstName="Renamed", performedByEmail="renamed@example.com"), True),
+            (_audit_event(properties={"status": "active", "idContract": 7}), True),
+            (_audit_event(properties={"idContract": 8, "status": "active"}), False),
+            (_audit_event(creationTime="2026-03-10T05:00:00.001Z"), False),
+            (_audit_event(type="delete_contract"), False),
+            (_audit_event(performedBy=-1), False),
+            (_audit_event(requestDetails=None), False),
+        ],
+    )
+    def test_synthetic_id_is_stable_for_the_same_event(self, other: dict, same_id: bool) -> None:
+        result = self._driver().run("Audit", [ScriptedResponse(json={"audit": [_audit_event(), other]})])
+
+        assert result.raised is None
+        first, second = result.rows
+        assert len(first["id"]) == 64
+        assert (first["id"] == second["id"]) is same_id
 
 
 def _app_users_script(request: RecordedRequest) -> ScriptedResponse:

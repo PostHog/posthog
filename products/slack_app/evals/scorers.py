@@ -10,6 +10,7 @@ legible. Each scorer opts into a case through its own ``expected`` key and skips
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from typing import Any
 
 from products.posthog_ai.eval_harness.log_parser import LogParser
@@ -652,6 +653,16 @@ def _summary_sources(output: dict | None) -> list[str]:
     return [str(item.get("source")) for item in (output or {}).get("items") or []]
 
 
+def _recall(name: str, want: Collection[str], found: list[str], output: dict | None, *, nothing_wanted: str) -> Score:
+    """The share of `want` that shows up in `found`. A failed call scores 0, so an outage counts against the run."""
+    if not want:
+        return Score(name=name, score=None, metadata={"reason": nothing_wanted})
+    if output and output.get("error"):
+        return Score(name=name, score=0.0, metadata={"reason": output["error"]})
+    missed = [key for key in want if key not in set(found)]
+    return Score(name=name, score=(len(want) - len(missed)) / len(want), metadata={"missed": missed})
+
+
 class SummaryCovers(Scorer):
     """The share of the threads that had to be in the summary, such as the day's incident, that it covers."""
 
@@ -660,14 +671,7 @@ class SummaryCovers(Scorer):
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         must = _summary_spec(expected).get("must_cover") or []
-        if not must:
-            return Score(name=self._name(), score=None, metadata={"reason": "Case requires no thread"})
-        if output and output.get("error"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
-
-        sources = set(_summary_sources(output))
-        missed = [key for key in must if key not in sources]
-        return Score(name=self._name(), score=(len(must) - len(missed)) / len(must), metadata={"missed": missed})
+        return _recall(self._name(), must, _summary_sources(output), output, nothing_wanted="Case requires no thread")
 
 
 class SummaryOmitsChatter(Scorer):
@@ -823,3 +827,97 @@ Is every item supported by the thread it names? An item passes when its thread s
             max_completion_tokens=256,
             **kwargs,
         )
+
+
+DAILY_FOCUS_AGENT_KEY = "daily_focus_agent"
+
+
+def _agent_spec(expected: Any) -> dict[str, Any]:
+    spec = expected.get(DAILY_FOCUS_AGENT_KEY) if isinstance(expected, dict) else None
+    return spec if isinstance(spec, dict) else {}
+
+
+def _offer_sources(output: dict | None) -> list[str]:
+    return [str(offer.get("source")) for offer in (output or {}).get("offers") or []]
+
+
+class AgentCovers(Scorer):
+    """The share of the threads the agent's DM had to show, such as an unanswered ask to the person, that it shows."""
+
+    def _name(self) -> str:
+        return "agent_covers"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        must = _agent_spec(expected).get("must_cover") or {}
+        return _recall(self._name(), must, _summary_sources(output), output, nothing_wanted="Case requires no thread")
+
+
+class AgentSections(Scorer):
+    """Each required thread the DM shows sits in its section: "for_you" when it asks or mentions the person, "news"
+    when they took no part in it. Skips when the DM shows none of them, which `agent_covers` already counts."""
+
+    def _name(self) -> str:
+        return "agent_sections"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        must = _agent_spec(expected).get("must_cover") or {}
+        if output and output.get("error"):
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+        shown = {item.get("source"): item.get("section") for item in (output or {}).get("items") or []}
+        checked = {key: section for key, section in must.items() if key in shown}
+        if not checked:
+            return Score(name=self._name(), score=None, metadata={"reason": "The DM shows no required thread"})
+
+        wrong = {key: shown[key] for key, section in checked.items() if shown[key] != section}
+        return Score(name=self._name(), score=0.0 if wrong else 1.0, metadata={"wrong": wrong})
+
+
+class AgentOmitsKnown(Scorer):
+    """The DM leaves out what the person already knows or needs no word on: their own threads, threads they answered
+    last, resolved work, work an agent took, and chat."""
+
+    def _name(self) -> str:
+        return "agent_omits_known"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        must_omit = _agent_spec(expected).get("must_omit") or []
+        if not must_omit:
+            return Score(name=self._name(), score=None, metadata={"reason": "Case has nothing to leave out"})
+        if output and output.get("error"):
+            # A failed run shows nothing, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        included = [key for key in must_omit if key in _summary_sources(output)]
+        return Score(name=self._name(), score=0.0 if included else 1.0, metadata={"included": included})
+
+
+class AgentOfferRecall(Scorer):
+    """The share of the requests nobody reacted to that the DM offers to do."""
+
+    def _name(self) -> str:
+        return "agent_offer_recall"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = _agent_spec(expected).get("offers") or []
+        return _recall(
+            self._name(), want, _offer_sources(output), output, nothing_wanted="Case has no request to offer"
+        )
+
+
+class NoReactedOffer(Scorer):
+    """The direction the agent's offers exist for: no offer for work someone replied to, took, handed to an agent or
+    finished, the person included."""
+
+    def _name(self) -> str:
+        return "no_reacted_offer"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        no_offer = _agent_spec(expected).get("no_offer") or []
+        if not no_offer:
+            return Score(name=self._name(), score=None, metadata={"reason": "Case has no reacted request"})
+        if output and output.get("error"):
+            # A failed run offers nothing, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        offered = [key for key in no_offer if key in _offer_sources(output)]
+        return Score(name=self._name(), score=0.0 if offered else 1.0, metadata={"offered": offered})

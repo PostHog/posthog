@@ -1,3 +1,4 @@
+import re
 import json
 import datetime as dt
 from typing import Any, Literal, cast
@@ -520,6 +521,36 @@ class TestSimplePaginationRefusedFields:
             mock_get.return_value.get.side_effect = get_responses
             mock_get.return_value.post.side_effect = [batch_response]
             with pytest.raises(Exception, match="node lookup error"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                    )
+                )
+
+    @pytest.mark.parametrize(
+        "batch_body,expected_message",
+        [
+            (
+                {"error": {"message": "Error validating access token", "type": "OAuthException", "code": 190}},
+                META_AUTH_ERROR_MESSAGE,
+            ),
+            ({"error": {"message": "Something else went wrong", "code": 100}}, "Meta API request failed: 200"),
+            (["not a subresponse"], "Meta API request failed: 200"),
+        ],
+    )
+    def test_batch_lookup_body_that_is_not_a_subresponse_list_raises_meta_error(
+        self, batch_body: Any, expected_message: str
+    ) -> None:
+        manager = _build_manager()
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+
+        with mock.patch("products.warehouse_sources.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = [_mock_response(200, batch_body)]
+            with pytest.raises(Exception, match=re.escape(expected_message)):
                 list(
                     _iter_simple_pagination(
                         self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL

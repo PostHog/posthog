@@ -475,11 +475,21 @@ function Step4Content(): JSX.Element {
     )
 }
 
+type CustomerIOStep = 'step1' | 'step2' | 'step3' | 'step4'
+const STEPS_WITHOUT_CONTACTS: CustomerIOStep[] = ['step1', 'step2', 'step3', 'step4']
+const STEPS_WITH_CONTACTS: CustomerIOStep[] = ['step1', 'step3', 'step4']
+
 export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOptionApi }): JSX.Element {
     const { stepCompletion, syncConfigLoading, syncConfig, latestImportRun } = useValues(customerIOImportLogic)
     const { showsAutomationImport } = useValues(providerImportLogic)
 
-    if (syncConfigLoading) {
+    // The contacts step reads topic preferences itself, so the CSV upload is only needed without it.
+    const offersContacts = provider.steps.some((step) => step.key === 'contacts')
+    const visibleSteps = offersContacts ? STEPS_WITH_CONTACTS : STEPS_WITHOUT_CONTACTS
+    const stepNumber = (step: CustomerIOStep): number => visibleSteps.indexOf(step) + 1
+
+    // Only the first load replaces the steps. A reload after removing a key keeps the open step in place.
+    if (syncConfigLoading && !syncConfig) {
         return (
             <div className="flex justify-center py-8">
                 <Spinner className="text-3xl" />
@@ -503,16 +513,18 @@ export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOp
             <LemonCollapse
                 defaultActiveKey={
                     // A failed run has to stay in view, because its error says which steps to retry.
-                    latestImportRun?.status === 'failed'
-                        ? 'step1'
-                        : (['step1', 'step2', 'step3', 'step4'] as const).find((s) => !stepCompletion[s])
+                    latestImportRun?.status === 'failed' ? 'step1' : visibleSteps.find((s) => !stepCompletion[s])
                 }
                 panels={[
                     {
-                        key: 'step1',
+                        key: 'step1' as const,
                         header: (
                             <div className="flex items-center justify-between w-full">
-                                <span>1. Import categories, opt-outs & suppressions</span>
+                                <span>
+                                    {offersContacts
+                                        ? `${stepNumber('step1')}. Import categories, opt-outs, suppressions & contacts`
+                                        : `${stepNumber('step1')}. Import categories, opt-outs & suppressions`}
+                                </span>
                                 <StepBadge status={stepCompletion.step1} />
                             </div>
                         ),
@@ -526,36 +538,36 @@ export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOp
                         ),
                     },
                     {
-                        key: 'step2',
+                        key: 'step2' as const,
                         header: (
                             <div className="flex items-center justify-between w-full">
-                                <span>2. Upload opt-out preferences CSV</span>
+                                <span>{stepNumber('step2')}. Upload opt-out preferences CSV</span>
                                 <StepBadge status={stepCompletion.step2} />
                             </div>
                         ),
                         content: <Step2Content />,
                     },
                     {
-                        key: 'step3',
+                        key: 'step3' as const,
                         header: (
                             <div className="flex items-center justify-between w-full">
-                                <span>3. Inbound webhook sync</span>
+                                <span>{stepNumber('step3')}. Inbound webhook sync</span>
                                 <StepBadge status={stepCompletion.step3} />
                             </div>
                         ),
                         content: <Step3Content />,
                     },
                     {
-                        key: 'step4',
+                        key: 'step4' as const,
                         header: (
                             <div className="flex items-center justify-between w-full">
-                                <span>4. Outbound sync to Customer.io</span>
+                                <span>{stepNumber('step4')}. Outbound sync to Customer.io</span>
                                 <StepBadge status={stepCompletion.step4} />
                             </div>
                         ),
                         content: <Step4Content />,
                     },
-                ]}
+                ].filter((panel) => visibleSteps.includes(panel.key))}
             />
         </div>
     )

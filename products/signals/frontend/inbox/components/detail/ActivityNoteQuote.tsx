@@ -22,7 +22,7 @@ export function ActivityNoteQuote({
                     <ScoutNoteAudience reportId={reportId} skillName={scoutSkillName} />
                 </span>
             )}
-            <blockquote className="m-0 whitespace-pre-wrap border-l-2 border-primary pl-2 text-xs italic text-secondary">
+            <blockquote className="m-0 border-l-2 border-primary pl-2 text-xs italic text-secondary">
                 <NoteMentionText text={text} />
             </blockquote>
         </div>

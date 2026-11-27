@@ -46,6 +46,7 @@ class TestPineconeCredentials(SimpleTestCase):
     @parameterized.expand(
         [
             ("namespaces", "https://api.pinecone.io/indexes", {"indexes": []}),
+            ("backup_schedule_history", "https://api.pinecone.io/indexes", {"indexes": []}),
             ("assistant_files", "https://api.pinecone.io/assistant/assistants?limit=1", {"assistants": []}),
         ]
     )

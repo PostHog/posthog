@@ -17,6 +17,7 @@ import type {
     MCPIntentDigestApi,
     MCPMissingCapabilityCreateApi,
     MCPSessionIntentApi,
+    MCPWrappedResponseApi,
     McpAnalyticsFeedbackListParams,
     McpAnalyticsIntentClustersRetrieveParams,
     McpAnalyticsMissingCapabilitiesListParams,
@@ -465,5 +466,22 @@ export const mcpAnalyticsSessionsIntentDigest = async (
     return apiMutator<MCPIntentDigestApi>(getMcpAnalyticsSessionsIntentDigestUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getMcpAnalyticsWrappedRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_analytics/wrapped/current/`
+}
+
+/**
+ * Return the project's MCP Wrapped: a yearly story of its MCP tool calls. The wrap is returned for 14 days after it is computed, and `wrapped` is null outside that window or when the project has none.
+ */
+export const mcpAnalyticsWrappedRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPWrappedResponseApi> => {
+    return apiMutator<MCPWrappedResponseApi>(getMcpAnalyticsWrappedRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

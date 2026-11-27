@@ -1063,7 +1063,7 @@
       _partition UInt64
   
       
-  ) ENGINE = Distributed('ai_events', 'posthog_test', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))))
+  ) ENGINE = Distributed('ai_events', 'posthog_test', 'sharded_ai_events', rand())
   
   '''
 # ---
@@ -1071,7 +1071,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS ai_events_json_mv
-  TO ai_events
+  TO sharded_ai_events
   AS SELECT
       uuid,
       event,
@@ -7688,6 +7688,23 @@
   
   '''
 # ---
+# name: test_create_table_query[series_values_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS series_values_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      time_window_end DateTime64(6, 'UTC'),
+      series_key String,
+      value Float64,
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_series_values_preaggregated', sipHash64(job_id))
+  
+  '''
+# ---
 # name: test_create_table_query[session_replay_events]
   '''
   
@@ -8030,10 +8047,10 @@
       , INDEX idx_is_error is_error TYPE set(2) GRANULARITY 1
       , INDEX idx_provider provider TYPE set(50) GRANULARITY 1
   
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}', _timestamp)
   
   PARTITION BY toYYYYMM(drop_date)
-  ORDER BY (team_id, trace_id, timestamp)
+  ORDER BY (team_id, trace_id, timestamp, uuid)
   TTL drop_date
   SETTINGS ttl_only_drop_parts = 1
   
@@ -9406,6 +9423,28 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_series_values_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_series_values_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      time_window_end DateTime64(6, 'UTC'),
+      series_key String,
+      value Float64,
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.series_values_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, series_key, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -14058,10 +14097,10 @@
       , INDEX idx_is_error is_error TYPE set(2) GRANULARITY 1
       , INDEX idx_provider provider TYPE set(50) GRANULARITY 1
   
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}', _timestamp)
   
   PARTITION BY toYYYYMM(drop_date)
-  ORDER BY (team_id, trace_id, timestamp)
+  ORDER BY (team_id, trace_id, timestamp, uuid)
   TTL drop_date
   SETTINGS ttl_only_drop_parts = 1
   
@@ -15434,6 +15473,28 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_series_values_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_series_values_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      time_window_end DateTime64(6, 'UTC'),
+      series_key String,
+      value Float64,
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.series_values_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, series_key, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---

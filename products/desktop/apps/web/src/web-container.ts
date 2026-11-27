@@ -779,10 +779,7 @@ container
 container
   .bind(TITLE_GENERATOR_LOGGER)
   .toConstantValue(webTitleGeneratorLogger(scoped()));
-// LLM gateway (task title/summary generation, etc.). The portable core service
-// runs in the browser directly — the gateway is CORS-open — over a web host
-// that authenticates with AuthService and builds the same gateway URLs the
-// desktop main process uses.
+// LLM gateway service (task title/summary generation, usage).
 container.load(llmGatewayModule);
 container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
   const auth = () => ctx.get<AuthService>(AUTH_SERVICE);

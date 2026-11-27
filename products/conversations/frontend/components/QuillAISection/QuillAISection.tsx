@@ -43,12 +43,15 @@ export function QuillAISection({
     aiSuggestionsLoading,
     aiDiagnosticsEnabled,
     aiDiagnosticsLoading,
+    aiRerunUntilTeamReply,
+    aiRerunModeLoading,
     aiAllChannels,
     aiResolutionChannels,
     aiReplyModes,
     isChannelActive,
     onAiSuggestionsEnabledChange,
     onAiDiagnosticsEnabledChange,
+    onAiRerunUntilTeamReplyChange,
     onResolutionChannelToggle,
     onReplyModeChange,
     onOpenChannelSettings,
@@ -57,12 +60,15 @@ export function QuillAISection({
     aiSuggestionsLoading: boolean
     aiDiagnosticsEnabled: boolean
     aiDiagnosticsLoading: boolean
+    aiRerunUntilTeamReply: boolean
+    aiRerunModeLoading: boolean
     aiAllChannels: TicketChannel[]
     aiResolutionChannels: TicketChannel[]
     aiReplyModes: Record<string, Record<string, ReplyMode>>
     isChannelActive: (channel: TicketChannel) => boolean
     onAiSuggestionsEnabledChange: (checked: boolean) => void
     onAiDiagnosticsEnabledChange: (checked: boolean) => void
+    onAiRerunUntilTeamReplyChange: (checked: boolean) => void
     onResolutionChannelToggle: (channel: TicketChannel, checked: boolean) => void
     onReplyModeChange: (channel: string, ticketType: string, mode: ReplyMode) => void
     onOpenChannelSettings: (channel: TicketChannel) => void
@@ -101,6 +107,26 @@ export function QuillAISection({
                                 checked={aiDiagnosticsEnabled}
                                 onCheckedChange={onAiDiagnosticsEnabledChange}
                                 loading={aiDiagnosticsLoading}
+                            />
+                        </CardContent>
+                    </Card>
+                </QuillSettingsSubsection>
+            )}
+
+            {aiSuggestionsEnabled && (
+                <QuillSettingsSubsection
+                    title="Follow-up messages"
+                    description="By default the agent runs once per ticket, on the first customer message."
+                >
+                    <Card size="sm" className="max-w-200">
+                        <CardContent>
+                            <QuillSettingsSwitchRow
+                                label="Run again when the customer adds a message"
+                                description="The agent runs again on each new customer message until a teammate replies, up to 3 more runs per ticket."
+                                checked={aiRerunUntilTeamReply}
+                                onCheckedChange={onAiRerunUntilTeamReplyChange}
+                                loading={aiRerunModeLoading}
+                                dataAttr="support-ai-rerun-until-team-reply"
                             />
                         </CardContent>
                     </Card>

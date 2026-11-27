@@ -41,6 +41,12 @@ class FredResumeConfig:
     pending_element_ids: Optional[list[int]] = None
     # Category tree walk: the categories whose children are not fetched yet, as a DFS stack.
     pending_category_ids: Optional[list[int]] = None
+    # Category tree walk with paging: the category paged at `offset`, whose children are
+    # already on the stack.
+    category_id: Optional[int] = None
+    # Parent fan-out with paging: the parent paged at `offset`, and the lowest parent id not
+    # finished yet.
+    next_parent_id: Optional[int] = None
 
 
 class FredApiError(Exception):
@@ -209,15 +215,18 @@ def _checkpoint(
     return save
 
 
-def _release_ids(
-    session: requests.Session, api_key: str, resumable_source_manager: ResumableSourceManager[FredResumeConfig]
+def _parent_ids(
+    session: requests.Session,
+    api_key: str,
+    parent_endpoint: str,
+    resumable_source_manager: ResumableSourceManager[FredResumeConfig],
 ) -> list[int]:
-    release_ids: set[int] = set()
+    parent_ids: set[int] = set()
     for page in _walk(
-        session, api_key, FRED_ENDPOINTS["releases"], {}, 0, {}, lambda _: resumable_source_manager.safe_point()
+        session, api_key, FRED_ENDPOINTS[parent_endpoint], {}, 0, {}, lambda _: resumable_source_manager.safe_point()
     ):
-        release_ids.update(row["id"] for row in page if isinstance(row.get("id"), int))
-    return sorted(release_ids)
+        parent_ids.update(row["id"] for row in page if isinstance(row.get("id"), int))
+    return sorted(parent_ids)
 
 
 def _walk_releases(
@@ -233,7 +242,7 @@ def _walk_releases(
     if resume_config is not None and resume_config.next_release_id is not None:
         start_release_id = resume_config.next_release_id
 
-    for release_id in _release_ids(session, api_key, resumable_source_manager):
+    for release_id in _parent_ids(session, api_key, "releases", resumable_source_manager):
         if release_id < start_release_id:
             continue
 
@@ -328,6 +337,125 @@ def _walk_category_tree(
             interruptible_wait(FAN_OUT_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
 
 
+def _walk_parent_pages(
+    session: requests.Session,
+    api_key: str,
+    config: FredEndpointConfig,
+    resume_config: Optional[FredResumeConfig],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[FredResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Page the endpoint once per row of its parent endpoint, in parent id order."""
+    parent_endpoint = config.fan_out_parent or ""
+    parent_param = config.parent_param or ""
+    start_parent_id, start_offset = 0, 0
+    if resume_config is not None and resume_config.next_parent_id is not None:
+        start_parent_id, start_offset = resume_config.next_parent_id, resume_config.offset
+
+    for parent_id in _parent_ids(session, api_key, parent_endpoint, resumable_source_manager):
+        if parent_id < start_parent_id:
+            continue
+
+        offset = start_offset if parent_id == start_parent_id else 0
+        while True:
+            interruptible_wait(FAN_OUT_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
+            params = {**config.params, parent_param: parent_id, "limit": config.page_size, "offset": offset}
+            try:
+                payload = _fetch(session, api_key, config.path, params)
+            except FredRequestError as error:
+                logger.warning(f"FRED: skipping {parent_param} {parent_id} for {config.name}: {error}")
+                payload = {}
+
+            last_page = len(payload.get(config.data_key) or []) < config.page_size
+            rows = _extract_rows(payload, config, {parent_param: parent_id})
+            if last_page:
+                next_state = FredResumeConfig(next_parent_id=parent_id + 1)
+            else:
+                next_state = FredResumeConfig(next_parent_id=parent_id, offset=offset + config.page_size)
+            resumable_source_manager.save_state(next_state)
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+            if last_page:
+                break
+            offset += config.page_size
+
+
+def _walk_category_pages(
+    session: requests.Session,
+    api_key: str,
+    config: FredEndpointConfig,
+    resume_config: Optional[FredResumeConfig],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[FredResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the category tree as `categories` does, and page the endpoint for each category."""
+    children_config = FRED_ENDPOINTS["categories"]
+    pending = [ROOT_CATEGORY_ID]
+    current: Optional[int] = None
+    offset = 0
+    if resume_config is not None and resume_config.pending_category_ids is not None:
+        pending = list(resume_config.pending_category_ids)
+        current = resume_config.category_id
+        offset = resume_config.offset if current is not None else 0
+    seen = {*pending, *([current] if current is not None else [])}
+
+    while current is not None or pending:
+        if current is None:
+            current, offset = pending.pop(), 0
+            interruptible_wait(FAN_OUT_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
+            children = _extract_rows(
+                _fetch(session, api_key, children_config.path, {**children_config.params, "category_id": current}),
+                children_config,
+                {},
+            )
+            child_ids = [row["id"] for row in children if isinstance(row.get("id"), int) and row["id"] not in seen]
+            seen.update(child_ids)
+            pending.extend(reversed(child_ids))
+
+        interruptible_wait(FAN_OUT_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
+        params = {**config.params, "category_id": current, "limit": config.page_size, "offset": offset}
+        try:
+            payload = _fetch(session, api_key, config.path, params)
+        except FredRequestError as error:
+            logger.warning(f"FRED: skipping category {current} for {config.name}: {error}")
+            payload = {}
+
+        last_page = len(payload.get(config.data_key) or []) < config.page_size
+        rows = _extract_rows(payload, config, {"category_id": current})
+        if last_page:
+            next_state = FredResumeConfig(pending_category_ids=list(pending))
+        else:
+            next_state = FredResumeConfig(
+                pending_category_ids=list(pending), category_id=current, offset=offset + config.page_size
+            )
+        resumable_source_manager.save_state(next_state)
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+        if last_page:
+            current = None
+        else:
+            offset += config.page_size
+
+
+def _drop_repeated_ids(
+    pages: Iterator[list[dict[str, Any]]], resumable_source_manager: ResumableSourceManager[FredResumeConfig]
+) -> Iterator[list[dict[str, Any]]]:
+    seen: set[Any] = set()
+    for rows in pages:
+        fresh = [row for row in rows if row.get("id") not in seen]
+        seen.update(row.get("id") for row in fresh)
+        if fresh:
+            yield fresh
+        else:
+            resumable_source_manager.safe_point()
+
+
 def get_rows(
     api_key: str,
     series_ids: list[str],
@@ -348,12 +476,20 @@ def get_rows(
         yield from _walk_category_tree(session, api_key, config, resume_config, resumable_source_manager)
         return
 
+    if config.per_category:
+        yield from _walk_category_pages(session, api_key, config, resume_config, logger, resumable_source_manager)
+        return
+
+    if config.fan_out_parent is not None:
+        yield from _walk_parent_pages(session, api_key, config, resume_config, logger, resumable_source_manager)
+        return
+
     if config.per_release:
         yield from _walk_releases(session, api_key, config, resume_config, logger, resumable_source_manager)
         return
 
     if not config.per_series:
-        yield from _walk(
+        pages = _walk(
             session,
             api_key,
             config,
@@ -362,6 +498,7 @@ def get_rows(
             {},
             _checkpoint(resumable_source_manager, 0),
         )
+        yield from _drop_repeated_ids(pages, resumable_source_manager) if config.drop_repeated_ids else pages
         return
 
     resume_index = resume_config.series_index if resume_config is not None else 0

@@ -268,6 +268,9 @@ def _fanout_source(
             initial_paginator_state=initial_state,
         ),
     )
+    if config.redact_fields:
+        # The helper returns a framework `Resource` typed as `Iterable`, which has `add_map`.
+        dependent_resource = cast(Any, dependent_resource).add_map(_redact_fields_mapper(config.redact_fields))
 
     return _make_source_response(config, lambda: dependent_resource)
 

@@ -27,10 +27,12 @@ from posthog.schema import (
     ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
     ExperimentWarehouseNativeExposureConfig,
+    ExperimentWarehouseNativeRowsLeftOut,
     HogQLQueryResponse,
     MultipleVariantHandling,
 )
 
+from posthog.hogql.direct_sql.adapter import DirectQueryTimeoutError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.query_access_check import denied_query_resources
@@ -61,6 +63,8 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.uti
 from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
 
 LEAVES_OUT_TEST_ACCOUNTS = {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
 KEEPS_MATCHING_USERS = {"key": "email", "value": "@example.org", "operator": "icontains", "type": "person"}
@@ -132,6 +136,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
     def test_warehouse_native_exposures_come_from_the_warehouse(self):
+        # An excluded variant stays out of the exposures, but its rows aren't unknown to the diagnostic.
+        self.experiment.excluded_variants = ["holdout"]
+        self.experiment.save()
         connection = ExternalDataSource.objects.create(
             team=self.team,
             source_id="bigquery",
@@ -148,30 +155,85 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.execute_hogql_query"
             ) as warehouse,
         ):
-            warehouse.return_value = HogQLQueryResponse(
-                columns=["day", "variant", "exposures"],
-                results=[
-                    [date(2024, 1, 2), "control", 3],
-                    [date(2024, 1, 2), "test", 2],
-                    [date(2024, 1, 3), "control", 1],
-                    [date(2024, 1, 3), MULTIPLE_VARIANT_KEY, 1],
-                ],
-            )
+            warehouse.side_effect = [
+                HogQLQueryResponse(
+                    columns=["day", "variant", "exposures"],
+                    results=[
+                        [date(2024, 1, 2), "control", 3],
+                        [date(2024, 1, 2), "test", 2],
+                        [date(2024, 1, 3), "control", 1],
+                        [date(2024, 1, 3), MULTIPLE_VARIANT_KEY, 1],
+                    ],
+                ),
+                # The second statement counts the rows the first one left out, by reason.
+                HogQLQueryResponse(
+                    columns=["reason", "value", "row_count", "reason_row_count"],
+                    results=[["unknown_variant", "Control", 3, 7], ["empty_id", None, 1, 1]],
+                ),
+            ]
             response = ExperimentExposuresQueryRunner(
                 team=self.team, query=self._warehouse_native_query(str(connection.id))
             ).calculate()
 
-        statement = warehouse.call_args.kwargs
+        statement, left_out = (call.kwargs for call in warehouse.call_args_list)
         assert statement["send_raw_query"] is True
         assert statement["connection_id"] == str(connection.id)
         assert "FROM exposures" in statement["query"]
         assert "DATE(" in statement["query"] and "'UTC'" in statement["query"]
+        assert left_out["connection_id"] == str(connection.id) and "unknown_variant" in left_out["query"]
+        assert "'holdout'" in left_out["query"] and "'holdout'" not in statement["query"]
+        # The statement names at most 50 values, so the total of the reason comes with them.
+        assert response.rows_left_out == ExperimentWarehouseNativeRowsLeftOut(
+            unknown_variants={"Control": 3}, unknown_variant_rows=7, empty_id=1
+        )
         assert response.total_exposures == {"control": 4, "test": 2, MULTIPLE_VARIANT_KEY: 1}
         control = next(series for series in response.timeseries if series.variant == "control")
         assert control.exposure_counts == [0, 3, 4, 4, 4, 4, 4]
         assert response.exposed_by_library is None
-        # The exposure health checks read flag calls and exposure events, which a warehouse has neither of.
-        assert {check.status for check in response.health_checks} == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+        # The rows the run left out become a finding. The other exposure health checks read flag calls and exposure
+        # events, which a warehouse has neither of.
+        statuses = {check.key: check.status for check in response.health_checks}
+        assert statuses.pop(ExperimentExposureHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT) == (
+            ExperimentExposureHealthCheckStatus.FINDING
+        )
+        assert set(statuses.values()) == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+        assert [(finding.code, finding.subcode) for finding in response.health_findings] == [
+            (ExperimentExposureHealthFindingCode.EXPOSURE_ROWS_LEFT_OUT, "unknown_variant")
+        ]
+
+    def test_a_failing_diagnostic_keeps_the_exposures(self):
+        connection = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        with (
+            patch(
+                "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.execute_hogql_query"
+            ) as warehouse,
+        ):
+            warehouse.side_effect = [
+                HogQLQueryResponse(columns=["day", "variant", "exposures"], results=[[date(2024, 1, 2), "control", 3]]),
+                DirectQueryTimeoutError("BigQuery query timed out."),
+            ]
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._warehouse_native_query(str(connection.id))
+            ).calculate()
+
+        assert response.total_exposures["control"] == 3
+        assert response.rows_left_out is None
+        left_out = next(
+            check
+            for check in response.health_checks
+            if check.key == ExperimentExposureHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT
+        )
+        assert (left_out.status, response.health_findings) == (ExperimentExposureHealthCheckStatus.NOT_CHECKED, [])
 
     def test_publishing_and_shared_links_need_access_to_the_connection(self):
         connection = ExternalDataSource.objects.create(
@@ -1974,6 +2036,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")},
             {
                 "share_off_split": 0.1667,
+                "mismatch_started_on": "2024-01-03",
                 "located_dimensions": "library,library_version",
                 "library_1": "web",
                 "library_1_exposed_control": 100,
@@ -2229,6 +2292,63 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.team.save()
 
         self.assertEqual(cache_key() == before, same_key)
+
+    def _limit(self, resource: QuotaResource, days: int = 1) -> None:
+        add_limited_team_tokens(
+            resource,
+            {self.team.api_token: int((datetime.now(UTC) + timedelta(days=days)).timestamp())},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+    @parameterized.expand(
+        [
+            ("running_events", QuotaResource.EVENTS, None, (True, False, False)),
+            ("running_feature_flags", QuotaResource.FEATURE_FLAG_REQUESTS, None, (True, False, False)),
+            ("ended", QuotaResource.EVENTS, datetime(2024, 1, 7, tzinfo=UTC), (True, True, True)),
+        ]
+    )
+    def test_cache_key_follows_the_billing_limits(
+        self, _name: str, resource: QuotaResource, end_date: datetime | None, expected: tuple[bool, bool, bool]
+    ) -> None:
+        query = self._running_exposure_query()
+        self.experiment.end_date = end_date
+        self.experiment.save()
+
+        def cache_key() -> str:
+            return ExperimentExposuresQueryRunner(team=self.team, query=query).get_cache_key()
+
+        before = cache_key()
+        with patch("ee.billing.quota_limiting.get_client", side_effect=ConnectionError("Redis is unavailable")):
+            unreadable = cache_key()
+        self._limit(resource)
+        limited = cache_key()
+        self._limit(resource, days=2)
+
+        self.assertEqual((unreadable == before, limited == before, cache_key() == limited), expected)
+
+    @parameterized.expand(
+        [
+            ("events", QuotaResource.EVENTS, ExperimentExposureHealthFindingCode.EVENTS_BILLING_LIMIT),
+            (
+                "feature_flags",
+                QuotaResource.FEATURE_FLAG_REQUESTS,
+                ExperimentExposureHealthFindingCode.FEATURE_FLAGS_BILLING_LIMIT,
+            ),
+        ]
+    )
+    def test_billing_limit_names_the_cause_of_zero_exposures(
+        self, _name: str, resource: QuotaResource, expected: ExperimentExposureHealthFindingCode
+    ) -> None:
+        query = self._running_exposure_query()
+
+        with time_machine.travel("2024-01-02T01:00:00Z", tick=False):
+            self._limit(resource)
+            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(
+            [(finding.code, finding.subcode) for finding in response.health_findings or []],
+            [(expected, None)],
+        )
 
     @parameterized.expand(
         [

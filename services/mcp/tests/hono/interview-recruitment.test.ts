@@ -122,6 +122,7 @@ function createRedis(): {
 function makeState(): ResolvedState {
     return {
         distinctId: 'test-person',
+        stepSeconds: {},
         context: {
             api: { getProjectBaseUrl: () => 'https://us.posthog.com' },
             stateManager: { getOrgID: vi.fn(async () => 'org-1'), getProjectId: vi.fn(async () => '1') },

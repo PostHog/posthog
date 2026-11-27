@@ -10,7 +10,7 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { EmailBlockStyle, emailFontUrls, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
-import { isFullHtmlDocument, oldEditorCss } from '../renderEmailHtml'
+import { isFullHtmlDocument, lineHeightCss, oldEditorCss } from '../renderEmailHtml'
 
 // Past the usual 600px and 640px phone breakpoints, so the desktop layout shows even in a narrow editor.
 const MIN_DESKTOP_WIDTH = 660
@@ -30,7 +30,7 @@ function previewDocument(html: string, editor: NodeViewProps['editor'], sentAsWr
     const oldStyles = page.oldEditorStyles ? oldEditorCss(page) : ''
     // A row kept from the old editor lays out with the page CSS it was exported with.
     const pageCss = page.globalCss.replace(/<\/?style/gi, '')
-    return `${fonts}<style>body{margin:0;font-family:${page.fontFamily};font-size:${page.fontSize}px;line-height:${page.lineHeight}%;color:${page.textColor}}${oldStyles}${pageCss}</style>${html}`
+    return `${fonts}<style>body{margin:0;font-family:${page.fontFamily};font-size:${page.fontSize}px;line-height:${lineHeightCss(page.lineHeight)};color:${page.textColor}}${oldStyles}${pageCss}</style>${html}`
 }
 
 export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }: NodeViewProps): JSX.Element {

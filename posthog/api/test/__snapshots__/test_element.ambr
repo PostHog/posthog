@@ -11,6 +11,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
