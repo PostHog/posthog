@@ -37,24 +37,24 @@ export function LiquidSupportedText({
 
     const templating = templatingEngine ?? 'hog'
 
-    const suggestions = (
-        <CyclotronJobTemplateSuggestionsButton
-            templating={templatingEngine}
-            setTemplatingEngine={setTemplatingEngine}
-            value={value}
-            onOptionSelect={(option) => {
-                onChange?.(
-                    insertTemplateReference(value || '', templateReferenceForOption(option, templating), cursorOffset())
-                )
-            }}
-        />
-    )
-
     return (
         <span className={clsx('flex grow group relative justify-between', plain && 'items-center')}>
             {plain ? null : (
                 <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
-                    {suggestions}
+                    <CyclotronJobTemplateSuggestionsButton
+                        templating={templatingEngine}
+                        setTemplatingEngine={setTemplatingEngine}
+                        value={value}
+                        onOptionSelect={(option) => {
+                            onChange?.(
+                                insertTemplateReference(
+                                    value || '',
+                                    templateReferenceForOption(option, templating),
+                                    cursorOffset()
+                                )
+                            )
+                        }}
+                    />
                 </span>
             )}
             {placeholder && !value ? (
