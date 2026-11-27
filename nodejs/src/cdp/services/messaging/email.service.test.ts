@@ -272,7 +272,6 @@ const sesThatNeverFinishesTheTlsHandshake = async (): Promise<{
     }
 }
 
-
 describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
