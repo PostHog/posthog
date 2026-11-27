@@ -304,20 +304,18 @@ function postTransactional(
     cdpApi: NonNullable<OfferContext['cdpApi']>,
     request: object
 ): Promise<IntakeAnswer> {
-    return postToIntake(
-        `${cdpApi.nextUrl()}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
-        {
-            headers: { authorization: `Bearer ${cdpApi.jwt.mint({ team_id: unit.teamId, hog_flow_id: unit.flowId })}` },
-            body: request,
-        }
-    )
+    return postToIntake(() => ({
+        url: `${cdpApi.nextUrl()}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
+        headers: { authorization: `Bearer ${cdpApi.jwt.mint({ team_id: unit.teamId, hog_flow_id: unit.flowId })}` },
+        body: request,
+    }))
 }
 
-async function postToIntake(
-    url: string,
-    { headers, body }: { headers: Record<string, string>; body: object }
-): Promise<IntakeAnswer> {
+type IntakeRequest = { url: string; headers: Record<string, string>; body: object }
+
+async function postToIntake(requestOf: () => IntakeRequest): Promise<IntakeAnswer> {
     try {
+        const { url, headers, body } = requestOf()
         const response = await internalFetch(url, {
             method: 'POST',
             headers: { 'content-type': 'application/json', ...headers },
@@ -354,10 +352,11 @@ const webhookTrigger = async (): Promise<object> => ({
 })
 
 function postWebhookTrigger(unit: Unit, cdpApi: NonNullable<OfferContext['cdpApi']>): Promise<IntakeAnswer> {
-    return postToIntake(`${cdpApi.nextUrl()}/public/webhooks/${unit.flowId}`, {
+    return postToIntake(() => ({
+        url: `${cdpApi.nextUrl()}/public/webhooks/${unit.flowId}`,
         headers: { 'idempotency-key': unit.unitId },
         body: { unit_id: unit.unitId },
-    })
+    }))
 }
 
 export const workflowWebhook: TrafficKind = {

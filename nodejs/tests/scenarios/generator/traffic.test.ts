@@ -154,13 +154,30 @@ describe('traffic', () => {
             }
         )
 
-        it('journals a transport error when cdp-api cannot be reached', async () => {
+        it.each<[string, (context: OfferContext) => OfferContext, string]>([
+            ['cdp-api cannot be reached', (context) => context, 'ECONNREFUSED'],
+            [
+                'the signer cannot mint a token',
+                (context) => ({
+                    ...context,
+                    cdpApi: {
+                        ...context.cdpApi!,
+                        jwt: {
+                            mint: () => {
+                                throw new Error('signing key unavailable')
+                            },
+                        } as unknown as ScopedServiceJwt,
+                    },
+                }),
+                'signing key unavailable',
+            ],
+        ])('journals a transport error when %s', async (_story, contextOf, error) => {
             const cdpApi = await startCdpApi([{ status: 202, body: {} }])
             await cdpApi.close()
 
-            expect(await transactionalEmail.offer(UNIT, contextFor(cdpApi.url), NEVER_ABORTED)).toEqual({
+            expect(await transactionalEmail.offer(UNIT, contextOf(contextFor(cdpApi.url)), NEVER_ABORTED)).toEqual({
                 accepted: false,
-                transportError: expect.stringContaining('ECONNREFUSED'),
+                transportError: expect.stringContaining(error),
             })
         })
 
@@ -308,7 +325,7 @@ describe('traffic', () => {
             const app: express.Application = setupExpressApp()
             app.use('/', api.router())
             await new Promise<void>((resolve) => {
-                server = app.listen(0, resolve)
+                server = app.listen(0, '127.0.0.1', resolve)
             })
             url = `http://127.0.0.1:${(app as unknown as { port: number }).port}`
         })
@@ -324,9 +341,10 @@ describe('traffic', () => {
                 .getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
                 .map((message) => message.value as never)
 
-        it("retries its seeded flow's webhook under the unit's key, so both runs carry the unit and one run id", async () => {
+        it("retries its seeded flow's webhook under the unit's key, so the retried runs share one id and the next unit gets its own", async () => {
             const flow = await insertHogFlow(hub.postgres, await workflowWebhook.flow(teamId, 0, 1))
             const unit = { unitId: 'run-w-1', teamId, flowId: flow.id }
+            const next = { ...unit, unitId: 'run-w-2' }
             mockProducerObserver.produceSpy.mockImplementationOnce(() =>
                 Promise.reject(new Error('Broker: Not enough in-sync replicas'))
             )
@@ -340,14 +358,18 @@ describe('traffic', () => {
             }
 
             const answer = await workflowWebhook.offer(unit, contextFor(url, undefined, clock), NEVER_ABORTED)
+            await workflowWebhook.offer(next, contextFor(url, undefined, clock), NEVER_ABORTED)
 
             const runs = producedRuns()
             expect(answer).toEqual({ accepted: true, retries: 1 })
-            expect(runs.map(({ job }) => job.state.state.event)).toEqual([
-                expect.objectContaining({ distinct_id: unit.unitId, properties: { unit_id: unit.unitId } }),
-                expect.objectContaining({ distinct_id: unit.unitId, properties: { unit_id: unit.unitId } }),
-            ])
-            expect(new Set(runs.map(({ job }) => job.id)).size).toBe(1)
+            expect(runs.map(({ job }) => job.state.state.event)).toEqual(
+                [unit, unit, next].map(({ unitId }) =>
+                    expect.objectContaining({ distinct_id: unitId, properties: { unit_id: unitId } })
+                )
+            )
+            const [first, retried, other] = runs.map(({ job }) => job.id)
+            expect(retried).toBe(first)
+            expect(other).not.toBe(first)
         })
     })
 })
