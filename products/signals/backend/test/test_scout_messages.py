@@ -178,7 +178,6 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not SignalScoutMessage.all_teams.filter(run=run).exists()
         if case in ("long_title", "long_body"):
-            # The scout shortens the text from the error alone, so it has to name the limit.
             limit = MAX_MESSAGE_TITLE_LENGTH if case == "long_title" else MAX_MESSAGE_BODY_LENGTH
             assert str(limit) in response.json()["detail"]
 

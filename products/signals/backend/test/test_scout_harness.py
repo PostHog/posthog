@@ -595,8 +595,6 @@ class TestPromptCacheablePrefix(SimpleTestCase):
         assert first == second
         assert "- `outside-team-change`: Someone outside the team merges a significant change" in first
         assert ("leave `report_id` out" in first) is dry_run
-        # A scout shown the cap as a number fills it, so silence stays the stated default and the cap a
-        # limit with no number to plan toward.
         assert "Silence is the normal outcome" in first
         assert "The cap is a safety limit, never a target" in first
         assert f"{MAX_MESSAGES_PER_SCOUT_PER_WINDOW} messages" not in first
