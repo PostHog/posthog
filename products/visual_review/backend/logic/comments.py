@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from django.db.models import F, JSONField, Value
+from django.db.models.expressions import CombinedExpression
+from django.db.models.functions import Coalesce
+
 import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from ..db import WRITER_DB
-from ..facade.enums import ReviewDecision, RunPurpose
+from ..facade.enums import DecisionChannel, ReviewDecision, RunPurpose
 from ..models import Repo, Run
-from . import comment_markdown, github_api, run_queries
+from . import comment_markdown, github_api, review_decisions, run_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -79,6 +83,22 @@ def _retire_previous_comment(repo: Repo, previous_run: Run, comment_id: int) -> 
         )
 
 
+def _set_metadata_key(run: Run, key: str, value: object) -> None:
+    """Write one key of the run's metadata in place, keeping every other key.
+
+    A save of the whole dict from a copy read before another writer's update drops that writer's key.
+    """
+    Run.objects.using(WRITER_DB).filter(id=run.id, team_id=run.team_id).update(
+        metadata=CombinedExpression(
+            Coalesce(F("metadata"), Value({}, output_field=JSONField())),
+            "||",
+            Value({key: value}, output_field=JSONField()),
+            output_field=JSONField(),
+        )
+    )
+    run.metadata = {**(run.metadata or {}), key: value}
+
+
 def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     """
     Post a PR comment prompting reviewers to approve visual changes.
@@ -103,10 +123,13 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     if run.metadata.get("github_comment_id"):
         return
 
-    comment_body = comment_markdown._build_review_prompt_body(run, repo)
     previous: tuple[Run, int] | None = None
 
     try:
+        progress = (
+            review_decisions.review_run(run).progress() if review_decisions.decides_by_pull_request(run) else None
+        )
+        comment_body = comment_markdown._build_review_prompt_body(run, repo, progress)
         previous = _previous_comment(repo, run.pr_number, run.run_type, exclude_run_id=run.id)
 
         response = github_api._github_api_request(
@@ -126,8 +149,7 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
             return
 
         comment_id = response.json().get("id")
-        run.metadata["github_comment_id"] = comment_id
-        run.save(update_fields=["metadata"])
+        _set_metadata_key(run, "github_comment_id", comment_id)
     except Exception:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
         return
@@ -144,6 +166,23 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
             comment_id=previous[1],
             exc_info=True,
         )
+
+
+def _accepted_by(run: Run) -> list[comment_markdown.AcceptedBy]:
+    """Who accepted the run's changes, for a run whose accepts come from the pull request's decisions."""
+    if not review_decisions.decides_by_pull_request(run):
+        return []
+    groups = review_decisions.approver_groups(review_decisions.review_run(run))
+    approvers = {by_id: comment_markdown._resolve_approver(by_id) for by_id in {group.by_id for group in groups}}
+    return [
+        comment_markdown.AcceptedBy(
+            approver=approvers[group.by_id],
+            via_agent=group.via == DecisionChannel.MCP,
+            count=group.count,
+            earlier_commit_shas=(group.commit_shas if any(sha != run.commit_sha for sha in group.commit_shas) else ()),
+        )
+        for group in groups
+    ]
 
 
 def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> None:
@@ -164,7 +203,9 @@ def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> No
         return
 
     approver = comment_markdown._resolve_approver(run.approved_by_id)
-    body = comment_markdown._build_approval_comment_body(run, repo, approver, add_images=add_images)
+    body = comment_markdown._build_approval_comment_body(
+        run, repo, approver, add_images=add_images, accepted_by=_accepted_by(run)
+    )
     comment_id = _comment_id(run)
 
     try:
@@ -200,8 +241,7 @@ def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> No
         if create_response.status_code == 201:
             new_comment_id = create_response.json().get("id")
             if isinstance(new_comment_id, int):
-                run.metadata["github_comment_id"] = new_comment_id
-                run.save(update_fields=["metadata"], using=WRITER_DB)
+                _set_metadata_key(run, "github_comment_id", new_comment_id)
             return
 
         logger.warning(

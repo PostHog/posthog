@@ -6646,6 +6646,9 @@ class FeatureFlagViewSet(
         except FeatureFlag.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        # The direct lookup skips get_object(), so the per-flag access check has to run here.
+        self.check_object_permissions(request, feature_flag)
+
         if not feature_flag.is_remote_configuration:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
@@ -6664,9 +6667,9 @@ class FeatureFlagViewSet(
                 return _JSONNullResponse()
             return Response(feature_flag.filters.get("payloads", {}).get("true") or None)
 
-        # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
-        # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication
-        # method used to make the request as it is used in non-protected endpoints.
+        # The object permission check above makes sure the caller can read this flag.
+        # get_decrypted_flag_payloads_protected also checks the authentication method,
+        # because endpoints without that check use it too.
         try:
             decrypted_flag_payloads = get_decrypted_flag_payloads_protected(
                 request, feature_flag.filters.get("payloads", {})

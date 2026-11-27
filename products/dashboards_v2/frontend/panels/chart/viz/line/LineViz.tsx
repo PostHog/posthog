@@ -20,7 +20,7 @@ export function LineViz({ frames }: { frames: DataFrame[]; options: LineOptions 
     const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
             xAxis: { allDays: labels },
-            yAxis: yAxisFor(axes),
+            yAxis: yAxisFor(axes, series),
             legend: { show: series.length > 1, position: 'top' },
             tooltip: { placement: 'cursor', sortedByValue: true },
             // Targets in other languages sample on their own steps, so a series is drawn across the others' points.
@@ -28,7 +28,7 @@ export function LineViz({ frames }: { frames: DataFrame[]; options: LineOptions 
             // Their merged timestamps are unevenly spaced, so each point sits at its time rather than its index.
             ...(multiTarget ? { xScale: 'time' as const } : {}),
         }),
-        [labels, series.length, axes, multiTarget, severalTargets]
+        [labels, series, axes, multiTarget, severalTargets]
     )
     return (
         <div className="relative flex min-h-0 w-full flex-1 flex-col">

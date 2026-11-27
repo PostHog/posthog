@@ -92,7 +92,6 @@ export const PanelView = memo(function PanelView({
     definition: PanelType | undefined
     setConfig?: (config: unknown) => void
 }): JSX.Element {
-    const { sampleData } = useContext(PanelHostContext)
     if (!definition) {
         return (
             <PanelMessage
@@ -112,7 +111,6 @@ export const PanelView = memo(function PanelView({
         )
     }
     const Loading: ComponentType<{ panel: SavedPanel }> = definition.Loading ?? PanelLoading
-    const SampleData = sampleData ? definition.SampleData : undefined
     // One panel that throws or suspends shows its own state, and the rest of the dashboard keeps working.
     return (
         <PanelErrorBoundary
@@ -133,11 +131,7 @@ export const PanelView = memo(function PanelView({
                     </>
                 }
             >
-                {SampleData ? (
-                    <SampleData panel={panel} />
-                ) : (
-                    <definition.Component panel={panel} setConfig={setConfig} />
-                )}
+                <definition.Component panel={panel} setConfig={setConfig} />
             </Suspense>
         </PanelErrorBoundary>
     )

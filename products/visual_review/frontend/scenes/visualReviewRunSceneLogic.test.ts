@@ -228,7 +228,7 @@ describe('visualReviewRunSceneLogic', () => {
             reviewState: 'pending',
             liftsResponse: [200, LIFTS_WITH_PENDING],
             selectedLiftRequest: partial({ id: 'pending-older' }),
-            disabledReason: 'Approve the new picture first',
+            disabledReason: 'Accept the new picture first',
         },
         {
             name: 'no request when only an ended quarantine was lifted',
@@ -286,6 +286,156 @@ describe('visualReviewRunSceneLogic', () => {
             selectedLiftRequest,
             selectedLiftOnMergeDisabledReason: disabledReason,
         })
+    })
+
+    const LEDGER_RUN = {
+        id: RUN_ID,
+        repo_id: 'repo',
+        run_type: 'storybook',
+        pr_number: 7,
+        purpose: 'review',
+        gate: 'commit_status',
+        status: 'completed',
+    }
+
+    it.each([
+        { code: 'decided_since', lockedReason: null },
+        { code: 'pr_closed', lockedReason: 'PR #7 is merged or closed. This run is read only.' },
+    ])('reloads the snapshots after a $code refusal', async ({ code, lockedReason }) => {
+        const pending = {
+            id: 'snapshot-changed',
+            identifier: 'changed',
+            result: 'changed',
+            review_state: 'pending',
+            current_artifact: { content_hash: 'after' },
+            decision: { state: 'cleared', seq: 2 },
+        }
+        const rejectedSince = { ...pending, review_state: 'rejected', decision: { state: 'rejected', seq: 3 } }
+        let listed = pending
+        let sentBody: Record<string, unknown> | null = null
+        useMocks({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: [200, LEDGER_RUN],
+                [SNAPSHOTS_URL]: () => [200, { count: 1, next: null, previous: null, results: [listed] }],
+            },
+            post: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/reject/`]: async ({ request }) => {
+                    sentBody = (await request.json()) as Record<string, unknown>
+                    listed = rejectedSince
+                    return [
+                        409,
+                        {
+                            detail: 'Refused.',
+                            code,
+                            snapshots: [{ identifier: 'changed', code, detail: '', current_seq: 3 }],
+                        },
+                    ]
+                },
+            },
+        })
+        logic.actions.loadRun()
+        logic.actions.loadSnapshots()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => logic.actions.rejectSnapshot(logic.values.snapshots[0], 'Too light'))
+            .toDispatchActions(['decideSnapshotFailure', 'loadSnapshots', 'loadSnapshotsSuccess'])
+            .toMatchValues({ snapshots: [rejectedSince], decidingAction: null, decisionsLockedReason: lockedReason })
+        expect(sentBody).toEqual({
+            snapshots: [{ identifier: 'changed', new_hash: 'after', reason: 'Too light' }],
+            expected_seq: 2,
+        })
+    })
+
+    it('keeps the decision buttons busy until the new seq is read back', async () => {
+        const pending = {
+            id: 'snapshot-changed',
+            identifier: 'changed',
+            result: 'changed',
+            review_state: 'pending',
+            current_artifact: { content_hash: 'after' },
+            decision: null,
+        }
+        const rejected = { ...pending, review_state: 'rejected', decision: { state: 'rejected', seq: 4 } }
+        let releaseReadBack: () => void = () => {}
+        useMocks({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: [200, LEDGER_RUN],
+                [SNAPSHOTS_URL]: async ({ request }) => {
+                    if (!new URL(request.url).searchParams.get('snapshot_id')) {
+                        return [200, { count: 1, next: null, previous: null, results: [pending] }]
+                    }
+                    await new Promise<void>((resolve) => {
+                        releaseReadBack = resolve
+                    })
+                    return [200, { count: 1, next: null, previous: null, results: [rejected] }]
+                },
+            },
+            post: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/reject/`]: [200, {}],
+            },
+        })
+        logic.actions.loadRun()
+        logic.actions.loadSnapshots()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => logic.actions.rejectSnapshot(logic.values.snapshots[0], 'Too light'))
+            .toDispatchActions(['rejectSnapshot', 'loadSnapshotsSuccess'])
+            .toMatchValues({
+                snapshots: [partial({ review_state: 'rejected', decision: null })],
+                decidingAction: 'reject',
+            })
+
+        releaseReadBack()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ snapshots: [rejected], decidingAction: null })
+    })
+
+    it('lists a rejected unchanged snapshot, because its rejection still blocks finalize', async () => {
+        const toleratedRejected = { ...UNCHANGED_SNAPSHOT, review_state: 'rejected' }
+        useMocks({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: [200, LEDGER_RUN],
+                [SNAPSHOTS_URL]: [
+                    200,
+                    { count: 2, next: null, previous: null, results: [toleratedRejected, UNCHANGED_SNAPSHOT] },
+                ],
+            },
+        })
+        logic.actions.loadRun()
+        logic.actions.loadSnapshots()
+        logic.actions.setDecisionFilter('rejected')
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({ filteredChangedSnapshots: [toleratedRejected] })
+    })
+
+    it('advances within the decision filter after an accept', async () => {
+        const story = (identifier: string, review_state: string): Record<string, unknown> => ({
+            id: `snapshot-${identifier}`,
+            identifier,
+            result: 'changed',
+            review_state,
+            current_artifact: { content_hash: 'after' },
+            decision: null,
+        })
+        const snapshots = [story('a', 'rejected'), story('b', 'pending'), story('c', 'rejected')]
+        useMocks({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: [200, LEDGER_RUN],
+                [SNAPSHOTS_URL]: [200, { count: 3, next: null, previous: null, results: snapshots }],
+            },
+            post: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/approve/`]: [200, {}],
+            },
+        })
+        logic.actions.loadRun()
+        logic.actions.loadSnapshots()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setDecisionFilter('rejected')
+
+        await expectLogic(logic, () => logic.actions.approveSnapshot(logic.values.snapshots[0], true))
+            .toFinishAllListeners()
+            .toMatchValues({ selectedSnapshotId: 'snapshot-c' })
     })
 
     it.each([

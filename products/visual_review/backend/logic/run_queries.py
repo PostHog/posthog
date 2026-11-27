@@ -145,16 +145,20 @@ def get_run_with_snapshots(run_id: UUID, team_id: int | None = None) -> Run:
 
 
 def run_snapshots(
-    run: Run, exclude_unchanged: bool = False, snapshot_id: UUID | None = None
+    run: Run,
+    exclude_unchanged: bool = False,
+    snapshot_id: UUID | None = None,
+    unchanged_kept: frozenset[str] = frozenset(),
 ) -> db_models.QuerySet[RunSnapshot]:
     """A run's snapshots with their artifacts joined, actionable results first.
 
     Returns a queryset so the caller filters and pages in SQL. A large run holds thousands of
     rows, and each row costs a presigned URL per artifact once it becomes a DTO.
+    `unchanged_kept` names unchanged snapshots that stay listed when `exclude_unchanged` drops the rest.
     """
     qs = run.snapshots.select_related("current_artifact", "baseline_artifact", "diff_artifact")
     if exclude_unchanged:
-        qs = qs.exclude(result=SnapshotResult.UNCHANGED)
+        qs = qs.filter(~db_models.Q(result=SnapshotResult.UNCHANGED) | db_models.Q(identifier__in=unchanged_kept))
     if snapshot_id is not None:
         qs = qs.filter(id=snapshot_id)
     return qs.order_by(
