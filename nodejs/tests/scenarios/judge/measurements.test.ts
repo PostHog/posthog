@@ -198,23 +198,50 @@ describe('measurements', () => {
         valve: 'role.terminate',
         target: 'cdp-cyclotron-worker-email',
         requestedAt: at(5000),
+        appliedAt: at(5000),
         exit: { signalledAt: at(5000), ...exit },
     })
+    const killed = (target: string): ValveTimelineEntry => ({
+        valve: 'role.kill',
+        target,
+        requestedAt: at(6000),
+        appliedAt: at(6000),
+    })
+    const resent = [
+        { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
+        { ...record(2, 'run-a-1', 42_000), invocationId: 'inv-a' },
+    ]
 
     it.each([
-        ['a role that stopped on SIGTERM', { exitedAt: at(8000), code: 0 }, [{ key: 'sigterm', value: 3000 }]],
+        ['a role that stopped on SIGTERM', [{ exitedAt: at(8000), code: 0 }], [{ key: 'sigterm', value: 3000 }]],
         [
             'a role that needed the SIGKILL',
-            { killedAt: at(15_000), exitedAt: at(15_200), signal: 'SIGKILL' },
+            [{ killedAt: at(15_000), exitedAt: at(15_200), signal: 'SIGKILL' }],
             [{ key: 'sigkill', value: 10_200 }],
         ],
         [
+            'a role that exited on its own as its grace ran out',
+            [{ killedAt: at(15_000), exitedAt: at(15_010), code: 0 }],
+            [{ key: 'sigterm', value: 10_010 }],
+        ],
+        [
+            'each of two roles',
+            [
+                { exitedAt: at(8000), code: 0 },
+                { exitedAt: at(9000), code: 0 },
+            ],
+            [
+                { key: 'sigterm 1', value: 3000 },
+                { key: 'sigterm 2', value: 4000 },
+            ],
+        ],
+        [
             'a role whose exit never arrived',
-            {},
+            [{}],
             [{ value: null, censored: true, unmeasured: 'cdp-cyclotron-worker-email did not exit' }],
         ],
-    ])('times how long %s took to exit after the signal', (_story, exit, measured) => {
-        expect(measure([{ name: 'role_exit_ms', params: {} }], evidence({ timeline: [terminated(exit)] }))).toEqual(
+    ])('times how long %s took to exit after the signal', (_story, exits, measured) => {
+        expect(measure([{ name: 'role_exit_ms', params: {} }], evidence({ timeline: exits.map(terminated) }))).toEqual(
             measured.map((value) => ({ name: 'role_exit_ms', unit: 'ms', ...value }))
         )
     })
@@ -230,6 +257,7 @@ describe('measurements', () => {
                 { ...record(5, 'run-a-3', 25_000), invocationId: 'inv-c' },
             ],
             [{ key: 'run-a-1 inv-a', value: 32_000 }],
+            {},
         ],
         [
             'skips a send refused before the signal and retried after the exit, which the stop did not strand',
@@ -238,18 +266,44 @@ describe('measurements', () => {
                 { ...record(2, 'run-a-1', 12_000), invocationId: 'inv-a' },
             ],
             [{ value: null, censored: true, unmeasured: 'no send in flight at the signal went out again' }],
+            {},
         ],
         [
             'reports no send that went out again',
             [{ ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' }],
             [{ value: null, censored: true, unmeasured: 'no send in flight at the signal went out again' }],
+            {},
         ],
-    ])('lease_reclaim_ms %s, from the exit of the role', (_story, truth, measured) => {
+        [
+            'reports a role that never exited',
+            [],
+            [{ value: null, censored: true, unmeasured: 'cdp-cyclotron-worker-email did not exit' }],
+            { timeline: [terminated({})] },
+        ],
+        [
+            'leaves unmeasured a resend that another stop could have caused',
+            resent,
+            [
+                {
+                    value: null,
+                    censored: true,
+                    unmeasured: 'the card stopped more than one role, so a resend has no single cause',
+                },
+            ],
+            { timeline: [terminated({ exitedAt: at(10_000), code: 0 }), killed('cdp-api')] },
+        ],
+        [
+            'leaves unmeasured a truth it could not read',
+            resent,
+            [{ value: null, censored: true, unmeasured: 'the truth could not be read: the edge did not answer' }],
+            { unread: 'the edge did not answer' },
+        ],
+    ])('lease_reclaim_ms %s, from the exit of the role', (_story, truth, measured, overrides) => {
         const timeline = [terminated({ exitedAt: at(10_000), code: 0 })]
 
-        expect(measure([{ name: 'lease_reclaim_ms', params: {} }], evidence({ timeline, truth }))).toEqual(
-            measured.map((value) => ({ name: 'lease_reclaim_ms', unit: 'ms', ...value }))
-        )
+        expect(
+            measure([{ name: 'lease_reclaim_ms', params: {} }], evidence({ timeline, truth, ...overrides }))
+        ).toEqual(measured.map((value) => ({ name: 'lease_reclaim_ms', unit: 'ms', ...value })))
     })
 
     it.each([
@@ -266,10 +320,25 @@ describe('measurements', () => {
                 { key: 'total', value: 1 },
                 { key: 'run-a-1 inv-a', value: 2 },
             ],
+            {},
         ],
-        ['reports none when every invocation went out once', [], [{ key: 'total', value: 0 }]],
-    ])('resent_invocations %s', (_story, truth, measured) => {
-        expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ truth }))).toEqual(
+        [
+            'reports none when every invocation went out once',
+            [
+                { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
+                { ...record(2, 'run-a-2', 4500), invocationId: 'inv-b' },
+            ],
+            [{ key: 'total', value: 0 }],
+            {},
+        ],
+        [
+            'leaves the count unmeasured while sends could still land',
+            resent,
+            [{ key: 'total', value: null, censored: true, unmeasured: 'sends were still landing' }],
+            { unsettled: 'sends were still landing' },
+        ],
+    ])('resent_invocations %s', (_story, truth, measured, overrides) => {
+        expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ truth, ...overrides }))).toEqual(
             measured.map((value) => ({ name: 'resent_invocations', unit: 'invocations', ...value }))
         )
     })

@@ -177,25 +177,43 @@ export const roleExitMs: MeasurementDefinition = {
     name: 'role_exit_ms',
     params: z.object({}).strict(),
     unit: 'ms',
-    measure: ({ timeline }) =>
-        terminationsOf(timeline).map(({ target, exit }) =>
+    measure: ({ timeline }) => {
+        const terminations = terminationsOf(timeline)
+        const keyed = (key: string, index: number): string => (terminations.length === 1 ? key : `${key} ${index + 1}`)
+        return terminations.map(({ target, exit }, index) =>
             exit.exitedAt === undefined
                 ? { value: null, censored: true, unmeasured: `${target} did not exit` }
                 : {
-                      key: exit.killedAt === undefined ? 'sigterm' : 'sigkill',
+                      key: keyed(exit.signal === 'SIGKILL' ? 'sigkill' : 'sigterm', index),
                       value: Date.parse(exit.exitedAt) - Date.parse(exit.signalledAt),
                   }
-        ),
+        )
+    },
 }
+
+const STOPS = new Set(['role.kill', 'role.terminate', 'role.freeze'])
+
+const unreadTruthOf = ({ unread, unsettled }: MeasureEvidence): string | undefined =>
+    unread !== undefined ? `the truth could not be read: ${unread}` : unsettled
+
+const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
 
 export const leaseReclaimMs: MeasurementDefinition = {
     name: 'lease_reclaim_ms',
     params: z.object({}).strict(),
     unit: 'ms',
-    measure: ({ timeline, truth }) =>
-        terminationsOf(timeline).flatMap(({ exit }): Measured[] => {
+    measure: (evidence) => {
+        const { timeline, truth } = evidence
+        const stops = timeline.filter(({ valve, appliedAt }) => STOPS.has(valve) && appliedAt !== undefined)
+        const unattributable =
+            unreadTruthOf(evidence) ??
+            (stops.length > 1 ? 'the card stopped more than one role, so a resend has no single cause' : undefined)
+        return terminationsOf(timeline).flatMap(({ target, exit }): Measured[] => {
             if (exit.exitedAt === undefined) {
-                return []
+                return [unmeasured(`${target} did not exit`)]
+            }
+            if (unattributable !== undefined) {
+                return [unmeasured(unattributable)]
             }
             const signalledAt = Date.parse(exit.signalledAt)
             const exitedAt = Date.parse(exit.exitedAt)
@@ -213,25 +231,22 @@ export const leaseReclaimMs: MeasurementDefinition = {
                     .sort((a, b) => a - b)[0]
                 return acceptedBySignal && resentAt !== undefined ? [{ key, value: resentAt - exitedAt }] : []
             })
-            return reclaimed.length > 0
-                ? reclaimed
-                : [
-                      {
-                          value: null,
-                          censored: true as const,
-                          unmeasured: 'no send in flight at the signal went out again',
-                      },
-                  ]
-        }),
+            return reclaimed.length > 0 ? reclaimed : [unmeasured('no send in flight at the signal went out again')]
+        })
+    },
 }
 
 export const resentInvocations: MeasurementDefinition = {
     name: 'resent_invocations',
     params: z.object({}).strict(),
     unit: 'invocations',
-    measure: ({ truth }) => {
+    measure: (evidence) => {
+        const unreadTruth = unreadTruthOf(evidence)
+        if (unreadTruth !== undefined) {
+            return [{ key: 'total', ...unmeasured(unreadTruth) }]
+        }
         const accepted = Map.groupBy(
-            truth.filter(
+            evidence.truth.filter(
                 ({ invocationId, unitId, status }) =>
                     invocationId !== undefined && unitId !== undefined && isAccepted(status)
             ),
