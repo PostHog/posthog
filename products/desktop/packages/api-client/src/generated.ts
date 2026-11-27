@@ -4296,6 +4296,7 @@ export namespace Schemas {
     export type ExperimentWarehouseNativeRowsLeftOut = Partial<{
         empty_id: number | null;
         exposed_without_rows: Record<string, number> | null;
+        unknown_variant_rows: number | null;
         unknown_variants: Record<string, number> | null;
     }>;
     export type ExperimentQueryResponse = Partial<{

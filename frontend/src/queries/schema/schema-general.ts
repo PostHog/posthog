@@ -7045,8 +7045,10 @@ export interface ExperimentQueryResponse {
  * leaves the object out.
  */
 export interface ExperimentWarehouseNativeRowsLeftOut {
-    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
     unknown_variants?: Record<string, integer>
+    /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+    unknown_variant_rows?: integer
     /** Exposure rows with an empty entity_id. */
     empty_id?: integer
     /** Exposed entities with no row of the metric query that counted, by variant. */

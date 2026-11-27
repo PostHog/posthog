@@ -314,7 +314,8 @@ ORDER BY 1, 2"""
         the flag does not serve is counted by the value seen, so the user can spot a misspelt variant. The window
         bounds the scan as it does for the exposures statement, so a table with years of history is not read in
         full. The customer's query runs once: every reason comes from one pass over its rows, and the cap on the
-        values is applied after."""
+        values is applied after. Each row also carries the total of its reason, so the capped values don't hide how
+        many rows the reason left out."""
         rows = f"{self._prefix}exposure_rows"
         left_out = f"{self._prefix}left_out"
         counts = f"{self._prefix}left_out_counts"
@@ -346,7 +347,8 @@ ORDER BY 1, 2"""
 SELECT
     {counts}.reason AS reason,
     {counts}.value AS value,
-    {counts}.row_count AS row_count
+    {counts}.row_count AS row_count,
+    SUM({counts}.row_count) OVER (PARTITION BY {counts}.reason) AS reason_row_count
 FROM {counts}
 QUALIFY {counts}.reason != 'unknown_variant'
     OR ROW_NUMBER() OVER (PARTITION BY {counts}.reason ORDER BY {counts}.row_count DESC) <= {max_unknown}

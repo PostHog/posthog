@@ -6491,9 +6491,19 @@ class ExperimentWarehouseNativeRowsLeftOut(BaseModel):
         default=None,
         description=("Exposed entities with no row of the metric query that counted, by variant."),
     )
+    unknown_variant_rows: int | None = Field(
+        default=None,
+        description=(
+            "Exposure rows whose variant is not one the flag serves, in total,"
+            " including the values that `unknown_variants` leaves out."
+        ),
+    )
     unknown_variants: dict[str, int] | None = Field(
         default=None,
-        description=("Exposure rows whose variant is not one the flag serves, counted by the value seen."),
+        description=(
+            "Exposure rows whose variant is not one the flag serves, counted by the"
+            " value seen. At most the 50 most common values."
+        ),
     )
 
 

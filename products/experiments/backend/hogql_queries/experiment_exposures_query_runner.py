@@ -903,15 +903,20 @@ _RULE_TESTS: dict[ExperimentHealthRuleTest, Literal["chi_squared"]] = {
 
 
 def _exposure_rows_left_out(rows: list[Any]) -> ExperimentWarehouseNativeRowsLeftOut:
-    """The rows of the diagnostic statement: one per reason, and one per value for an unknown variant."""
+    """The rows of the diagnostic statement: one per reason, and one per value for an unknown variant. The statement
+    caps the values, so every row also carries the total of its reason."""
     unknown_variants: dict[str, int] = {}
+    unknown_variant_rows = 0
     empty_id = 0
-    for reason, value, count in rows:
+    for reason, value, count, reason_count in rows:
         if reason == "unknown_variant":
             unknown_variants[str(value)] = unknown_variants.get(str(value), 0) + int(count)
+            unknown_variant_rows = int(reason_count)
         elif reason == "empty_id":
             empty_id += int(count)
-    return ExperimentWarehouseNativeRowsLeftOut(unknown_variants=unknown_variants, empty_id=empty_id)
+    return ExperimentWarehouseNativeRowsLeftOut(
+        unknown_variants=unknown_variants, unknown_variant_rows=unknown_variant_rows, empty_id=empty_id
+    )
 
 
 def _exposed_by_library(rows: list[Any]) -> dict[str, int]:

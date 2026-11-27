@@ -167,8 +167,8 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 ),
                 # The second statement counts the rows the first one left out, by reason.
                 HogQLQueryResponse(
-                    columns=["reason", "value", "rows"],
-                    results=[["unknown_variant", "Control", 3], ["empty_id", None, 1]],
+                    columns=["reason", "value", "row_count", "reason_row_count"],
+                    results=[["unknown_variant", "Control", 3, 7], ["empty_id", None, 1, 1]],
                 ),
             ]
             response = ExperimentExposuresQueryRunner(
@@ -182,8 +182,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert "DATE(" in statement["query"] and "'UTC'" in statement["query"]
         assert left_out["connection_id"] == str(connection.id) and "unknown_variant" in left_out["query"]
         assert "'holdout'" in left_out["query"] and "'holdout'" not in statement["query"]
+        # The statement names at most 50 values, so the total of the reason comes with them.
         assert response.rows_left_out == ExperimentWarehouseNativeRowsLeftOut(
-            unknown_variants={"Control": 3}, empty_id=1
+            unknown_variants={"Control": 3}, unknown_variant_rows=7, empty_id=1
         )
         assert response.total_exposures == {"control": 4, "test": 2, MULTIPLE_VARIANT_KEY: 1}
         control = next(series for series in response.timeseries if series.variant == "control")

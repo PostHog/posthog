@@ -9713,7 +9713,7 @@ export namespace Schemas {
     export type ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows = {[key: string]: number} | null;
 
     /**
-     * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+     * Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values.
      */
     export type ExperimentWarehouseNativeRowsLeftOutUnknownVariants = {[key: string]: number} | null;
 
@@ -9722,7 +9722,9 @@ export namespace Schemas {
       empty_id?: number | null;
       /** Exposed entities with no row of the metric query that counted, by variant. */
       exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows;
-      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+      /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+      unknown_variant_rows?: number | null;
+      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
       unknown_variants?: ExperimentWarehouseNativeRowsLeftOutUnknownVariants;
     }
 

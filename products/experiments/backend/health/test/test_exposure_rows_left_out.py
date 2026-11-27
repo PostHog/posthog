@@ -75,7 +75,10 @@ class TestExposureRowsLeftOut(TestCase):
         self.assertEqual(exposure_rows_left_out(ctx), expected)
 
     def test_names_the_variants_that_match_nothing(self) -> None:
-        left_out = ExperimentWarehouseNativeRowsLeftOut(unknown_variants={"holdout": 1, "Control": 3}, empty_id=1)
+        # The statement names at most 50 values, so the total can be larger than the values it names.
+        left_out = ExperimentWarehouseNativeRowsLeftOut(
+            unknown_variants={"holdout": 1, "Control": 3}, unknown_variant_rows=6, empty_id=1
+        )
 
         finding = exposure_rows_left_out(_context(left_out))
 
@@ -86,14 +89,15 @@ class TestExposureRowsLeftOut(TestCase):
                 ExperimentHealthFindingCode.EXPOSURE_ROWS_LEFT_OUT,
                 UNKNOWN_VARIANT,
                 ExperimentHealthFindingSeverity.WARNING,
-                "5 rows of the exposure query don't count",
+                "7 rows of the exposure query don't count",
                 (ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,),
             ),
         )
         self.assertEqual(
             finding.detail,
-            "4 rows of the exposure query have a variant that is none of the experiment's variants "
-            '("control" and "test"), so they don\'t count: "Control" (3 rows), "holdout" (1 row). PostHog compares the '
+            "6 rows of the exposure query have a variant that is none of the experiment's variants "
+            '("control" and "test"), so they don\'t count: "Control" (3 rows), "holdout" (1 row) and 2 rows with other '
+            "values. PostHog compares the "
             'variant as text with the keys of the feature flag\'s variants, so "Control" doesn\'t match "control". '
             "Change the query so that its variant column returns those keys, or leave out the rows that aren't part "
             "of the experiment. 1 row of the exposure query has an empty entity_id, so it doesn't count. Check the "
@@ -102,7 +106,7 @@ class TestExposureRowsLeftOut(TestCase):
         self.assertEqual(
             dict(finding.evidence),
             {
-                "unknown_variant_rows": 4,
+                "unknown_variant_rows": 6,
                 "empty_id_rows": 1,
                 "unknown_variant_1": "Control",
                 "unknown_variant_1_rows": 3,

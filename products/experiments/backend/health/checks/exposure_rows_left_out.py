@@ -94,6 +94,9 @@ def _left_out(ctx: HealthContext) -> ExperimentWarehouseNativeRowsLeftOut | None
 
 
 def _unknown_variant_rows(left_out: ExperimentWarehouseNativeRowsLeftOut) -> int:
+    # The values are capped, so their sum is a lower bound. The total is exact when the statement reported it.
+    if left_out.unknown_variant_rows is not None:
+        return left_out.unknown_variant_rows
     return sum((left_out.unknown_variants or {}).values())
 
 
@@ -102,11 +105,12 @@ def _by_rows(unknown_variants: dict[str, int]) -> list[tuple[str, int]]:
 
 
 def _unknown_variant_detail(unknown_variants: dict[str, int], unknown: int, ctx: HealthContext) -> str:
-    by_rows = _by_rows(unknown_variants)
-    named = ", ".join(f'"{value}" ({_rows(count)})' for value, count in by_rows[:SHOWN_VALUES])
-    more = len(by_rows) - SHOWN_VALUES
+    shown = _by_rows(unknown_variants)[:SHOWN_VALUES]
+    named = ", ".join(f'"{value}" ({_rows(count)})' for value, count in shown)
+    # The statement caps the values it returns, so the rows it didn't name are counted, not listed.
+    more = unknown - sum(count for _, count in shown)
     if more > 0:
-        named += f" and {more} more {'value' if more == 1 else 'values'}"
+        named += f" and {_rows(more)} with other values"
     keys = [variant.key for variant in ctx.flag.variants if variant.key] if ctx.flag is not None else []
     variants = f" ({quoted(keys)})" if keys else ""
     return (
