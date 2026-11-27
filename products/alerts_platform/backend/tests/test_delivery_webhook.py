@@ -2,6 +2,7 @@ import ssl
 import socket
 import struct
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, cast
 
@@ -20,6 +21,7 @@ from posthog.models.scoping import team_scope
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import UNRESOLVED_HOST_REASON
 
+from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryAmbiguous, DeliveryError, DestinationRefused
@@ -42,6 +44,7 @@ from products.alerts_platform.backend.tests.delivery_messages import (
 
 SECRET_URL = "https://hooks.example.com/services/T000/B000/not-a-real-token"
 TARGET = cast(AlertDestinationData, {"type": "webhook", "webhook_url": SECRET_URL})
+DISCORD_URL = "https://discord.com/api/webhooks/000/not-a-real-token"
 
 _UNTRUSTED_CERTIFICATE = ssl.SSLCertVerificationError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] self-signed certificate")
 
@@ -314,10 +317,25 @@ class TestAmbiguousSend(SimpleTestCase):
         assert not isinstance(raised.value, DeliveryAmbiguous)
         assert raised.value.reason == reason
 
-    def test_a_rejected_certificate_on_a_provider_endpoint_is_unreachable(self) -> None:
+    @parameterized.expand(
+        [
+            ("pagerduty", lambda: post_json(SECRET_URL, {}, display_name="PagerDuty")),
+            (
+                "discord",
+                lambda: DiscordTransport().deliver(
+                    team_id=2,
+                    target=cast(AlertDestinationData, {"type": "discord", "webhook_url": DISCORD_URL}),
+                    message=alert_message(),
+                ),
+            ),
+        ]
+    )
+    def test_a_rejected_certificate_on_a_provider_endpoint_is_unreachable(
+        self, _name: str, send: Callable[[], object]
+    ) -> None:
         with pinned_post(error=_tls_failure(_UNTRUSTED_CERTIFICATE)):
             with pytest.raises(DeliveryError) as raised:
-                post_json(SECRET_URL, {}, display_name="PagerDuty")
+                send()
 
         assert raised.value.reason == "unreachable"
 

@@ -747,7 +747,15 @@ class TestDeliverEvaluation(APIBaseTest):
                 "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
                 side_effect=flag,
             ),
-            patch(f"{_EVENTS}._read_evaluation", return_value=_read(_announcement(_transition(AlertEventKind.FIRING)))),
+            patch(
+                f"{_EVENTS}._read_evaluation",
+                return_value=_read(
+                    _announcement(
+                        _transition(AlertEventKind.FIRING, grouping_key="checkout"),
+                        _transition(AlertEventKind.FIRING, grouping_key="billing"),
+                    )
+                ),
+            ),
             patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(WEBHOOK), _group(SECOND_WEBHOOK)]),
             patch(f"{_MODULE}.DatabaseThreadStore"),
             # The path is covered by `TestDeliveryPath`. Without an emitter every alert delivers natively.
@@ -761,12 +769,12 @@ class TestDeliverEvaluation(APIBaseTest):
                     deliver_evaluation(_request(self.team.id))
                 post.assert_not_called()
                 # Each blocked webhook still counts as a failed delivery.
-                assert [c.kwargs["succeeded"] for c in recorded.call_args_list] == [False, False]
+                assert [c.kwargs["succeeded"] for c in recorded.call_args_list] == [False] * 4
                 assert [
                     (m.attributes["outcome"], m.attributes["reason"], m.attributes["owner"], m.value)
                     for m in metrics
                     if m.name == "alerts_platform_deliveries_total"
-                ] == [("failed", "platform_read", "posthog", 1)] * 2
+                ] == [("failed", "platform_read", "posthog", 2)] * 2
                 # One failed lookup per evaluation, however many webhooks it has.
                 assert flag_reads.count(LEGACY_WEBHOOK_BODY_FLAG) == 1
                 return
@@ -1167,7 +1175,10 @@ class TestDeliveryPath(APIBaseTest):
 
         with recorded_metrics() as metrics, pytest.raises(DeliveryError):
             self._run(
-                _announcement(_transition(AlertEventKind.FIRING, episode_started_at=None)),
+                _announcement(
+                    _transition(AlertEventKind.FIRING, grouping_key="checkout", episode_started_at=None),
+                    _transition(AlertEventKind.FIRING, grouping_key="billing", episode_started_at=None),
+                ),
                 self._chooses(DeliveryPath.HOG_FUNCTION),
                 emitter=refuse,
             )
@@ -1187,7 +1198,7 @@ class TestDeliveryPath(APIBaseTest):
                     "owner": "posthog",
                     "final": "true",
                 },
-                1,
+                2,
             )
         ]
 
