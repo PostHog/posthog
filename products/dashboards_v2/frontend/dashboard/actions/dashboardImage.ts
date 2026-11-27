@@ -35,10 +35,11 @@ function isLoading(root: HTMLElement): boolean {
     })
 }
 
-async function waitUntilReady(root: HTMLElement): Promise<void> {
+async function waitUntilReady(root: HTMLElement, signal?: AbortSignal): Promise<void> {
     const deadline = Date.now() + READY_TIMEOUT_MS
     do {
         await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+        signal?.throwIfAborted()
     } while (isLoading(root) && Date.now() < deadline)
     if (isLoading(root)) {
         throw new Error('The dashboard did not finish loading in time to capture it.')
@@ -52,8 +53,16 @@ export async function downloadDashboardImage(root: HTMLElement, title: string, f
 }
 
 /** Call it straight from the click, before any await: see `writePendingImageToClipboard`. The clipboard takes only PNG. */
-export function copyDashboardImage(root: HTMLElement): Promise<void> {
-    return writePendingImageToClipboard(waitUntilReady(root).then(() => captureElementAsImage(root, LEFT_OUT)))
+export async function copyDashboardImage(root: HTMLElement): Promise<void> {
+    const abort = new AbortController()
+    const image = waitUntilReady(root, abort.signal).then(() => captureElementAsImage(root, LEFT_OUT))
+    try {
+        await writePendingImageToClipboard(image)
+    } catch (error) {
+        // A refused write never reads the image, so stop waiting rather than draw it for nothing.
+        abort.abort()
+        throw error
+    }
 }
 
 /** `download-image` with a format submenu, then `copy-image` on a browser that can put an image on the clipboard. */
