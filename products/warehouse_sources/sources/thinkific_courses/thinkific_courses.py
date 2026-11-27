@@ -1,6 +1,5 @@
 import re
 import dataclasses
-from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlencode
@@ -8,6 +7,7 @@ from urllib.parse import urlencode
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     PageNumberPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
@@ -103,16 +103,13 @@ def _make_source_response(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Incremental enrollments sync stays correct regardless of exact ordering because the
-        # day-granularity filter is inclusive and merge dedupes on the primary key.
-        sort_mode="asc",
+        sort_mode=None if config.fanout is not None and config.supports_incremental else "asc",
         column_hints=column_hints,
     )
 
 
-def _group_analyst_pages(pages: Iterable[list[dict[str, Any]]]) -> Iterator[list[dict[str, Any]]]:
-    for page in pages:
-        yield [{"group_id": row["group_id"], "user_id": user_id} for row in page for user_id in row["group_analysts"]]
+def _group_analyst_rows(row: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"group_id": row["group_id"], "user_id": user_id} for user_id in row["group_analysts"]]
 
 
 def _fanout_source(
@@ -159,7 +156,7 @@ def _fanout_source(
         child_params["query[updated_after]"] = previous_day.isoformat()
 
     dependent_resource = cast(
-        Iterable[list[dict[str, Any]]],
+        Resource,
         build_dependent_resource(
             endpoint_configs=THINKIFIC_COURSES_ENDPOINTS,
             child_endpoint=endpoint,
@@ -184,7 +181,7 @@ def _fanout_source(
         ),
     )
     if is_group_analysts:
-        return _make_source_response(config, lambda: _group_analyst_pages(dependent_resource))
+        dependent_resource.add_map(_group_analyst_rows)
     return _make_source_response(config, lambda: dependent_resource)
 
 

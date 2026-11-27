@@ -1,10 +1,19 @@
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.sdk import Resource
+from products.warehouse_sources.sources.sdk.testing import (
+    RunStopped,
+    ScriptedResponse,
+    SourceDriver,
+    activate_safe_point,
+    scripted_network,
+    source_inputs,
+)
 from products.warehouse_sources.sources.thinkific_courses._config import ThinkificCoursesSourceConfig
 from products.warehouse_sources.sources.thinkific_courses.settings import THINKIFIC_COURSES_ENDPOINTS
 from products.warehouse_sources.sources.thinkific_courses.source import ThinkificCoursesSource
@@ -153,6 +162,17 @@ class TestFanout:
                     {"id": 101, "name": "Bundle B", "collection_id": 7},
                 ],
             ),
+            (
+                "related_products_per_product",
+                "related_products",
+                [{"id": 21, "productable_id": 31}, {"id": 22, "productable_id": 32}],
+                [[{"id": 23, "productable_id": 33}], [{"id": 23, "productable_id": 33}]],
+                ["/api/public/v1/products", "/api/public/v1/products/21/related", "/api/public/v1/products/22/related"],
+                [
+                    {"id": 23, "productable_id": 33, "product_id": 21},
+                    {"id": 23, "productable_id": 33, "product_id": 22},
+                ],
+            ),
         ]
     )
     def test_fanout_requests_each_parent_and_tags_rows_with_parent_id(
@@ -224,6 +244,34 @@ class TestBundleTables:
         assert result.params("query[updated_after]") == [None, expected_filter, expected_filter]
         assert result.rows == [{"id": 71, "bundle_id": 93}, {"id": 72, "bundle_id": 93}]
 
+    def test_resumed_bundle_enrollments_can_yield_older_updates(self) -> None:
+        products = _response(
+            [
+                {"id": 21, "productable_type": "Bundle", "productable_id": 31},
+                {"id": 22, "productable_type": "Bundle", "productable_id": 32},
+            ]
+        )
+        newer = {"id": 41, "updated_at": "2026-04-03T10:00:00Z"}
+        older = {"id": 42, "updated_at": "2026-04-02T10:00:00Z"}
+        first = _driver().run(
+            "bundle_enrollments", [products, _response([newer]), RunStopped("handoff")], incremental_field="updated_at"
+        )
+        assert isinstance(first.raised, RunStopped)
+        assert first.rows == [{**newer, "bundle_id": 31}]
+        assert first.final_state is not None
+
+        resumed = _driver().run(
+            "bundle_enrollments",
+            [products, _response([older])],
+            resume_state=first.final_state,
+            incremental_field="updated_at",
+        )
+        assert resumed.raised is None
+        assert resumed.paths == ["/api/public/v1/products", "/api/public/v1/bundles/32/enrollments"]
+        assert resumed.rows == [{**older, "bundle_id": 32}]
+        assert resumed.response is not None
+        assert resumed.response.sort_mode is None
+
 
 class TestGroupAnalysts:
     def test_expands_user_ids_and_continues_past_empty_groups(self) -> None:
@@ -252,28 +300,30 @@ class TestGroupAnalysts:
             {"group_id": 5, "user_id": 11},
         ]
 
+    def test_resume_skips_the_group_written_before_interruption(self) -> None:
+        source = ThinkificCoursesSource()
+        config = ThinkificCoursesSourceConfig(api_key="key", subdomain="sub")
+        inputs = source_inputs("group_analysts")
+        groups = _response([{"id": 3}, {"id": 4}])
 
-class TestRelatedProducts:
-    def test_preserves_the_parent_and_related_product_ids(self) -> None:
-        result = _driver().run(
-            "related_products",
-            [
-                _response([{"id": 21, "productable_id": 31}, {"id": 22, "productable_id": 32}]),
-                _response([{"id": 23, "productable_id": 33}]),
-                _response([{"id": 23, "productable_id": 33}]),
-            ],
+        with scripted_network([groups, ScriptedResponse(json={"group_analysts": [11, 12]})]):
+            manager = source.get_resumable_source_manager(inputs)
+            items = source.source_for_pipeline(config, manager, inputs).items()
+            assert isinstance(items, Iterable)
+            with activate_safe_point(manager.confirm, covers_framework_checkpoints=isinstance(items, Resource)):
+                pages = iter(items)
+                assert next(pages) == [{"group_id": 3, "user_id": 11}, {"group_id": 3, "user_id": 12}]
+                manager.confirm()
+                manager.commit()
+                checkpoint = manager.load_state()
+
+        assert checkpoint is not None
+        resumed = _driver().run(
+            "group_analysts", [groups, ScriptedResponse(json={"group_analysts": [13]})], resume_state=checkpoint
         )
-
-        assert result.raised is None
-        assert result.paths == [
-            "/api/public/v1/products",
-            "/api/public/v1/products/21/related",
-            "/api/public/v1/products/22/related",
-        ]
-        assert result.rows == [
-            {"id": 23, "productable_id": 33, "product_id": 21},
-            {"id": 23, "productable_id": 33, "product_id": 22},
-        ]
+        assert resumed.raised is None
+        assert resumed.paths == ["/api/public/v1/groups", "/api/public/v1/groups/4/analysts"]
+        assert resumed.rows == [{"group_id": 4, "user_id": 13}]
 
 
 class TestErrorHandling:
@@ -299,7 +349,6 @@ class TestSourceResponse:
         assert resp is not None
         assert resp.name == endpoint
         assert resp.primary_keys == config.primary_keys
-        assert resp.sort_mode == "asc"
         assert callable(resp.items)
 
     @parameterized.expand([("enrollments",), ("users",)])
