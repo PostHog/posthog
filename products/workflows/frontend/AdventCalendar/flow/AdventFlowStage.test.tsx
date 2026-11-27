@@ -31,9 +31,10 @@ describe('AdventFlowStage', () => {
     const door = (day: number): HTMLElement | null =>
         document.querySelector(`[data-attr="advent-door-${day}"], [data-attr="advent-hog-${day}"]`)
 
-    const captionOf = (day: number): string | null | undefined => {
+    const captionOf = (day: number): (string | null)[] => {
         const id = door(day)?.getAttribute('aria-describedby')
-        return id ? document.getElementById(id)?.textContent : null
+        const caption = id ? document.getElementById(id) : null
+        return Array.from(caption?.children ?? []).map((line) => line.textContent)
     }
 
     const card = (): HTMLElement | null => document.querySelector('[data-attr="advent-door-card"]')
@@ -63,11 +64,11 @@ describe('AdventFlowStage', () => {
     })
 
     it.each([
-        [2, 'advent-hog-2', 'Door 2, open: Tim Glaser', 'Tim GlaserTim'],
-        [3, 'advent-door-3', 'Door 3, ready', 'Today'],
-        [4, 'advent-door-4', 'Door 4, opens December 4', ''],
-        [21, 'advent-door-21', 'Door 21, opens December 21', 'Coffee or tea?'],
-    ])('shows door %s as %s named "%s" with the caption "%s"', (day, dataAttr, name, caption) => {
+        [2, 'advent-hog-2', 'Door 2, open: Tim Glaser', ['Tim Glaser', 'Tim']],
+        [3, 'advent-door-3', 'Door 3, ready', ['Today']],
+        [4, 'advent-door-4', 'Door 4, opens December 4', []],
+        [21, 'advent-door-21', 'Door 21, opens December 21', ['Coffee or tea?']],
+    ])('shows door %s as %s named "%s" with the caption lines %j and no lock icon', (day, dataAttr, name, caption) => {
         seed([1, 2], { 2: 'tim' })
         renderStage({ width: 1200, height: 830 })
 
@@ -76,7 +77,8 @@ describe('AdventFlowStage', () => {
             door(day)?.getAttribute('data-attr'),
             door(day)?.getAttribute('aria-label'),
         ]).toEqual(['BUTTON', dataAttr, name])
-        expect(captionOf(day) ?? '').toBe(caption)
+        expect(captionOf(day)).toEqual(caption)
+        expect(door(day)?.querySelectorAll('svg')).toHaveLength(0)
     })
 
     it('slides the card out over a closed door on hover, not over an open one, and pins it on a click until Escape', () => {
@@ -108,10 +110,23 @@ describe('AdventFlowStage', () => {
         })
 
         expect(door(3)?.getAttribute('data-attr')).toBe('advent-hog-3')
-        expect([
-            card()?.getAttribute('data-open'),
-            !!card()?.querySelector('[data-attr="advent-door-card-close"]'),
-        ]).toEqual(['true', true])
+        expect(card()?.getAttribute('data-open')).toBe('true')
+        act(() => fireEvent.click(card()?.querySelector('[data-attr="advent-door-card-close"]') as HTMLElement))
+        waitForTheCardToClose()
+        expect(card()).toBeNull()
+    })
+
+    it('moves focus into a pinned card and back to its door when the card closes', () => {
+        seed([1, 2], { 2: 'tim' })
+        renderStage({ width: 375, height: 700 })
+
+        act(() => (door(2) as HTMLElement).focus())
+        act(() => fireEvent.click(door(2) as HTMLElement))
+        const focusInCard = document.activeElement?.getAttribute('data-attr')
+        act(() => fireEvent.keyDown(window, { key: 'Escape' }))
+        waitForTheCardToClose()
+
+        expect([focusInCard, document.activeElement === door(2)]).toEqual(['advent-door-card-close', true])
     })
 
     it.each([
@@ -127,6 +142,28 @@ describe('AdventFlowStage', () => {
         const shape = first.top === second.top ? 'row' : first.left === second.left ? 'column' : 'neither'
 
         expect(shape).toBe(expected)
+    })
+
+    it('keeps every branch label on a desktop stage short of the door it points at', () => {
+        renderStage({ width: 1200, height: 830 })
+        const box = (element: HTMLElement): { left: number; top: number; width: number; height: number } => ({
+            left: parseFloat(element.style.left),
+            top: parseFloat(element.style.top),
+            width: parseFloat(element.style.width),
+            height: parseFloat(element.style.height),
+        })
+        const doors = Array.from(document.querySelectorAll<HTMLElement>('button[data-attr^="advent-"]')).map(box)
+        const pills = Array.from(document.querySelectorAll<HTMLElement>('.AdventFlowEdges__pill'))
+
+        const reach = pills.map((pill) => {
+            const { left, top } = box(pill)
+            const next = doors
+                .filter((door) => door.left > left && door.top <= top && top <= door.top + door.height)
+                .sort((a, b) => a.left - b.left)[0]
+            return left + parseFloat(pill.style.maxWidth) / 2 <= next.left
+        })
+
+        expect(reach).toEqual(pills.map(() => true))
     })
 
     it('lets the caller draw the last door and emphasize edges', () => {

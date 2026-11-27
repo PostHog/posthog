@@ -32,7 +32,7 @@ import {
 import { adventHasWorkflows } from './adventHasWorkflows'
 import { cleanProgressByUser, PROGRESS_STORAGE_KEY, storedProgressByUser } from './adventProgressStorage'
 import { adventOpenedOnItsDay, adventTicketDays } from './adventTickets'
-import { adventToday } from './adventToday'
+import { adventPicksDay, adventToday } from './adventToday'
 
 // pinned: analytics event names and property keys. Usage insights query them, so a rename breaks them.
 const EVENTS = {
@@ -44,6 +44,14 @@ const EVENTS = {
 } as const
 
 const CLOCK_REFRESH_MS = 60_000
+
+// A preview picked with ?day= sends nothing, so the usage insights count real opens only.
+function captureLive(isLive: boolean, event: string, properties: Record<string, boolean | number | string>): void {
+    if (isLive) {
+        posthog.capture(event, properties)
+    }
+}
+
 function isPollDay(day: number): day is AdventCalendarDayEnumApi {
     return (Object.values(AdventCalendarDayEnumApi) as number[]).includes(day)
 }
@@ -283,7 +291,12 @@ export interface adventCalendarLogicMeta {
             user: UserType | null,
             preflight: PreflightStatus | null
         ) => number
-        isLive: (today: number, localDate: number) => boolean
+        isLive: (
+            localDate: number,
+            searchParams: Record<string, any>,
+            user: UserType | null,
+            preflight: PreflightStatus | null
+        ) => boolean
         rewards: (user: UserType | null) => AdventRewards
         graph: (progress: AdventProgress, today: number, rewards: AdventRewards) => AdventGraph
         pollShares: (pollResults: AdventCalendarResultsApi | null, progress: AdventProgress) => AdventPollShares
@@ -466,9 +479,17 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 }),
         ],
         isLive: [
-            (s) => [s.today, s.localDate],
-            (today: number, localDate: number): boolean =>
-                today === adventToday(new Date(localDate), { requestedDay: null, canPickDay: false }),
+            (s) => [s.localDate, s.searchParams, s.user, s.preflight],
+            (
+                localDate: adventCalendarLogicValues['localDate'],
+                searchParams: adventCalendarLogicValues['searchParams'],
+                user: adventCalendarLogicValues['user'],
+                preflight: adventCalendarLogicValues['preflight']
+            ): boolean =>
+                !adventPicksDay(new Date(localDate), {
+                    requestedDay: searchParams.day != null ? String(searchParams.day) : null,
+                    canPickDay: !!user?.is_staff || !!preflight?.is_debug,
+                }),
         ],
         rewards: [
             (s) => [s.user],
@@ -560,7 +581,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 const vanishing = values.graph.doors.filter(
                     (candidate) => adventQuestionBefore(candidate.day) === door.day && candidate.id.endsWith(notTaken)
                 )
-                posthog.capture(EVENTS.answerPicked, { day: door.day, option: optionId })
+                captureLive(values.isLive, EVENTS.answerPicked, { day: door.day, option: optionId })
                 actions.openDoor(uuid, door.day, optionId, values.isLive, isOnTime(door.day))
                 const answer = pollAnswerOf(door.day, optionId)
                 if (answer && values.isLive) {
@@ -574,7 +595,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 }
             },
             openDoor: ({ userUuid, day, isLive, isOnTime }) => {
-                posthog.capture(EVENTS.doorOpened, { day, on_time: isLive && isOnTime })
+                captureLive(isLive, EVENTS.doorOpened, { day, on_time: isOnTime })
                 const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
                 // The draw reads the server's first open of each door, so its reply settles the ticket the local clock guessed.
                 const settle = (isOnServerDay: boolean): void => {
