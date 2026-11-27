@@ -10,8 +10,12 @@ from django.conf import settings
 from django.test import Client
 from django.utils import timezone
 
+from parameterized import parameterized
+
+from posthog.api.advanced_activity_logs import ActivityLogSerializer
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import ActivityLog, activity_log_event_properties
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.file_system.file_system import FileSystem
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget
 
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
@@ -110,11 +114,12 @@ class TestNotebookAppEmbeds(APIBaseTest):
     def test_sharing_history_records_embed_changes_with_their_actor(self) -> None:
         self.issue("coast")
         embed = NotebookAppEmbed.objects.for_team(self.team.pk).get(release=self.release)
+        expected_digest = sha256(b"coast").hexdigest()
         metadata = {
             "embed_id": str(embed.pk),
             "origin": "https://portal.example.com",
             "tenant_column": "workspace_id",
-            "tenant_sha256": sha256(b"coast").hexdigest(),
+            "tenant_sha256": expected_digest,
             "revision": self.release.revision,
             "expires_at": embed.expires_at.isoformat(),
         }
@@ -143,18 +148,28 @@ class TestNotebookAppEmbeds(APIBaseTest):
             (self.user.pk, False, "deleted", replaced, None),
         ]
         for record, action in zip(records, ("created", "changed", "deleted"), strict=True):
-            summary = activity_log_event_properties(record)
+            summary = ActivityLogSerializer.for_internal_event(record)
             assert summary is not None
             assert summary["id"] == str(record.pk)
             assert summary["detail"] == {"changes": [{"field": "app_embed", "action": action}]}
             assert "item_id" not in summary
         notebook_url = f"/api/projects/{self.team.pk}/notebooks/"
-        self.assertContains(self.client.get(f"{notebook_url}{self.notebook.short_id}/activity/"), str(embed.pk))
+        notebook_detail = f"{notebook_url}{self.notebook.short_id}/"
+        notebook_history = notebook_detail + "activity/"
+        detail = self.client.get(notebook_history)
+        self.assertContains(detail, str(embed.pk))
+        self.assertContains(detail, expected_digest)
         team_feed = f"{notebook_url}activity/"
-        self.assertContains(self.client.get(team_feed), metadata["tenant_sha256"])
+        self.assertContains(self.client.get(team_feed), expected_digest)
+
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save(update_fields=["level"])
-        self.assertNotContains(self.client.get(team_feed), metadata["tenant_sha256"])
+        assert self.client.get(notebook_detail).status_code == 200
+        for path in (team_feed, notebook_history):
+            detail = self.client.get(path)
+            self.assertNotContains(detail, "app_embed")
+            self.assertNotContains(detail, expected_digest)
+            self.assertNotContains(detail, embed.origin)
 
     def test_stale_release_cannot_be_shared_and_expired_audiences_release_capacity(self) -> None:
         stale = {**self.configuration("coast"), "revision": self.release.revision + 1}
@@ -185,13 +200,14 @@ class TestNotebookAppEmbeds(APIBaseTest):
 
     def test_older_snapshot_reopens_from_its_pinned_release_for_the_signed_tenant(self) -> None:
         path, token = self.issue("coast")
-        NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).update(
-            snapshot=[{"title": "Old view", "blocks": [{"text": "Previous projection"}]}]
-        )
-        output = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
-        self.assertContains(output, "Tide pools")
-        self.assertNotContains(output, "Previous projection")
-        self.assertNotContains(output, "Orchard")
+        old_tabs = [{"title": "Old view", "blocks": [{"text": "Previous projection"}]}]
+        for snapshot in [old_tabs, {"version": 1, "tabs": old_tabs}]:
+            with self.subTest(snapshot=snapshot):
+                NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).update(snapshot=snapshot)
+                output = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
+                self.assertContains(output, "Tide pools")
+                self.assertNotContains(output, "Previous projection")
+                self.assertNotContains(output, "Orchard")
 
     def test_wrapped_table_only_embeds_published_columns_for_the_selected_tenant(self) -> None:
         run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
@@ -237,13 +253,23 @@ class TestNotebookAppEmbeds(APIBaseTest):
         for hidden in ("<td>128</td>", "<td>62</td>", "Orchard study", "workspace_id"):
             self.assertNotContains(result, hidden)
 
-    def test_unpublish_permanently_revokes_issued_embeds(self) -> None:
+    @parameterized.expand([("unpublish",), ("project_tree",)])
+    def test_withdrawing_a_notebook_permanently_revokes_issued_embeds(self, surface: str) -> None:
         path, token = self.issue("coast")
         url = f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/"
-        unpublished = self.client.patch(
-            url, {"app_revision": self.notebook.app_revision, "app_published": None}, format="json"
-        )
-        assert unpublished.status_code == 200, unpublished.content
+        if surface == "unpublish":
+            response = self.client.patch(
+                url, {"app_revision": self.notebook.app_revision, "app_published": None}, format="json"
+            )
+        else:
+            file, _ = FileSystem.objects.get_or_create(
+                team=self.team,
+                type="notebook",
+                ref=self.notebook.short_id,
+                defaults={"path": "Weekly review", "depth": 1},
+            )
+            response = self.client.delete(f"/api/projects/{self.team.pk}/file_system/{file.pk}/")
+        assert response.status_code == 200, response.content
         assert not NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).exists()
         assert ActivityLog.objects.filter(
             team_id=self.team.pk,
@@ -257,10 +283,13 @@ class TestNotebookAppEmbeds(APIBaseTest):
             "tabs": [{"id": "note", "title": "Notes"}],
             "blocks": [{"id": "text", "tab_id": "note", "kind": "text", "text": "Updated report"}],
         }
-        published = self.client.patch(
-            url, {"app_revision": self.notebook.app_revision, "app_published": new_layout}, format="json"
+        data = (
+            {"app_revision": self.notebook.app_revision, "app_published": new_layout}
+            if surface == "unpublish"
+            else {"deleted": False}
         )
-        assert published.status_code == 200, published.content
+        response = self.client.patch(url, data, format="json")
+        assert response.status_code == 200, response.content
         assert self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe").status_code == 404
 
     def test_reissue_expiry_revocation_and_organization_policy(self) -> None:

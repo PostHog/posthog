@@ -20,7 +20,7 @@ from posthog.permissions import (
     VerifiedDomainEnforcementPermission,
 )
 
-from products.notebooks.backend.facade.app_delivery import read_granted_output
+from products.notebooks.backend.facade.app_delivery import check_app_view_budget, read_granted_output
 from products.notebooks.backend.presentation.app_serializers import notebook_app_builder_enabled
 
 
@@ -58,6 +58,7 @@ class AppViewGrantResultSerializer(serializers.Serializer):
 
 class AppOutputProjectMember(BasePermission):
     def has_permission(self, request, view) -> bool:
+        check_app_view_budget(request.user.pk)
         if not view.team.all_users_with_access(user_uuids=[str(request.user.uuid)]).exists():
             raise Http404()
         return True

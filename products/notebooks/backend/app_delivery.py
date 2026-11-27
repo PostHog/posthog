@@ -1,3 +1,4 @@
+import re
 import json
 from contextlib import suppress
 from dataclasses import asdict
@@ -33,6 +34,11 @@ from products.notebooks.backend.sql_v2_state import (
 )
 from products.notebooks.backend.util import _parse_markdown_component_props, iter_markdown_blocks
 
+APP_OUTPUT_VERSION = 7
+MAX_SHARED_CHART_SERIES = 200
+APP_VIEW_RECIPIENT_BUDGET = Budget(burst=60, per_hour=960)
+APP_VIEW_PROJECT_RECIPIENT_BUDGET = Budget(burst=15, per_hour=240)
+
 
 def active_view_grants(
     team_id: int, notebook_id: UUID, *, offset: int, limit: int
@@ -56,8 +62,14 @@ def active_view_grants(
     return grants.count(), rows
 
 
+def revoke_app_view_grants(team_id: int, notebook_id: UUID) -> None:
+    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+
+    revoke_published_app_access(team_id, notebook_id, get_current_user(), get_was_impersonated())
+
+
 @transaction.atomic
-def revoke_published_app_access(team_id: int, notebook_id: UUID, actor: User, was_impersonated: bool) -> None:
+def revoke_published_app_access(team_id: int, notebook_id: UUID, actor: User | None, was_impersonated: bool) -> None:
     from products.notebooks.backend.app_embeds import revoke_signed_embeds
 
     notebook = (
@@ -158,51 +170,12 @@ def change_app_view_grant(
     )
 
 
-def automatic_chart_columns(result: dict[str, Any], columns: list[str], display: str | None) -> list[str]:
-    types = {
-        item[0]: item[1].lower()
-        for item in result.get("types") or []
-        if isinstance(item, list) and len(item) == 2 and all(isinstance(v, str) for v in item)
-    }
-    if not types:
-        for row in result.get("first_page") or []:
-            if isinstance(row, list):
-                for name, value in zip(columns, row):
-                    if value is not None and name not in types:
-                        types[name] = "float" if type(value) in (int, float) else "string"
-    numeric = [
-        name
-        for name in columns
-        if not any(kind in types.get(name, "") for kind in ("array", "tuple"))
-        and any(kind in types.get(name, "") for kind in ("int", "float", "decimal"))
-    ]
-    if display in ("BoldNumber", "Metric"):
-        return numeric[:1] or columns[:1]
-    if display == "ScatterPlot":
-        return numeric
-    dates = [name for name in columns if "date" in types.get(name, "")]
-    x_axis = dates[:1] or [name for name in columns if name not in numeric][:1]
-    return x_axis + numeric
-
-
-def output_columns(props: dict[str, Any], columns: list[str]) -> list[str]:
-    viz = props.get("vizQuery") or {}
-    displayed = columns
-    if props.get("outputTab") == "results" or (isinstance(viz, dict) and viz.get("display") == "ActionsTable"):
-        table = viz.get("tableSettings") if isinstance(viz, dict) else None
-        selected = table.get("columns") if isinstance(table, dict) else None
-        if isinstance(selected, list) and selected:
-            displayed = [c["column"] for c in selected if isinstance(c, dict) and c.get("column") in columns]
-    elif isinstance(viz, dict):
-        settings = viz.get("chartSettings") or {}
-        axes = [settings.get("xAxis"), *(settings.get("yAxis") or [])] if isinstance(settings, dict) else []
-        named = [axis["column"] for axis in axes if isinstance(axis, dict) and axis.get("column") in columns]
-        displayed = named
-        if isinstance(settings, dict) and "xAxis" not in settings and "yAxis" not in settings:
-            displayed = automatic_chart_columns(props["result"], columns, viz.get("display"))
-    else:
-        displayed = []
-    return displayed
+def table_columns(viz: dict[str, Any], columns: list[str]) -> list[str]:
+    table = viz.get("tableSettings")
+    selected = table.get("columns") if isinstance(table, dict) else None
+    if isinstance(selected, list) and selected:
+        return [c["column"] for c in selected if isinstance(c, dict) and c.get("column") in columns]
+    return columns
 
 
 def pinned_sql_result(release: NotebookAppRelease, node_id: str, run_id: str | None) -> dict[str, Any] | None:
@@ -233,30 +206,69 @@ def displayed_native_sql_cells(release: NotebookAppRelease) -> dict[str, dict[st
     }
 
 
-def has_distinct_chart_categories(result: dict[str, Any], settings: dict[str, Any]) -> bool:
-    rows = result["first_page"]
+def plain_chart_axis(axis: Any) -> str | None:
+    if not isinstance(axis, dict) or axis.keys() - {"column", "settings"}:
+        return None
+    if axis.get("settings") not in (None, {}, {"formatting": {"prefix": "", "suffix": ""}}):
+        return None
+    name = axis.get("column")
+    return name if isinstance(name, str) and name else None
+
+
+def pinned_chart_types(result: dict[str, Any]) -> dict[str, str]:
     columns = result["columns"]
-    if result.get("row_count", len(rows)) != len(rows):
+    types = result.get("types")
+    if not isinstance(types, list) or len(types) != len(columns) or len(set(columns)) != len(columns):
+        return {}
+    resolved = {}
+    for column, typed in zip(columns, types):
+        if not isinstance(typed, list) or len(typed) != 2 or typed[0] != column or not isinstance(typed[1], str):
+            return {}
+        resolved[column] = typed[1]
+    return resolved
+
+
+def verified_chart_columns(result: dict[str, Any], chart: dict[str, Any]) -> list[str]:
+    types = pinned_chart_types(result)
+    numeric = {name for name, kind in types.items() if re.fullmatch(r"(?:U?Int(?:8|16|32|64)|Float(?:32|64))", kind)}
+    categories = {name for name, kind in types.items() if kind == "String" and name != "event"}
+    if chart.keys() - {"xAxis", "yAxis"}:
+        return []
+    if not chart:
+        if len(types) != 2 or len(categories) != 1 or len(numeric) != 1:
+            return []
+        return [*categories, *numeric]
+    x_axis = plain_chart_axis(chart.get("xAxis"))
+    y_axes = chart.get("yAxis")
+    if (
+        x_axis is None
+        or x_axis not in categories
+        or not isinstance(y_axes, list)
+        or not 0 < len(y_axes) <= MAX_SHARED_CHART_SERIES
+    ):
+        return []
+    series: list[str] = []
+    for axis in y_axes:
+        name = plain_chart_axis(axis)
+        if name is None or name not in numeric or name in series:
+            return []
+        series.append(name)
+    return [x_axis, *series]
+
+
+def chart_rows_match_axes(result: dict[str, Any], axes: list[str]) -> bool:
+    rows = result["first_page"]
+    if not axes or result.get("row_count") != len(rows):
         return False
-    if "xAxis" in settings or "yAxis" in settings:
-        axis = settings.get("xAxis")
-        category = axis.get("column") if isinstance(axis, dict) else None
-    else:
-        axes = automatic_chart_columns(result, columns, None)
-        category = next(iter(axes), None)
-    if category == "event" or columns.count(category) != 1:
-        return False
-    index = columns.index(category)
-    seen: set[str | float] = set()
+    category, *series = [result["columns"].index(name) for name in axes]
+    seen: set[str] = set()
     for row in rows:
-        if not isinstance(row, list) or len(row) <= index:
+        if not isinstance(row, list) or len(row) != len(result["columns"]):
             return False
-        value = row[index]
-        if not isinstance(value, str) and not (
-            "xAxis" in settings and type(value) in (int, float) and abs(value) < 2**53
-        ):
+        value = row[category]
+        if not isinstance(value, str) or not value or value in seen:
             return False
-        if value in seen:
+        if any(type(row[index]) not in (int, float) or not abs(row[index]) < 2**53 for index in series):
             return False
         seen.add(value)
     return True
@@ -293,36 +305,59 @@ class SharedOutputBudget:
         return output
 
 
-def shared_chart_display(props: dict[str, Any], result: dict[str, Any]) -> str | None:
+def shared_display_columns(props: dict[str, Any], result: dict[str, Any]) -> tuple[str, list[str]] | None:
+    viz = props.get("vizQuery", {})
+    columns = result["columns"]
     if props.get("outputTab") == "results":
-        return "ActionsTable"
-    viz = props.get("vizQuery") or {}
+        return "ActionsTable", table_columns(viz if isinstance(viz, dict) else {}, columns)
     if not isinstance(viz, dict):
         return None
     display = viz.get("display") or "Auto"
-    if display == "Auto":
-        columns = result["columns"]
-        if len(columns) == 1:
-            return "BoldNumber"
-        if len(columns) == 2 and len(automatic_chart_columns(result, columns, "ScatterPlot")) == 1:
-            display = "ActionsBar"
-        else:
-            return None
-    if display in ("ActionsTable", "BoldNumber"):
-        return display
-    chart = viz.get("chartSettings") or {}
-    if isinstance(chart, dict) and not (chart.get("seriesBreakdownColumn") or chart.get("resultCustomizations")):
-        if display == "ScatterPlot":
-            return display
-        if display in (
-            "ActionsLineGraph",
-            "ActionsAreaGraph",
-            "ActionsBar",
-            "ActionsUnstackedBar",
-            "ActionsStackedBar",
-        ) and has_distinct_chart_categories(result, chart):
-            return display
-    return None
+    if display == "ActionsTable":
+        return display, table_columns(viz, columns)
+    if display == "BoldNumber" or (display == "Auto" and len(columns) == 1):
+        return "BoldNumber", table_columns(viz, columns)[:1]
+    if display == "Auto" and len(columns) != 2:
+        return None
+    if display not in (
+        "Auto",
+        "ActionsLineGraph",
+        "ActionsAreaGraph",
+        "ActionsBar",
+        "ActionsUnstackedBar",
+        "ActionsStackedBar",
+    ):
+        return None
+    chart = viz.get("chartSettings", {})
+    if not isinstance(chart, dict) or viz.get("tableSettings"):
+        return None
+    axes = verified_chart_columns(result, chart)
+    return (display, axes) if chart_rows_match_axes(result, axes) else None
+
+
+def scope_shared_projection(
+    result: dict[str, Any],
+    projection: tuple[str, list[str]],
+    tenant_column: str | None,
+    tenant_value: str | None,
+) -> tuple[dict[str, Any], tuple[str, list[str]]]:
+    if tenant_column is None:
+        return result, projection
+    rows, columns = result["first_page"], result["columns"]
+    row_count = result.get("row_count")
+    if isinstance(row_count, int) and len(rows) < row_count:
+        raise serializers.ValidationError("Save and republish the complete SQL results before creating an embed.")
+    if columns.count(tenant_column) != 1:
+        raise serializers.ValidationError(
+            {"tenant_column": "Every displayed SQL output must include this tenant column exactly once."}
+        )
+    index = columns.index(tenant_column)
+    allowed = [row for row in rows if isinstance(row, list) and len(row) > index and row[index] == tenant_value]
+    display, displayed = projection
+    return {**result, "first_page": allowed, "row_count": len(allowed)}, (
+        display,
+        [column for column in displayed if column != tenant_column],
+    )
 
 
 def app_output_tabs(
@@ -360,8 +395,8 @@ def app_output_tabs(
                 {"title": block.get("title"), "text": "Republish this app to share a verified SQL result."}
             )
             continue
-        display = shared_chart_display(props, result)
-        if display is None:
+        projection = shared_display_columns(props, result)
+        if projection is None:
             tab["blocks"].append(
                 {
                     "title": block.get("title"),
@@ -369,27 +404,14 @@ def app_output_tabs(
                 }
             )
             continue
+        result, projection = scope_shared_projection(result, projection, tenant_column, tenant_value)
         columns = result["columns"]
         rows = result["first_page"]
         row_count = result.get("row_count")
         partial = isinstance(row_count, int) and len(rows) < row_count
-        displayed = output_columns({**props, "result": result}, columns)
-        if tenant_column is not None:
-            if partial:
-                raise serializers.ValidationError(
-                    "Save and republish the complete SQL results before creating an embed."
-                )
-            if columns.count(tenant_column) != 1:
-                raise serializers.ValidationError(
-                    {"tenant_column": "Every displayed SQL output must include this tenant column exactly once."}
-                )
-            idx = columns.index(tenant_column)
-            rows = [row for row in rows if isinstance(row, list) and len(row) > idx and row[idx] == tenant_value]
+        display, displayed = projection
         if display == "BoldNumber":
-            displayed = output_columns({**props, "outputTab": "results"}, columns)[:1]
             rows = rows[:1]
-        if tenant_column is not None:
-            displayed = [column for column in displayed if column != tenant_column]
         if displayed:
             budget.count(displayed)
             budget.count([props.get("title")])
@@ -405,7 +427,17 @@ def app_output_tabs(
     return [AppOutputTab(title=tab["title"], blocks=tab["blocks"]) for tab in tabs.values()]
 
 
+def check_app_view_budget(recipient_id: int, *, team_id: int | None = None) -> None:
+    if team_id is None:
+        decision = consume(f"notebooks:app-view-lookup:{recipient_id}", APP_VIEW_RECIPIENT_BUDGET)
+    else:
+        decision = consume(f"notebooks:app-view:{team_id}:{recipient_id}", APP_VIEW_PROJECT_RECIPIENT_BUDGET)
+    if isinstance(decision, BucketDecision) and not decision.allowed:
+        raise Throttled(wait=decision.retry_after)
+
+
 def read_granted_output(team_id: int, recipient_id: int, grant_id: UUID) -> AppOutput | None:
+    check_app_view_budget(recipient_id, team_id=team_id)
     grant = (
         NotebookAppViewGrant.objects.for_team(team_id)
         .filter(
@@ -424,11 +456,8 @@ def read_granted_output(team_id: int, recipient_id: int, grant_id: UUID) -> AppO
     if grant is None or not grant.team.all_users_with_access(user_uuids=[str(grant.recipient.uuid)]).exists():
         return None
     release = grant.release
-    budget = consume(f"notebooks:app-view:{team_id}:{recipient_id}", Budget(burst=15, per_hour=240))
-    if isinstance(budget, BucketDecision) and not budget.allowed:
-        raise Throttled(wait=budget.retry_after)
     cache = cast(RedisCache, caches["notebook_app_outputs"])
-    cache_key = f"notebook-app-output:v5:{team_id}:{release.pk}"
+    cache_key = f"notebook-app-output:v{APP_OUTPUT_VERSION}:{team_id}:{release.pk}"
     cached = cache.get(cache_key)
     if cached is None:
         lock = cache.lock(cache_key + ":building", timeout=20)

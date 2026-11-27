@@ -28,7 +28,10 @@ class NotebooksConfig(AppConfig):
             undo_message="Send PATCH /api/projects/@current/notebooks/{id} with deleted=false.",
         )
 
-        def _post_delete(context, notebook):
+        def _post_trash_change(context, notebook):
+            from products.notebooks.backend.app_delivery import revoke_app_view_grants
+
+            revoke_app_view_grants(notebook.team_id, notebook.pk)
             organization = context.organization
             if not organization:
                 return
@@ -40,34 +43,18 @@ class NotebooksConfig(AppConfig):
             if not isinstance(user, User):
                 return
             log_notebook_activity(
-                activity="deleted",
+                activity="deleted" if notebook.deleted else "restored",
                 notebook=notebook,
                 organization_id=organization.id,
                 team_id=team_id,
                 user=user,
                 was_impersonated=is_impersonated(context.request),
+                changes=(
+                    None
+                    if notebook.deleted
+                    else [Change(type="Notebook", action="changed", field="deleted", before=True, after=False)]
+                ),
             )
 
-        def _post_restore(context, notebook):
-            organization = context.organization
-            if not organization:
-                return
-            team = context.team
-            team_id = getattr(team, "id", None) if team is not None else None
-            if not isinstance(team_id, int):
-                return
-            user = context.user
-            if not isinstance(user, User):
-                return
-            log_notebook_activity(
-                activity="restored",
-                notebook=notebook,
-                organization_id=organization.id,
-                team_id=team_id,
-                user=user,
-                was_impersonated=is_impersonated(context.request),
-                changes=[Change(type="Notebook", action="changed", field="deleted", before=True, after=False)],
-            )
-
-        register_post_delete_hook("notebook", _post_delete)
-        register_post_restore_hook("notebook", _post_restore)
+        register_post_delete_hook("notebook", _post_trash_change)
+        register_post_restore_hook("notebook", _post_trash_change)

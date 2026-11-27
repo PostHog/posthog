@@ -21,7 +21,7 @@ from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
 from products.notebooks.backend.activity_logging import log_notebook_activity
-from products.notebooks.backend.app_delivery import app_output_tabs
+from products.notebooks.backend.app_delivery import APP_OUTPUT_VERSION, app_output_tabs
 from products.notebooks.backend.facade.contracts import (
     ActiveAppEmbed,
     AppEmbedAudience,
@@ -34,7 +34,6 @@ from products.notebooks.backend.models import Notebook, NotebookAppEmbed, Notebo
 ISSUER = "posthog:notebook-app-embed"
 MAX_PROJECT_AUDIENCES = 100
 MAX_EMBED_SNAPSHOT_BYTES = 1024 * 1024
-EMBED_OUTPUT_VERSION = 1
 ISSUE_BUDGET = Budget(burst=10, per_hour=60)
 VERIFIED_VIEW_BUDGET = Budget(burst=300, per_hour=6000)
 
@@ -97,7 +96,7 @@ def embed_change(embed: NotebookAppEmbed, action: Literal["created", "changed", 
 
 
 def revoke_signed_embeds(
-    notebook: Notebook, actor: User, was_impersonated: bool, *, audience: dict[str, str] | None = None
+    notebook: Notebook, actor: User | None, was_impersonated: bool, *, audience: dict[str, str] | None = None
 ) -> bool:
     matching = NotebookAppEmbed.objects.for_team(notebook.team_id).filter(
         release__notebook=notebook, **(audience or {})
@@ -190,7 +189,7 @@ def change_signed_embed(
             "issued_by_id": actor.pk,
             "verification_key": private_key.public_key().public_bytes_raw(),
             "expires_at": expires_at,
-            "snapshot": {"version": EMBED_OUTPUT_VERSION, "tabs": snapshot},
+            "snapshot": {"version": APP_OUTPUT_VERSION, "tabs": snapshot},
         },
     )
     token = jwt.encode(
@@ -278,7 +277,7 @@ def redeem_signed_embed(team_id: int, embed_id: UUID, token: str) -> AppOutput |
         return None
     require_capacity(f"notebooks:embed:verified:{embed_id}", VERIFIED_VIEW_BUDGET)
     stored = embed.snapshot
-    if isinstance(stored, dict) and stored.get("version") == EMBED_OUTPUT_VERSION:
+    if isinstance(stored, dict) and stored.get("version") == APP_OUTPUT_VERSION:
         tabs = stored["tabs"]
     else:
         try:

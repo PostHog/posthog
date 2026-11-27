@@ -77,7 +77,7 @@ from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.app_delivery import (
     active_view_grants,
     change_app_view_grant,
-    revoke_published_app_access,
+    revoke_app_view_grants,
 )
 from products.notebooks.backend.facade.app_releases import (
     plan_viewer_queries,
@@ -638,16 +638,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     )
                     should_publish_update = True
 
+                was_deleted = locked_instance.deleted
                 updated_notebook = super().update(locked_instance, validated_data)
                 if validated_data.get("app_published") is not None:
                     record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
-                elif "app_published" in validated_data:
-                    revoke_published_app_access(
-                        updated_notebook.team_id,
-                        updated_notebook.pk,
-                        self.context["request"].user,
-                        is_impersonated(self.context["request"]),
-                    )
+                if updated_notebook.deleted != was_deleted or (
+                    "app_published" in validated_data and updated_notebook.app_published is None
+                ):
+                    revoke_app_view_grants(updated_notebook.team_id, updated_notebook.pk)
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)
@@ -3173,5 +3171,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             item_ids=[notebook.id, notebook.short_id],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)

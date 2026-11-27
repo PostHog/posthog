@@ -4,16 +4,20 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.urls import reverse
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.exceptions import Throttled
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.token_bucket import BucketDecision
+from posthog.models.file_system.file_system import FileSystem
+from posthog.token_bucket import BucketDecision, Budget
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.notebooks.backend import app_delivery
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookAppViewGrant, NotebookNodeRun
 
@@ -120,6 +124,58 @@ class TestNotebookAppViewAccess(APIBaseTest):
         assert any(change.get("after") == {"recipient": self.recipient.email, "revision": 1} for change in details)
         assert any(change.get("before") == {"recipient": self.recipient.email, "revision": 1} for change in details)
 
+    @parameterized.expand([("notebook",), ("project_tree",)])
+    def test_trash_and_restore_require_a_new_grant(self, surface: str) -> None:
+        old_url = self.grant()
+        self.client.force_login(self.recipient)
+        source_url = self.management.removesuffix("app_view_grants/")
+        tree_url = f"/api/projects/{self.team.pk}/file_system/"
+        if surface == "notebook":
+            response = self.client.patch(source_url, {"deleted": False}, format="json")
+            assert response.status_code == 200, response.content
+            self.assertContains(self.client.get(old_url), "222")
+            response = self.client.patch(source_url, {"deleted": True}, format="json")
+        else:
+            folder = FileSystem.objects.create(team=self.team, path="Quarterly", depth=1, type="folder")
+            FileSystem.objects.update_or_create(
+                team=self.team,
+                type="notebook",
+                ref=self.notebook.short_id,
+                defaults={"path": "Quarterly/Activation", "depth": 2},
+            )
+            response = self.client.delete(f"{tree_url}{folder.pk}/")
+        assert response.status_code == 200, response.content
+        self.notebook.refresh_from_db()
+        self.assertTrue(self.notebook.deleted)
+        grants = NotebookAppViewGrant.objects.for_team(self.team.pk).filter(release=self.release)
+        assert not grants.exists()
+
+        # Notebooks already in the trash can still have grants issued before deletion revoked them.
+        grants.create(
+            team=self.team,
+            release=self.release,
+            recipient=self.recipient,
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        if surface == "notebook":
+            response = self.client.patch(source_url, {"deleted": False}, format="json")
+        else:
+            response = self.client.post(
+                tree_url + "undo_delete/",
+                {"items": [{"type": "notebook", "ref": self.notebook.short_id}]},
+                format="json",
+            )
+        assert response.status_code == 200, response.content
+        self.notebook.refresh_from_db()
+        self.assertFalse(self.notebook.deleted)
+        assert not grants.exists()
+        assert self.client.get(old_url).status_code == 404
+        self.client.force_login(self.user)
+        new_url = self.grant()
+        self.client.force_login(self.recipient)
+        assert self.client.get(old_url).status_code == 404
+        self.assertContains(self.client.get(new_url), "222")
+
     def test_admin_can_find_and_revoke_a_member_after_their_email_changes(self) -> None:
         url = self.grant()
         self.recipient.email = "renamed@example.com"
@@ -149,6 +205,33 @@ class TestNotebookAppViewAccess(APIBaseTest):
             response = self.client.get(url)
             assert response.status_code == 429
             assert response.headers["Retry-After"] == "4"
+
+    def test_recipient_lookup_budget_applies_before_resolving_a_second_project(self) -> None:
+        url = self.grant()
+        another_team = Team.objects.create(organization=self.organization, name="Second project")
+        other_url = reverse("notebook_app_view_grant", args=[another_team.pk, self.release.pk])
+        self.client.force_login(self.recipient)
+        with patch.object(app_delivery, "APP_VIEW_RECIPIENT_BUDGET", Budget(burst=1, per_hour=1)):
+            self.assertContains(self.client.get(url), "222")
+            with patch(
+                "products.notebooks.backend.presentation.app_view_access.get_object_or_404",
+                side_effect=AssertionError("an exhausted recipient must not query the project"),
+            ):
+                response = self.client.get(other_url)
+            assert response.status_code == 429
+            assert int(response.headers["Retry-After"]) > 0
+
+    def test_a_missing_grant_consumes_only_its_project_recipient_budget(self) -> None:
+        url = self.grant()
+        another_team = Team.objects.create(organization=self.organization, name="Second project")
+        self.client.force_login(self.recipient)
+        other_url = reverse("notebook_app_view_grant", args=[another_team.pk, self.release.pk])
+        with patch.object(app_delivery, "APP_VIEW_PROJECT_RECIPIENT_BUDGET", Budget(burst=1, per_hour=1)):
+            assert self.client.get(other_url).status_code == 404
+            with self.assertNumQueries(0), self.assertRaises(Throttled):
+                app_delivery.read_granted_output(another_team.pk, self.recipient.pk, self.release.pk)
+            self.assertContains(self.client.get(url), "222")
+            assert app_delivery.read_granted_output(another_team.pk, self.user.pk, self.release.pk) is None
 
     def test_grant_matches_the_release_the_admin_reviewed(self) -> None:
         self.release.revision = 2
@@ -189,10 +272,15 @@ class TestNotebookAppViewAccess(APIBaseTest):
         self.assertNotContains(output, "<th>Week</th>", html=True)
 
     def test_chart_fallback_uses_pinned_rows_and_marks_an_incomplete_preview(self) -> None:
-        self.release.markdown = '<SQLV2 nodeId="totals" code="SELECT 1" runId="published" vizQuery={{"display":"ActionsBar"}} result={{"columns":["period","count","private_note"],"first_page":[["Nov",1,"hidden"]],"row_count":2,"previewOnly":true}} />'
+        self.release.markdown = '<SQLV2 nodeId="totals" code="SELECT 1" runId="published" vizQuery={{"display":"ActionsBar","chartSettings":{"xAxis":{"column":"period"},"yAxis":[{"column":"count"}]}}} result={{"columns":["period","count","private_note"],"first_page":[["Nov",1,"hidden"]],"row_count":2,"previewOnly":true}} />'
         self.release.sql_rows = {
             "published": [["Nov", 1, "hidden"], ["Dec", 2, "hidden"]],
-            "schema:published": {"node_id": "totals", "columns": ["period", "count", "private_note"], "row_count": 2},
+            "schema:published": {
+                "node_id": "totals",
+                "columns": ["period", "count", "private_note"],
+                "types": [["period", "String"], ["count", "Int64"], ["private_note", "String"]],
+                "row_count": 2,
+            },
         }
         self.release.save(update_fields=["markdown", "sql_rows"])
         url = self.grant()
@@ -218,6 +306,7 @@ class TestNotebookAppViewAccess(APIBaseTest):
         [
             ("ActionsPie", {"xAxis": {"column": "Week"}, "yAxis": [{"column": "Signups"}, {"column": "Visits"}]}),
             ("Auto", {}),
+            ("ScatterPlot", {"xAxis": {"column": "Visits"}, "yAxis": [{"column": "Signups"}]}),
             ("Metric", {"yAxis": [{"column": "Signups"}, {"column": "Visits"}]}),
         ]
     )
@@ -228,13 +317,13 @@ class TestNotebookAppViewAccess(APIBaseTest):
             f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery={{{json.dumps(chart)}}} />'
         )
         self.release.sql_rows[f"schema:{run_id}"]["columns"] = ["Week", "Region", "Signups", "Visits"]
-        self.release.sql_rows[run_id] = [["Oct 12", "North", 222, 450], ["Oct 19", "South", 91, 350]]
+        self.release.sql_rows[run_id] = [["Oct 12", "North", 222, 450], ["Oct 19", "South", 91, None]]
         self.release.save(update_fields=["markdown", "sql_rows"])
         url = self.grant()
         self.client.force_login(self.recipient)
         output = self.client.get(url)
         self.assertContains(output, "Publish this chart as a table or single number")
-        for private_value in ("Oct 12", "North", "<td>222</td>", "<td>450</td>"):
+        for private_value in ("Oct 12", "North", "<td>222</td>", "<td>450</td>", "<td>91</td>"):
             self.assertNotContains(output, private_value)
 
     @parameterized.expand(
@@ -293,6 +382,7 @@ class TestNotebookAppViewAccess(APIBaseTest):
         chart = json.dumps({"display": display})
         self.release.markdown = f'<SQLV2 nodeId="totals" runId="{run_id}" code="SELECT 1" vizQuery={{{chart}}} />'
         self.release.sql_rows[f"schema:{run_id}"]["row_count"] = 2
+        self.release.sql_rows[f"schema:{run_id}"]["types"] = [["Week", "String"], ["Signups", "Int64"]]
         self.release.sql_rows[run_id] = [["Spring", 6], ["Spring", 9]]
         self.release.save(update_fields=["markdown", "sql_rows"])
         url = self.grant()
@@ -301,6 +391,40 @@ class TestNotebookAppViewAccess(APIBaseTest):
         self.assertContains(output, "Publish this chart as a table or single number")
         self.assertNotContains(output, "<td>6</td>", html=True)
         self.assertNotContains(output, "<td>9</td>", html=True)
+
+    @parameterized.expand(["stale", "over_limit", "inferred", "valid"])
+    def test_chart_series_must_be_verified_against_the_displayed_schema(self, scenario: str) -> None:
+        run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+        measures = [f"Measure {i}" for i in range(201 if scenario == "over_limit" else 2)]
+        columns = ["Category", *measures, "Note"]
+        selected = ["Note"] if scenario == "stale" else measures
+        chart = {
+            "display": "ActionsLineGraph",
+            "chartSettings": {"xAxis": {"column": "Category"}, "yAxis": [{"column": name} for name in selected]},
+        }
+        if scenario == "inferred":
+            chart.pop("chartSettings")
+        self.release.markdown = (
+            f'<SQLV2 nodeId="totals" runId="{run_id}" code="SELECT 1" vizQuery={{{json.dumps(chart)}}} />'
+        )
+        self.release.sql_rows[f"schema:{run_id}"].update(
+            columns=columns,
+            types=[["Category", "String"], *[[name, "Int64"] for name in measures], ["Note", "String"]],
+            row_count=1,
+        )
+        self.release.sql_rows[run_id] = [["Winter", *range(len(measures)), "Internal note"]]
+        self.release.save(update_fields=["markdown", "sql_rows"])
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        output = self.client.get(url)
+        self.assertNotContains(output, "Internal note")
+        if scenario == "valid":
+            self.assertContains(output, "<td>Winter</td>", html=True)
+            self.assertContains(output, '<th scope="col">Measure 1</th>', html=True)
+            self.assertContains(output, "<td>1</td>", html=True)
+        else:
+            self.assertContains(output, "Publish this chart as a table or single number")
+            self.assertNotContains(output, "<td>Winter</td>", html=True)
 
     def test_shared_budget_counts_a_saved_table_again_when_the_layout_repeats_it(self) -> None:
         run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
@@ -329,6 +453,27 @@ class TestNotebookAppViewAccess(APIBaseTest):
             self.assertContains(output, "This app exceeds the shared output limit")
             self.assertNotContains(output, value.strip())
             self.assertContains(self.client.get(url), "This app exceeds the shared output limit")
+
+    def test_notebook_readers_can_see_normal_edits_without_sharing_recipient_details(self) -> None:
+        self.grant()
+        ordinary = ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            user=self.user,
+            item_id=self.notebook.short_id,
+            scope="Notebook",
+            activity="updated",
+            detail={"name": "Weekly summary"},
+        )
+        notebook = f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/"
+        self.assertContains(self.client.get(notebook + "activity/"), self.recipient.email)
+
+        self.client.force_login(self.recipient)
+        assert self.client.get(notebook).status_code == 200
+        history = self.client.get(notebook + "activity/")
+        self.assertContains(history, str(ordinary.pk))
+        self.assertNotContains(history, "app_view_grant")
+        self.assertNotContains(history, self.recipient.email)
 
     def test_grant_audits_are_scoped_to_the_notebook(self) -> None:
         self.organization.available_product_features = [
