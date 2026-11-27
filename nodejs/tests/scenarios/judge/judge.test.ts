@@ -992,7 +992,7 @@ describe('judge', () => {
         const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
 
         expect({ result, unsettled: judge.evidence().unsettled }).toEqual({
-            result: expect.not.objectContaining({ unjudged: expect.stringContaining('kept accepting') }),
+            result: { name: 'no_loss', passed: true, observed: 0, missing: [], extra: [], unitIds: [] },
             unsettled: undefined,
         })
     })
