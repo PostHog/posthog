@@ -693,6 +693,14 @@ class TestResendImport(BaseTest):
         # Half of the contacts the opt-outs step read took a minute, so the other half should too.
         assert (topic_opt_outs.processed, topic_opt_outs.total, topic_opt_outs.seconds_left) == (2, 4, 60)
 
+        # A worker from before this field existed still shows the total, with no time left.
+        stored = ProviderImportRun.objects.unscoped().get(id=run.id)
+        del stored.progress["topic_opt_outs"]["reading_since"]
+        stored.save(update_fields=["progress"])
+        old_worker_state = get_provider_import_run(self.team.id, run.id)
+        assert old_worker_state is not None
+        assert (old_worker_state.steps[1].total, old_worker_state.steps[1].seconds_left) == (4, None)
+
     def test_no_time_left_when_the_step_it_counts_from_continued_an_earlier_import(self) -> None:
         self.resend.page_size = 1
         first = runs.start_run(self.team.id, "resend", ["opt_outs", "topic_opt_outs"], API_KEY, self.user.id)
