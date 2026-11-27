@@ -57,7 +57,7 @@ export function TileContextMenu({ actions, children }: { actions: MenuAction[]; 
             loading
                 ? actions.map((action) =>
                       action.needsLoaded
-                          ? { ...action, disabledReason: action.disabledReason ?? 'Still loading' }
+                          ? { ...action, disabledReason: action.disabledReason ?? 'Still loading', loading: true }
                           : action
                   )
                 : actions,

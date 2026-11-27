@@ -1,14 +1,15 @@
-import type {
-    ContextMenuCheckboxItem,
-    ContextMenuGroup,
-    ContextMenuItem,
-    ContextMenuLabel,
-    ContextMenuRadioGroup,
-    ContextMenuRadioItem,
-    ContextMenuSeparator,
-    ContextMenuSub,
-    ContextMenuSubContent,
-    ContextMenuSubTrigger,
+import {
+    type ContextMenuCheckboxItem,
+    type ContextMenuGroup,
+    type ContextMenuItem,
+    type ContextMenuLabel,
+    type ContextMenuRadioGroup,
+    type ContextMenuRadioItem,
+    type ContextMenuSeparator,
+    type ContextMenuSub,
+    type ContextMenuSubContent,
+    type ContextMenuSubTrigger,
+    Spinner,
 } from '@posthog/quill'
 
 import { MENU_GROUPS, type MenuAction } from './menuAction'
@@ -32,6 +33,14 @@ function EntryLabel({ action }: { action: MenuAction }): JSX.Element {
     if (!action.disabledReason) {
         return <>{action.label}</>
     }
+    if (action.loading) {
+        return (
+            <span className="flex items-center gap-2">
+                {action.label}
+                <Spinner aria-label={action.disabledReason} />
+            </span>
+        )
+    }
     return (
         <span className="flex flex-col items-start text-left">
             <span>{action.label}</span>
@@ -42,7 +51,7 @@ function EntryLabel({ action }: { action: MenuAction }): JSX.Element {
 
 // A menu row has a fixed height, and a disabled entry needs a second line for its reason.
 function rowClass(action: MenuAction): string | undefined {
-    return action.disabledReason ? 'h-auto py-1' : undefined
+    return action.disabledReason && !action.loading ? 'h-auto py-1' : undefined
 }
 
 function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }): JSX.Element {
