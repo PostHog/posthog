@@ -1360,7 +1360,6 @@ tools:
             Slack delivery, find channel ids with `integrations-channels-retrieve` and member ids with
             `integrations-users-retrieve`. Try a `precheck_query` with `scout-config-precheck-test` before you save it.
             Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
-        # Kept under the tool schema size limit; `scout-config-create` upserts and still sets it.
         exclude_params:
             - max_messages_per_day
     scout-create:
@@ -2027,8 +2026,8 @@ tools:
             example `pr-12345`. You never name a recipient: the route decides who receives the message. Nothing is
             posted during the run; the message is sent when the run ends, and a second call with the same route and key
             replaces it. The result `outcome` is `queued`, `replaced`, `duplicate` (the route and key were sent in the
-            last 30 days; `recent_dedupe_keys` shows the keys in use), `over_cap` (the scout reached its message limit for
-            the last 24 hours, stated in your run prompt; do not retry), or `dry_run`.
+            last 30 days; `recent_dedupe_keys` shows the keys in use), `over_cap` (the scout reached its message limit
+            for the last 24 hours, stated in your run prompt; do not retry), or `dry_run`.
         feature_flag: scout-send-message
         feature_flag_behavior: enable
     scout-trial-archive:

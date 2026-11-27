@@ -1039,9 +1039,9 @@ tools:
             `vision-scanners-scouts-templates-list` and pass a template's `body` unchanged with its `key` as
             `template_key`: the scout then picks up later improvements to that template, until someone edits it. The
             `scratch` template is the exception: fill in its `<ALL CAPS>` placeholders first.
-        requires_ai_consent: true
         exclude_params:
             - config.max_messages_per_day
+        requires_ai_consent: true
     vision-scanners-scouts-templates-list:
         operation: vision_scanners_scouts_templates_list
         enabled: true
