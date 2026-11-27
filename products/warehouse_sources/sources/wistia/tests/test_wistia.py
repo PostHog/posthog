@@ -333,8 +333,8 @@ def _media_window_answer(request: RecordedRequest) -> ScriptedResponse:
     if request.path == "/modern/medias":
         return _page(
             [
-                {"hashed_id": "m1", "created": "2025-06-15T03:00:00Z"},
-                {"hashed_id": "gone", "created": "2026-11-01T00:00:00Z"},
+                {"hashed_id": "m1", "created": "2025-06-15T03:00:00Z", "cursor": "c1"},
+                {"hashed_id": "gone", "created": "2026-11-01T00:00:00Z", "cursor": "c2"},
             ]
         )
     if "/gone/" in request.path:
@@ -402,34 +402,61 @@ class TestMediaDateWindows:
         ]
         assert result.rows == [{"date": start, "load_count": 1, "media_hashed_id": "m1"} for start, _ in expected]
 
-    def test_resumes_at_the_saved_media_and_window(self) -> None:
+    @staticmethod
+    def _cursor_paged_medias(deleted: frozenset[str] = frozenset()):
+        medias = [
+            {"hashed_id": f"m{i}", "created": "2025-06-15T00:00:00Z", "cursor": f"c{i}"}
+            for i in range(101)
+            if f"m{i}" not in deleted
+        ]
+
         def answer(request: RecordedRequest) -> ScriptedResponse:
             if request.path == "/modern/medias":
-                page = int(request.param("page") or 0)
-                count = 100 if page == 1 else 1
-                return _page([{"hashed_id": f"p{page}m{i}", "created": "2025-06-15T00:00:00Z"} for i in range(count)])
+                after = request.param("cursor[after]")
+                # A cursor stays valid after its media is deleted, so list by position in the full order.
+                start = 0 if after is None else int(after[1:]) + 1
+                listed = [media for media in medias if int(media["hashed_id"][1:]) >= start]
+                return _page(listed[:100])
             return _page([{"date": request.param("start_date"), "load_count": 1}])
 
-        first = _driver().run("media_stats_by_date", answer, should_use_incremental_field=False)
-        assert first.raised is None
-        assert first.committed_states[:2] == [
-            WistiaResumeConfig(page=1, media_id="p1m0", window_start="2026-06-14"),
-            WistiaResumeConfig(page=1, media_id="p1m0", window_start="2026-11-13"),
+        return answer
+
+    def test_walks_the_media_list_by_cursor_and_checkpoints_each_window(self) -> None:
+        result = _driver().run("media_stats_by_date", self._cursor_paged_medias(), should_use_incremental_field=False)
+
+        assert result.raised is None
+        media_requests = [request for request in result.requests if request.path == "/modern/medias"]
+        assert [(r.param("cursor[enabled]"), r.param("cursor[after]")) for r in media_requests] == [
+            ("1", None),
+            (None, "c99"),
+        ]
+        assert len(result.rows) == 101 * 2
+        assert result.committed_states[:3] == [
+            WistiaResumeConfig(media_cursor=None, media_id="m0", window_start="2026-06-14"),
+            WistiaResumeConfig(media_cursor=None, media_id="m0", window_start="2026-11-13"),
+            WistiaResumeConfig(media_cursor="c0", media_id="m1", window_start="2026-06-14"),
         ]
 
-        # A full refresh appends on resume, so rows written before the interruption must not be read again.
-        resumed = _driver().run(
-            "media_stats_by_date",
-            answer,
-            should_use_incremental_field=False,
-            resume_state=WistiaResumeConfig(page=1, media_id="p1m1", window_start="2026-06-14"),
-        )
-        assert resumed.raised is None
-        assert [request.param("page") for request in resumed.requests if request.path == "/modern/medias"] == [
-            "1",
-            "2",
+    @parameterized.expand(
+        [
+            ("saved_media_continues_at_its_window", frozenset(), 1 + 99 * 2),
+            ("deleted_saved_media_is_skipped", frozenset({"m1"}), 99 * 2),
         ]
-        keys = [(row["media_hashed_id"], row["date"]) for row in resumed.rows]
-        assert keys[0] == ("p1m1", "2026-06-14")
-        assert all(media_id != "p1m0" for media_id, _ in keys)
-        assert len(keys) == len(set(keys)) == 1 + 98 * 2 + 2
+    )
+    def test_resume_never_reads_finished_media_again(
+        self, _name: str, deleted: frozenset[str], expected_rows: int
+    ) -> None:
+        # A full refresh appends on resume, so rows written before the interruption must not be read again.
+        result = _driver().run(
+            "media_stats_by_date",
+            self._cursor_paged_medias(deleted),
+            should_use_incremental_field=False,
+            resume_state=WistiaResumeConfig(media_cursor="c0", media_id="m1", window_start="2026-06-14"),
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("cursor[after]") == "c0"
+        keys = [(row["media_hashed_id"], row["date"]) for row in result.rows]
+        assert all(media_id != "m0" for media_id, _ in keys)
+        assert len(keys) == len(set(keys)) == expected_rows
+        assert ("m1", "2025-06-14") not in keys
