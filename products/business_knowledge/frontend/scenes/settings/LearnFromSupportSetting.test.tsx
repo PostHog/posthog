@@ -15,6 +15,10 @@ jest.mock('./businessKnowledgeSettingsLogic', () => ({
     businessKnowledgeSettingsLogic: {},
 }))
 
+jest.mock('./LearnedLibrariesSetting', () => ({
+    LearnedLibrariesSetting: () => null,
+}))
+
 jest.mock('lib/hooks/useFeatureFlag', () => ({
     useFeatureFlag: () => false,
 }))
