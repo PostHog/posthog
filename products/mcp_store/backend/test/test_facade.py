@@ -22,6 +22,7 @@ from products.mcp_store.backend.facade.api import (
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
     has_slack_mcp_connected,
+    member_server_hosts,
     member_server_tools,
     resolve_agent_gateway_server_ids,
     resolve_installations_for_sandbox,
@@ -469,6 +470,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             ("revoked", None, "revoked"),
             ("replaced_by_personal", None, "replaced_by_personal"),
             ("owner_only", None, "owner_only"),
+            ("owner_left", None, "owner_left"),
             ("needs_reconnect", [], "not_selected"),
             ("server_disabled", [], "not_selected"),
             ("revoked", [], "not_selected"),
@@ -486,7 +488,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         left_out = self._create_installation(
             scope="shared",
             user=User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
-            if reason in ("teammate_needs_reconnect", "owner_only")
+            if reason in ("teammate_needs_reconnect", "owner_only", "owner_left")
             else self.user,
             display_name="Linear",
             url=server.url,
@@ -502,6 +504,9 @@ class TestGetInstallationsForSandbox(BaseTest):
             )
         if reason == "replaced_by_personal":
             self._create_installation(scope="personal", url=server.url, display_name="My Linear")
+        if reason == "owner_left":
+            left_out.user.is_active = False
+            left_out.user.save()
 
         resolution = resolve_installations_for_sandbox(
             self.team.id,
@@ -1307,6 +1312,21 @@ class TestCallMemberServerTool(BaseTest):
         assert pending.status == "needs_approval"
         assert self._call(approval_token=pending.approval_token).status == "ok"
         assert mock_call.call_args.args[0].id == shared.id
+
+    @parameterized.expand([("deactivated",), ("removed_from_org",)])
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
+    def test_never_borrows_a_shared_connection_whose_owner_left(self, loss: str, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._tool(self._installation(user=other_user, scope="shared"))
+        if loss == "deactivated":
+            other_user.is_active = False
+            other_user.save()
+        else:
+            OrganizationMembership.objects.filter(user=other_user, organization=self.organization).delete()
+
+        assert self._call().status == "not_connected"
+        assert member_server_hosts(self.team.id, self.user.id) == []
+        mock_call.assert_not_called()
 
     @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
     def test_never_borrows_a_teammates_personal_connection(self, mock_call) -> None:

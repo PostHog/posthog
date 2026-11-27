@@ -49,7 +49,7 @@ from posthog.rate_limit import (
 
 from products.cdp.backend.presentation.icons import CDPIconsService
 
-from ..agents import sync_built_in_agents
+from ..agents import credential_owner_eligible, eligible_credential_owners, sync_built_in_agents
 from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
@@ -1248,7 +1248,18 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     status=403,
                 )
 
-        if borrowed_refusal_detail(installation, borrowed=installation.user_id != request.user.id) is not None:
+        borrowed = installation.user_id != request.user.id
+        if (
+            installation.scope == "shared"
+            and borrowed
+            and not credential_owner_eligible(installation.user_id, installation.team_id)
+        ):
+            return HttpResponse(
+                '{"error": "The person who shared this server no longer has access to this project. Ask a project admin to replace it."}',
+                content_type="application/json",
+                status=403,
+            )
+        if borrowed_refusal_detail(installation, borrowed=borrowed) is not None:
             # The call is refused further on, so the owner's token is not refreshed on this caller's behalf.
             return None
         ok, error_response = validate_installation_auth(installation)
@@ -2149,10 +2160,21 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             _server_slug_base(_installation_display_name(row), row.url) for row in namespace_rows
         )
 
+        installations = list(installations)
+        eligible_sharer_ids = eligible_credential_owners(
+            {row.user_id for row in installations if row.scope == "shared" and row.user_id != user.id},
+            self.team_id,
+        )
         servers: list[dict[str, Any]] = []
         for installation in installations:
-            # The same credential check `call_tool` runs, so the list can never
+            # The same credential checks `call_tool` runs, so the list can never
             # advertise a connection the call path would immediately reject.
+            if (
+                installation.scope == "shared"
+                and installation.user_id != user.id
+                and installation.user_id not in eligible_sharer_ids
+            ):
+                continue
             ok, _error = validate_installation_auth(installation)
             if not ok:
                 continue

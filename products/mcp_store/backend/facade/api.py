@@ -26,6 +26,7 @@ from products.mcp_store.backend.agents import (
     built_in_agent_key_for_task_origin,
     create_gateway_agent_token,
     credential_owner_eligible,
+    eligible_credential_owners,
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
@@ -609,9 +610,19 @@ def get_installations_for_sandbox(
     )
 
 
+def _eligible_sharers(installations: Iterable[MCPServerInstallation], team_id: int) -> set[int]:
+    """Owners of the shared installations among `installations` who can still
+    lend them. Shared rows outlive their owner's offboarding, so this is re-read
+    wherever a shared credential is used."""
+    return eligible_credential_owners(
+        {installation.user_id for installation in installations if installation.scope == "shared"}, team_id
+    )
+
+
 def _member_unmounted_reason(
     installation: MCPServerInstallation,
     user_id: int | None,
+    eligible_sharer_ids: set[int],
     revoked_gateway_server_ids: set[uuid.UUID],
     allowed_gateway_server_ids: set[str] | None,
     allowed_installation_ids: set[str] | None,
@@ -629,6 +640,8 @@ def _member_unmounted_reason(
         health_failure = "server_disabled"
     elif gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
         health_failure = "revoked"
+    elif installation.scope == "shared" and installation.user_id not in eligible_sharer_ids:
+        health_failure = "owner_left"
     elif installation.user_id != user_id and is_posthog_installation(installation):
         health_failure = "owner_only"
     elif not _is_oauth_ready(installation):
@@ -772,9 +785,15 @@ def resolve_installations_for_sandbox(
                 if allowed_gateway_server_ids is not None
                 else None
             )
+            eligible_sharer_ids = _eligible_sharers(candidates, team_id)
             for candidate in candidates:
                 reason = _member_unmounted_reason(
-                    candidate, user_id, revoked_gateway_server_ids, allowed_servers, allowed_installations
+                    candidate,
+                    user_id,
+                    eligible_sharer_ids,
+                    revoked_gateway_server_ids,
+                    allowed_servers,
+                    allowed_installations,
                 )
                 if reason is None:
                     installations.append(candidate)
@@ -928,7 +947,15 @@ def member_installation_for_host(team_id: int, user_id: int, server_host: str) -
     own = next((installation for installation in matching if installation.scope == "personal"), None)
     if own is not None:
         return own
-    return next((installation for installation in matching if installation.scope == "shared"), None)
+    eligible_sharer_ids = _eligible_sharers(matching, team_id)
+    return next(
+        (
+            installation
+            for installation in matching
+            if installation.scope == "shared" and installation.user_id in eligible_sharer_ids
+        ),
+        None,
+    )
 
 
 def _connector_tool(tool: MCPServerInstallationTool) -> ConnectorTool:
@@ -1117,9 +1144,17 @@ def call_member_server_tool(
 
 def member_server_hosts(team_id: int, user_id: int) -> list[str]:
     """Hosts of every enabled server the member can call: their own connections and the team's shared ones."""
-    urls = (
+    installations = list(
         MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
         .filter(Q(user_id=user_id, scope="personal") | Q(scope="shared"))
-        .values_list("url", flat=True)
+        .only("url", "scope", "user_id")
     )
-    return sorted({host for url in urls if (host := _installation_host(url))})
+    eligible_sharer_ids = _eligible_sharers(installations, team_id)
+    return sorted(
+        {
+            host
+            for installation in installations
+            if (installation.scope != "shared" or installation.user_id in eligible_sharer_ids)
+            and (host := _installation_host(installation.url))
+        }
+    )

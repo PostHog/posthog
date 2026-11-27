@@ -589,6 +589,7 @@ _UNMOUNTED_REASON_NOTICES: dict[UnmountedInstallationReason, str] = {
     "revoked": "a project admin turned this server off for you",
     "not_shared": "share it with this agent in the MCP Store",
     "owner_only": "only the person who connected it can use it",
+    "owner_left": "the person who shared it no longer has access, so a project admin needs to replace it",
 }
 
 

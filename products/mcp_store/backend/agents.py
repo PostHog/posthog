@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -14,7 +15,10 @@ import posthoganalytics
 from posthog.models import Team, User
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.utils import hash_key_value
-from posthog.user_permissions import UserPermissions
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action
 
 from .models import MCPServiceAccount, MCPServiceAccountServerAccess
 
@@ -249,14 +253,23 @@ def credential_owner_eligible(credential_owner_id: int, team_id: int) -> bool:
     stateless and re-validated on every proxied call, so a revocation takes
     effect on the next request rather than racing a persisted credential.
     """
-    owner = User.objects.filter(id=credential_owner_id, is_active=True).first()
-    if owner is None:
-        return False
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        return False
-    return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
+    return credential_owner_id in eligible_credential_owners([credential_owner_id], team_id)
+
+
+def eligible_credential_owners(owner_ids: Iterable[int], team_id: int) -> set[int]:
+    """The subset of `owner_ids` that pass `credential_owner_eligible`."""
+    active_owner_ids = list(User.objects.filter(id__in=owner_ids, is_active=True).values_list("id", flat=True))
+    if not active_owner_ids:
+        return set()
+    project = Resource.project(team_id)
+    with authorization.authorization_session():
+        allowed = authorization.check(
+            [
+                CheckRequest(resource=project, action=Action.VIEW, subject=Subject(user_id=owner_id))
+                for owner_id in active_owner_ids
+            ]
+        )
+    return {owner_id for owner_id, owner_allowed in zip(active_owner_ids, allowed) if owner_allowed}
 
 
 def create_gateway_agent_token(account: MCPServiceAccount, *, credential_owner_id: int | None) -> str:

@@ -9,6 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.models import OrganizationMembership
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.mcp_store.backend.models import (
@@ -311,6 +312,31 @@ class TestGatewayExecTools(APIBaseTest):
         ]
         shared.refresh_from_db()
         assert shared.last_used_at is None
+
+    @parameterized.expand([("deactivated",), ("removed_from_org",)])
+    @patch("products.mcp_store.backend.presentation.views.call_upstream_tool", return_value=_UPSTREAM_RESULT)
+    def test_a_shared_connection_whose_owner_left_is_not_listed_or_callable(self, loss: str, mock_call):
+        other = self._create_user("departed-owner@posthog.com")
+        shared = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=other,
+            scope="shared",
+            gateway_server=self.server,
+            display_name="Linear",
+            url="https://mcp.linear-shared.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk-shared"},
+        )
+        self._tool(installation=shared)
+        if loss == "deactivated":
+            other.is_active = False
+            other.save()
+        else:
+            OrganizationMembership.objects.filter(user=other, organization=self.organization).delete()
+
+        assert self._available().json()["servers"] == []
+        assert self._call(installation_id=shared.id).status_code == status.HTTP_403_FORBIDDEN
+        mock_call.assert_not_called()
 
     def test_available_tools_keys_colliding_slugs_to_their_installation(self):
         # Numbering same-named connections by position would reshuffle when one goes
