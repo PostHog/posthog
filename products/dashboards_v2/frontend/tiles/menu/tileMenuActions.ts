@@ -18,7 +18,7 @@ import type { DashboardEdit } from '../../dashboard/edits/dashboardEdits'
 import type { MenuAction } from '../../menu/menuAction'
 import { type SavedPanel } from '../../panels/core/panelSchema'
 import { findPanel } from '../../panels/core/panelSpec'
-import { backgroundColorAction, descriptionAction, showAction } from './appearanceActions'
+import { backgroundColorAction, showAction } from './appearanceActions'
 
 /**
  * What a content tile does to itself: its image, parts, background and the panel type's own entries, such as a chart's
@@ -41,15 +41,6 @@ export function useContentTileActions(id: string, panel: SavedPanel): MenuAction
     )
     if (backgroundColor) {
         actions.push(backgroundColor)
-    }
-    const description = descriptionAction(
-        TILE_DESCRIPTION,
-        [{ id, panel }],
-        disabledReasonFor('setTilesAppearance'),
-        onEdit
-    )
-    if (description) {
-        actions.push(description)
     }
     let withPanel = actions
     // It runs while the tile renders, outside any error boundary, so a throw here would break the dashboard.
@@ -163,7 +154,6 @@ function leftOutMessage(leftOut: Tile[]): string {
 
 // pinned: `dashboard-v2-tile-parts` data-attrs shipped before border joined this menu.
 const TILE_SHOW = { key: 'parts', label: 'Show', dataAttr: 'dashboard-v2-tile-parts' }
-const TILE_DESCRIPTION = { key: 'description', label: 'Description', dataAttr: 'dashboard-v2-tile-description' }
 const TILE_BACKGROUND_COLOR = {
     key: 'background-color',
     label: 'Background',
