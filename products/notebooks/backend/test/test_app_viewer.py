@@ -225,6 +225,8 @@ def test_release_review_compares_calendar_dates_in_saved_range() -> None:
     ]
     notebook.variables[0]["value"] = "20251229T23:00:00"
     assert review_sources(notebook, "", [block]).problems == []
+    notebook.variables[1]["type"] = "string"
+    assert review_sources(notebook, "", [block]).problems == ["range: choose two different date variables."]
 
 
 class TestPublishedAppResults(APIBaseTest):
