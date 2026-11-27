@@ -1669,6 +1669,28 @@ def test_select_alias_chains_the_layering_skips_keep_their_results(query: str, e
         assert connection.execute(sql).fetchall() == expected
 
 
+def test_layered_select_aliases_keep_view_columns_the_view_star_omits() -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="v",
+            table=SavedQuery(
+                id="v",
+                name="v",
+                query="SELECT 7 AS secret, 1 AS id",
+                fields={
+                    "secret": IntegerDatabaseField(name="secret", hidden=True),
+                    "id": IntegerDatabaseField(name="id"),
+                },
+            ),
+        )
+    )
+    sql, _ = prepare_and_print_ast(parse_select("SELECT secret, id AS a, a + a AS b FROM v"), context, "trino")
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql).fetchall() == [(7, 1, 2)]
+
+
 @pytest.mark.parametrize(
     "date_alias",
     [

@@ -55,7 +55,8 @@ def _layered(query: ast.SelectQuery) -> ast.SelectQuery | None:
     qualifier = _SiblingAliasQualifier(names, source_alias)
     layer = source
     for depth in range(layer_count):
-        layer_select: list[ast.Expr] = [ast.Field(chain=[source_alias, "*"])]
+        carried = [*source_columns, *(name for name in aliases if depths[name] < depth)]
+        layer_select: list[ast.Expr] = [ast.Field(chain=[source_alias, column]) for column in carried]
         layer_select.extend(
             ast.Alias(alias=name, expr=qualifier.visit(expr)) for name, expr in aliases.items() if depths[name] == depth
         )
@@ -93,15 +94,15 @@ def _is_plain_projection(query: ast.SelectQuery) -> bool:
     return not finder.found
 
 
-def _subquery_columns(source_type: ast.Type | None) -> set[str] | None:
+def _subquery_columns(source_type: ast.Type | None) -> list[str] | None:
     if isinstance(source_type, ast.CTETableAliasType):
         source_type = source_type.cte_table_type
     if isinstance(source_type, (ast.CTETableType, ast.SelectQueryAliasType, ast.SelectViewType)):
-        return set(source_type.select_query_type.columns)
+        return list(source_type.select_query_type.columns)
     return None
 
 
-def _names_collide(aliases: dict[str, ast.Expr], source_columns: set[str]) -> bool:
+def _names_collide(aliases: dict[str, ast.Expr], source_columns: list[str]) -> bool:
     folded_aliases = {name.casefold() for name in aliases}
     folded_columns = {column.casefold() for column in source_columns}
     return (
