@@ -53,18 +53,16 @@ describe('loginLogic', () => {
             logic.mount()
         })
 
-        const cases: [string, boolean, boolean][] = [
-            ['/login?reason=session_risk', true, false],
-            ['/login?reason=session_unbound', false, true],
-            ['/login?reason=something_else', false, false],
-            ['/login', false, false],
+        const cases: [string, boolean][] = [
+            ['/login?reason=session_risk', true],
+            ['/login?reason=something_else', false],
+            ['/login', false],
         ]
 
-        for (const [url, sessionRisk, unboundSession] of cases) {
-            it(`for "${url}" it returns ${sessionRisk} and ${unboundSession}`, () => {
+        for (const [url, expected] of cases) {
+            it(`for "${url}" it returns ${expected}`, () => {
                 router.actions.push(url)
-                expect(logic.values.wasSignedOutForSessionRisk).toEqual(sessionRisk)
-                expect(logic.values.wasSignedOutForUnboundSession).toEqual(unboundSession)
+                expect(logic.values.wasSignedOutForSessionRisk).toEqual(expected)
             })
         }
     })

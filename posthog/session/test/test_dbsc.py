@@ -310,9 +310,9 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
 
         assert response.status_code == status
         if status == 302:
-            assert response.headers["Location"] == "/login?reason=session_unbound"
+            assert response.headers["Location"] == "/login?reason=session_risk"
         if status == 401:
-            assert response.json()["code"] == "session_unbound"
+            assert response.json() == DjangoClient().get(path).json()
         assert Session.objects.filter(session_key=session_key).exists() == session_survives
         ended = not session_survives
         assert ActivityLog.objects.filter(activity="session_refused_unbound", user=self.user).exists() == ended

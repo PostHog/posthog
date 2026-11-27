@@ -27,7 +27,14 @@ from posthog.session.dbsc.rollout import is_available
 
 logger = structlog.get_logger(__name__)
 
-REFUSED_REDIRECT = "/login?reason=session_unbound"
+# The same answers as a session-risk sign-out and DRF's own 401, so a refusal does not tell a cookie copy why it failed.
+REFUSED_REDIRECT = "/login?reason=session_risk"
+_NOT_AUTHENTICATED_BODY = {
+    "type": "authentication_error",
+    "code": "not_authenticated",
+    "detail": "Authentication credentials were not provided.",
+    "attr": None,
+}
 BOUNCE_COOKIE = "ph_dbsc_bounce"
 BOUNCE_COOKIE_MAX_AGE_SECONDS = 30
 # A meta refresh needs no script under the Content Security Policy, and our own origin starts the reload.
@@ -39,14 +46,7 @@ _SESSION_KEEPING_ACTIONS = (Action.BOUNCE, Action.REJECT, Action.RETRY_LATER)
 def _unauthenticated_response(request: HttpRequest) -> HttpResponse:
     """The app fetches /api/ paths, and a fetch that follows a redirect to the login page gets HTML it cannot read."""
     if request.path.startswith("/api/"):
-        return JsonResponse(
-            {
-                "type": "authentication_error",
-                "code": "session_unbound",
-                "detail": "This session can only be used on the device it was signed in on.",
-            },
-            status=401,
-        )
+        return JsonResponse(_NOT_AUTHENTICATED_BODY, status=401)
     return HttpResponseRedirect(REFUSED_REDIRECT)
 
 
