@@ -222,6 +222,11 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 # Printed as a Trino date, though the function registry declares no return type for them.
 _DATE_FUNCTIONS = frozenset({"tomonday", "tolastdayofmonth", "tolastdayofweek"})
+_TYPE_PRESERVING_ZEROS: tuple[tuple[type[ast.ConstantType], str], ...] = (
+    (ast.IntegerType, "TINYINT '0'"),
+    (ast.DecimalType, "DECIMAL '0'"),
+    (ast.FloatType, "REAL '0'"),
+)
 _BOOLEAN_PRINTED_FUNCTIONS = frozenset(
     {
         "bittest",
@@ -3435,6 +3440,8 @@ class TrinoPrinter(PostgresPrinter):
             return "TIMESTAMP '1970-01-01 00:00:00'"
         if isinstance(value_type, ast.ArrayType):
             return "ARRAY[]"
+        if isinstance(value_type, ast.MapType):
+            return "MAP()"
         if isinstance(value_type, ast.TupleType):
             items = [self._known_default_value(item) for item in value_type.item_types]
             if None in items:
@@ -4928,10 +4935,8 @@ class TrinoPrinter(PostgresPrinter):
         if not isinstance(container_type, ast.ArrayType):
             return f"element_at({self.visit(container)}, {printed_key})"
         element = f"element_at({self.visit(container)}, {self._array_index(key, printed_key)})"
-        if isinstance(container_type.item_type, ast.TupleType):
-            return element
-        default = self._known_default_value(container_type.item_type)
-        if default is None or default == "NULL":
+        default = self._array_element_fallback(container_type.item_type)
+        if default is None:
             return element
         key_type = self._resolve_type(key)
         if key_type is None or isinstance(key_type, ast.UnknownType) or key_type.nullable:
@@ -4940,9 +4945,17 @@ class TrinoPrinter(PostgresPrinter):
 
     @staticmethod
     def _array_index(index: ast.Expr, printed_index: str) -> str:
-        if isinstance(index, ast.Constant) and isinstance(index.value, int) and index.value != 0:
+        if isinstance(index, ast.Constant) and isinstance(index.value, int):
             return printed_index
         return f"NULLIF({printed_index}, 0)"
+
+    def _array_element_fallback(self, item_type: ast.ConstantType) -> str | None:
+        if isinstance(item_type, ast.TupleType) or item_type.nullable:
+            return None
+        for zero_type, zero in _TYPE_PRESERVING_ZEROS:
+            if isinstance(item_type, zero_type):
+                return zero
+        return self._known_default_value(item_type)
 
     def _constant_string(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
