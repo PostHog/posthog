@@ -117,7 +117,7 @@ describe('adventCalendarLogic', () => {
         async (reply) => {
             const api = calendarApi({ open: reply })
             useMocks(api.mocks)
-            const offset = -new Date().getTimezoneOffset()
+            const offset = 0 - new Date().getTimezoneOffset()
 
             logic.actions.activateDoor('door-1')
             logic.actions.finishReveal()
