@@ -155,21 +155,29 @@ describe('adventCalendarLogic', () => {
         expect(window.localStorage.getItem('workflows-advent-calendar-progress')).toBe(saved)
     })
 
-    it.each(['[object Object]', 'undefined', '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}'])(
-        'keeps its progress when another tab stores %s',
-        (newValue) => {
-            const uncaught: ErrorEvent[] = []
-            const onError = (event: ErrorEvent): number => uncaught.push(event)
-            window.addEventListener('error', onError)
-            logic.actions.activateDoor('door-1')
+    it.each([
+        '[object Object]',
+        'undefined',
+        '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}',
+        '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":[1,25,-1,2.5],"answers":{"30":"tim"}}}',
+    ])('keeps its progress and opens the next door when another tab stores %s', (newValue) => {
+        const uncaught: ErrorEvent[] = []
+        const onError = (event: ErrorEvent): number => uncaught.push(event)
+        window.addEventListener('error', onError)
+        logic.actions.activateDoor('door-1')
 
-            window.dispatchEvent(new StorageEvent('storage', { key: 'workflows-advent-calendar-progress', newValue }))
-            window.removeEventListener('error', onError)
+        window.localStorage.setItem('workflows-advent-calendar-progress', newValue)
+        window.dispatchEvent(new StorageEvent('storage', { key: 'workflows-advent-calendar-progress', newValue }))
+        logic.actions.answerDoor('door-2', 'tim')
+        window.removeEventListener('error', onError)
 
-            expect(uncaught).toEqual([])
-            expect(doorOf(logic, 'door-1')?.status).toBe('open')
-        }
-    )
+        expect(uncaught).toEqual([])
+        expect(
+            JSON.parse(window.localStorage.getItem('workflows-advent-calendar-progress') ?? '{}')[
+                '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
+            ]
+        ).toEqual({ opened: [1, 2], answers: { 2: 'tim' } })
+    })
 
     it('opens a question door with the answer and drops the path not taken', () => {
         logic.actions.activateDoor('door-1')

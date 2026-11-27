@@ -6,7 +6,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { PreflightStatus, UserType } from '../../../../frontend/src/types'
-import { AdventReward } from './adventContent'
+import { ADVENT_LAST_DAY, AdventReward } from './adventContent'
 import { AdventRewards, drawAdventRewards } from './adventDraw'
 import {
     AdventDoor,
@@ -31,6 +31,26 @@ const CLOCK_REFRESH_MS = 60_000
 // pinned: the localStorage key of each person's opened doors. Renaming it resets them.
 const PROGRESS_STORAGE_KEY = 'workflows-advent-calendar-progress'
 
+function isAdventDay(day: unknown): boolean {
+    return Number.isInteger(day) && (day as number) >= 1 && (day as number) <= ADVENT_LAST_DAY
+}
+
+function isAdventProgress(value: unknown): value is AdventProgress {
+    if (!value || typeof value !== 'object') {
+        return false
+    }
+    const { opened, answers } = value as Partial<AdventProgress>
+    return (
+        Array.isArray(opened) &&
+        opened.length <= ADVENT_LAST_DAY &&
+        opened.every(isAdventDay) &&
+        !!answers &&
+        typeof answers === 'object' &&
+        !Array.isArray(answers) &&
+        Object.entries(answers).every(([day, optionId]) => isAdventDay(Number(day)) && typeof optionId === 'string')
+    )
+}
+
 function storedProgress(value: string): Record<string, AdventProgress> | null {
     let parsed: unknown
     try {
@@ -41,18 +61,17 @@ function storedProgress(value: string): Record<string, AdventProgress> | null {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         return null
     }
-    const entries = Object.entries(parsed).filter(
-        (entry): entry is [string, AdventProgress] =>
-            !!entry[1] && Array.isArray(entry[1].opened) && !!entry[1].answers && typeof entry[1].answers === 'object'
+    return Object.fromEntries(
+        Object.entries(parsed).filter((entry): entry is [string, AdventProgress] => isAdventProgress(entry[1]))
     )
-    return Object.fromEntries(entries)
 }
 
 function sameAdventProgress(a: AdventProgress, b: AdventProgress): boolean {
+    const opened = new Set(a.opened)
     const answered = Object.entries(b.answers)
     return (
         a.opened.length === b.opened.length &&
-        b.opened.every((day) => a.opened.includes(day)) &&
+        b.opened.every((day) => opened.has(day)) &&
         Object.keys(a.answers).length === answered.length &&
         answered.every(([day, optionId]) => a.answers[Number(day)] === optionId)
     )
