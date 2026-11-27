@@ -82,7 +82,7 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
                         OR c.oid IN (SELECT indexrelid FROM pg_index WHERE indrelid = 'cyclotron_jobs'::regclass)`
                 )
                 const visibility = await client.query<{ visible: boolean }>(
-                    `SELECT pg_has_role('pg_read_all_stats', 'USAGE') AND current_setting('track_activities')::bool AS visible`
+                    `SELECT pg_has_role('pg_read_all_stats', 'USAGE') AS visible`
                 )
                 return {
                     settings: Object.fromEntries(settings.rows.map(({ name, value }) => [name, value])),

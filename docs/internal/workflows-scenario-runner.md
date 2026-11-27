@@ -970,11 +970,11 @@ When Cyclotron gains its own read of the same counts, that read replaces this mo
 
 ### Vacuum probe
 
-`probe/vacuum-probe.ts` reads the vacuum state of `cyclotron_jobs` every 10 seconds from the drive's start, and once more when the probes stop, into `vacuum` in `probes.json`.
+`probe/vacuum-probe.ts` reads the vacuum state of `cyclotron_jobs` into `vacuum` in `probes.json`: once just before the drive starts, every 10 seconds through the drive and convergence, and once more when the probes stop.
 Each read is one catalog query with no table scan: live and dead tuples, the autovacuum and vacuum counts, the last autovacuum, the start of an autovacuum running on the table, and the sizes of the heap, its TOAST and each index.
 A failed read is kept with its error.
 At the start, the probe reads the autovacuum and vacuum settings and the storage options of the table and its indexes into `vacuumSettings`.
-`workersVisible` there says whether the role holds `pg_read_all_stats` and `track_activities` is on. Without both, PostgreSQL hides an autovacuum worker's start.
+`workersVisible` there says whether the role holds `pg_read_all_stats`. Without it, PostgreSQL hides an autovacuum worker's start.
 
 ### Scorecard
 

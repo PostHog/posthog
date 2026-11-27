@@ -74,7 +74,7 @@ describe('vacuum probe', () => {
                 (
                     await client.query<{ autovacuum: string; visible: boolean }>(
                         `SELECT current_setting('autovacuum') AS autovacuum,
-                                pg_has_role('pg_read_all_stats', 'USAGE') AND current_setting('track_activities')::bool AS visible`
+                                pg_has_role('pg_read_all_stats', 'USAGE') AS visible`
                     )
                 ).rows[0],
             PROBE_URL
