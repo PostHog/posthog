@@ -11,6 +11,7 @@ const RUNNER_RUN_ID = '00000000-0000-4000-8000-000000000002'
 const BUCKET = 'test-evidence'
 const POOLER_URLS =
     'postgres://scn%20admin:p%40ss@127.0.0.1:6432/cyclotron_node,postgres://scn%20admin:p%40ss@127.0.0.1:6433/cyclotron_node'
+const WRITER_URL = 'postgres://scn%20admin:p%40ss@scn.cluster.example.com:5432/cyclotron_node?sslmode=verify-full'
 
 const FAKE_AWS = `#!/usr/bin/env bash
 [ "$1 $2" = "s3 cp" ] || exit 2
@@ -41,6 +42,7 @@ state="$XDG_CACHE_HOME/posthog-scenarios"
 run="$state/${RUNNER_RUN_ID}"
 mkdir -p "$run" "$state/edge-ca"
 printf '%s' "$SCENARIO_POOLER_URLS" >"$state/pooler-urls"
+printf '%s' "$SCENARIO_WRITER_URL" >"$state/writer-url"
 command -v cargo >"$state/cargo" || true
 echo '{"phase":"drive"}' >"$run/result.json"
 echo 'hogli up exited 1' >"$state/hogli.log"
@@ -78,7 +80,8 @@ describe('host-run-card.sh', () => {
         env: NodeJS.ProcessEnv,
         manifest: object = { card: 'cyclotron-scale' },
         runner = FAKE_RUNNER,
-        poolerUrls: string | null = POOLER_URLS
+        poolerUrls: string | null = POOLER_URLS,
+        writerUrl: string | null = WRITER_URL
     ): ChildProcess {
         const bin = path.join(dir, 'bin')
         const host = path.resolve(dir, env.SCENARIO_HOST_ROOT ?? 'host')
@@ -88,6 +91,10 @@ describe('host-run-card.sh', () => {
         if (poolerUrls !== null) {
             mkdirSync(path.join(host, 'pooler'), { recursive: true })
             writeFileSync(path.join(host, 'pooler', 'urls'), `${poolerUrls}\n`)
+        }
+        if (writerUrl !== null) {
+            mkdirSync(path.join(host, 'writer'), { recursive: true })
+            writeFileSync(path.join(host, 'writer', 'url'), `${writerUrl}\n`)
         }
         writeFileSync(path.join(bin, 'aws'), FAKE_AWS, { mode: 0o755 })
         if (runner) {
@@ -195,12 +202,12 @@ echo '{"phase":"control"}' >"$XDG_CACHE_HOME/posthog-scenarios/${RUNNER_RUN_ID}/
         expect(readFileSync(s3('control/live.jsonl'), 'utf8')).toBe('{"phase":"control"}\n')
     })
 
-    it('hands the runner the URLs of the poolers in front of the run cluster', async () => {
+    it('hands the runner the URLs of the poolers in front of the run cluster, and of its writer', async () => {
         await exited(start({}))
 
-        expect(readFileSync(path.join(dir, 'host', 'cache', 'posthog-scenarios', 'pooler-urls'), 'utf8')).toBe(
-            POOLER_URLS
-        )
+        const state = path.join(dir, 'host', 'cache', 'posthog-scenarios')
+        expect(readFileSync(path.join(state, 'pooler-urls'), 'utf8')).toBe(POOLER_URLS)
+        expect(readFileSync(path.join(state, 'writer-url'), 'utf8')).toBe(WRITER_URL)
     })
 
     it('hands the stack the cargo the bootstrap installed, which its Rust services run', async () => {
@@ -213,18 +220,27 @@ echo '{"phase":"control"}' >"$XDG_CACHE_HOME/posthog-scenarios/${RUNNER_RUN_ID}/
         expect(readFileSync(path.join(dir, 'host', 'cache', 'posthog-scenarios', 'cargo'), 'utf8').trim()).toBe(cargo)
     })
 
-    it.each<[string, NodeJS.ProcessEnv, object, string | null]>([
-        ['it cannot mark it started', { FAKE_MARK_FAILS: 'started' }, { card: 'cyclotron-scale' }, POOLER_URLS],
-        ['the run manifest names no card', {}, {}, POOLER_URLS],
+    it.each<[string, NodeJS.ProcessEnv, object, string | null, string | null]>([
+        [
+            'it cannot mark it started',
+            { FAKE_MARK_FAILS: 'started' },
+            { card: 'cyclotron-scale' },
+            POOLER_URLS,
+            WRITER_URL,
+        ],
+        ['the run manifest names no card', {}, {}, POOLER_URLS, WRITER_URL],
         [
             'the run manifest names a file in place of a card',
             {},
             { card: '/opt/scenario/input/other.yaml' },
             POOLER_URLS,
+            WRITER_URL,
         ],
-        ['the host started no pooler', {}, { card: 'cyclotron-scale' }, null],
-    ])('never starts the card when %s', async (_story, env, manifest, poolerUrls) => {
-        await exited(start(env, manifest, FAKE_RUNNER, poolerUrls))
+        ['the host started no pooler', {}, { card: 'cyclotron-scale' }, null, WRITER_URL],
+        ['the host recorded no writer to probe', {}, { card: 'cyclotron-scale' }, POOLER_URLS, null],
+        ['the host recorded an empty writer', {}, { card: 'cyclotron-scale' }, POOLER_URLS, ''],
+    ])('never starts the card when %s', async (_story, env, manifest, poolerUrls, writerUrl) => {
+        await exited(start(env, manifest, FAKE_RUNNER, poolerUrls, writerUrl))
 
         expect(parseJSON(readFileSync(s3('host/done'), 'utf8'))).toMatchObject({ exitCode: 2 })
         expect(existsSync(path.join(dir, 'host', 'cache', 'posthog-scenarios'))).toBe(false)
