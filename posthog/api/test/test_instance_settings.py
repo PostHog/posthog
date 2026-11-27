@@ -261,12 +261,12 @@ class TestInstanceSettings(APIBaseTest):
 
     def test_update_integer_setting(self):
         response = self.client.patch(
-            f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
+            f"/api/instance_settings/GROWTH_ICP_REENRICH_DAILY_CAP",
             {"value": 48343943943},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], 48343943943)
-        self.assertEqual(get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT"), 48343943943)
+        self.assertEqual(get_instance_setting("GROWTH_ICP_REENRICH_DAILY_CAP"), 48343943943)
 
     def test_update_list_int_setting(self):
         valid_cases = [
@@ -341,7 +341,7 @@ class TestInstanceSettings(APIBaseTest):
     @parameterized.expand(
         [
             ("bool", "AUTO_START_ASYNC_MIGRATIONS", False, True),
-            ("int", "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", 30, 60),
+            ("int", "GROWTH_ICP_REENRICH_DAILY_CAP", 500, 600),
             ("string", "GITHUB_APP_SLUG", "", "posthog-app"),
         ]
     )
@@ -463,7 +463,7 @@ class TestInstanceSettings(APIBaseTest):
     @parameterized.expand(
         [
             ("bool", "AUTO_START_ASYNC_MIGRATIONS", True),
-            ("int", "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", 30),
+            ("int", "GROWTH_ICP_REENRICH_DAILY_CAP", 500),
             ("string", "GITHUB_APP_SLUG", "posthog-app"),
         ]
     )

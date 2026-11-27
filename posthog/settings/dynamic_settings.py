@@ -31,11 +31,6 @@ CONSTANCE_CONFIG = {
         "events to capture. Throttles the shared ingestion person-write path; ops can retune live.",
         int,
     ),
-    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
-        3,
-        "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
-        int,
-    ),
     "HOGQL_PROJECTION_OPTIMIZATION_ENABLED": (
         get_from_env("HOGQL_PROJECTION_OPTIMIZATION_ENABLED", True, type_cast=str_to_bool),
         "Whether HogQL prunes unused subquery columns and narrows exported event properties. "
@@ -131,11 +126,6 @@ CONSTANCE_CONFIG = {
         get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
         "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
         bool,
-    ),
-    "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT": (
-        get_from_env("ASYNC_MIGRATION_ROLLBACK_TIMEOUT", 30, type_cast=int),
-        "The timeout for completing the full rollback of an async migration.",
-        int,
     ),
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK": (
         get_from_env("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool),
@@ -309,16 +299,6 @@ CONSTANCE_CONFIG = {
         "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
         str,
     ),
-    "PARALLEL_DASHBOARD_ITEM_CACHE": (
-        get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
-        "user to determine how many insight cache updates to run at a time",
-        int,
-    ),
-    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS": (
-        get_from_env("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS", default=False),
-        "Used to enable the running of experimental async migrations",
-        bool,
-    ),
     "RATE_LIMIT_ENABLED": (
         get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool),
         "Whether rate limiting is enabled",
@@ -421,11 +401,6 @@ CONSTANCE_CONFIG = {
         "2 covers every shape a user returned to; misses cost only a live serve (warm-behind).",
         int,
     ),
-    "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
-        get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]),
-        "Teams that will have web analytics cache warming enabled",
-        list[int],
-    ),
     "WEB_ANALYTICS_WARMING_MAX_SHAPES": (
         get_from_env("WEB_ANALYTICS_WARMING_MAX_SHAPES", default=400000, type_cast=int),
         "Cap on the number of hot query shapes web analytics warming selects fleet-wide per run. "
@@ -512,11 +487,9 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "HOGQL_PROPERTIES_NARROWING_ENABLED",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS",
-    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
     "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES",
-    "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
     "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
@@ -553,8 +526,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",
-    "PARALLEL_DASHBOARD_ITEM_CACHE",
-    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS",
