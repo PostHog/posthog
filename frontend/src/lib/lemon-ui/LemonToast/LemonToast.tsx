@@ -48,6 +48,8 @@ export interface ToastButton {
 
 export interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     button?: ToastButton
+    /** A second action, shown after `button` on a row under the message. */
+    secondaryButton?: ToastButton
     hideButton?: boolean
     /** Runs when the user closes the toast, not when it times out. */
     onDismiss?: () => void
@@ -56,11 +58,6 @@ export interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
 interface ErrorToastOptions<T = string> extends ToastOptionsWithButton<T> {
     /** Sent to analytics in place of `message`, for a message that can repeat text the user typed. */
     capturedMessage?: string
-}
-
-interface SuccessToastOptions<T = string> extends ToastOptionsWithButton<T> {
-    /** A second action, shown after `button` on a row under the message. */
-    secondaryButton?: ToastButton
 }
 
 export const GET_HELP_BUTTON: ToastButton = {
@@ -316,7 +313,7 @@ function backend(): ToastBackend {
 function show(
     kind: ToastKind,
     message: string | JSX.Element,
-    { button, secondaryButton, ...toastOptions }: SuccessToastOptions
+    { button, secondaryButton, ...toastOptions }: ToastOptionsWithButton
 ): number | string {
     const options = ensureToastId(toastOptions, kind, message)
     const id = options.toastId!
@@ -338,7 +335,7 @@ export const lemonToast = {
     loading(message: string | JSX.Element, options: ToastOptionsWithButton = {}) {
         return show('loading', message, options)
     },
-    success(message: string | JSX.Element, options: SuccessToastOptions = {}) {
+    success(message: string | JSX.Element, options: ToastOptionsWithButton = {}) {
         return show('success', message, options)
     },
     warning(message: string | JSX.Element, options: ToastOptionsWithButton = {}) {

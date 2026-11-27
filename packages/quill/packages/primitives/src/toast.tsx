@@ -55,7 +55,8 @@ type ToastCardProps = React.ComponentPropsWithRef<'div'> & {
     action?: ToastAction
     secondaryAction?: ToastAction
     onDismiss?: () => void
-    showGapHitArea?: boolean
+    /** Covers the gap between expanded cards so hovering it keeps the stack open. */
+    showGapHitArea?: 'above' | 'below'
 }
 
 const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
@@ -80,7 +81,10 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
             <div ref={ref} className={cn('quill-toast-card', className)} {...props}>
                 {showGapHitArea && (
                     <span
-                        className="pointer-events-auto absolute left-0 top-full w-full"
+                        className={cn(
+                            'pointer-events-auto absolute left-0 w-full',
+                            showGapHitArea === 'above' ? 'bottom-full' : 'top-full'
+                        )}
                         style={{ height: 'calc(var(--gap) + 1px)' }}
                     />
                 )}
@@ -137,44 +141,83 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
 )
 ToastCard.displayName = 'ToastCard'
 
-// ── Toast root styles (CSS variable heavy — can't be pure Tailwind) ──
-const toastRootStyles: React.CSSProperties = {
-    '--gap': '0.75rem',
-    '--peek': '0.75rem',
-    '--scale': 'calc(max(0, 1 - (var(--toast-index) * 0.1)))',
-    '--shrink': 'calc(1 - var(--scale))',
-    '--height': 'var(--toast-frontmost-height, var(--toast-height))',
-    '--offset-y':
-        'calc(var(--toast-offset-y) * -1 + (var(--toast-index) * var(--gap) * -1) + var(--toast-swipe-movement-y))',
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    left: 'auto',
-    width: '100%',
-    // Collapsed cards take the front card's height so a shorter one still peeks out from behind it.
-    height: 'var(--height)',
-    zIndex: 'calc(1000 - var(--toast-index))',
-    transformOrigin: 'bottom center',
-    transform:
-        'translateX(var(--toast-swipe-movement-x)) translateY(calc(var(--toast-swipe-movement-y) - (var(--toast-index) * var(--peek)) - (var(--shrink) * var(--height)))) scale(var(--scale))',
-    transition: 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.5s, height 0.15s',
-} as React.CSSProperties
+// ── Toast placement ───────────────────────────────────────────────────
+export type ToastPlacement = 'bottom-right' | 'top-center'
+
+// Older toasts stack away from the screen edge, upward from the bottom and downward from the top.
+// `away` is the sign of that direction in the CSS math below.
+function stackStyles(away: '-1' | '1', origin: 'top' | 'bottom'): React.CSSProperties {
+    return {
+        '--gap': '0.75rem',
+        '--peek': '0.75rem',
+        '--scale': 'calc(max(0, 1 - (var(--toast-index) * 0.1)))',
+        '--shrink': 'calc(1 - var(--scale))',
+        '--height': 'var(--toast-frontmost-height, var(--toast-height))',
+        '--offset-y': `calc(${away} * (var(--toast-offset-y) + (var(--toast-index) * var(--gap))) + var(--toast-swipe-movement-y))`,
+        position: 'absolute',
+        right: 0,
+        [origin]: 0,
+        width: '100%',
+        // Collapsed cards take the front card's height so a shorter one still peeks out from behind it.
+        height: 'var(--height)',
+        zIndex: 'calc(1000 - var(--toast-index))',
+        transformOrigin: `${origin} center`,
+        transform: `translateX(var(--toast-swipe-movement-x)) translateY(calc(var(--toast-swipe-movement-y) + ${away} * ((var(--toast-index) * var(--peek)) + (var(--shrink) * var(--height))))) scale(var(--scale))`,
+        transition: 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.5s, height 0.15s',
+    } as React.CSSProperties
+}
+
+const toastPlacements: Record<
+    ToastPlacement,
+    {
+        viewportClassName: string
+        cardClassName: string
+        rootStyle: React.CSSProperties
+        swipeDirection: Toast.Root.Props['swipeDirection']
+        gapHitArea: 'above' | 'below'
+    }
+> = {
+    'bottom-right': {
+        viewportClassName: 'bottom-4 right-4',
+        cardClassName:
+            'data-[starting-style]:![transform:translateY(150%)] data-[ending-style]:![transform:translateY(150%)]',
+        rootStyle: stackStyles('-1', 'bottom'),
+        swipeDirection: ['down', 'right'],
+        gapHitArea: 'below',
+    },
+    'top-center': {
+        viewportClassName:
+            'top-[calc(1rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 max-w-[calc(100vw-2rem)]',
+        cardClassName:
+            'data-[starting-style]:![transform:translateY(-150%)] data-[ending-style]:![transform:translateY(-150%)]',
+        rootStyle: stackStyles('1', 'top'),
+        swipeDirection: 'up',
+        gapHitArea: 'above',
+    },
+}
 
 // ── Provider ──────────────────────────────────────────────────────────
 type ToastProviderProps = {
     children: React.ReactNode
     limit?: number
     timeout?: number
+    /** Where the stack sits; `top-center` suits a phone, where the bottom holds the tab bar. */
+    placement?: ToastPlacement
 }
 
-function ToastProvider({ children, limit = 3, timeout = 5000 }: ToastProviderProps): React.ReactElement {
+function ToastProvider({
+    children,
+    limit = 3,
+    timeout = 5000,
+    placement = 'bottom-right',
+}: ToastProviderProps): React.ReactElement {
     return (
         <Toast.Provider toastManager={toastManager} limit={limit} timeout={timeout}>
             <Toast.Provider toastManager={anchoredToastManager} limit={limit} timeout={timeout}>
                 {children}
                 <AnchoredToastViewport />
             </Toast.Provider>
-            <ToastViewport />
+            <ToastViewport placement={placement} />
         </Toast.Provider>
     )
 }
@@ -197,8 +240,9 @@ function closingAction(
     }
 }
 
-function ToastViewport(): React.ReactElement {
+function ToastViewport({ placement }: { placement: ToastPlacement }): React.ReactElement {
     const manager = Toast.useToastManager<ToastActionData>()
+    const layout = toastPlacements[placement]
 
     return (
         <Toast.Portal>
@@ -206,7 +250,8 @@ function ToastViewport(): React.ReactElement {
                 data-quill
                 data-quill-portal="toast"
                 data-slot="toast-viewport"
-                className="fixed bottom-4 right-4 w-[360px]"
+                data-placement={placement}
+                className={cn('fixed w-[360px]', layout.viewportClassName)}
             >
                 {manager.toasts.map((t) => {
                     const toastType = t.type as ToastType | undefined
@@ -215,13 +260,14 @@ function ToastViewport(): React.ReactElement {
                         <Toast.Root
                             key={t.id}
                             toast={t}
-                            style={toastRootStyles}
+                            swipeDirection={layout.swipeDirection}
+                            style={layout.rootStyle}
                             render={
                                 <ToastCard
                                     toastTitle={t.title}
                                     toastDescription={t.description}
                                     icon={toastType ? toastIconMap[toastType] : undefined}
-                                    showGapHitArea
+                                    showGapHitArea={layout.gapHitArea}
                                     action={closingAction(manager, t.id, t.data?.action)}
                                     secondaryAction={closingAction(manager, t.id, t.data?.secondaryAction)}
                                     onDismiss={() => {
@@ -233,8 +279,7 @@ function ToastViewport(): React.ReactElement {
                                         'data-[expanded]:![transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]',
                                         'data-[expanded]:![height:var(--toast-height)]',
                                         'not-data-[expanded]:overflow-hidden',
-                                        'data-[starting-style]:![transform:translateY(150%)]',
-                                        'data-[ending-style]:![transform:translateY(150%)]',
+                                        layout.cardClassName,
                                         'data-[ending-style]:opacity-0',
                                         'data-[limited]:opacity-0'
                                     )}
