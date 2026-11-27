@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    ACCOUNT_RESOURCE_NAME,
     APPLICATION_FEE_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
@@ -61,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
+    CREDIT_NOTE_LINE_ITEM_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
@@ -77,6 +79,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
     HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_LINE_ITEM_RESOURCE_NAME,
     INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     OUTBOUND_PAYMENT_RESOURCE_NAME,
@@ -1271,6 +1274,95 @@ def test_credit_note_rows_carry_lines_past_the_embedded_page():
     assert lines_column["has_more"] is False
 
 
+def _line_item_parents_api(
+    parent_path: str, parents: list[tuple[str, list[str], bool]]
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """A paged parent listing (one parent per page) whose parents embed up to 10 of their lines.
+
+    Each parent is `(id, line_ids, truncated)`; a truncated parent embeds its first 10 lines and
+    serves the rest from its `/lines` endpoint.
+    """
+    lines_of = {parent_id: [{"id": line_id, "object": "line_item"} for line_id in ids] for parent_id, ids, _ in parents}
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/lines"):
+            parent_id = request.path.split("/")[-2]
+            return ScriptedResponse(
+                json={"object": "list", "data": lines_of[parent_id], "has_more": False, "url": request.path}
+            )
+        ids = [parent_id for parent_id, _, _ in parents]
+        starting_after = request.param("starting_after")
+        index = ids.index(starting_after) + 1 if starting_after is not None else 0
+        parent_id, _, truncated = parents[index]
+        embedded = lines_of[parent_id][:10] if truncated else lines_of[parent_id]
+        parent = {
+            "id": parent_id,
+            "created": 1700000000,
+            "lines": {
+                "object": "list",
+                "data": embedded,
+                "has_more": truncated,
+                "url": f"{parent_path}/{parent_id}/lines",
+            },
+        }
+        return ScriptedResponse(
+            json={"object": "list", "data": [parent], "has_more": index + 1 < len(parents), "url": parent_path}
+        )
+
+    return respond
+
+
+class TestLineItemTables:
+    def _run(self, endpoint: str, parents: list[tuple[str, list[str], bool]], resume_state: Any = None) -> DriveResult:
+        parent_path = "/v1/invoices" if endpoint == INVOICE_LINE_ITEM_RESOURCE_NAME else "/v1/credit_notes"
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+        return SourceDriver(StripeSource(), config).run(
+            endpoint, _line_item_parents_api(parent_path, parents), resume_state=resume_state
+        )
+
+    @parameterized.expand(
+        [
+            (INVOICE_LINE_ITEM_RESOURCE_NAME, "invoice", "/v1/invoices"),
+            (CREDIT_NOTE_LINE_ITEM_RESOURCE_NAME, "credit_note", "/v1/credit_notes"),
+        ]
+    )
+    def test_reads_every_line_and_calls_lines_only_for_truncated_parents(
+        self, endpoint: str, parent_column: str, parent_path: str
+    ) -> None:
+        long_lines = [f"l_a_{i}" for i in range(12)]
+        result = self._run(endpoint, [("p_a", long_lines, True), ("p_b", ["l_b_0"], False), ("p_c", [], False)])
+
+        assert result.raised is None
+        rows = [row for table in result.rows for row in table.to_pylist()]
+        assert [(row[parent_column], row["id"]) for row in rows] == [
+            *[("p_a", line_id) for line_id in long_lines],
+            ("p_b", "l_b_0"),
+        ]
+        assert [path for path in result.paths if path.endswith("/lines")] == [f"{parent_path}/p_a/lines"]
+
+    @parameterized.expand(
+        [
+            ("cursor_inside_parent", "l_a_1", ["l_a_2", "l_a_3"]),
+            ("cursor_line_gone", "l_a_gone", ["l_a_0", "l_a_1", "l_a_2", "l_a_3"]),
+        ]
+    )
+    def test_resume_inside_a_parent_continues_after_the_saved_line(
+        self, _name: str, nested_starting_after: str, expected_first_parent_lines: list[str]
+    ) -> None:
+        resume = stripe_module.StripeResumeConfig(nested_parent_id="p_a", nested_starting_after=nested_starting_after)
+        result = self._run(
+            INVOICE_LINE_ITEM_RESOURCE_NAME,
+            [("p_a", [f"l_a_{i}" for i in range(4)], False), ("p_b", ["l_b_0"], False)],
+            resume_state=resume,
+        )
+
+        assert result.raised is None
+        rows = [row for table in result.rows for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == [*expected_first_parent_lines, "l_b_0"]
+
+
 @parameterized.expand([(INVOICE_RESOURCE_NAME,), (CREDIT_NOTE_RESOURCE_NAME,)])
 def test_first_page_error_of_a_line_expanding_listing_is_cleaned(endpoint):
     redacted = "rk_live_" + "*" * 80 + "abcd"
@@ -1303,6 +1395,152 @@ def test_balance_history_switch_decides_which_customers_are_swept(_name, enabled
     assert result.raised is None
     rows = [row for table in result.rows for row in table.to_pylist()]
     assert sorted(row["customer"] for row in rows) == expected_customers
+
+
+_HAS_PAYMENT_METHOD_EXPAND = "data.has_payment_method"
+_EXPAND_REFUSED = ScriptedResponse(
+    status=400,
+    json={
+        "error": {
+            "type": "invalid_request_error",
+            "message": "This property cannot be included (data.has_payment_method)",
+        }
+    },
+)
+
+
+def _payment_method_api(
+    customer_pages: list[list[dict[str, Any]]],
+    refuse_expand_on_page: Optional[int] = None,
+    error: Optional[ScriptedResponse] = None,
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """A Stripe account whose customer listing serves `has_payment_method` only on an expand request.
+
+    `refuse_expand_on_page` answers an expand request for that page with Stripe's refusal, the way an
+    account without access, or one whose access Stripe removed mid-sweep, is answered."""
+    customers = [customer for page in customer_pages for customer in page]
+    page_starts: dict[str | None, int] = {None: 0}
+    page_starts.update({customer_pages[i - 1][-1]["id"]: i for i in range(1, len(customer_pages))})
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/customers":
+            page_index = page_starts[request.param("starting_after")]
+            expanded = request.param("expand[]") == _HAS_PAYMENT_METHOD_EXPAND
+            if expanded and page_index == refuse_expand_on_page:
+                return error or _EXPAND_REFUSED
+            page = [
+                {k: v for k, v in customer.items() if expanded or k != "has_payment_method"}
+                for customer in customer_pages[page_index]
+            ]
+            has_more = page_index < len(customer_pages) - 1
+            return ScriptedResponse(json={"object": "list", "data": page, "has_more": has_more, "url": request.path})
+        customer_id = request.path.split("/")[3]
+        attached = next(c for c in customers if c["id"] == customer_id).get("has_payment_method") is not False
+        payment_methods = (
+            [{"id": f"pm_{customer_id}", "object": "payment_method", "created": 1700000000, "customer": customer_id}]
+            if attached
+            else []
+        )
+        return ScriptedResponse(
+            json={"object": "list", "data": payment_methods, "has_more": False, "url": request.path}
+        )
+
+    return respond
+
+
+_CUSTOMERS_WITH_SIGNAL: list[list[dict[str, Any]]] = [
+    [
+        {"id": "cus_none", "has_payment_method": False},
+        {"id": "cus_card", "has_payment_method": True},
+    ],
+    [
+        {"id": "cus_unknown"},
+        {"id": "cus_none_2", "has_payment_method": False},
+    ],
+]
+
+
+class TestPaymentMethodSweepHasPaymentMethodExpand:
+    def _run(self, endpoint: str, script: Any, flag_on: bool = True) -> tuple[DriveResult, MagicMock]:
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.is_team_flag_enabled",
+            return_value=flag_on,
+        ) as flag:
+            return SourceDriver(StripeSource(), config).run(endpoint, script), flag
+
+    @staticmethod
+    def _swept_customers(result: DriveResult) -> list[str]:
+        return [path.split("/")[3] for path in result.paths if path.endswith("/payment_methods")]
+
+    @staticmethod
+    def _customer_list_expands(result: DriveResult) -> list[str | None]:
+        return [request.param("expand[]") for request in result.requests if request.path == "/v1/customers"]
+
+    @parameterized.expand([(CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,), (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,)])
+    def test_granted_account_skips_customers_without_payment_methods(self, endpoint):
+        result, _ = self._run(endpoint, _payment_method_api(_CUSTOMERS_WITH_SIGNAL))
+
+        assert result.raised is None
+        assert self._swept_customers(result) == ["cus_card", "cus_unknown"]
+        assert self._customer_list_expands(result) == [_HAS_PAYMENT_METHOD_EXPAND, _HAS_PAYMENT_METHOD_EXPAND]
+        rows = [row for table in result.rows for row in table.to_pylist()]
+        assert sorted(row["customer"] for row in rows) == ["cus_card", "cus_unknown"]
+        assert all("has_payment_method" not in row for row in rows)
+
+    @parameterized.expand(
+        [
+            # An account without access is refused on the first page.
+            ("refused_on_first_page", 0, [None, "cus_card"], ["cus_none", "cus_card", "cus_unknown", "cus_none_2"]),
+            # Stripe removed the account's access after the first page. The listing continues after
+            # the last customer it handed over, and the first page keeps its skips.
+            ("refused_mid_sweep", 1, ["cus_card"], ["cus_card", "cus_unknown", "cus_none_2"]),
+        ]
+    )
+    def test_refused_expand_falls_back_to_sweeping_every_customer(
+        self, _name, refused_page, relist_cursors, expected_swept
+    ):
+        result, _ = self._run(
+            CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+            _payment_method_api(_CUSTOMERS_WITH_SIGNAL, refuse_expand_on_page=refused_page),
+        )
+
+        assert result.raised is None
+        listings = [request for request in result.requests if request.path == "/v1/customers"]
+        relists = listings[refused_page + 1 :]
+        assert [request.param("expand[]") for request in listings[: refused_page + 1]] == [
+            _HAS_PAYMENT_METHOD_EXPAND
+        ] * (refused_page + 1)
+        assert [(request.param("expand[]"), request.param("starting_after")) for request in relists] == [
+            (None, cursor) for cursor in relist_cursors
+        ]
+        assert self._swept_customers(result) == expected_swept
+
+    def test_other_customer_list_errors_still_fail_the_sync(self):
+        error = ScriptedResponse(
+            status=400, json={"error": {"type": "invalid_request_error", "message": "Invalid limit"}}
+        )
+        result, _ = self._run(
+            CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+            _payment_method_api(_CUSTOMERS_WITH_SIGNAL, refuse_expand_on_page=0, error=error),
+        )
+
+        assert isinstance(result.raised, stripe_lib.InvalidRequestError)
+        assert len([path for path in result.paths if path == "/v1/customers"]) == 1
+
+    def test_flag_off_sends_no_expand_and_sweeps_every_customer(self):
+        result, _ = self._run(CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, _payment_method_api(_CUSTOMERS_WITH_SIGNAL), False)
+
+        assert result.raised is None
+        assert self._customer_list_expands(result) == [None, None]
+        assert self._swept_customers(result) == ["cus_none", "cus_card", "cus_unknown", "cus_none_2"]
+
+    def test_other_tables_skip_the_flag_check(self):
+        _, flag = self._run(CHARGE_RESOURCE_NAME, _stripe_list_api([{"id": "ch_1", "created": NOW}], "created"))
+
+        flag.assert_not_called()
 
 
 class TestScrubClientSecrets:
@@ -1602,6 +1840,11 @@ class TestWebhookEventMapping:
             (BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,),
             (ENTITLEMENTS_FEATURE_RESOURCE_NAME,),
             (ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,),
+            (INVOICE_LINE_ITEM_RESOURCE_NAME,),
+            (CREDIT_NOTE_LINE_ITEM_RESOURCE_NAME,),
+            # Our endpoint is not a Connect endpoint, so `account.*` events would only ever carry the
+            # platform's own account, never the connected accounts this table lists.
+            (ACCOUNT_RESOURCE_NAME,),
         ]
     )
     def test_resource_without_stripe_event_stays_api_sweep_only(self, resource: str) -> None:

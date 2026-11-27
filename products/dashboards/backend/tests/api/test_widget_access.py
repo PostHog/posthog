@@ -10,11 +10,8 @@ from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.dashboards.backend.widget_access import (
-    check_widget_tile_product_access,
-    get_widget_api_scope_error,
-    get_widget_product_access_error,
-)
+from products.dashboards.backend.presentation.widgets import get_widget_api_scope_error
+from products.dashboards.backend.widget_access import check_widget_tile_product_access, get_widget_product_access_error
 from products.dashboards.backend.widget_catalog import get_widget_product_access_denied_message
 from products.dashboards.backend.widget_registry import WidgetRegistryEntry, get_widget_registry_entry
 
@@ -81,7 +78,7 @@ class TestWidgetAccess(BaseTest):
         request = MagicMock()
         request.successful_authenticator = None
 
-        self.assertIsNone(get_widget_api_scope_error(entry, request))
+        self.assertIsNone(get_widget_api_scope_error(entry["required_scopes"], request))
 
     @parameterized.expand(
         [
@@ -100,7 +97,7 @@ class TestWidgetAccess(BaseTest):
         request.successful_authenticator = authenticator
 
         self.assertEqual(
-            get_widget_api_scope_error(entry, request),
+            get_widget_api_scope_error(entry["required_scopes"], request),
             f"API key missing required scope '{missing_scope}'",
         )
 
@@ -112,7 +109,7 @@ class TestWidgetAccess(BaseTest):
         request = MagicMock()
         request.successful_authenticator = authenticator
 
-        self.assertIsNone(get_widget_api_scope_error(entry, request))
+        self.assertIsNone(get_widget_api_scope_error(entry["required_scopes"], request))
 
     def test_get_widget_api_scope_error_denies_missing_scope_on_id_jag(self) -> None:
         entry = get_widget_registry_entry("session_replay_list")
@@ -123,7 +120,7 @@ class TestWidgetAccess(BaseTest):
         request.successful_authenticator = authenticator
 
         self.assertEqual(
-            get_widget_api_scope_error(entry, request),
+            get_widget_api_scope_error(entry["required_scopes"], request),
             "API key missing required scope 'session_recording:read'",
         )
 
@@ -135,4 +132,4 @@ class TestWidgetAccess(BaseTest):
         request = MagicMock()
         request.successful_authenticator = authenticator
 
-        self.assertIsNone(get_widget_api_scope_error(entry, request))
+        self.assertIsNone(get_widget_api_scope_error(entry["required_scopes"], request))

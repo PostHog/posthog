@@ -187,6 +187,7 @@ export const appBuilderDemoLayout: NotebookAppLayoutApi = {
             kind: 'cell',
             tab_id: 'overview',
             width: 12,
+            height: 360,
             node_id: 'weekly-signups',
             title: 'Acquisition and activation',
             display: 'output',

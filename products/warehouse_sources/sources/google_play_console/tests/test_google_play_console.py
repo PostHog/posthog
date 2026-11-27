@@ -247,6 +247,39 @@ def test_non_2xx_api_responses_raise_for_status() -> None:
             client.request("GET", "apps/com.example/anomalies")
 
 
+def test_retries_a_429_on_a_post_request_before_succeeding() -> None:
+    # The adapter's own retry (`DEFAULT_RETRY`) only covers GET/HEAD/OPTIONS, so a 429 on the
+    # `:query` POST metric-set endpoint used to reach `raise_for_status()` on the first try. Only a
+    # POST proves the vendor-level retry added here, since a GET would already be retried by the
+    # adapter regardless of this fix.
+    with scripted_network(
+        [
+            TOKEN,
+            ScriptedResponse(status=429, body=b"RESOURCE_EXHAUSTED"),
+            ScriptedResponse(json={"rows": []}),
+        ]
+    ) as network:
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        assert client.request("POST", "apps/com.example.app/crashRateMetricSet:query", body={}) == {"rows": []}
+
+    assert [request.path for request in network.requests_log] == [
+        "/token",
+        "/v1beta1/apps/com.example.app/crashRateMetricSet:query",
+        "/v1beta1/apps/com.example.app/crashRateMetricSet:query",
+    ]
+
+
+def test_get_request_still_recovers_from_a_transient_503_via_the_adapters_own_retry() -> None:
+    # `vendor_retry` must not suspend the adapter's own GET retry (`DEFAULT_RETRY`), or a
+    # transient 500/502/503/504 on a GET would reach `raise_for_status()` on the first try instead
+    # of recovering the way it always did.
+    with scripted_network(
+        [TOKEN, ScriptedResponse(status=503, body=b"unavailable"), ScriptedResponse(json={"apps": []})]
+    ):
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        assert client.request("GET", "apps:search") == {"apps": []}
+
+
 def test_list_apps_follows_pagination() -> None:
     with scripted_network(
         [
@@ -493,8 +526,15 @@ def test_unknown_app_stops_the_sync_with_package_name_copy(schema_name: str) -> 
     assert not error_message_matches(error, source.get_retryable_errors())
 
 
-@pytest.mark.parametrize("status", [500, 502, 503])
-def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status: int) -> None:
+@pytest.mark.parametrize(
+    "status, expected_copy",
+    [
+        (500, "on Google's side"),
+        (502, "on Google's side"),
+        (503, "on Google's side"),
+    ],
+)
+def test_metric_set_transient_error_stays_retryable_with_vendor_copy(status: int, expected_copy: str) -> None:
     with mock.patch(f"{MODULE}._today", return_value=TODAY):
         result = _run(
             "crash_rate",
@@ -515,7 +555,34 @@ def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status:
         for pattern, message in source.get_retry_exhausted_errors().items()
         if error_message_matches(error, [pattern])
     ]
-    assert messages and "on Google's side" in messages[0]
+    assert messages and expected_copy in messages[0]
+
+
+def test_metric_set_429_exhausts_the_in_process_retry_and_stays_retryable() -> None:
+    # Unlike a 500/502/503, a single 429 never reaches this far: `GooglePlayConsoleClient.request`
+    # retries it in-process first (`@vendor_retry`), so the script has to exhaust that budget (5
+    # tries) before the wrapped RetryableHTTPError reaches the activity.
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "crash_rate",
+            [
+                ScriptedResponse(json=_freshness(dt.date(2024, 3, 2))),
+                *[ScriptedResponse(status=429, body=b'{"error": {"status": "RESOURCE_EXHAUSTED"}}') for _ in range(5)],
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
+        )
+
+    source = GooglePlayConsoleSource()
+    error = str(result.raised)
+    assert not error_message_matches(error, source.get_non_retryable_errors().keys())
+    assert error_message_matches(error, source.get_retryable_errors())
+    messages = [
+        message
+        for pattern, message in source.get_retry_exhausted_errors().items()
+        if error_message_matches(error, [pattern])
+    ]
+    assert messages and "limiting requests" in messages[0]
 
 
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:

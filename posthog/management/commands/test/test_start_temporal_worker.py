@@ -1,8 +1,11 @@
 from collections.abc import Callable, Sequence
 
 import pytest
+from unittest.mock import patch
 
 from django.conf import settings
+from django.db import InterfaceError
+from django.test import override_settings
 
 from posthog.hogql import parser as hogql_parser
 
@@ -14,6 +17,7 @@ from posthog.management.commands.start_temporal_worker import (
     WORKFLOWS_DICT,
     _task_queue_specs,
     apply_hogql_shadow_sample_rate_override,
+    preload_data_import_sources,
     workflows_include_data_import_syncs,
 )
 from posthog.temporal.ai_observability import BatchTraceSummarizationWorkflow
@@ -117,6 +121,34 @@ def test_queue_registers_workflows_and_activities(
 )
 def test_only_data_import_queues_warm_sources(workflows: list[type], expected: bool) -> None:
     assert workflows_include_data_import_syncs(workflows) is expected
+
+
+@pytest.mark.parametrize(
+    "preload_all,in_use_error,expected_loads",
+    [
+        (True, None, ["all"]),
+        (False, None, ["in_use"]),
+        (False, InterfaceError("connection already closed"), ["in_use", "all"]),
+    ],
+)
+def test_preload_data_import_sources_dispatches_on_the_setting(
+    preload_all: bool, in_use_error: Exception | None, expected_loads: list[str]
+) -> None:
+    loads: list[str] = []
+
+    def load_in_use() -> None:
+        loads.append("in_use")
+        if in_use_error:
+            raise in_use_error
+
+    with (
+        patch("posthog.management.commands.start_temporal_worker.load_all_sources", lambda: loads.append("all")),
+        patch("posthog.management.commands.start_temporal_worker.load_sources_in_use", load_in_use),
+        override_settings(TEMPORAL_PRELOAD_ALL_DATA_IMPORT_SOURCES=preload_all),
+    ):
+        preload_data_import_sources()
+
+    assert loads == expected_loads
 
 
 # The WA digest schedules name their task queue explicitly, so if these workflows stop being

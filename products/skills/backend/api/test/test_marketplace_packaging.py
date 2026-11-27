@@ -6,6 +6,7 @@ import pytest
 
 import yaml
 
+from products.skills.backend.api.skill_services import MAX_SKILL_FILE_COUNT
 from products.skills.backend.marketplace import packaging as pkg
 from products.skills.backend.marketplace.git_smart_http import GitSynthesisError, synthesize_repo
 from products.skills.backend.marketplace.packaging import (
@@ -231,6 +232,11 @@ class TestZipBombDefense:
         members.update({f"s/scripts/f{i}.txt": "x" for i in range(pkg._MAX_ZIP_MEMBERS + 1)})
         with pytest.raises(SkillImportError):
             parse_skill_zip(self._zip(members))
+
+    def test_skill_at_the_file_limit_imports(self):
+        members = {"s/": "", "s/references/": "", "s/SKILL.md": "---\nname: s\ndescription: d\n---\nb"}
+        members.update({f"s/references/f{i}.md": "x" for i in range(MAX_SKILL_FILE_COUNT)})
+        assert len(parse_skill_zip(self._zip(members)).files) == MAX_SKILL_FILE_COUNT
 
     def test_oversize_member_rejected_without_full_inflation(self):
         data = self._zip(

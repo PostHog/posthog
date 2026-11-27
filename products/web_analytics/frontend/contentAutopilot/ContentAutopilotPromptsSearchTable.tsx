@@ -1,7 +1,6 @@
 import type { LemonTableColumn } from '@posthog/lemon-ui'
 import { Button, Text } from '@posthog/quill'
 
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import type {
@@ -12,6 +11,7 @@ import type {
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 
 type SearchRow = AEOPromptSetSearchApi
 type SearchColumn = LemonTableColumn<SearchRow, keyof SearchRow | undefined>
@@ -68,12 +68,10 @@ export const ContentAutopilotPromptsSearchTable = ({
             tooltip: 'How often the answers that ran this search linked to your site.',
             sorter: (a, b) => citedShare(a) - citedShare(b),
             render: (_, row) => (
-                <span className="whitespace-nowrap tabular-nums">
-                    {percentage(citedShare(row), 0)}{' '}
-                    <Text size="xs" variant="muted" render={<span />}>
-                        of {row.answers}
-                    </Text>
-                </span>
+                <ContentAutopilotRateBar
+                    rate={row.answers ? citedShare(row) : null}
+                    tooltip={`Out of ${pluralize(row.answers, 'answer')} that ran this search`}
+                />
             ),
         },
         {

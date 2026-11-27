@@ -187,7 +187,7 @@ const IssueMetadata = ({
                     </Button>
                 )}
             </QuillAssigneeSelect>
-            {showTags && <IssueTagsButton tags={record.tags} onTagClick={onTagClick} />}
+            {showTags && <IssueTagsButton tags={record.tags} onTagClick={onTagClick} surface="issues_list" />}
         </ButtonGroup>
     </div>
 )

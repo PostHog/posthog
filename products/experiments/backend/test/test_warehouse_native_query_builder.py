@@ -240,14 +240,23 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
         left_out = self._rows(builder.build_exposure_rows_left_out())
 
         assert [(variant, int(count)) for _, variant, count in exposures] == [("test", 1)]
-        assert {(reason, value, int(count)) for reason, value, count in left_out} == {("empty_id", None, 2)}
+        assert {(reason, value, int(count)) for reason, value, count, _ in left_out} == {("empty_id", None, 2)}
 
-    def test_exposure_rows_left_out_by_reason(self) -> None:
+    @parameterized.expand(
+        [
+            ("a variant the flag lacks is unknown", (), {("empty_id", None, 1), ("unknown_variant", "holdout", 1)}),
+            ("an excluded variant is left out on purpose", ("holdout",), {("empty_id", None, 1)}),
+        ]
+    )
+    def test_exposure_rows_left_out_by_reason(
+        self, _name: str, excluded_variants: tuple[str, ...], expected: set[tuple]
+    ) -> None:
         statement = WarehouseNativeQueryBuilder(
             exposure=ExperimentWarehouseNativeExposureConfig(
                 connection_id="connection", query="SELECT * FROM exposure_log", unit=UNIT
             ),
             variants=("control", "test"),
+            excluded_variants=excluded_variants,
             date_from=datetime(2026, 1, 1, tzinfo=UTC),
             date_to=datetime(2026, 2, 1, tzinfo=UTC),
             multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
@@ -257,10 +266,29 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
 
         # The fixture has one row with no id and one for the holdout variant. Its row from before the experiment
         # is outside the window, which bounds the scan.
-        assert {(reason, value, int(count)) for reason, value, count in rows} == {
-            ("empty_id", None, 1),
-            ("unknown_variant", "holdout", 1),
-        }
+        assert {(reason, value, int(count)) for reason, value, count, _ in rows} == expected
+
+    def test_the_cap_on_unknown_values_keeps_their_total(self) -> None:
+        self.warehouse.execute("CREATE TABLE exposure_text (entity_id VARCHAR, variant VARCHAR, timestamp TIMESTAMP)")
+        self.warehouse.executemany(
+            "INSERT INTO exposure_text VALUES (?, ?, ?)",
+            [(str(number), f"variant_{number}", "2026-01-02 00:00:00") for number in range(60)],
+        )
+        builder = WarehouseNativeQueryBuilder(
+            exposure=ExperimentWarehouseNativeExposureConfig(
+                connection_id="connection", query="SELECT * FROM exposure_text", unit=UNIT
+            ),
+            variants=("control", "test"),
+            date_from=datetime(2026, 1, 1, tzinfo=UTC),
+            date_to=datetime(2026, 2, 1, tzinfo=UTC),
+            multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
+        )
+
+        rows = self._rows(builder.build_exposure_rows_left_out())
+
+        # 60 values, 50 named, and every named row carries the total of 60.
+        assert len(rows) == 50
+        assert {int(reason_count) for *_, reason_count in rows} == {60}
 
     def test_ratio_metric_totals_per_variant(self) -> None:
         metric = ExperimentRatioMetric(

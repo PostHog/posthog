@@ -101,6 +101,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "LocalizationKey": "Key to be used in conjunction with GetPromotionDescriptions.",
         },
     },
+    "PromotionDescriptions": {
+        "description": "Localized promotion text, keyed by the LocalizationKey carried on each promotion. Large blocks of text are CommonMark.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Dates": "Dates where the promotion is available within the validity period, separated by semicolons. Blank means ongoing.",
+            "Headline": "A short description of the promotion.",
+            "TermsAndConditionsMarkDown": "The terms and conditions of the promotion.",
+            "BonusValidity": "How long the bonus is valid for. Unlike ValidityPeriodIso, this is not an ISO 8601 value.",
+            "PromotionType": "A short description of the type of promotion.",
+            "LocalizationKey": "The key that links the description back to a promotion.",
+            "LanguageCode": "The language this description is written in. English (en) is always present.",
+        },
+    },
     "Balance": {
         "description": "The distributor's current account balance.",
         "docs_url": _DOCS_URL,

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 
@@ -9,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
+import { notebookAppViewLink } from './notebookAppViewLink'
 
 function ResultTimestamp({
     updatedAt,
@@ -29,10 +31,12 @@ export function PublishedNotebookAppControls({
     viewer,
     release,
     cells,
+    activeTab,
 }: {
     viewer: ViewerProps
     release: NotebookAppReleaseApi
     cells: NotebookBlockNode[]
+    activeTab: string
 }): JSX.Element {
     const { shortId } = viewer
     const { layout } = release
@@ -67,11 +71,22 @@ export function PublishedNotebookAppControls({
             )}
             <LemonButton
                 size="small"
-                onClick={() =>
-                    void copyToClipboard(window.location.origin + urls.notebook(shortId) + '?view=app', 'App link')
-                }
+                disabledReason={dirty ? 'Apply your filters before copying this view.' : undefined}
+                onClick={async () => {
+                    if (
+                        await copyToClipboard(
+                            notebookAppViewLink(viewer.project, shortId, activeTab, variables),
+                            'view link'
+                        )
+                    ) {
+                        posthog.capture('notebook app view link copied', {
+                            short_id: shortId,
+                            revision: release.revision,
+                        })
+                    }
+                }}
             >
-                Copy app link
+                Copy view link
             </LemonButton>
             {variables.length > 0 && <LemonCheckbox label="Auto-update results" checked={auto} onChange={setAuto} />}
             {(hasNativeSql || variables.length > 0) && (

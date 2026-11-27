@@ -110,6 +110,16 @@ def _person_selector_count(obj: DataDeletionRequest) -> int:
     return len(obj.person_uuids) + len(obj.person_distinct_ids)
 
 
+def _created_fact(obj: DataDeletionRequest) -> Fact:
+    created = _when(obj.created_at)
+    if obj.created_by is None:
+        # A system job, such as the support ticket purge, creates requests without a user, and a deleted user
+        # leaves none.
+        return Fact(label="Created", value=f"No user recorded, {created}")
+    creator = f"{obj.created_by.email} (staff)" if obj.created_by_staff else obj.created_by.email
+    return Fact(label="Created", value=f"By {creator}, {created}", href=RECORD_TYPES["user"].url(obj.created_by))
+
+
 @console.register_panel
 class DeletionRequestOverviewPanel(Panel):
     record = "deletion-request"
@@ -130,13 +140,15 @@ class DeletionRequestOverviewPanel(Panel):
         elif obj.approved:
             approver = obj.approved_by.email if obj.approved_by else "a deleted user"
             approved = f"By {approver}, {_when(obj.approved_at)}"
-        else:
+        elif obj.requires_approval:
             approved = "Not yet"
+        else:
+            approved = "Not yet, approves automatically"
         facts = [
             Fact(label="Status", value=obj.get_status_display(), tone=STATUS_TONES.get(RequestStatus(obj.status))),
             Fact(label="Type", value=request_type_label(obj)),
             team_fact,
-            Fact(label="Requires approval", value="Yes" if obj.requires_approval else "No"),
+            _created_fact(obj),
             Fact(label="Approved", value=approved),
             Fact(
                 label="Execution mode",
@@ -287,7 +299,14 @@ def submit(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
     return None
 
 
-class ApproveForm(ReasonForm):
+class ApprovalReasonForm(ReasonForm):
+    # The request's notes already say why the data goes, so an approval does not need a reason of its own.
+    reason = forms.CharField(
+        required=False, widget=forms.Textarea(attrs={"rows": 3}), help_text="Optional. Goes into the audit log."
+    )
+
+
+class ApproveForm(ApprovalReasonForm):
     execution_mode = forms.ChoiceField(label="Execution mode", choices=ExecutionMode.choices)
     # Which edit of the criteria staff reviewed. The approval only lands on that edit.
     criteria_revision = forms.CharField(required=False, widget=forms.HiddenInput)
@@ -336,7 +355,7 @@ class Criterion:
     value: str
 
 
-def _criteria_values(obj: DataDeletionRequest) -> list[Criterion]:
+def criteria_values(obj: DataDeletionRequest) -> list[Criterion]:
     criteria = [
         ("Type", request_type_label(obj)),
         ("Team", str(obj.team_id)),
@@ -367,7 +386,7 @@ def _criteria_values(obj: DataDeletionRequest) -> list[Criterion]:
 def _criteria_rows(obj: DataDeletionRequest) -> list[Row]:
     return [
         Row(cells=(Cell(text=criterion.label), Cell(text=criterion.value, mono=True)))
-        for criterion in _criteria_values(obj)
+        for criterion in criteria_values(obj)
     ]
 
 
@@ -411,12 +430,13 @@ def preview_approval(request: HttpRequest, obj: Model, form: forms.Form) -> Page
     )
 
 
-def approve(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
-    assert isinstance(obj, DataDeletionRequest) and form is not None
-    execution_mode = form.cleaned_data["execution_mode"]
+def approve_reviewed(
+    request: HttpRequest, obj: DataDeletionRequest, execution_mode: str, criteria_revision: datetime | None
+) -> bool:
+    """Approves a pending request whose criteria are still the ones staff reviewed. False when it changed since."""
     now = timezone.now()
     updated = DataDeletionRequest.objects.filter(
-        pk=obj.pk, status=RequestStatus.PENDING, **_criteria_lookup(form.cleaned_data["criteria_revision"])
+        pk=obj.pk, status=RequestStatus.PENDING, **_criteria_lookup(criteria_revision)
     ).update(
         status=RequestStatus.APPROVED,
         approved=True,
@@ -426,10 +446,17 @@ def approve(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRe
         updated_at=now,
     )
     if not updated:
-        messages.error(request, "The request changed since you reviewed it, so it was not approved. Review it again.")
-        return HttpResponse(status=409)
+        return False
     obj.refresh_from_db()
     _log_change(request, obj, f"Approved deletion request (execution_mode={execution_mode}).")
+    return True
+
+
+def approve(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert isinstance(obj, DataDeletionRequest) and form is not None
+    if not approve_reviewed(request, obj, form.cleaned_data["execution_mode"], form.cleaned_data["criteria_revision"]):
+        messages.error(request, "The request changed since you reviewed it, so it was not approved. Review it again.")
+        return HttpResponse(status=409)
     messages.success(request, f"Deletion request approved ({obj.get_execution_mode_display()}).")
     return None
 
@@ -767,7 +794,7 @@ class DeletionRequestCriteriaPanel(Panel):
         assert isinstance(obj, DataDeletionRequest)
         facts = [
             Fact(label=criterion.label, value=criterion.value, mono=True)
-            for criterion in _criteria_values(obj)
+            for criterion in criteria_values(obj)
             if criterion.label not in ("Type", "Team")
         ]
         if obj.criteria_updated_at is not None:

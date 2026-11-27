@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
-from types import FunctionType
+from types import FunctionType, SimpleNamespace
 from urllib.parse import urlencode
 
 import time_machine
@@ -44,7 +44,17 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.moved import MovedAction, MovedPage
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm, Tone
+from posthog.admin.console.panels import (
+    COLLAPSE_FACT_CHARS,
+    MAX_FACTS_PER_PANEL,
+    Fact,
+    Gate,
+    Operation,
+    Owner,
+    Panel,
+    ReasonForm,
+    Tone,
+)
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.results import (
@@ -74,12 +84,14 @@ from posthog.admin.console.tools import (
     Stat,
     Stats,
     Table,
+    TableSelect,
     ToolOperation,
 )
 from posthog.admin.console.urls import moved_url_patterns
-from posthog.admin.console.user_panels import Impersonation, is_acting_as
+from posthog.admin.console.user_panels import is_acting_as
 from posthog.admin.console.views import _offered_operations
 from posthog.csp_middleware import CSPMiddleware
+from posthog.helpers.impersonation import Impersonation
 from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, IMPERSONATION_REASON_SESSION_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_visibility_manager
@@ -700,6 +712,24 @@ class TestAdminConsoleOverriddenAdminViews(BaseTest):
             match.func(request, *match.args, **match.kwargs)
 
 
+class TestAdminConsoleLongFacts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("short_value", Fact(label="Query", value="SELECT 1"), False),
+            ("long_value", Fact(label="Query", value="x" * (COLLAPSE_FACT_CHARS + 1)), True),
+            ("many_lines", Fact(label="Query", value="a\nb\nc\nd"), True),
+            ("long_link", Fact(label="Team", value="x" * 200, href="/admin/console/teams/1/"), False),
+        ]
+    )
+    def test_a_long_plain_fact_collapses_to_its_start(self, _name: str, fact: Fact, collapsed: bool) -> None:
+        html = render_to_string(
+            "admin_console/_panel.html", {"rendered": SimpleNamespace(panel=None, facts=[fact], operations=[])}
+        )
+
+        assert ("Show all" in html) == collapsed
+        assert fact.value in html
+
+
 class TestAdminConsoleFormField(SimpleTestCase):
     @parameterized.expand(
         [
@@ -721,6 +751,21 @@ class TestAdminConsoleFormField(SimpleTestCase):
 
         assert "Not found." in html
         assert ("phx_pasted_secret_key" in html or "typed note" in html) == value_shown
+
+    def test_a_checkbox_list_shown_again_after_an_error_keeps_what_staff_ticked(self) -> None:
+        class _PickForm(forms.Form):
+            picks = forms.MultipleChoiceField(
+                choices=[("a", "First"), ("b", "Second")], widget=forms.CheckboxSelectMultiple
+            )
+
+        form = _PickForm(data={"picks": ["b"]})
+        form.is_valid()
+        form.add_error("picks", "Pick again.")
+
+        html = render_to_string("admin_console/_form_field.html", {"field": form["picks"]})
+
+        ticked = re.findall(r'value="(\w)"\s+class="mt-0.5"\s+checked', html)
+        assert (ticked, "Pick again." in html) == (["b"], True)
 
 
 class TestAdminConsoleViews(BaseTest):
@@ -872,6 +917,32 @@ class TestAdminConsoleViews(BaseTest):
         for opened_page in opened_pages:
             assert opened_page in home, f"home misses {opened_page}, which was opened before"
 
+    @parameterized.expand(
+        [
+            ("everyone", "", {"user1@posthog.com", "alice@example.com", "bob@example.com"}),
+            ("part_of_an_email", "ALI", {"alice@example.com"}),
+            ("last_name", "smith", {"bob@example.com"}),
+            ("no_match", "nobody", set()),
+        ]
+    )
+    def test_organization_members_page_lists_only_that_organizations_members(
+        self, _name: str, search: str, expected_emails: set[str]
+    ) -> None:
+        User.objects.create_and_join(self.organization, "alice@example.com", None, first_name="Alice")
+        User.objects.create_and_join(self.organization, "bob@example.com", None, last_name="Smith")
+        other = Organization.objects.create(name="Another organization")
+        User.objects.create_and_join(other, "alice@other.example.com", None, first_name="Alice")
+        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
+        members_url = f"/admin/console/tools/organization-members/?organization={self.organization.pk}"
+        assert f'href="{members_url}"' in organization_page
+
+        response = self.client.get(
+            "/admin/console/tools/organization-members/", {"organization": str(self.organization.pk), "search": search}
+        )
+
+        table = next(block for block in response.context["page"].blocks if isinstance(block, Table))
+        assert {row.cells[0].text for row in table.rows if isinstance(row, Row)} == expected_emails
+
     @parameterized.expand([("team",), ("project",), ("user",)])
     def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
         obj = self._record(record)
@@ -1015,6 +1086,20 @@ class TestAdminConsoleViews(BaseTest):
         with patch.object(console, "get_tool", return_value=_DecidingTool()):
             with self.assertRaisesRegex(ValueError, "must offer with a form"):
                 self.client.get("/admin/console/tools/deciding-tool/?runs=missing")
+
+    def test_a_table_that_selects_for_an_operation_without_a_multiple_choice_field_fails_the_page(self) -> None:
+        tool = _DecidingTool()
+        table = Table(
+            columns=("Item",),
+            rows=(Row(cells=(Cell(text="Item 3"),), select_value="3"),),
+            select=TableSelect(operation_key="judge", field="verdict", label="Judge selected"),
+        )
+        with (
+            patch.object(console, "get_tool", return_value=tool),
+            patch.object(tool, "page", return_value=Page(blocks=(table,))),
+        ):
+            with self.assertRaisesRegex(ValueError, "multiple choice field 'verdict'"):
+                self.client.get("/admin/console/tools/deciding-tool/")
 
     def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)
@@ -1841,6 +1926,7 @@ class TestAdminConsoleLogInAsUser(BaseTest):
         record_page = self.client.get(f"/admin/console/users/{self.target.pk}/", {"ticket": self.ticket})
         operation_url = f"{self.url}?{urlencode({'ticket': self.ticket})}"
         assert f'href="{escape(operation_url)}"' in record_page.content.decode()
+        assert operation_url in [link.href for link in record_page.context["record_links"]]
 
         form = self.client.get(operation_url).context["form"]
 

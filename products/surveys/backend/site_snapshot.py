@@ -2,7 +2,7 @@ import re
 import json
 import hashlib
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from django.core.cache import BaseCache, caches
 from django.db import models
@@ -113,6 +113,14 @@ class SiteSnapshot:
 UNAVAILABLE = SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
 
 
+# The survey API stores urlMatchType unchecked, and some surveys hold legacy or malformed values.
+def parse_url_match_type(value: Any) -> SurveyMatchType:
+    try:
+        return SurveyMatchType(value)
+    except (ValueError, TypeError):
+        return SurveyMatchType.ICONTAINS
+
+
 @frozen
 class UrlTarget:
     """The pages a survey shows on. An empty url means every page."""
@@ -125,7 +133,7 @@ class UrlTarget:
         conditions = survey.conditions or {}
         return cls(
             url=conditions.get("url") or "",
-            match_type=SurveyMatchType(conditions.get("urlMatchType") or SurveyMatchType.ICONTAINS),
+            match_type=parse_url_match_type(conditions.get("urlMatchType")),
         )
 
 

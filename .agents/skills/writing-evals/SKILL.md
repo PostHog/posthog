@@ -150,6 +150,8 @@ Read [references/running-evals.md](references/running-evals.md) when setting up 
 It covers shared credentials, provider authentication, first-run commands, concurrency limits, and common setup failures.
 Prefer remote Modal for sandboxed suites when its prerequisites are available.
 It runs agent sandboxes in parallel without the local Docker memory ceiling, so multi-case evals finish faster; keep Docker for small smoke tests or when remote access is unavailable.
+Run one harness per machine, because runs share the eval databases and the three Funnel ports.
+To run several suites, models or prompt variants at once, give each run its own devbox through `hogli devbox:*`; the same reference covers preparing a box, lending credentials, and running over SSH.
 
 ```bash
 hogli evals --list                      # suite ids, no infra

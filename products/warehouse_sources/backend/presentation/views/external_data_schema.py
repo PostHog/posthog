@@ -1,6 +1,6 @@
 import uuid
 import datetime as dt
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any, Optional, cast
 
 from django.db import transaction
@@ -27,6 +27,8 @@ from posthog.utils import str_to_bool
 from products.access_control.backend.facade.api import InvalidObjectAccessControlError
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.data_modeling.backend.facade import api as data_modeling_api
+from products.data_modeling.backend.facade.contracts import ViewCadenceSnapshot
 from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
@@ -197,6 +199,7 @@ def source_syncs_on_demand(source_type: str) -> bool:
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
 WEBHOOK_ISSUES_CONTEXT_KEY = "webhook_issues"
 WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY = "webhook_event_reconciles"
+VIEW_CADENCE_SNAPSHOTS_CONTEXT_KEY = "view_cadence_snapshots"
 
 
 def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
@@ -307,6 +310,60 @@ def discover_existing_schema(
     if pinned is not None:
         return [pinned]
     return source_impl.get_schemas(config, schema.team_id, names=[schema.name], api_version=api_version)
+
+
+def xmin_unavailable_errors(
+    source: ExternalDataSource, schemas: Sequence[ExternalDataSchema], api_version: str | None
+) -> dict[str, str | None]:
+    """Why each schema can't move to xmin replication, or None when it can, keyed by schema id.
+
+    One discovery call covers every unpinned table, so a bulk switch connects to the source once,
+    not once per table. A failed discovery gets its own message, so a connection problem is not
+    reported as a table without xmin.
+    """
+
+    def unavailable(schema: ExternalDataSchema) -> str:
+        return (
+            f"xmin replication is not available for table '{schema.name}'. "
+            "It requires a Postgres heap table or materialized view on PostgreSQL 13+."
+        )
+
+    def check_failed(schema: ExternalDataSchema, reason: str) -> str:
+        return f"Couldn't check whether {schema.name} supports xmin replication. {reason}"
+
+    try:
+        source_inputs = SourceInputsStore.load(source)
+    except UnreadableSourceInputsError:
+        return {str(schema.id): check_failed(schema, UNREADABLE_SOURCE_CONFIG_ERROR) for schema in schemas}
+    if not source_inputs:
+        return {str(schema.id): unavailable(schema) for schema in schemas}
+    try:
+        source_impl = SourceRegistry.get_source(known_source_key(source.source_type))
+        config = source_impl.parse_config(source_inputs)
+    except Exception:
+        return {str(schema.id): unavailable(schema) for schema in schemas}
+
+    discovered: list[SourceSchema] = []
+    try:
+        unpinned_names: list[str] = []
+        for schema in schemas:
+            pinned = describe_pinned_schema(source_impl, config, schema)
+            if pinned is None:
+                unpinned_names.append(schema.name)
+            else:
+                discovered.append(pinned)
+        if unpinned_names:
+            discovered.extend(
+                source_impl.get_schemas(config, source.team_id, names=unpinned_names, api_version=api_version)
+            )
+    except Exception as e:
+        message, is_expected_source_error = source_helpers._classify_refresh_schemas_error(source_impl, e)
+        if not is_expected_source_error:
+            capture_exception(e, {"source_type": source.source_type, "source_id": str(source.id)})
+        return {str(schema.id): check_failed(schema, f"{message} Try again.") for schema in schemas}
+
+    xmin_table_names = {discovered_schema.name for discovered_schema in discovered if discovered_schema.supports_xmin}
+    return {str(schema.id): None if schema.name in xmin_table_names else unavailable(schema) for schema in schemas}
 
 
 def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, ...] | None:
@@ -1836,11 +1893,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if sync_type == ExternalDataSchema.SyncType.XMIN:
             if not SourceRegistry.get_source(instance.source.source_type).supports_xmin:
                 raise ValidationError("xmin replication is only available for Postgres sources.")
-            if not self._xmin_available_for_schema(instance):
-                raise ValidationError(
-                    f"xmin replication is not available for table '{instance.name}'. "
-                    "It requires a Postgres heap table or materialized view on PostgreSQL 13+."
-                )
+            if self.xmin_check_applies():
+                xmin_error = self._xmin_unavailable_error_cached(instance)
+                if xmin_error is not None:
+                    raise ValidationError(xmin_error)
 
         # A webhook-mode table that no webhook event feeds never receives a row (e.g. Stripe
         # BalanceTransaction), so a request must not move a table into that state.
@@ -2385,6 +2441,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # Cleared whatever this request loaded, because a stop can commit after the load.
             validated_data["auto_disabled_at"] = None
 
+        source_floor_may_change = was_sync_frequency_updated or (
+            should_sync is not None and should_sync != instance.should_sync
+        )
+        batch_view_cadences: list[ViewCadenceSnapshot] | None = self.context.get(VIEW_CADENCE_SNAPSHOTS_CONTEXT_KEY)
+        view_cadences_before = (
+            data_modeling_api.snapshot_view_cadences_for_table(
+                instance.team_id,
+                instance.table_id,
+                skip_dag_ids=[dag_id for snapshot in batch_view_cadences or [] for dag_id in snapshot.cadences_by_dag],
+            )
+            if source_floor_may_change
+            else None
+        )
+
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(
@@ -2508,6 +2578,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             _sync_now_for_shorter_cadence(updated_instance)
 
             self._run_temporal_side_effect(update_schedule)
+
+        if view_cadences_before is not None and batch_view_cadences is not None:
+            batch_view_cadences.append(view_cadences_before)
+        elif view_cadences_before is not None:
+            data_modeling_api.reschedule_views_if_cadence_changed(updated_instance.team_id, [view_cadences_before])
 
         if trigger_refresh:
             request_manual_runs([updated_instance.id], updated_instance.team_id)
@@ -2663,6 +2738,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             source_impl = SourceRegistry.get_source(source_type)
         except Exception:
             return False
+        # Only a webhook source reports webhook-only tables, so other sources skip the discovery call.
+        if not isinstance(source_impl, WebhookSource):
+            return False
         try:
             config = source_impl.parse_config(source_inputs)
             source_schemas = discover_existing_schema(
@@ -2675,30 +2753,30 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return False
         return any(s.name == schema.name and s.webhook_only for s in source_schemas)
 
-    def _xmin_available_for_schema(self, schema: ExternalDataSchema) -> bool:
-        """True when the source advertises xmin support for this table (Postgres heap table or
-        materialized view, PG13+). Runs discovery so a raw PATCH can't enable xmin on a table that
-        has no physical `xmin` (plain views, foreign tables, partitioned parents)."""
-        source = schema.source
-        try:
-            source_inputs = SourceInputsStore.load(source)
-        except UnreadableSourceInputsError:
-            return False
-        if not source_inputs:
-            return False
-        try:
-            source_type = known_source_key(source.source_type)
-            source_impl = SourceRegistry.get_source(source_type)
-            config = source_impl.parse_config(source_inputs)
-            source_schemas = discover_existing_schema(
-                source_impl,
-                config,
-                schema,
-                api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
-            )
-        except Exception:
-            return False
-        return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
+    def xmin_check_applies(self) -> bool:
+        # A table already on xmin passed this check when it switched, and the frontend re-sends the
+        # current sync_type on every save, so only a switch to xmin runs discovery.
+        data = self.initial_data if isinstance(self.initial_data, dict) else {}
+        return (
+            data.get("sync_type") == ExternalDataSchema.SyncType.XMIN
+            and self.instance is not None
+            and self.instance.sync_type != ExternalDataSchema.SyncType.XMIN
+        )
+
+    def xmin_probe_api_version(self, schema: ExternalDataSchema) -> str | None:
+        source_impl = SourceRegistry.get_source(known_source_key(schema.source.source_type))
+        return source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl))
+
+    def seed_xmin_check(self, xmin_error: str | None) -> None:
+        """Pre-fill the xmin result when the caller already checked the table in a batch, so
+        update() doesn't run discovery again inside its transaction."""
+        self.__dict__["_xmin_unavailable_error_result"] = xmin_error
+
+    def _xmin_unavailable_error_cached(self, schema: ExternalDataSchema) -> str | None:
+        if "_xmin_unavailable_error_result" not in self.__dict__:
+            errors = xmin_unavailable_errors(schema.source, [schema], self.xmin_probe_api_version(schema))
+            self.__dict__["_xmin_unavailable_error_result"] = errors[str(schema.id)]
+        return self.__dict__["_xmin_unavailable_error_result"]
 
     def _webhook_support_error(self, schema: ExternalDataSchema) -> str | None:
         """Why this table can't move to webhook sync, or None when the source advertises webhook
@@ -2736,9 +2814,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return unsupported
 
     def warm_webhook_only_check(self, instance: ExternalDataSchema) -> None:
-        """Pre-run the webhook validations that reach the external source, caching the results.
+        """Pre-run the webhook and xmin validations that reach the external source, caching the results.
 
-        `_is_webhook_only_schema` and `_webhook_support_error` call the source's `get_schemas`,
+        `_is_webhook_only_schema`, `_webhook_support_error` and the xmin check call the source's `get_schemas`,
         which is a network round-trip (e.g. Google Ads OAuth refresh + field query). update() runs these
         same checks, but bulk_update_schemas wraps each update() in a transaction — making the call there
         held the DB connection idle-in-transaction long enough for the server to close it ("the
@@ -2750,6 +2828,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._is_webhook_only_schema_cached(instance)
         if self._webhook_support_check_applies():
             self._webhook_support_error_cached(instance)
+        if self.xmin_check_applies() and SourceRegistry.get_source(instance.source.source_type).supports_xmin:
+            self._xmin_unavailable_error_cached(instance)
 
     def seed_webhook_only_check(self, webhook_only: bool) -> None:
         """Pre-fill the webhook-only cache when the caller already discovered this table (e.g.

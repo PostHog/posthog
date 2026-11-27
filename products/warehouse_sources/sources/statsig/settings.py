@@ -21,6 +21,10 @@ ENDPOINTS: dict[str, StatsigEndpoint] = {
     "metrics": StatsigEndpoint(path="/console/v1/metrics/list"),
     "audit_logs": StatsigEndpoint(path="/console/v1/audit_logs"),
     "users": StatsigEndpoint(path="/console/v1/users", primary_key="userID", partition_key="userID"),
+    "teams": StatsigEndpoint(path="/console/v1/users/teams"),
+    "holdouts": StatsigEndpoint(path="/console/v1/holdouts"),
+    "param_stores": StatsigEndpoint(path="/console/v1/param_stores"),
+    "autotunes": StatsigEndpoint(path="/console/v1/autotunes"),
 }
 
 # Timestamp filters need live verification before they can safely control a sync watermark.

@@ -272,9 +272,16 @@ class TestLedgerFlow:
 
         git.open_pull_request(2, git.commit("p2a", "g1a"))
         git.open_pull_request(3, git.commit("c3a", "p2a"))
-        approve(repo, 2, "Button", "b1", effective_base_hash="g1", commit_sha="p2a")
+        middle = approve(repo, 2, "Button", "b1", effective_base_hash="g1", commit_sha="p2a")
         top = approve(
-            repo, 3, "Button", "b2", ledger_base_hash=top_ledger_base_hash, effective_base_hash="b1", commit_sha="c3a"
+            repo,
+            3,
+            "Button",
+            "b2",
+            ledger_base_hash=top_ledger_base_hash,
+            effective_base_hash="b1",
+            base_approval=middle,
+            commit_sha="c3a",
         )
         batch = _queue_run(flow, git, "q2", "c3a", {"Button": "b2", "Card": "c0"})
         assert _drift(batch) == (0, 0, 0)
