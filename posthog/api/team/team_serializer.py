@@ -240,7 +240,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     marketing_analytics_config = marketing_config.TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = team_config.TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = team_config.TeamWorkflowsConfigSerializer(required=False)
-    feature_flag_policy_config = team_config.TeamFeatureFlagPolicyConfigSerializer(required=False)
+    feature_flag_policy_config = team_config.TeamFeatureFlagPolicyConfigSerializer(
+        required=False, help_text=team_config.FEATURE_FLAG_POLICY_CONFIG_HELP_TEXT
+    )
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
     conversations_settings = conversations_settings.ConversationsSettingsField(
         required=False,
