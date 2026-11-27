@@ -91,6 +91,7 @@ describe('personEmailsLogic', () => {
                 '/api/projects/:team_id/persons/:id/emails/': () => [
                     200,
                     [
+                        asset(CLICKED, '2026-03-14T09:00:02Z', 'action-2'),
                         asset(CLICKED, '2026-03-14T09:00:01Z'),
                         asset(OPENED, '2026-03-13T09:00:01Z'),
                         asset(NO_OPEN, '2026-03-12T09:00:01Z'),
@@ -98,7 +99,6 @@ describe('personEmailsLogic', () => {
                         asset(NOT_SENT, '2026-03-10T10:00:01Z'),
                         asset(WORKFLOW, '2026-03-10T09:00:01Z'),
                         asset(OLD, '2026-02-20T09:00:01Z'),
-                        asset(CLICKED, '2026-03-14T09:00:02Z', 'action-2'),
                     ],
                 ],
                 '/api/projects/:team_id/transactional_email_log/': async ({ request }) => {
@@ -168,13 +168,13 @@ describe('personEmailsLogic', () => {
         expect(searches.sort()).toEqual([CLICKED, OPENED, NO_OPEN, BOUNCED, NOT_SENT, WORKFLOW, OLD].sort())
         expect(lookupsInOrder()).toEqual([
             'clicked',
+            'clicked',
             'opened',
             'delivered',
             'bounced',
             'failed',
             'not_logged',
             'not_logged',
-            'clicked',
         ])
         expect(logic.values.outcomeColumnShown).toBe(true)
     })
@@ -186,19 +186,19 @@ describe('personEmailsLogic', () => {
 
         expect(lookupsInOrder()).toEqual([
             'clicked',
+            'clicked',
             'unavailable',
             'delivered',
             'bounced',
             'failed',
             'not_logged',
             'not_logged',
-            'clicked',
         ])
     })
 
     it('opens the send page for a logged email and the preview for any other', async () => {
         await open(true)
-        const [clicked, , , , notSent, workflow] = logic.values.emails
+        const [clicked, , , , , notSent, workflow] = logic.values.emails
 
         logic.actions.openEmail(workflow)
         expect(logic.values.previewed).toEqual(workflow)
