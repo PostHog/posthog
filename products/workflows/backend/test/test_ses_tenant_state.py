@@ -220,7 +220,7 @@ class TestReconcileSesTenantStates(BaseTest):
                 team=team, kind="email", integration_id=f"{team.id}.example.com", config={"provider": "ses"}
             )
         clock = FakeClock()
-        ses = FakeSesTenantReader(clock, call_seconds=[0.4, 2.0, 0.4, 0.4])
+        ses = FakeSesTenantReader(clock, call_seconds=[0.4, 2.0, 0.4, 0.4], failing_call=1)
 
         with (
             patch("products.workflows.backend.tasks.ses_tenant_state.SESProvider", return_value=ses),
@@ -229,6 +229,7 @@ class TestReconcileSesTenantStates(BaseTest):
             reconcile_ses_tenant_states()
 
         assert ses.called_at == [0.0, 1.5, 3.5, 5.0]
+        assert clock.now == 5.4
 
 
 class FakeClock:
@@ -243,11 +244,14 @@ class FakeClock:
 
 
 class FakeSesTenantReader:
-    def __init__(self, clock: FakeClock, *, call_seconds: list[float]) -> None:
+    def __init__(self, clock: FakeClock, *, call_seconds: list[float], failing_call: int) -> None:
         self.clock = clock
         self.call_seconds = iter(call_seconds)
+        self.failing_call = failing_call
         self.called_at: list[float] = []
 
     def get_tenant_reputation(self, team_id: int) -> None:
         self.called_at.append(self.clock.now)
         self.clock.now += next(self.call_seconds)
+        if len(self.called_at) - 1 == self.failing_call:
+            raise RuntimeError("TooManyRequestsException")

@@ -57,13 +57,14 @@ def reconcile_ses_tenant_states() -> None:
     provider = SESProvider()
     synced = 0
     failed = 0
+    next_start = time.monotonic()
     for team_id in team_ids:
-        started_at = time.monotonic()
+        time.sleep(max(0.0, next_start - time.monotonic()))
+        next_start = time.monotonic() + _RECONCILE_MIN_SECONDS_PER_TEAM
         try:
             sync_ses_tenant_state(team_id, provider=provider, verify_team=False)
             synced += 1
         except Exception:
             failed += 1
             logger.exception("SES tenant reconciliation failed for team", team_id=team_id)
-        time.sleep(max(0.0, started_at + _RECONCILE_MIN_SECONDS_PER_TEAM - time.monotonic()))
     logger.info("SES tenant reconciliation finished", synced=synced, failed=failed)
