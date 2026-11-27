@@ -74,6 +74,9 @@ describe('ImpactFunnelCard', () => {
 
     afterEach(cleanup)
 
+    const sessionStepText = async (): Promise<string | null | undefined> =>
+        (await screen.findByText('Started a session')).closest('li')?.textContent
+
     const renderCard = (sensitive = false): void => {
         render(
             <Provider>
@@ -181,8 +184,9 @@ describe('ImpactFunnelCard', () => {
         answer = [200, IMPACT]
         answerLinkTrackingSave()
 
-        await waitFor(() => expect(requestedEvents).toHaveLength(2))
-        expect(await screen.findByText('Converted')).toBeInTheDocument()
+        expect(await screen.findByText('From sends with link tracking on')).toBeInTheDocument()
+        expect(await sessionStepText()).toBe('Started a session1From sends with link tracking on')
+        expect(screen.getByText('Converted')).toBeInTheDocument()
         expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
         expect(linkTrackingSaves).toEqual([{ workflows_config: { email_workflow_run_link_tag_enabled: true } }])
         expect(teamLogic.values.currentTeam?.timezone).toBe('Europe/Berlin')
@@ -255,9 +259,10 @@ describe('ImpactFunnelCard', () => {
         }
         answerSave()
 
-        await waitFor(() => expect(requestedEvents).toHaveLength(turnedOn ? 2 : 1))
         expect((await screen.findAllByText(outcome))[0]).toBeInTheDocument()
-        expect(screen.queryByText("Couldn't count")).not.toBeInTheDocument()
+        if (turnedOn) {
+            expect(await sessionStepText()).toBe('Started a session1From sends with link tracking on')
+        }
         expect(!!screen.queryByText('Converted')).toBe(turnedOn)
         expect(
             screen.queryByText('Turn on for project')?.closest('button')?.getAttribute('aria-disabled') ?? null
@@ -337,6 +342,7 @@ describe('ImpactFunnelCard', () => {
         rerender(tab(true))
 
         expect(await screen.findByText('From sends with link tracking on')).toBeInTheDocument()
+        expect(await sessionStepText()).toBe('Started a session1From sends with link tracking on')
         expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
         expect(patches).toHaveLength(1)
     })
