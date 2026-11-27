@@ -251,7 +251,8 @@
             "files": [
                 "services/mcp/src/ui-apps/**/*.{ts,tsx}",
                 "products/**/mcp/apps/**/*.{ts,tsx}",
-                "products/tasks/frontend/infrastructure/**/*.{ts,tsx}"
+                "products/tasks/frontend/infrastructure/**/*.{ts,tsx}",
+                "products/agent_transcripts/frontend/viewer/**/*.{ts,tsx}"
             ],
             "rules": {
                 "react/forbid-elements": "off"

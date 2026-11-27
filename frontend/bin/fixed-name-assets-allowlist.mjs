@@ -34,6 +34,7 @@ export const FIXED_NAME_ASSET_GROUPS = [
             '(lib/utils/createWorker.ts), the fixed name serves tabs from a build before the hashed names, and ' +
             'is the fallback when a deployment that serves /static/ from the image has dropped an old hashed file.',
         entries: [
+            'agent-transcript-viewer.js',
             'decompressionWorker.js',
             'elkWorker.js',
             'exporter.js',

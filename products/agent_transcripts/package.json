@@ -11,7 +11,8 @@
         "kea-router": "catalog:"
     },
     "devDependencies": {
-        "kea-test-utils": "catalog:"
+        "kea-test-utils": "catalog:",
+        "tailwindcss": "4.3.0"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",
@@ -21,7 +22,11 @@
         "@testing-library/dom": "*",
         "@testing-library/user-event": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "posthog-js": "catalog:",
-        "react": "*"
+        "react": "*",
+        "react-dom": "*",
+        "react-markdown": "*",
+        "remark-gfm": "*"
     }
 }

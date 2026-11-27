@@ -21,6 +21,7 @@ from products.agent_transcripts.backend.console import (
     PANEL_KEY,
     QUEUE_TOOL_KEY,
     REQUEST_CHANGES_OPERATION,
+    VIEW_OPERATION,
     AgentTranscriptPanel,
 )
 from products.agent_transcripts.backend.facade.contracts import TRANSCRIPT_RETENTION_DAYS
@@ -38,7 +39,7 @@ CUSTOMER_MESSAGE = "Upload the whole conversation, from the first prompt to the 
 INTERNAL_NOTE = "Only the last few messages were in the file."
 OTHER_ORGANIZATION_NAME = "Other organization"
 REVIEW_OPERATIONS = {APPROVE_OPERATION, REQUEST_CHANGES_OPERATION, DECLINE_OPERATION}
-FILE_OPERATIONS = {DOWNLOAD_OPERATION, DELETE_FILE_OPERATION}
+FILE_OPERATIONS = {VIEW_OPERATION, DOWNLOAD_OPERATION, DELETE_FILE_OPERATION}
 
 EXPIRED = "expired"
 DELETED = "deleted"
@@ -229,6 +230,38 @@ class TestAgentTranscriptConsole(TranscriptStorageTestCase):
         response = self._post(DOWNLOAD_OPERATION)
 
         assert response.status_code == 404
+
+    def test_view_opens_the_viewer_for_this_organization(self) -> None:
+        self._submission(SubmissionStatus.SUBMITTED)
+
+        response = self._post(VIEW_OPERATION)
+
+        assert response.status_code == 302
+        assert response["Location"] == f"/admin/console/tools/{QUEUE_TOOL_KEY}/?organization={self.organization.pk}"
+
+    @parameterized.expand(
+        [
+            ("available", AVAILABLE, 200),
+            ("deleted", DELETED, 404),
+            ("expired", EXPIRED, 404),
+        ]
+    )
+    def test_viewer_serves_the_transcript_text_only_while_the_file_is_stored(
+        self, _name: str, file: str, expected_status: int
+    ) -> None:
+        self._submission(SubmissionStatus.SUBMITTED, file=file)
+
+        response = self.browser.get(
+            f"/admin/console/tools/{QUEUE_TOOL_KEY}/", {"organization": self.organization.pk, "source": "transcript"}
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            assert response.json() == {
+                "agent": "codex",
+                "filename": TRANSCRIPT_FILENAME,
+                "text": TRANSCRIPT_BYTES.decode(),
+            }
 
     def test_delete_file_removes_the_stored_transcript(self) -> None:
         submission = self._submission(SubmissionStatus.APPROVED)

@@ -63,7 +63,9 @@ def object_storage_upload_source() -> str:
 
 # Admin pages that mount a React app. Each one widens the admin policy, so adding a page here goes through review
 # of this file. A page also has to mark its response with `admit_admin_bundle`.
-ADMIN_BUNDLE_PATHS = frozenset({"/admin/console/tools/agent-release-pipeline/"})
+ADMIN_BUNDLE_PATHS = frozenset(
+    {"/admin/console/tools/agent-release-pipeline/", "/admin/console/tools/agent-transcripts/"}
+)
 
 
 def admit_admin_bundle(response: HttpResponse) -> HttpResponse:

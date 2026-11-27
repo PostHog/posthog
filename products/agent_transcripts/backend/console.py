@@ -7,7 +7,7 @@ from uuid import UUID
 from django import forms
 from django.contrib import messages
 from django.db.models import Model
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.template.defaultfilters import filesizeformat
 from django.urls import reverse
 
@@ -30,6 +30,7 @@ from products.agent_transcripts.backend.facade.contracts import (
     TranscriptStorageUnavailable,
 )
 from products.agent_transcripts.backend.facade.enums import SubmissionStatus
+from products.agent_transcripts.backend.presentation.transcript_viewer import transcript_viewer
 
 GROWTH = Owner(name="Growth", crest="growth")
 
@@ -38,7 +39,10 @@ PANEL_KEY = "agent-transcript"
 SUBMISSIONS_PER_PAGE = 50
 DEFAULT_QUEUE_STATUS = SubmissionStatus.SUBMITTED
 ANY_STATUS = "any"
+# pinned: staff bookmark viewer links that carry this parameter
+VIEWER_ORGANIZATION_PARAM = "organization"
 
+VIEW_OPERATION = "view"
 DOWNLOAD_OPERATION = "download"
 APPROVE_OPERATION = "approve"
 REQUEST_CHANGES_OPERATION = "request-changes"
@@ -143,6 +147,18 @@ class AgentTranscriptsTool(ConsoleTool):
     owner = GROWTH
     group = "Organizations"
     description = "Transcripts that organizations uploaded of their conversation with an AI agent, for review."
+
+    def app_page(self, request: HttpRequest) -> HttpResponse | None:
+        # With an organization, the tool shows that organization's transcript instead of the queue.
+        organization = request.GET.get(VIEWER_ORGANIZATION_PARAM)
+        if organization is None:
+            return None
+
+        try:
+            organization_id = UUID(organization)
+        except ValueError:
+            raise Http404("Unknown organization")
+        return transcript_viewer(request, organization_id)
 
     def page(self, request: HttpRequest) -> Page:
         form = QueueFilterForm(request.GET if "status" in request.GET else None)
@@ -258,6 +274,11 @@ def _not_in_review(request: HttpRequest) -> HttpResponse:
     return HttpResponse(status=409)
 
 
+def view_transcript(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse:
+    url = reverse("admin_console_tool", kwargs={"tool_key": QUEUE_TOOL_KEY})
+    return HttpResponseRedirect(f"{url}?{VIEWER_ORGANIZATION_PARAM}={obj.pk}")
+
+
 def download_transcript(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse:
     url = api.get_transcript_download_url(obj.pk)
     if url is None:
@@ -347,6 +368,7 @@ class AgentTranscriptPanel(Panel):
     owner = GROWTH
     operation_keys = frozenset(
         {
+            VIEW_OPERATION,
             DOWNLOAD_OPERATION,
             APPROVE_OPERATION,
             REQUEST_CHANGES_OPERATION,
@@ -398,6 +420,14 @@ class AgentTranscriptPanel(Panel):
         operations: list[Operation] = []
 
         if submission.file_available:
+            operations.append(
+                Operation(
+                    key=VIEW_OPERATION,
+                    label="View transcript",
+                    handler=view_transcript,
+                    description="Opens the transcript as a readable agent session, with messages and tool calls.",
+                )
+            )
             operations.append(
                 Operation(
                     key=DOWNLOAD_OPERATION,

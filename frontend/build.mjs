@@ -56,6 +56,7 @@ writeIndexHtml()
 writeExporterHtml()
 writeRenderQueryHtml()
 writeInfrastructureAdminHtml()
+writeAgentTranscriptViewerHtml()
 await import('./build-products.mjs')
 
 const common = {
@@ -146,6 +147,13 @@ await buildInParallel(
             ...appBundle,
         },
         {
+            name: 'Agent Transcript Viewer',
+            entryPoints: ['../products/agent_transcripts/frontend/viewer/mountTranscriptViewer.tsx'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'agent-transcript-viewer.js'),
+            ...appBundle,
+        },
+        {
             ...getToolbarAppBuildConfig(__dirname),
             ...common,
         },
@@ -186,6 +194,10 @@ await buildInParallel(
 
             if (config.name === 'Infrastructure Admin') {
                 writeInfrastructureAdminHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Agent Transcript Viewer') {
+                writeAgentTranscriptViewerHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Toolbar') {
@@ -412,6 +424,17 @@ export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
         '../products/tasks/frontend/infrastructure/infrastructureAdmin.html',
         'dist/infrastructure_admin.html',
         'infrastructure-admin',
+        chunks,
+        entrypoints
+    )
+}
+
+export function writeAgentTranscriptViewerHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(
+        __dirname,
+        '../products/agent_transcripts/frontend/viewer/transcriptViewer.html',
+        'dist/agent_transcript_viewer.html',
+        'agent-transcript-viewer',
         chunks,
         entrypoints
     )

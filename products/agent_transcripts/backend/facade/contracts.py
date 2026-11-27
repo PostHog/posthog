@@ -54,6 +54,15 @@ class AgentTranscriptSubmission:
 
 
 @dataclass(frozen=True)
+class TranscriptFile:
+    """A stored transcript's text, for staff to read in PostHog Admin."""
+
+    agent: TranscriptAgent
+    filename: str
+    text: str
+
+
+@dataclass(frozen=True)
 class Submitter:
     user_id: int
     name: str

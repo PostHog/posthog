@@ -48,8 +48,7 @@ def list_submissions(*, status: SubmissionStatus | None, page: PageRequest) -> P
     return select_page(queryset, page)
 
 
-def get_download_url(organization_id: UUID) -> str | None:
-    submission = get_for_organization(organization_id)
+def _stored_file_key(submission: AgentTranscriptSubmission | None) -> str | None:
     if submission is None or submission.storage_key is None:
         return None
 
@@ -59,10 +58,30 @@ def get_download_url(organization_id: UUID) -> str | None:
         submitted_at=submission.submitted_at,
         now=timezone.now(),
     )
-    if not file_available:
+    return submission.storage_key if file_available else None
+
+
+def get_download_url(organization_id: UUID) -> str | None:
+    submission = get_for_organization(organization_id)
+    storage_key = _stored_file_key(submission)
+    if submission is None or storage_key is None:
         return None
 
-    return storage.presign_download(submission.storage_key, submission.original_filename)
+    return storage.presign_download(storage_key, submission.original_filename)
+
+
+def read_transcript(organization_id: UUID) -> tuple[AgentTranscriptSubmission, str] | None:
+    submission = get_for_organization(organization_id)
+    storage_key = _stored_file_key(submission)
+    if submission is None or storage_key is None:
+        return None
+
+    transcript = storage.read(storage_key)
+    if transcript is None:
+        return None
+
+    # complete_upload stores only bytes that decoded as UTF-8.
+    return submission, transcript.decode("utf-8")
 
 
 def start_upload(data: StartUploadInput) -> PresignedUpload:
