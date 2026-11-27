@@ -63,7 +63,6 @@ export function AdventDoorNode({ data }: NodeProps<AdventDoorNodeType>): JSX.Ele
                         aria-label={`Door ${door.day}, ${door.status}`}
                         className={cn(
                             'AdventDoor relative flex size-full items-center justify-center rounded-xl border-2 bg-surface-primary p-0 text-2xl font-bold shadow-md',
-                            door.status === 'ready' && 'AdventDoor--ready',
                             'cursor-pointer',
                             isSelected && 'outline outline-2 outline-offset-4 outline-accent'
                         )}

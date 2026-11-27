@@ -1,25 +1,45 @@
-.AdventSnow {
-    container-type: size;
-}
-
+// Each flake is a track as tall as the stage, so the fall can move it by 100% of its own height. A
+// container unit or a var() inside keyframes makes the browser resolve the keyframes again on every
+// frame the page renders, for each of the flakes.
 .AdventSnow__flake {
-    top: -8px;
-    animation: AdventSnow__fall var(--advent-snow-duration) linear var(--advent-snow-delay) infinite;
+    top: 0;
+    height: 100%;
+
+    &::before {
+        position: absolute;
+        top: -8px;
+        left: 0;
+        width: 100%;
+        aspect-ratio: 1;
+        content: '';
+        background: #fff;
+        border-radius: 50%;
+        opacity: 0.9;
+    }
 }
 
-@keyframes AdventSnow__fall {
-    from {
-        transform: translate3d(0, 0, 0);
+@each $step in 0, 1, 2, 3, 4, 5, 6 {
+    .AdventSnow__flake--drift-#{$step} {
+        animation: AdventSnow__fall-#{$step} linear infinite;
     }
 
-    to {
-        transform: translate3d(var(--advent-snow-drift), calc(100cqh + 16px), 0);
+    @keyframes AdventSnow__fall-#{$step} {
+        from {
+            transform: translate3d(0, 0, 0);
+        }
+
+        to {
+            transform: translate3d(#{($step - 3) * 8}px, calc(100% + 16px), 0);
+        }
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .AdventSnow__flake {
-        top: var(--advent-snow-rest);
         animation: none;
+
+        &::before {
+            top: var(--advent-snow-rest);
+        }
     }
 }
