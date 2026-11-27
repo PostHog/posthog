@@ -18,9 +18,9 @@ export function urlForNewWorkflowWithTrigger(
     config: WorkflowTriggerConfig,
     source?: string,
     email?: MessageDraft,
-    draftSource?: EmailDraftRequestApi
+    draftSource?: EmailDraftRequestApi,
+    attemptId: string | undefined = messageAudienceAttempt(source, 'workflow')
 ): string {
-    const attemptId = messageAudienceAttempt(source, 'workflow')
     return combineUrl(urls.workflowNew(), {
         [TRIGGER_PREFILL_PARAM]: JSON.stringify(config),
         ...(source ? { [SOURCE_PREFILL_PARAM]: source } : {}),

@@ -9,26 +9,38 @@ import { urls } from 'scenes/urls'
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 import { integrationsList } from 'products/integrations/frontend/generated/api'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
-import { hogFlowsEmailSendingSuspensionRetrieve } from 'products/workflows/frontend/generated/api'
+import {
+    hogFlowsEmailSendingSuspensionRetrieve,
+    workflowEmailSandboxStatus,
+} from 'products/workflows/frontend/generated/api'
 
 import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from '../Broadcasts/audience/audienceList'
 import {
     EMAIL_SENDING_SUSPENDED_MESSAGE,
     NO_EMAIL_SENDER_MESSAGE,
+    TEST_SENDER_ONLY_BROADCAST_MESSAGE,
+    TEST_SENDER_ONLY_WORKFLOW_MESSAGE,
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
+import { canAdoptSandboxSender } from '../Channels/sandboxSender'
+import { urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
-import { startMessageAudienceAttempt } from './messageAudienceAttempts'
+import { messageAudienceAttempt, startMessageAudienceAttempt } from './messageAudienceAttempts'
 
 // pinned: analytics property values of the warnings event
-export type MessageAudienceWarningKind = 'sending_suspended' | 'no_sender' | 'unverified_sender' | 'cohort_not_ready'
+export type MessageAudienceWarningKind =
+    | 'sending_suspended'
+    | 'no_sender'
+    | 'unverified_sender'
+    | 'cohort_not_ready'
+    | 'test_sender_only'
 
 export interface MessageAudienceWarning {
     kind: MessageAudienceWarningKind
     message: string
 }
 
-const SENDER_WARNING_KINDS: MessageAudienceWarningKind[] = ['no_sender', 'unverified_sender']
+const SENDER_WARNING_KINDS: MessageAudienceWarningKind[] = ['no_sender', 'unverified_sender', 'test_sender_only']
 
 export function emailSenderWarning(
     integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]
@@ -41,6 +53,20 @@ export function emailSenderWarning(
         (integration) => (integration.config as { verified?: boolean } | undefined)?.verified === true
     )
     return verified ? null : { kind: 'unverified_sender', message: UNVERIFIED_SENDER_MESSAGE }
+}
+
+function withTestSender(
+    senderWarning: MessageAudienceWarning | null,
+    testSenderUsable: boolean,
+    destination: MessageAudienceDestination
+): MessageAudienceWarning | null {
+    if (!senderWarning || !testSenderUsable) {
+        return senderWarning
+    }
+    return {
+        kind: 'test_sender_only',
+        message: destination === 'broadcast' ? TEST_SENDER_ONLY_BROADCAST_MESSAGE : TEST_SENDER_ONLY_WORKFLOW_MESSAGE,
+    }
 }
 
 // The checks only advise, so a slow one must not hold the person on the page.
@@ -59,14 +85,16 @@ function withinTimeout<T>(request: Promise<T>): Promise<T | null> {
  */
 export async function loadMessageAudienceWarnings(
     audience: MessageAudience,
-    destination: MessageAudienceDestination
+    destination: MessageAudienceDestination,
+    { offerTestSender = false }: { offerTestSender?: boolean } = {}
 ): Promise<MessageAudienceWarning[]> {
     const projectId = String(ApiConfig.getCurrentProjectId())
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
-    const [suspension, integrations, cohorts] = await Promise.all([
+    const [suspension, integrations, testSender, cohorts] = await Promise.all([
         withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(projectId)),
         withinTimeout(integrationsList(projectId, { kind: 'email' })),
+        offerTestSender ? withinTimeout(workflowEmailSandboxStatus(projectId)) : null,
         Promise.all(
             cohortIds.map((id) =>
                 withinTimeout(cohortsRetrieve(projectId, id).then((cohort) => toAudienceCohort(id, cohort)))
@@ -78,7 +106,9 @@ export async function loadMessageAudienceWarnings(
             ? { kind: 'sending_suspended' as const, message: EMAIL_SENDING_SUSPENDED_MESSAGE }
             : null,
         // A verified sender can sit on a later page, so only a complete list can say none is verified.
-        integrations && !integrations.next ? emailSenderWarning(integrations.results) : null,
+        integrations && !integrations.next
+            ? withTestSender(emailSenderWarning(integrations.results), canAdoptSandboxSender(testSender), destination)
+            : null,
         ...cohorts.map((cohort) => {
             const message = cohort ? audienceCohortLaunchError(cohort) : null
             return message ? { kind: 'cohort_not_ready' as const, message } : null
@@ -104,8 +134,19 @@ export async function openMessageAudience(
         const navigate = async (): Promise<void> => {
             router.actions.push(messageAudienceUrl(audience, destination))
         }
+        const continueInWorkflow = async (): Promise<void> => {
+            router.actions.push(
+                urlForNewWorkflowWithTrigger(
+                    { type: 'batch', filters: { properties: audience.properties } },
+                    audience.source,
+                    audience.broadcastEmail ?? audience.workflowEmail,
+                    audience.draftSource,
+                    messageAudienceAttempt(audience.source, 'broadcast')
+                )
+            )
+        }
         const startedOn = router.values.location.pathname
-        const warnings = await loadMessageAudienceWarnings(audience, destination)
+        const warnings = await loadMessageAudienceWarnings(audience, destination, { offerTestSender: true })
         if (router.values.location.pathname !== startedOn) {
             // The person left the page while the checks ran.
             return
@@ -132,11 +173,18 @@ export async function openMessageAudience(
                 </ul>
             ),
             shouldAwaitSubmit: true,
-            primaryButton: {
-                children: 'Continue',
-                onClick: navigate,
-                'data-attr': `message-audience-${audience.source}-continue`,
-            },
+            primaryButton:
+                destination === 'broadcast' && warnings.some((warning) => warning.kind === 'test_sender_only')
+                    ? {
+                          children: 'Continue in a workflow',
+                          onClick: continueInWorkflow,
+                          'data-attr': `message-audience-${audience.source}-continue-in-workflow`,
+                      }
+                    : {
+                          children: 'Continue',
+                          onClick: navigate,
+                          'data-attr': `message-audience-${audience.source}-continue`,
+                      },
             secondaryButton: warnings.some((warning) => SENDER_WARNING_KINDS.includes(warning.kind))
                 ? {
                       children: 'Set up email',

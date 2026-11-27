@@ -11,14 +11,23 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 import { integrationsList } from 'products/integrations/frontend/generated/api'
-import { hogFlowsEmailSendingSuspensionRetrieve } from 'products/workflows/frontend/generated/api'
+import {
+    hogFlowsEmailSendingSuspensionRetrieve,
+    workflowEmailSandboxStatus,
+} from 'products/workflows/frontend/generated/api'
 
+import { parseWorkflowTriggerPrefill } from '../Workflows/workflowTriggerPrefill'
 import { MessageAudience, MessageAudienceDestination, captureMessageAudienceClicked } from './messageAudience'
+import { ATTEMPT_PREFILL_PARAM, parseAttemptPrefill } from './messageAudienceAttempts'
 import { MessageAudienceWarning, loadMessageAudienceWarnings, openMessageAudience } from './messageAudienceWarnings'
+import { parseMessageDraftPrefill } from './messageDrafts'
 
 jest.mock('products/cohorts/frontend/generated/api', () => ({ cohortsRetrieve: jest.fn() }))
 jest.mock('products/integrations/frontend/generated/api', () => ({ integrationsList: jest.fn() }))
-jest.mock('products/workflows/frontend/generated/api', () => ({ hogFlowsEmailSendingSuspensionRetrieve: jest.fn() }))
+jest.mock('products/workflows/frontend/generated/api', () => ({
+    hogFlowsEmailSendingSuspensionRetrieve: jest.fn(),
+    workflowEmailSandboxStatus: jest.fn(),
+}))
 
 const SUSPENDED: MessageAudienceWarning = {
     kind: 'sending_suspended',
@@ -33,6 +42,26 @@ const LIST_MATCHING: MessageAudienceWarning = {
     kind: 'cohort_not_ready',
     message: '"Signups" is still matching people. You can launch when it finishes.',
 }
+
+const TEST_SENDER_FOR_WORKFLOW: MessageAudienceWarning = {
+    kind: 'test_sender_only',
+    message:
+        "You don't have a verified email sender yet. You can send a test to yourself from the PostHog test sender. It only delivers to verified members of your organization. To email your users, set up your own domain.",
+}
+const TEST_SENDER_FOR_BROADCAST: MessageAudienceWarning = {
+    kind: 'test_sender_only',
+    message:
+        "Broadcasts need a verified email sender, and you don't have one yet. To try this email first, continue in a workflow and send a test to yourself from the PostHog test sender. It only delivers to verified members of your organization.",
+}
+
+const testSender = {
+    integration_id: null,
+    from_address: 'test@example.com',
+    display_name: 'Example via PostHog',
+    organization_blocked: false,
+    adoption_enabled: true,
+}
+const noTestSender = { ...testSender, adoption_enabled: false }
 
 const verified = { kind: 'email', config: { verified: true } }
 const unverified = { kind: 'email', config: { verified: false } }
@@ -54,6 +83,8 @@ describe('loadMessageAudienceWarnings', () => {
         senders?: object[] | Error
         morePages?: boolean
         cohort?: object | Error
+        sandbox?: object | Error
+        caller?: 'dialog' | 'other'
         expected: MessageAudienceWarning[]
     }>([
         { case: 'nothing wrong', destination: 'broadcast', expected: [] },
@@ -86,9 +117,82 @@ describe('loadMessageAudienceWarnings', () => {
             cohort: new Error('down'),
             expected: [],
         },
+        {
+            case: 'only the test sender, for a workflow',
+            destination: 'workflow',
+            senders: [],
+            sandbox: testSender,
+            expected: [TEST_SENDER_FOR_WORKFLOW],
+        },
+        {
+            case: 'only the test sender, for a broadcast',
+            destination: 'broadcast',
+            senders: [unverified],
+            sandbox: testSender,
+            expected: [TEST_SENDER_FOR_BROADCAST],
+        },
+        {
+            case: 'the test sender while sending is suspended',
+            destination: 'broadcast',
+            suspended: true,
+            senders: [],
+            sandbox: testSender,
+            expected: [SUSPENDED, TEST_SENDER_FOR_BROADCAST],
+        },
+        {
+            case: 'a verified sender next to the test sender',
+            destination: 'workflow',
+            senders: [verified],
+            sandbox: testSender,
+            expected: [],
+        },
+        {
+            case: 'a test sender the project cannot adopt',
+            destination: 'workflow',
+            senders: [],
+            sandbox: noTestSender,
+            expected: [NO_SENDER],
+        },
+        {
+            case: 'a blocked organization that already has a test sender',
+            destination: 'workflow',
+            senders: [],
+            sandbox: { ...testSender, integration_id: 12, organization_blocked: true },
+            expected: [NO_SENDER],
+        },
+        {
+            case: 'a test sender status that fails',
+            destination: 'workflow',
+            senders: [],
+            sandbox: new Error('down'),
+            expected: [NO_SENDER],
+        },
+        {
+            case: 'the test sender to a caller that does not offer it',
+            destination: 'broadcast',
+            senders: [],
+            sandbox: testSender,
+            caller: 'other',
+            expected: [NO_SENDER],
+        },
     ])(
         'reports $case',
-        async ({ destination, suspended = false, senders = [verified], morePages, cohort, expected }) => {
+        async ({
+            destination,
+            suspended = false,
+            senders = [verified],
+            morePages,
+            cohort,
+            sandbox,
+            caller = 'dialog',
+            expected,
+        }) => {
+            jest.mocked(workflowEmailSandboxStatus).mockImplementation(async () => {
+                if (sandbox instanceof Error) {
+                    throw sandbox
+                }
+                return (sandbox ?? noTestSender) as never
+            })
             jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
                 email_sending_suspended: suspended,
             } as never)
@@ -105,7 +209,11 @@ describe('loadMessageAudienceWarnings', () => {
                 return (cohort ?? { name: 'Signups', is_static: true, is_calculating: false }) as never
             })
 
-            expect(await loadMessageAudienceWarnings(audience, destination)).toEqual(expected)
+            const warnings =
+                caller === 'dialog'
+                    ? loadMessageAudienceWarnings(audience, destination, { offerTestSender: true })
+                    : loadMessageAudienceWarnings(audience, destination)
+            expect(await warnings).toEqual(expected)
         }
     )
 
@@ -113,9 +221,10 @@ describe('loadMessageAudienceWarnings', () => {
         jest.useFakeTimers()
         try {
             jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockReturnValue(new Promise(() => {}))
+            jest.mocked(workflowEmailSandboxStatus).mockReturnValue(new Promise(() => {}))
             jest.mocked(integrationsList).mockResolvedValue({ count: 0, results: [] } as never)
 
-            const warnings = loadMessageAudienceWarnings(audience, 'workflow')
+            const warnings = loadMessageAudienceWarnings(audience, 'workflow', { offerTestSender: true })
             await jest.advanceTimersByTimeAsync(5000)
 
             expect(await warnings).toEqual([NO_SENDER])
@@ -140,12 +249,21 @@ describe('loadMessageAudienceWarnings', () => {
             secondary: 'Cancel',
             landsOn: '/start',
         },
+        {
+            case: 'only the test sender',
+            suspended: false,
+            sandbox: testSender,
+            kinds: ['test_sender_only'],
+            secondary: 'Set up email',
+            landsOn: urls.workflows('channels'),
+        },
     ])(
         'reports the warnings it shows for $case, and $secondary takes the person to $landsOn',
-        async ({ suspended, senders = [], kinds, secondary, landsOn }) => {
+        async ({ suspended, senders = [], sandbox = noTestSender, kinds, secondary, landsOn }) => {
             const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
             try {
                 router.actions.push('/start')
+                jest.mocked(workflowEmailSandboxStatus).mockResolvedValue(sandbox as never)
                 jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
                     email_sending_suspended: suspended,
                 } as never)
@@ -177,4 +295,37 @@ describe('loadMessageAudienceWarnings', () => {
             }
         }
     )
+    it('continues a broadcast that only the test sender could send in a workflow with the same people, email and attempt', async () => {
+        const email = { subject: 'Your survey answers', paragraphs: ['Hi there,', 'Thanks for answering.'] }
+        router.actions.push('/start')
+        jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
+            email_sending_suspended: false,
+        } as never)
+        jest.mocked(integrationsList).mockResolvedValue({ count: 0, results: [], next: null } as never)
+        jest.mocked(workflowEmailSandboxStatus).mockResolvedValue(testSender as never)
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        try {
+            captureMessageAudienceClicked('survey_respondents_test_sender', 'broadcast')
+            await openMessageAudience(
+                { ...audience, source: 'survey_respondents_test_sender', broadcastEmail: email },
+                'broadcast'
+            )
+
+            expect(await screen.findByText('Set up email')).toBeInTheDocument()
+            fireEvent.click(await screen.findByText('Continue in a workflow'))
+            await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
+
+            const [clicked] = capture.mock.calls.map(([, properties]) => properties)
+            const { pathname, searchParams } = router.values.currentLocation
+            expect(pathname.endsWith(urls.workflowNew())).toBe(true)
+            expect(parseWorkflowTriggerPrefill(searchParams.trigger)).toEqual({
+                type: 'batch',
+                filters: { properties: audience.properties },
+            })
+            expect(parseMessageDraftPrefill(searchParams.email)).toEqual(email)
+            expect(parseAttemptPrefill(searchParams[ATTEMPT_PREFILL_PARAM])).toEqual(clicked?.attempt_id)
+        } finally {
+            capture.mockRestore()
+        }
+    })
 })
