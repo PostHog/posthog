@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from urllib.parse import urldefrag
 
@@ -169,6 +170,22 @@ class TestNotebookAppEmbeds(APIBaseTest):
         assert self.public.post(grove, {"token": coast_token}, HTTP_SEC_FETCH_DEST="iframe").status_code == 404
         assert self.public.post(coast, {"token": coast_token}, HTTP_SEC_FETCH_DEST="document").status_code == 404
         assert self.public.get(coast.replace(f"/embed/{self.team.pk}/", "/embed/999999/")).status_code == 404
+
+    def test_wrapped_table_only_embeds_published_columns_for_the_selected_tenant(self) -> None:
+        run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+        query = {
+            "kind": "DataVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT private_source"},
+            "display": "ActionsTable",
+            "tableSettings": {"columns": [{"column": "Sessions"}]},
+        }
+        self.release.markdown = f'<SQLV2 nodeId="usage" runId="{run_id}" query={{{json.dumps(query)}}} />'
+        self.release.save(update_fields=["markdown"])
+        path, token = self.issue("grove")
+        output = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
+        self.assertContains(output, "<td>93</td>", html=True)
+        for hidden in ("workspace_id", "Orchard study", "Canopy watch", "<td>128</td>"):
+            self.assertNotContains(output, hidden)
 
     def test_embed_requires_a_chart_with_shareable_output(self) -> None:
         self.release.markdown = self.release.markdown.replace(
