@@ -6,6 +6,12 @@ import { Duration, durationMs } from '../duration'
 const RecipientMatch = z.object({ recipient: z.string().optional() }).strict()
 const HostMatch = z.object({ host: z.string().optional() }).strict()
 
+export const S3Op = z.enum(['get', 'put', 'head', 'copy'])
+export type S3Op = z.infer<typeof S3Op>
+const S3Match = z.object({ op: S3Op.optional() }).strict()
+
+export const S3SlowParams = z.object({ bytesPerSecond: z.number().int().min(1) }).strict()
+
 export const SesThrottleParams = z.object({ rate: z.number().int().min(1) }).strict()
 
 export const SesRejectParams = z.object({ type: z.enum(['rejected', 'bounce']) }).strict()
@@ -64,6 +70,40 @@ export const CardFault = z.discriminatedUnion('name', [
         .strict(),
     z
         .object({
+            name: z.literal('ses.status'),
+            params: z.object({ code: z.number().int().min(500).max(599) }).strict(),
+            match: RecipientMatch.optional(),
+            dose: Dose,
+            for: Duration.optional(),
+        })
+        .strict(),
+    z
+        .object({
+            name: z.literal('s3.status'),
+            params: z.object({ code: z.number().int().min(500).max(599) }).strict(),
+            match: S3Match.optional(),
+            dose: Dose,
+            for: Duration.optional(),
+        })
+        .strict(),
+    z
+        .object({
+            name: z.literal('s3.stall'),
+            match: S3Match.optional(),
+            dose: Dose,
+            for: Duration.optional(),
+        })
+        .strict(),
+    z
+        .object({
+            name: z.literal('s3.slow'),
+            params: S3SlowParams,
+            match: S3Match.optional(),
+            for: Duration.optional(),
+        })
+        .strict(),
+    z
+        .object({
             name: z.literal('pg.enqueue_refused'),
             dose: Dose,
             for: Duration.optional(),
@@ -99,12 +139,17 @@ export type WebhookAnswer =
 // are the server's own.
 export type PgAnswer = { kind: 'pg-refuse' } | { kind: 'pg-commit-reply-lost' }
 
-type Answer = SesAnswer | WebhookAnswer | PgAnswer
+export type S3Answer =
+    | { kind: 's3-status'; status: number }
+    | { kind: 's3-stall' }
+    | { kind: 's3-slow'; bytesPerSecond: number }
+
+type Answer = SesAnswer | WebhookAnswer | PgAnswer | S3Answer
 
 export type FaultRule = {
     name: string
     answer: Answer
-    match?: { recipient?: string; host?: string }
+    match?: { recipient?: string; host?: string; op?: S3Op }
     dose: z.infer<typeof Dose> | { perSecond: number }
     for?: string
     pick?: string
@@ -114,6 +159,7 @@ type FaultedRequest =
     | { channel: 'ses'; recipients: string[] }
     | { channel: 'webhook'; host: string }
     | { channel: 'pg'; at: 'enqueue' | 'commit' }
+    | { channel: 's3'; op: S3Op }
 
 export type Hit = { unitId?: string; pickKey: string }
 
@@ -124,6 +170,11 @@ const THROTTLED: SesStatusAnswer = {
     message: 'Maximum sending rate exceeded.',
 }
 const RATE_WINDOW_MS = 1000
+
+const sesServerError = (status: number): SesStatusAnswer =>
+    status === 503
+        ? { status, type: 'ServiceUnavailable', message: 'Service unavailable' }
+        : { status, type: 'InternalFailure', message: 'Internal failure' }
 
 export function ruleOf(fault: CardFault): FaultRule {
     switch (fault.name) {
@@ -140,6 +191,14 @@ export function ruleOf(fault: CardFault): FaultRule {
             return { ...fault, answer: { kind: 'ambiguous', accepted: fault.params.accepted } }
         case 'dest.ambiguous':
             return { ...fault, answer: { kind: 'webhook-ambiguous', accepted: fault.params.accepted } }
+        case 'ses.status':
+            return { ...fault, answer: { kind: 'status', answer: sesServerError(fault.params.code) } }
+        case 's3.status':
+            return { ...fault, answer: { kind: 's3-status', status: fault.params.code } }
+        case 's3.stall':
+            return { ...fault, answer: { kind: 's3-stall' } }
+        case 's3.slow':
+            return { ...fault, dose: { share: 1 }, answer: { kind: 's3-slow', ...fault.params } }
         case 'pg.enqueue_refused':
             return { ...fault, answer: { kind: 'pg-refuse' } }
         case 'pg.commit_reply_lost':
@@ -192,7 +251,11 @@ const isWebhookAnswer = (answer: Answer): answer is WebhookAnswer =>
 const isPgAnswer = (answer: Answer): answer is PgAnswer =>
     answer.kind === 'pg-refuse' || answer.kind === 'pg-commit-reply-lost'
 
-const isSesAnswer = (answer: Answer): answer is SesAnswer => !isWebhookAnswer(answer) && !isPgAnswer(answer)
+const isS3Answer = (answer: Answer): answer is S3Answer =>
+    answer.kind === 's3-status' || answer.kind === 's3-stall' || answer.kind === 's3-slow'
+
+const isSesAnswer = (answer: Answer): answer is SesAnswer =>
+    !isWebhookAnswer(answer) && !isPgAnswer(answer) && !isS3Answer(answer)
 
 const reachesSes = (answer: Answer): boolean =>
     answer.kind === 'bounce' ||
@@ -203,6 +266,9 @@ const reachesSes = (answer: Answer): boolean =>
 function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean {
     if (request.channel === 'webhook') {
         return isWebhookAnswer(answer) && (match?.host === undefined || match.host === request.host)
+    }
+    if (request.channel === 's3') {
+        return isS3Answer(answer) && (match?.op === undefined || match.op === request.op)
     }
     if (request.channel === 'pg') {
         return answer.kind === (request.at === 'enqueue' ? 'pg-refuse' : 'pg-commit-reply-lost')
@@ -285,6 +351,11 @@ export class FaultList {
     takeWebhook(host: string, hit: Hit): { name: string; answer: WebhookAnswer } | undefined {
         const rule = this.take({ channel: 'webhook', host }, hit)?.rule
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
+    }
+
+    takeS3(op: S3Op, hit: Hit): { name: string; answer: S3Answer } | undefined {
+        const rule = this.take({ channel: 's3', op }, hit)?.rule
+        return rule && isS3Answer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
     }
 
     refusePg(): string | undefined {

@@ -25,6 +25,7 @@ import {
     Role,
     RoleId,
     RoleSpec,
+    attachmentStoreUpstreamOf,
     configHashOf,
     consumerGroupsOf,
     intakeTopicsOf,
@@ -352,9 +353,14 @@ export function createEnvironment({
         const exitsBefore = supervisor.exits().length
         const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
-        const direct = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        const address = {
+            url: edge.url,
+            caCertPath: edge.caCertPath,
+            attachmentStoreUrl: await edge.s3ProxyOf(attachmentStoreUpstreamOf(env, settings)),
+        }
+        const direct = roleSpecs(env, address, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
         const specs = cyclotronThroughEdge
-            ? roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas, {
+            ? roleSpecs(env, address, secrets, stateDir, settings, sesRateLimiterValkey, replicas, {
                   urls: await proxiesOf(edge.pgProxyOf, direct),
                   fallback: STACK.cyclotronNodeUrl,
               })

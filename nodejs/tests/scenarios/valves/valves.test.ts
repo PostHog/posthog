@@ -6,6 +6,7 @@ import os from 'os'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
+import { getDefaultCdpConfig } from '~/cdp/config'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -24,6 +25,7 @@ import { Truth } from '../provider-edge/truth'
 import { ValveContext, createValves } from './valves'
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
+const OBJECT_STORE = getDefaultCdpConfig().CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT
 const OUR_TEAM = 7
 
 type Job = { team: number; queue: Queue; status: 'available' | 'running' }
@@ -624,6 +626,14 @@ describe('valves', () => {
             }
         }
 
+        const objectGet = async (timeoutMs?: number): Promise<number | string> =>
+            internalFetch(`${await edge.s3ProxyOf(OBJECT_STORE)}/scenario-valves-missing-bucket/missing-key`, {
+                timeoutMs,
+            }).then(
+                (answer) => answer.status,
+                (error: Error) => error.name
+            )
+
         const send = (abortSignal?: AbortSignal, to = 'run-1-1@www.example.com'): Promise<string> =>
             ses
                 .send(
@@ -853,6 +863,23 @@ describe('valves', () => {
                 faults: ['ses.reject', 'ses.reject'],
                 dose: { type, share: 1 },
             })
+        })
+
+        it.each<[string, string, Record<string, unknown>, () => Promise<number | string>, number | string]>([
+            ['ses.status', 'ses', { code: 503, share: 1 }, () => send(), 'ServiceUnavailable'],
+            ['s3.status', 's3', { code: 503, op: 'get', share: 1 }, () => objectGet(), 503],
+            ['s3.stall', 's3', { op: 'get', count: 1 }, () => objectGet(300), 'TimeoutError'],
+            ['s3.slow', 's3', { op: 'get', bytesPerSecond: 1 }, () => objectGet(), 404],
+        ])('applies %s on %s with %j while it holds', async (valve, target, dose, request, outcome) => {
+            const valves = createValves({ pollMs: 5 })
+            const edgeHeld = onEdgeHeld()
+
+            await valves.start([{ valve, target, dose, at: '0ms', for: '1m' }], edgeHeld.context)
+            await edgeHeld.held
+            const answered = await request()
+            await valves.releaseAll()
+
+            expect({ answered, error: valves.timeline()[0].error }).toEqual({ answered: outcome, error: undefined })
         })
 
         it.each<[boolean, (number | string | undefined)[][]]>([

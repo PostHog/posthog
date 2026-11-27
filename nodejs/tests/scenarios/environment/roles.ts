@@ -101,7 +101,12 @@ export const portOf = ({ role, replica }: RoleId): number => ROLE_PORTS[role] + 
 export const roleIdsOf = (replicas: Replicas = {}): RoleId[] =>
     CdpRole.options.flatMap((role) => Array.from({ length: replicas[role] ?? 1 }, (_, replica) => ({ role, replica })))
 
-export type EdgeAddress = { url: string; caCertPath?: string }
+export type EdgeAddress = { url: string; caCertPath?: string; attachmentStoreUrl?: string }
+
+const STACK_ATTACHMENT_STORE = 'http://localhost:19000'
+
+export const attachmentStoreUpstreamOf = (base: NodeJS.ProcessEnv, settings: Profile['settings'] = {}): string =>
+    settings.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT || base.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT || STACK_ATTACHMENT_STORE
 
 export type ConsumerGroup = { group: string; topics: string[] }
 
@@ -147,6 +152,7 @@ export function roleSpecs(
         AWS_ACCESS_KEY_ID: 'scenario',
         AWS_SECRET_ACCESS_KEY: 'scenario',
         PERSONHOG_ENABLED: 'true',
+        CDP_EMAIL_ATTACHMENTS_TEAMS: '*',
         ...settings,
     }
     const directOf = (index: number): string | undefined =>
@@ -177,6 +183,12 @@ export function roleSpecs(
                 ...(cyclotron === undefined ? {} : { CYCLOTRON_NODE_DATABASE_URL: cyclotron }),
                 SES_ENDPOINT: edge.url,
                 HTTPS_PROXY: edge.url,
+                ...(edge.attachmentStoreUrl === undefined
+                    ? {}
+                    : {
+                          CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: edge.attachmentStoreUrl,
+                          CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: edge.attachmentStoreUrl,
+                      }),
                 ...(edge.caCertPath ? { NODE_EXTRA_CA_CERTS: edge.caCertPath } : {}),
                 PERSONHOG_ADDR,
                 SES_RATE_LIMITER_VALKEY_HOST: sesValkey.host,

@@ -69,7 +69,11 @@ const REPO = '/work/posthog'
 const NODEJS = `${REPO}/nodejs`
 const STATE_DIR = '/home/dev/.cache/posthog-scenarios'
 const NEVER_ABORTED = new AbortController().signal
-const EDGE = { url: 'http://127.0.0.1:4566', caCertPath: `${STATE_DIR}/edge-ca/ca.pem` }
+const EDGE = {
+    url: 'http://127.0.0.1:4566',
+    caCertPath: `${STATE_DIR}/edge-ca/ca.pem`,
+    attachmentStoreUrl: 'http://127.0.0.1:4567',
+}
 const MARKED_ENV = ['PATH=/usr/bin', `SCENARIO_RUNNER=${STATE_DIR}`]
 const PLAIN_ENV = ['PATH=/usr/bin']
 const OTHER_CHECKOUT = '/work/posthog-other/nodejs'
@@ -604,6 +608,9 @@ describe('scenario environment', () => {
                     SES_ENDPOINT: EDGE.url,
                     HTTPS_PROXY: EDGE.url,
                     NODE_EXTRA_CA_CERTS: EDGE.caCertPath,
+                    CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: EDGE.attachmentStoreUrl,
+                    CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: EDGE.attachmentStoreUrl,
+                    CDP_EMAIL_ATTACHMENTS_TEAMS: '*',
                     SCENARIO_RUNNER: STATE_DIR,
                 })
             }
@@ -616,6 +623,9 @@ describe('scenario environment', () => {
                 SES_ENDPOINT: 'http://elsewhere',
                 HTTPS_PROXY: 'http://elsewhere',
                 NODE_EXTRA_CA_CERTS: '/elsewhere/ca.pem',
+                CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://elsewhere',
+                CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: 'http://elsewhere',
+                CDP_EMAIL_ATTACHMENTS_TEAMS: '2',
                 EXTERNAL_REQUEST_PROXY_TEAMS: '*:0.5',
                 PERSONHOG_ADDR: '127.0.0.1:1',
                 SES_RATE_LIMITER_VALKEY_HOST: 'elsewhere',
@@ -638,6 +648,9 @@ describe('scenario environment', () => {
                 SES_ENDPOINT: EDGE.url,
                 HTTPS_PROXY: EDGE.url,
                 NODE_EXTRA_CA_CERTS: EDGE.caCertPath,
+                CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: EDGE.attachmentStoreUrl,
+                CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: EDGE.attachmentStoreUrl,
+                CDP_EMAIL_ATTACHMENTS_TEAMS: '2',
                 PERSONHOG_ADDR: '127.0.0.1:50052',
                 SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
                 SES_RATE_LIMITER_VALKEY_PORT: '6390',

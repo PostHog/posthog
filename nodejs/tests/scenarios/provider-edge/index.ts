@@ -12,6 +12,7 @@ import { SIGNING_CERT_PATH, SnsSigner, hardBounceOf, postFeedback } from './feed
 import { PgProxy, startPgProxy } from './postgres'
 import { problemsOf } from './problems'
 import { Proxy, serveConnect } from './proxy'
+import { S3Proxy, startS3Proxy } from './s3'
 import {
     ConfigurationSets,
     SEND_EMAIL_PATH,
@@ -24,7 +25,7 @@ import {
 import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 
 export type { CardFault, FaultRule } from './faults'
-export { AmbiguousParams, SesRejectParams, SesThrottleParams } from './faults'
+export { AmbiguousParams, S3Op, S3SlowParams, SesRejectParams, SesThrottleParams } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
 export type { TruthAttachment, TruthHead, TruthMessage, TruthPage, TruthRecord } from './truth'
@@ -103,6 +104,7 @@ export type ProviderEdge = {
     url: string
     caCertPath?: string
     pgProxyOf(upstream: string): Promise<string>
+    s3ProxyOf(upstream: string): Promise<string>
     sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
     firstAppliedAt(faultId: string): number | undefined
@@ -411,11 +413,19 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         proxy.catch(() => pgProxies.delete(upstream))
         return proxy
     }
+    const s3Proxies = new Map<string, Promise<S3Proxy>>()
+    const s3ProxyOf = (upstream: string): Promise<S3Proxy> => {
+        const proxy = s3Proxies.get(upstream) ?? startS3Proxy(upstream, faults)
+        s3Proxies.set(upstream, proxy)
+        proxy.catch(() => s3Proxies.delete(upstream))
+        return proxy
+    }
 
     return {
         url: `http://127.0.0.1:${port}`,
         caCertPath: certificates?.caCertPath,
         pgProxyOf: async (upstream) => (await pgProxyOf(upstream)).url,
+        s3ProxyOf: async (upstream) => (await s3ProxyOf(upstream)).url,
         sent,
         addFault: (rule) => faults.add(rule),
         firstAppliedAt: (faultId) => faults.firstAppliedAt(faultId),
@@ -433,7 +443,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         close: async () => {
             proxy?.close()
             await Promise.all(
-                [...pgProxies.values()].map((pg) =>
+                [...pgProxies.values(), ...s3Proxies.values()].map((pg) =>
                     pg.then(
                         (started) => started.close(),
                         () => undefined
