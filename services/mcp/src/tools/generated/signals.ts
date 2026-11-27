@@ -3581,7 +3581,7 @@ const SelfDrivingStatusGetSchema = () => z.object({})
 
 const selfDrivingStatusGet = (): ToolBase<
     ReturnType<typeof SelfDrivingStatusGetSchema>,
-    Schemas.InboxOnboardingState
+    WithAgentNote<Schemas.InboxOnboardingState>
 > => ({
     name: 'self-driving-status-get',
     schema: SelfDrivingStatusGetSchema(),
@@ -3597,7 +3597,10 @@ const selfDrivingStatusGet = (): ToolBase<
             'jobs',
             'first_report',
         ]) as typeof result
-        return filtered
+        return withAgentNote(
+            filtered,
+            "When completed_at is null, Self-driving is not active in this project. Tell the user in your answer and link them to this project's /inbox/activate page."
+        )
     },
 })
 

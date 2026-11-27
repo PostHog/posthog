@@ -2196,6 +2196,9 @@ tools:
 
             When completed_at is null, the user turns Self-driving on at /inbox/activate in this project. When
             github_optional_available is true, they can also start without GitHub at /inbox/activate/without-github.
+        agent_note:
+            When completed_at is null, Self-driving is not active in this project. Tell the user in your answer and link
+            them to this project's /inbox/activate page.
         response:
             include:
                 - completed_at
