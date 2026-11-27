@@ -33,30 +33,37 @@ export function pickupsBetween(
     samples: readonly MetricSample[],
     roles: readonly string[],
     { from, to }: { from: number; to: number },
-    { straddlesEnd = true }: { straddlesEnd?: boolean } = {}
-): { picked: Record<string, Buckets>; closing: Record<string, Buckets>; unobservedTail?: true } | { unread: string } {
+    { straddlesEnd = true, fetchedBefore }: { straddlesEnd?: boolean; fetchedBefore?: number } = {}
+):
+    | { picked: Record<string, Buckets>; closing: Record<string, Buckets>; unobservedTail?: true; reset?: true }
+    | { unread: string; reset?: true } {
     const picked: Record<string, Buckets> = {}
     const closing: Record<string, Buckets> = {}
     let unobservedTail = false
+    let reset = false
     const unscraped = roles.find((role) => !samples.some((sample) => sample.role === role))
     if (unscraped) {
         return { unread: `no metrics from ${unscraped}` }
     }
+    let unread: string | undefined
     const workers = samples.filter(({ role }) => roles.includes(role))
     for (const [worker, series] of Map.groupBy(workers, ({ role, replica }) => `${role}-${replica}`)) {
-        const sorted = [...series].sort((a, b) => a.at - b.at)
+        const sorted = series
+            .filter(({ fetchedAt }) => fetchedBefore === undefined || (fetchedAt ?? Infinity) < fetchedBefore)
+            .sort((a, b) => a.at - b.at)
         const first = sorted.findLastIndex(({ at }) => at <= from)
         const inside = sorted.slice(Math.max(first, 0)).filter(({ at }) => at <= to)
         const bounds = [...inside.map(({ at }) => at), to]
         const gap = bounds.findIndex((at, i) => i > 0 && at - bounds[i - 1] > SCRAPE_GAP_MS)
         if (first < 0 || gap > 0) {
-            return { unread: `no metrics from ${worker} after ${iso(first < 0 ? from : bounds[gap - 1])}` }
+            unread ??= `no metrics from ${worker} after ${iso(first < 0 ? from : bounds[gap - 1])}`
+            reset ||= inside.some(
+                (sample, i) => i > 0 && (sample.startedAt !== inside[i - 1].startedAt || dropped(inside[i - 1], sample))
+            )
+            continue
         }
         // A scrape interval that straddles the step's end counts in both steps, so late pickups at a step's tail
-        // never pass into the next step's larger volume unjudged. Without straddlesEnd each interval counts once, in
-        // the window its closing scrape falls in, so a baseline never takes pickups from after the fault. With no
-        // scrape after the end to close that interval, or a reset between them, the step's tail goes unobserved.
-        // `closing` keeps that interval's share apart, since its pickups may fall on either side of the end.
+        // never pass into the next step's larger volume unjudged.
         const last = inside.at(-1)!
         const next = sorted.find(({ at }) => at > to)
         const straddles = straddlesEnd && last.at < to
@@ -66,13 +73,22 @@ export function pickupsBetween(
         covered.slice(1).forEach((sample, i) => {
             const previous = covered[i]
             const before = sample.startedAt === previous.startedAt ? previous.lateness : {}
+            reset ||= sample.startedAt !== previous.startedAt || dropped(previous, sample)
             add(picked, sample.lateness, before)
             if (sample === next) {
                 add(closing, sample.lateness, before)
             }
         })
     }
-    return unobservedTail ? { picked, closing, unobservedTail } : { picked, closing }
+    if (unread !== undefined) {
+        return reset ? { unread, reset: true } : { unread }
+    }
+    return {
+        picked,
+        closing,
+        ...(unobservedTail ? { unobservedTail: true as const } : {}),
+        ...(reset ? { reset: true as const } : {}),
+    }
 }
 
 const dropped = (from: MetricSample, to: MetricSample): boolean =>
@@ -94,8 +110,6 @@ export function p99Of(buckets: Buckets): { value: number; beyond: boolean } {
     return within === undefined ? { value: bounds.at(-1) ?? 0, beyond: true } : { value: within, beyond: false }
 }
 
-// The worst p99 over every share of the closing pickups that could fall inside the window: for each bound, the
-// share that drags it furthest is every closing pickup above that bound and none at or under it.
 export function worstP99Of(window: Buckets, closing: Buckets): { value: number; beyond: boolean } {
     const bounds = Object.keys(window)
         .filter((le) => le !== '+Inf')
