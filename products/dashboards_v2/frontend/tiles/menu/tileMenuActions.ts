@@ -163,7 +163,7 @@ const TILE_BACKGROUND_COLOR = {
 function useTileImageActions(id: string): MenuAction[] {
     const { downloadImage, copyImage, downloadingImage } = useDashboard()
     return imageActions({
-        downloadLabel: 'Download as image',
+        downloadLabel: 'Download',
         copyLabel: 'Copy as image',
         dataAttrPrefix: 'dashboard-v2-tile',
         making: downloadingImage,
