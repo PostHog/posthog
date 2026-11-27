@@ -17,7 +17,7 @@ from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, cons
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
-from products.notebooks.backend.app_output_projection import app_output_tabs
+from products.notebooks.backend.app_delivery import app_output_tabs
 from products.notebooks.backend.facade.contracts import AppEmbedAudience, AppOutput, AppOutputTab, AppViewGrantResult
 from products.notebooks.backend.models import Notebook, NotebookAppEmbed, NotebookAppRelease
 

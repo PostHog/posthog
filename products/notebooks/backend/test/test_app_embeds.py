@@ -107,6 +107,15 @@ class TestNotebookAppEmbeds(APIBaseTest):
         assert self.public.post(coast, {"token": coast_token}, HTTP_SEC_FETCH_DEST="document").status_code == 404
         assert self.public.get(coast.replace(f"/embed/{self.team.pk}/", "/embed/999999/")).status_code == 404
 
+    def test_embed_requires_a_chart_with_shareable_output(self) -> None:
+        self.release.markdown = self.release.markdown.replace(
+            'outputTab="results"', 'vizQuery={{"display":"ActionsPie"}}'
+        )
+        self.release.save(update_fields=["markdown"])
+        response = self.client.post(self.management, self.configuration("grove"), format="json")
+        assert response.status_code == 400
+        assert not NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).exists()
+
     def test_single_number_shares_only_the_first_matching_tenant_value(self) -> None:
         self.release.markdown = self.release.markdown.replace(
             'outputTab="results"',

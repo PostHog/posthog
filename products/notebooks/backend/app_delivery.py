@@ -249,7 +249,9 @@ def shared_chart_display(props: dict[str, Any], result: dict[str, Any]) -> str |
     return None
 
 
-def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
+def app_output_tabs(
+    release: NotebookAppRelease, *, tenant_column: str | None = None, tenant_value: str | None = None
+) -> list[AppOutputTab]:
     sql_cells = displayed_native_sql_cells(release)
     tabs = {tab["id"]: {"title": tab["title"], "blocks": []} for tab in release.layout["tabs"]}
     for block in release.layout["blocks"]:
@@ -267,6 +269,10 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
             continue
         result = pinned_sql_result(release, node_id, props.get("runId"))
         if result is None:
+            if tenant_column is not None:
+                raise serializers.ValidationError(
+                    "Save and republish the complete SQL results before creating an embed."
+                )
             tab["blocks"].append(
                 {"title": block.get("title"), "text": "Republish this app to share a verified SQL result."}
             )
@@ -285,9 +291,22 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
         row_count = result.get("row_count")
         partial = isinstance(row_count, int) and len(rows) < row_count
         displayed = output_columns({**props, "result": result}, columns)
+        if tenant_column is not None:
+            if partial:
+                raise serializers.ValidationError(
+                    "Save and republish the complete SQL results before creating an embed."
+                )
+            if columns.count(tenant_column) != 1:
+                raise serializers.ValidationError(
+                    {"tenant_column": "Every displayed SQL output must include this tenant column exactly once."}
+                )
+            idx = columns.index(tenant_column)
+            rows = [row for row in rows if isinstance(row, list) and len(row) > idx and row[idx] == tenant_value]
         if display == "BoldNumber":
             displayed = output_columns({**props, "outputTab": "results"}, columns)[:1]
             rows = rows[:1]
+        if tenant_column is not None:
+            displayed = [column for column in displayed if column != tenant_column]
         if displayed:
             indexes = [columns.index(column) for column in displayed]
             tab["blocks"].append(
