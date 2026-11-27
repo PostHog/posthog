@@ -742,11 +742,13 @@ def _get_console_ratings(
     today = datetime.now(UTC).date()
     start = _dated_fanout_start(config, today, should_use_incremental_field, db_incremental_field_last_value)
     for i, app in enumerate(targets):
-        first_day = max(start, resume_from) if i == 0 and resume_from else start
+        first_day = start
         scan_key = f"{app['app_collection_id']}:{app['ext_id']}"
         if should_use_incremental_field and scan_key in completed_through:
             scanned = min(date.fromisoformat(completed_through[scan_key]), today)
-            first_day = max(first_day, scanned - timedelta(days=DATED_FANOUT_LOOKBACK_DAYS))
+            first_day = scanned - timedelta(days=DATED_FANOUT_LOOKBACK_DAYS)
+        if i == 0 and resume_from:
+            first_day = max(first_day, resume_from)
         slices = _date_slices(config, first_day, today)
         skip_app = False
         for j, date_slice in enumerate(slices):

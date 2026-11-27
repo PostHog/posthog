@@ -636,9 +636,19 @@ def _console_api(respond: Callable[[RecordedRequest], ScriptedResponse]) -> Scri
 
 
 class TestConsoleRatings:
-    @pytest.mark.parametrize("watermark", [None, date(2026, 4, 15)])
+    @pytest.mark.parametrize(
+        "watermark,next_day,next_watermark",
+        [
+            (None, date(2026, 6, 16), None),
+            (date(2026, 4, 15), date(2026, 6, 16), date(2026, 4, 15)),
+            (None, date(2026, 7, 31), None),
+            (date(2026, 4, 15), date(2026, 7, 31), date(2026, 7, 30)),
+        ],
+    )
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_empty_scans_persist_coverage_across_jobs(self, watermark: date | None) -> None:
+    def test_empty_scans_persist_coverage_across_jobs(
+        self, watermark: date | None, next_day: date, next_watermark: date | None
+    ) -> None:
         source = AppfollowSource()
         cursor = SourceCursorManager(AppfollowScanCursor, None, source)
         script = _console_api(lambda _: ScriptedResponse(json={"fields": {"ratings": None, "users": None}}))
@@ -659,19 +669,28 @@ class TestConsoleRatings:
         next_cursor = SourceCursorManager.from_sync_type_config(
             source, {"source_cursor": payload}, source_inputs("console_ratings").logger
         )
-        with time_machine.travel("2026-06-16T09:00:00Z", tick=False):
+        with time_machine.travel(next_day, tick=False):
             second = _run(
                 "console_ratings",
                 script,
                 job_id="00000000-0000-4000-8000-000000000004",
                 should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark,
+                db_incremental_field_last_value=next_watermark,
                 source_cursor=next_cursor,
             )
         assert second.raised is None
         assert second.rows == []
         requests_ = _requests_to(second, "/meta/ratings/console/gp")
-        assert [(r.param("from"), r.param("to")) for r in requests_] == [("2026-06-08", "2026-06-16")] * 4
+        windows = [
+            (start.isoformat(), min(start + timedelta(days=13), next_day).isoformat())
+            for start in (
+                date(2026, 6, 8) + timedelta(days=offset)
+                for offset in range(0, (next_day - date(2026, 6, 8)).days + 1, 14)
+            )
+        ]
+        assert [(r.param("from"), r.param("to")) for r in requests_] == [
+            window for _ in range(2) for window in windows for _ in range(2)
+        ]
 
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_failed_scan_does_not_advance_coverage(self) -> None:
@@ -840,12 +859,20 @@ class TestConsoleRatings:
         ]
         assert result.committed_states == result.saved_states
 
+    @pytest.mark.parametrize("completed_through", [{}, {"20:example.app": "2026-05-01"}])
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_resume_keeps_the_saved_collection_and_day_with_nullable_metrics(self) -> None:
+    def test_resume_keeps_the_saved_collection_and_day_with_nullable_metrics(
+        self, completed_through: dict[str, str]
+    ) -> None:
         result = _run(
             "console_ratings",
             _console_api(lambda _: ScriptedResponse(json={"fields": {"ratings": None}})),
             resume_state=AppfollowResumeConfig(ext_id="example.app", collection_id=20, slice_start="2026-06-14"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 6, 14),
+            source_cursor=SourceCursorManager(
+                AppfollowScanCursor, AppfollowScanCursor(completed_through=completed_through), AppfollowSource()
+            ),
         )
         assert result.raised is None
         requests_ = _requests_to(result, "/meta/ratings/console/gp")
