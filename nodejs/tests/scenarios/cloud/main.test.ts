@@ -1454,7 +1454,16 @@ describe('cloud controller', () => {
         expect(cloud.billable()).toEqual([])
     })
 
-    it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void, string, string]>([
+    it.each<
+        [
+            string,
+            Partial<FakeCloudOptions>,
+            (fake: FakeCloud) => void,
+            string,
+            string,
+            { printed?: string; published?: Record<string, unknown> }?,
+        ]
+    >([
         [
             'an idle reader under the idle limit and a T0 minute above it',
             { readerAcu: IDLE_THEN_PROMOTED },
@@ -1479,6 +1488,29 @@ describe('cloud controller', () => {
             () => undefined,
             'passed',
             '',
+            { published: { acu_after_t0_max: [4, 8, 8, null] } },
+        ],
+        [
+            'minutes after T0 with averages and no maxima',
+            {
+                readerAcu: [
+                    ...IDLE_THEN_PROMOTED.filter(({ minute }) => minute < 0),
+                    { minute: 0, avg: 2.4 },
+                    { minute: 1, avg: 6 },
+                    { minute: 2, avg: 6 },
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'no measured reader maximum from T0 on',
+            {
+                published: {
+                    acu_t0_minute_max: null,
+                    acu_peak: null,
+                    acu_seconds_to_peak: null,
+                    acu_after_t0_max: [null, null, null],
+                },
+            },
         ],
         [
             'a complete minute before T0 above the idle limit',
@@ -1666,6 +1698,22 @@ describe('cloud controller', () => {
             'reader above its 2.5 ACU idle limit before T0 ({-5})',
         ],
         [
+            'a failover request the runner dates two days before the run',
+            {
+                card: {
+                    intentAt: new Date(T.getTime() - 2 * 24 * HOUR_MS).toISOString(),
+                    eventFields: { acu_peak: 9, acu_after_t0_max: [4], acu_pre_t0_above_idle: ['x'] },
+                },
+            },
+            () => undefined,
+            'invalid',
+            'falls outside the run',
+            {
+                printed: 'falls outside the run, so the reader was not judged.',
+                published: { acu_peak: null, acu_after_t0_max: null, acu_pre_t0_above_idle: null },
+            },
+        ],
+        [
             'a failover entry without the instant of its request',
             { card: { journalsIntent: false } },
             () => undefined,
@@ -1700,7 +1748,7 @@ describe('cloud controller', () => {
             'invalid',
             'the runner exited 2 after it saved a passed scorecard',
         ],
-    ])('judges the run on %s and publishes it', async (_, cloudOptions, arrange, status, reason) => {
+    ])('judges the run on %s and publishes it', async (_, cloudOptions, arrange, status, reason, also = {}) => {
         const { controller } = prepare({ cloud: cloudOptions, env: api.credentials })
         arrange(cloud)
 
@@ -1713,13 +1761,19 @@ describe('cloud controller', () => {
                 new Date(t0Minute + Number(minute) * 60_000).toISOString()
             )
         )
+        if (also.printed !== undefined) {
+            expect(out).toContainEqual(expect.stringContaining(also.printed))
+        }
+        expect(published()).toMatchObject(also.published ?? {})
         if (status === 'passed') {
             expect(published()).toMatchObject({
                 acu_pre_t0_max: 2,
                 acu_t0_minute_max: 4,
                 acu_peak: 8,
                 acu_seconds_to_peak: 60,
+                acu_after_t0_max: [4, 8, 8],
                 reader_acu_at_t0: 1.5,
+                ...also.published,
             })
             const t0 = Date.parse(String(published().t0_at))
             expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
