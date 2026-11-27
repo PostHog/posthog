@@ -24,6 +24,7 @@ EXEMPT: frozenset[str] = frozenset(
         "ee/migrations/0071_role_organization_access_level.py",
         "ee/migrations/0072_validate_role_organization_access_level.py",
         "ee/migrations/0073_remove_featureflagroleaccess.py",
+        "ee/migrations/0074_drop_featureflagroleaccess_table.py",
     }
 )
 
