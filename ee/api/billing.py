@@ -823,7 +823,18 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     body["reset_limit_next_period"] = reset_limit_next_period
 
                 billing_manager = self.get_billing_manager()
-                billing_manager.update_billing(org, body)
+                try:
+                    billing_manager.update_billing(org, body)
+                except BillingServiceResponseError as error:
+                    match error.status_code, error.body:
+                        case 400, {
+                            "type": "validation_error",
+                            "attr": str(field),
+                            "code": str(code),
+                            "detail": str(detail),
+                        } if field.partition("__")[0] in ("custom_limits_usd", "reset_limit_next_period"):
+                            raise ValidationError({field: detail}, code=code) from error
+                    raise
 
                 if custom_limits_usd and distinct_id:
                     posthoganalytics.capture(

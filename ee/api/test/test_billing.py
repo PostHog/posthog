@@ -978,6 +978,40 @@ class TestBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_get_billing.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                {"logs_retention_custom": 0},
+                "custom_limits_usd",
+                "invalid_input",
+                "Billing limits are not available for logs_retention_custom",
+            ),
+            (
+                {"logs": 50001},
+                "custom_limits_usd__logs",
+                "max_value",
+                "Ensure this value is less than or equal to 50000.",
+            ),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_patch_returns_limit_validation_detail(
+        self, limits: dict[str, int], field: str, code: str, detail: str, mock_patch: MagicMock
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        refusal = {"type": "validation_error", "code": code, "detail": detail, "attr": field}
+        mock_patch.return_value = MagicMock(status_code=400, json=MagicMock(return_value=refusal))
+
+        response = self.client.patch(
+            "/api/billing/",
+            data={"custom_limits_usd": limits},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == refusal
+
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
     @patch("ee.billing.grants.posthog_feature_flag_enabled")

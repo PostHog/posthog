@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
-import api, { getJSONOrNull } from 'lib/api'
+import api, { ApiError, getJSONOrNull } from 'lib/api'
 import { buildFakeBillingAlert } from 'lib/components/Superpowers/buildFakeBillingAlert'
 import { FakeBillingAlert, superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { getSupportResponseTime } from 'lib/components/Support/supportResponseTime'
@@ -46,6 +46,7 @@ import {
     getMinimumUsageSpendReadAccessLevel,
     isMemberUsageSpendReadAccessEnabled,
 } from './billingAccess'
+import { billingProductDisplayName } from './billingProductDisplayName'
 import { isCompanionProduct } from './companionProducts'
 import { eventsRetentionMonths } from './eventsRetentionMonths'
 import {
@@ -1035,6 +1036,16 @@ export const billingLogic = kea<billingLogicType>([
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
+                    const ineligibleProduct = values.billing?.products?.find(
+                        (product) =>
+                            product.no_billing_limit &&
+                            (limits[product.type] != null || (product.usage_key && limits[product.usage_key] != null))
+                    )
+                    if (ineligibleProduct) {
+                        const message = `You can't set a billing limit for ${billingProductDisplayName(ineligibleProduct)}.`
+                        lemonToast.error(message)
+                        throw new Error(message)
+                    }
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
@@ -1043,7 +1054,13 @@ export const billingLogic = kea<billingLogicType>([
                         return parseBillingResponse(response) ?? values.billing
                     } catch (error: unknown) {
                         lemonToast.error(
-                            'There was an error updating your billing limits. Please try again or contact support.'
+                            error instanceof ApiError &&
+                                error.status === 400 &&
+                                error.data?.type === 'validation_error' &&
+                                typeof error.detail === 'string' &&
+                                error.detail
+                                ? error.detail
+                                : 'There was an error updating your billing limits. Please try again or contact support.'
                         )
                         // A failure, not the last billing state: a success would close the limit editor and
                         // discard the value the person was saving.
