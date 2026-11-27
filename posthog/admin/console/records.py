@@ -211,7 +211,7 @@ class TeamRecord(RecordType):
             ),
             # Members belong to the organization, not to the team, so the label says whose members they are.
             Memberships.members(
-                lambda pk: organization_memberships(Team.objects.filter(pk=pk).values("organization_id")[:1]),
+                lambda pk: organization_memberships(Organization.objects.filter(team=pk).values("id")[:1]),
                 label="Organization members",
             ),
         )
@@ -307,7 +307,7 @@ class ProjectRecord(RecordType):
                 inverse="project",
             ),
             Memberships.members(
-                lambda pk: organization_memberships(Project.objects.filter(pk=pk).values("organization_id")[:1]),
+                lambda pk: organization_memberships(Organization.objects.filter(project=pk).values("id")[:1]),
                 label="Organization members",
             ),
         )

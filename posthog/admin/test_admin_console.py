@@ -962,13 +962,14 @@ class TestAdminConsoleViews(BaseTest):
 
         response = self.client.get(
             "/admin/console/tools/organization-members/",
-            {"organization": str(self.organization.pk), "search": search},
+            {"organization": str(self.organization.pk), "search": search, "page": "1"},
             follow=True,
         )
 
         assert response.redirect_chain[-1][0].startswith(
             f"/admin/console/organizations/{self.organization.pk}/related/members/"
         )
+        assert "page=1" in response.redirect_chain[-1][0]
         table = next(block for block in response.context["page"].blocks if isinstance(block, Table))
         assert {row.cells[0].text for row in table.rows if isinstance(row, Row)} == expected_emails
 

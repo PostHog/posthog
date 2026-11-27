@@ -12,7 +12,6 @@ from posthog.models.organization import Organization
 
 class MemberSearchForm(forms.Form):
     organization = forms.UUIDField()
-    search = forms.CharField(required=False)
 
 
 @console.register_tool
@@ -35,8 +34,9 @@ class OrganizationMembersTool(ConsoleTool):
         members_url = reverse(
             RECORD_TYPES["organization"].related_url_name, kwargs={"pk": organization.pk, "relation_key": "members"}
         )
-        search = form.cleaned_data["search"].strip()
-        return HttpResponseRedirect(f"{members_url}?{urlencode({'search': search})}" if search else members_url)
+        # Old bookmarks keep their search and page.
+        kept = {name: request.GET[name] for name in ("search", "page") if request.GET.get(name, "").strip()}
+        return HttpResponseRedirect(f"{members_url}?{urlencode(kept)}" if kept else members_url)
 
     def page(self, request: HttpRequest) -> Page:
         return Page(blocks=(Notice(text="Open an organization's members from the Members list on its page."),))
