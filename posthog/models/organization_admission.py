@@ -62,6 +62,9 @@ class OrganizationAdmission:
             return Admission.DEACTIVATED if team_id in deactivated.team_ids else Admission.ADMITTED
         return Admission.DEACTIVATED if parsed_organization_id in deactivated.organization_ids else Admission.ADMITTED
 
+    def has_snapshot(self) -> bool:
+        return self._deactivated is not None
+
     def is_stale(self) -> bool:
         last_attempt = self._last_attempt
         return last_attempt is None or self._clock() - last_attempt >= REFRESH_INTERVAL_SECONDS

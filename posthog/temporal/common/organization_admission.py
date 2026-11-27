@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 from dataclasses import is_dataclass
 from typing import Any
 
@@ -9,7 +10,7 @@ from temporalio import activity
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, Interceptor
 
 from posthog.models import organization_admission
-from posthog.models.organization_admission import Admission
+from posthog.models.organization_admission import Admission, OrganizationAdmission
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
@@ -42,13 +43,34 @@ def _tenant_of(input: ExecuteActivityInput) -> tuple[int | None, uuid.UUID | str
     )
 
 
+_refresh: asyncio.Task[None] | None = None
+
+
+def _log_refresh_failure(task: asyncio.Task[None]) -> None:
+    if not task.cancelled() and task.exception() is not None:
+        logger.warning("organization_admission_refresh_failed", exc_info=task.exception())
+
+
+def _start_refresh(admission: OrganizationAdmission) -> asyncio.Task[None] | None:
+    global _refresh
+    loop = asyncio.get_running_loop()
+    if _refresh is not None and not _refresh.done() and _refresh.get_loop() is loop:
+        return _refresh
+    if not admission.is_stale():
+        return None
+    _refresh = loop.create_task(database_sync_to_async(admission.refresh_if_stale, thread_sensitive=False)())
+    _refresh.add_done_callback(_log_refresh_failure)
+    return _refresh
+
+
 async def _shadow_outcome(input: ExecuteActivityInput) -> str:
     team_id, organization_id = _tenant_of(input)
     if team_id is None and organization_id is None:
         return _SHADOW_OUTCOMES[Admission.UNRESOLVED]
     admission = organization_admission.ORGANIZATION_ADMISSION
-    if admission.is_stale():
-        await database_sync_to_async(admission.refresh_if_stale, thread_sensitive=False)()
+    refresh = _start_refresh(admission)
+    if refresh is not None and not admission.has_snapshot():
+        await asyncio.shield(refresh)
     return _SHADOW_OUTCOMES[admission.check_cached(team_id=team_id, organization_id=organization_id)]
 
 

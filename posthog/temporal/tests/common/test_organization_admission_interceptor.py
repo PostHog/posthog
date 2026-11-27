@@ -12,11 +12,20 @@ from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team, organization_admission
-from posthog.models.organization_admission import OrganizationAdmission
+from posthog.models.organization_admission import Admission, OrganizationAdmission
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.worker import interceptor_classes
+from posthog.test.waiting import wait_until
 
 OUTCOMES = ("admitted", "would_skip", "unresolved", "error")
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def __call__(self) -> float:
+        return self.now
 
 
 @dataclass(frozen=True)
@@ -118,6 +127,28 @@ async def test_shadow_counts_each_activity_and_leaves_its_result(
     assert result == ["ran x", "ran x"]
     assert tenant_checks == {expected: 1}
     assert bare_checks == {"unresolved": 1}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_shadow_counts_against_the_cached_set_while_it_refreshes(
+    temporal_client: Client, settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = "shadow"
+    clock = FakeClock()
+    admission = OrganizationAdmission(clock=clock)
+    monkeypatch.setattr(organization_admission, "ORGANIZATION_ADMISSION", admission)
+    team = await _team_in_organization(is_active=True)
+    inputs = ProbeInput(value="x", team_id=team.id)
+
+    _, before_deactivation, _ = await _run_probe(temporal_client, inputs)
+    await sync_to_async(Organization.objects.filter(id=team.organization_id).update)(is_active=False)
+    clock.now += 30
+    _, while_refreshing, _ = await _run_probe(temporal_client, inputs)
+
+    assert before_deactivation == {"admitted": 1}
+    assert while_refreshing == {"admitted": 1}
+    await sync_to_async(wait_until)(lambda: admission.check_cached(team_id=team.id) == Admission.DEACTIVATED)
 
 
 @pytest.mark.asyncio
