@@ -899,14 +899,14 @@ Diffed against: <https://docs.api.appfollow.io/reference/app_collections_list_ap
 - [x] `/api/v2/aso/keywords` — tracked keyword positions per app and country (high) — synced as `keywords`, also a daily snapshot.
 - [x] `/api/v2/meta/versions` — app version release history; lookup resolving the version field on synced reviews (high) — synced as `app_versions`.
 - [x] `/api/v2/reviews/stats` — aggregate review counts and sentiment without re-aggregating raw reviews (medium) — synced as `reviews_stats`, incremental on `date`. Counts only; sentiment lives on `/reviews/semantic`.
-- [ ] `/api/v2/reviews/stats/version` — review breakdown by app version, the standard release-quality view (medium)
+- [x] `/api/v2/reviews/stats/version` — review breakdown by app version, the standard release-quality view (medium) — synced as `reviews_version_stats`. The response contains daily review tag counts by version in nested columns.
 - [x] `/api/v2/reviews/stats/ratings` — rating distribution over time (medium) — synced as `reviews_ratings_stats`. It returns star ratings by review tag per replying user for one review date, not a rating distribution, so the table walks one request per day.
 - [x] `/api/v2/reviews/stats/replies, /reviews/stats/replies/count, /reviews/stats/replies/speed` — reply coverage and response-time SLA metrics for support teams (medium) — synced as `reviews_replies_stats`, `reviews_replies_count` and `reviews_replies_speed`. `/count` returns the replied reviews whose rating changed after the reply, not counts.
 - [x] `/api/v2/reports/aso` — packaged ASO report combining keywords, ranks and visibility (medium) — synced as `aso_reports`. It returns App Store Connect downloads, impressions and page views per source channel, not keywords or ranks.
 - [x] `/api/v2/reviews/semantic` — semantic tags per review, the breakdown dimension for review analysis (medium) — synced as `reviews_semantic` (Advanced API add-on).
-- [ ] `/api/v2/charts/topcharts` — public top charts for competitive benchmarking (medium)
-- [ ] `/api/v2/meta/ratings/console/gp` — Google Play Console ratings, more accurate than scraped store ratings (medium)
-- [ ] `/api/v2/aso/featured` — App Store featuring events that drive install spikes (low)
+- [ ] `/api/v2/charts/topcharts` — public top charts for competitive benchmarking (medium). Skipped: Requires device and genre query inputs that the source cannot enumerate from tracked apps.
+- [x] `/api/v2/meta/ratings/console/gp` — Google Play Console ratings, more accurate than scraped store ratings (medium) — synced as `console_ratings`, with separate ratings and users rows per app, collection, and day.
+- [x] `/api/v2/aso/featured` — App Store featuring events that drive install spikes (low) — synced as `featured_apps`, with full refresh of the last year per App Store app and collection country.
 
 Note: Full v2 endpoint list read from the docs nav (slugs encode the HTTP path). PostHog covers account management plus reviews and ratings history; the ASO and review-analytics halves of the product are unmapped.
 
