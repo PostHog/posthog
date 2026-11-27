@@ -298,9 +298,6 @@ export interface alertFormLogicValues {
     clearSnoozeLoading: boolean
     funnelAlertPreview: FunnelAlertPreview | null
     hogqlAlertPreview: HogQLAlertPreview | null
-    metricsAlertPreview: MetricsAlertPreviewSeries | null
-    metricsPreviewResponse: MetricsQueryResponse | null
-    metricsPreviewResponseLoading: boolean
     hogqlConfigPrefill: Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> | null
     hogqlLabelColumnOptions: {
         label: string
@@ -315,6 +312,9 @@ export interface alertFormLogicValues {
     }[]
     isAlertFormSubmitting: boolean
     isAlertFormValid: boolean
+    metricsAlertPreview: MetricsAlertPreviewSeries | null
+    metricsPreviewResponse: MetricsQueryResponse | null
+    metricsPreviewResponseLoading: boolean
     showAlertFormErrors: boolean
     simulationDateFrom: string | null
     simulationRequestId: number
@@ -459,7 +459,7 @@ export interface alertFormLogicMeta {
         ) => FunnelAlertPreview | null
         metricsAlertPreview: (
             metricsPreviewResponse: MetricsQueryResponse | null,
-            query: Node | null
+            query: Node<Record<string, any>> | null
         ) => MetricsAlertPreviewSeries | null
         hogqlResultColumns: (insightData: Record<string, any>) => string[] | null
         hogqlNumericColumns: (insightData: Record<string, any>, hogqlResultColumns: string[] | null) => string[] | null
