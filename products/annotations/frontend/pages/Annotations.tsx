@@ -30,8 +30,12 @@ import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 
 import { AnnotationModal } from '../components/AnnotationModal'
+import { QuillAnnotationModal } from '../components/QuillAnnotationModal'
 import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from '../logics/annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from '../logics/annotationsLogic'
+import { annotationScopeTooltip } from './annotationScopeTooltip'
+import { QuillAnnotationsFilterMenu } from './QuillAnnotationsFilterMenu'
+import { QuillAnnotationsTable } from './QuillAnnotationsTable'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -96,14 +100,7 @@ export function Annotations(): JSX.Element {
             key: 'scope',
             render: function RenderType(_, annotation: AnnotationType): JSX.Element {
                 const scopeName = annotationScopeToName[annotation.scope]
-                const tooltip =
-                    annotation.scope === AnnotationScope.Insight
-                        ? `This annotation only applies to the "${annotation.insight_name}" insight`
-                        : annotation.scope === AnnotationScope.Dashboard
-                          ? `This annotation applies to all insights on the ${annotation.dashboard_name} dashboard`
-                          : annotation.scope === AnnotationScope.Project
-                            ? `This annotation applies to all insights in the ${currentTeam?.name} project`
-                            : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
+                const tooltip = annotationScopeTooltip(annotation, currentTeam?.name, currentOrganization?.name)
                 return (
                     <Tooltip title={tooltip} placement="right">
                         <LemonTag className="uppercase">
@@ -195,39 +192,53 @@ export function Annotations(): JSX.Element {
                     </Shortcut>
                 }
             />
-            <div className="flex flex-row items-center gap-2 justify-end">
-                <div>Scope:</div>
-                <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
-            </div>
-            <div data-attr="annotations-content">
-                <LemonTable
-                    data-attr="annotations-table"
-                    rowKey="id"
-                    dataSource={filteredAnnotations}
-                    columns={columns}
-                    defaultSorting={{
-                        columnKey: 'date_marker',
-                        order: -1,
-                    }}
-                    noSortingCancellation
-                    loading={annotationsLoading}
-                    emptyState="No annotations yet"
-                />
-                {next && (
-                    <div className="flex justify-center mt-6">
-                        <LemonButton
-                            type="primary"
-                            loading={loadingNext}
-                            onClick={(): void => {
-                                loadAnnotationsNext()
-                            }}
-                        >
-                            Load more annotations
-                        </LemonButton>
+            {todayRailNav ? (
+                <>
+                    <div className="flex justify-end">
+                        <QuillAnnotationsFilterMenu />
                     </div>
-                )}
-            </div>
-            <AnnotationModal />
+                    <div data-attr="annotations-content">
+                        <QuillAnnotationsTable />
+                    </div>
+                    <QuillAnnotationModal />
+                </>
+            ) : (
+                <>
+                    <div className="flex flex-row items-center gap-2 justify-end">
+                        <div>Scope:</div>
+                        <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
+                    </div>
+                    <div data-attr="annotations-content">
+                        <LemonTable
+                            data-attr="annotations-table"
+                            rowKey="id"
+                            dataSource={filteredAnnotations}
+                            columns={columns}
+                            defaultSorting={{
+                                columnKey: 'date_marker',
+                                order: -1,
+                            }}
+                            noSortingCancellation
+                            loading={annotationsLoading}
+                            emptyState="No annotations yet"
+                        />
+                        {next && (
+                            <div className="flex justify-center mt-6">
+                                <LemonButton
+                                    type="primary"
+                                    loading={loadingNext}
+                                    onClick={(): void => {
+                                        loadAnnotationsNext()
+                                    }}
+                                >
+                                    Load more annotations
+                                </LemonButton>
+                            </div>
+                        )}
+                    </div>
+                    <AnnotationModal />
+                </>
+            )}
         </SceneContent>
     )
 }
