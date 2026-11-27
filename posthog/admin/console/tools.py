@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from typing import TYPE_CHECKING, ClassVar, Protocol
+from typing import TYPE_CHECKING, ClassVar, Protocol, cast
 from urllib.parse import urlencode
 
 from django import forms
@@ -11,6 +11,8 @@ from posthog.admin.console.records import RECORD_TYPES, RecordLink
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.db.models import Model
     from django.forms.boundfield import BoundField
     from django.http import HttpRequest, HttpResponse
@@ -463,15 +465,21 @@ class ConsoleTool:
     # same name, for example ?team=7, and its breadcrumb runs through that record.
     subject: ClassVar[str | None] = None
 
+    @staticmethod
+    def once_per_request[T](request: "HttpRequest", key: tuple[str, ...], load: "Callable[[], T]") -> T:
+        """What `load` returns, loaded once per request. The breadcrumb, page() and live() each ask for what a page
+        is about, so a page that reads it in `place` and in `page` pays for one lookup."""
+        loaded: dict[tuple[str, ...], object] = request.__dict__.setdefault("console_loaded", {})
+        if key not in loaded:
+            loaded[key] = load()
+        return cast(T, loaded[key])
+
     def subject_of(self, request: "HttpRequest") -> "Model | None":
         if self.subject is None:
             return None
-        # The breadcrumb, page() and live() each ask for the record, so one request looks it up once.
-        found: dict[tuple[str, str], Model | None] = request.__dict__.setdefault("console_subjects", {})
-        key = (self.subject, request.GET.get(self.subject, ""))
-        if key not in found:
-            found[key] = RECORD_TYPES[self.subject].find(key[1])
-        return found[key]
+        subject = self.subject
+        pk = request.GET.get(subject, "")
+        return self.once_per_request(request, ("subject", subject, pk), lambda: RECORD_TYPES[subject].find(pk))
 
     def place(self, request: "HttpRequest") -> ToolPlace | None:
         """Where this page sits, for its breadcrumb. A tool with a subject sits under that record.
