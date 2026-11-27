@@ -46,6 +46,7 @@ interface ProductInfo {
     description: string
     // Keywords for `hog skills search` when the product has no `posthog:instrument-<id>` skill.
     search: string
+    skill?: string
 }
 
 // What setup says about each product. PostHog records a product intent under the id with
@@ -65,6 +66,7 @@ const PRODUCTS: Record<ProductId, ProductInfo> = {
         label: 'Session replay',
         description: 'Watch recordings of user sessions in your app.',
         search: 'session replay',
+        skill: 'integration-session-replay',
     },
     'feature-flags': {
         label: 'Feature flags',
@@ -75,6 +77,7 @@ const PRODUCTS: Record<ProductId, ProductInfo> = {
         label: 'Experiments',
         description: 'Run A/B tests and see which version wins.',
         search: 'experiments',
+        skill: 'creating-experiments',
     },
     'error-tracking': {
         label: 'Error tracking',
@@ -85,6 +88,7 @@ const PRODUCTS: Record<ProductId, ProductInfo> = {
         label: 'Surveys',
         description: 'Ask users questions inside your app.',
         search: 'surveys',
+        skill: 'creating-surveys',
     },
     'llm-analytics': {
         label: 'AI observability',
@@ -138,21 +142,21 @@ export function productIntent(id: ProductId): string {
 }
 
 // `skills` lists the `posthog:instrument-*` skills, or is undefined when they didn't load.
-// Without it, every product points to a search, which works whether or not its skill exists.
+// A product without an instrument skill points to its named skill once the list loads, since both
+// ship in the same skills bundle. Without the list, every product points to a search, which works
+// whether or not its skill exists.
 function productList(skills: readonly string[] | undefined): Product[] {
     const known = new Set(skills)
 
     return PRODUCT_IDS.map((id) => {
-        const { label, description, search } = PRODUCTS[id]
-        const skill = `${INSTRUMENT_PREFIX}${id}`
-        return {
-            id,
-            label,
-            description,
-            command: known.has(skill)
-                ? SKILL_COMMANDS.read(skill.replace(/^posthog:/, ''))
-                : SKILL_COMMANDS.search(search),
-        }
+        const { label, description, search, skill } = PRODUCTS[id]
+        const instrument = `${INSTRUMENT_PREFIX}${id}`
+        const command = known.has(instrument)
+            ? SKILL_COMMANDS.read(instrument.replace(/^posthog:/, ''))
+            : skill !== undefined && skills !== undefined
+              ? SKILL_COMMANDS.read(skill)
+              : SKILL_COMMANDS.search(search)
+        return { id, label, description, command }
     })
 }
 

@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.sdk import (
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
     build_chained_resource,
     build_dependent_resource,
@@ -35,6 +36,7 @@ from products.warehouse_sources.sources.sdk import (
 
 INSIGHTS_REQUEST_TIMEOUT = 60
 _ISO_UTC = "%Y-%m-%dT%H:%M:%S.000Z"
+_DATA_TABLE_ROW_SYSTEM_COLUMNS = ("dataTableId", "id", "createdAt", "updatedAt")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -126,6 +128,9 @@ def _list_params(config: N8nEndpointConfig) -> dict[str, Any]:
 
 def _list_endpoint_extra(config: N8nEndpointConfig) -> Endpoint:
     paginator: BasePaginator
+    if config.paginator == "single_page":
+        # A bare JSON array; a non-list 200 body means the response shape changed.
+        return {"paginator": SinglePagePaginator(), "data_selector_required": True}
     if config.paginator == "offset":
         paginator = OffsetPaginator(limit=config.page_size, offset_param="skip", limit_param="take", total_path="count")
     else:
@@ -216,6 +221,17 @@ def _chained_resource(config: N8nEndpointConfig, client_config: ClientConfig, te
             job_id=job_id,
         ),
     )
+
+
+def nest_data_table_row_values(row: dict[str, Any]) -> dict[str, Any]:
+    """Move the user-defined columns of a data table row into one `data` object.
+
+    Every data table has its own columns, and two tables can use one column name with
+    different types, so they cannot share top-level warehouse columns.
+    """
+    shaped = {key: row[key] for key in _DATA_TABLE_ROW_SYSTEM_COLUMNS if key in row}
+    shaped["data"] = {key: value for key, value in row.items() if key not in _DATA_TABLE_ROW_SYSTEM_COLUMNS}
+    return shaped
 
 
 def _insights_window(day: date) -> dict[str, str]:
@@ -328,6 +344,8 @@ def n8n_source(
                 initial_paginator_state=resume.fanout_state if resume is not None else None,
             ),
         )
+        if endpoint == "data_table_rows":
+            dependent.add_map(nest_data_table_row_values)
         return _source_response(config, lambda: dependent, dependent.column_hints)
 
     rest_config: RESTAPIConfig = {

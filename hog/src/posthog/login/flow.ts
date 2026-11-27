@@ -25,7 +25,7 @@ export const LOGIN_COMMAND = 'hog auth login'
 export const ADD_COMMAND = 'hog auth add'
 
 // A login approved later must not replace a newer login, or one removed by logout, through `--wait`.
-// Another command that starts logins, such as `hog setup next`, names its pending items after
+// Another command that starts logins, such as `hog setup`, names its pending items after
 // `hog auth login`, so this clears them too.
 export async function clearPendingLogins(runtime: Runtime): Promise<void> {
     await Promise.all([LOGIN_COMMAND, ADD_COMMAND].map((command) => clearPendingFor(runtime, command)))

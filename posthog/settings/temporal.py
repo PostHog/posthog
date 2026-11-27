@@ -530,6 +530,9 @@ LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE
 # Evaluations one backfill runs at once. A run holds one of the shared CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES
 # slots only while it reads its unit, so most runs wait on the judge. Lower this if backfills crowd out live work.
 LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT: int = get_from_env("LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT", 16, type_cast=int)
+# Character budget for a trace judge's transcript. Every judge runs on the customer's own key, so this sets what
+# a long trace costs them. Set it to 150000 to undo the larger budget without a deploy: workers read it at boot.
+LLMA_JUDGE_TRACE_MAX_CHARS: int = get_from_env("LLMA_JUDGE_TRACE_MAX_CHARS", 300_000, type_cast=int)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.

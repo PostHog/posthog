@@ -5,7 +5,9 @@
         cursor: pointer;
         border-radius: var(--radius-sm);
         outline: none;
-        box-shadow: 0 3px 0 color-mix(in oklab, var(--border), transparent 10%);
+        --quill-toggle-shelf-color: color-mix(in oklab, var(--border), transparent 10%);
+        --quill-toggle-shelf: 0 3px 0 var(--quill-toggle-shelf-color);
+        box-shadow: var(--quill-toggle-shelf);
         transition: all 0.15s ease;
     }
 
@@ -37,8 +39,16 @@
     .quill-toggle[data-state='on'],
     .quill-toggle:not(:disabled):active {
         background-color: color-mix(in oklab, var(--fill-selected) 50%, transparent);
-        box-shadow: 0 1px 0 color-mix(in oklab, var(--border), transparent 10%);
+        --quill-toggle-shelf: var(--quill-toggle-pressed-shelf, 0 1px 0 var(--quill-toggle-shelf-color));
+        box-shadow: var(--quill-toggle-shelf);
         translate: 0 2px;
+    }
+
+    /* A pressed toggle keeps its shelf over the focus ring, so focus never hides which item is on. */
+    .quill-toggle:is([aria-pressed='true'], [data-state='on']):focus-visible {
+        box-shadow:
+            var(--quill-toggle-shelf),
+            0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
     }
 
     .quill-toggle svg {

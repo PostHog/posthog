@@ -144,7 +144,7 @@ describe('impactSteps', () => {
             { ...impact, clicked: 0, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [0, undefined],
-            ['Needs link tagging', true, expect.stringContaining('Connecting email clicks to sessions is off')],
+            [undefined, true, undefined],
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded in this period.'],
         ],
         [
@@ -152,7 +152,7 @@ describe('impactSteps', () => {
             { ...impact, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [20, undefined],
-            ['Needs link tagging', true, expect.stringContaining('Connecting email clicks to sessions is off')],
+            [undefined, true, undefined],
             [null, 'None followed', "PostHog couldn't tie any of the 20 clicked sends"],
         ],
         [
@@ -160,7 +160,7 @@ describe('impactSteps', () => {
             { ...impact, clicked: 1, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [1, undefined],
-            ['Needs link tagging', true, expect.stringContaining('Connecting email clicks to sessions is off')],
+            [undefined, true, undefined],
             [null, 'None followed', "PostHog couldn't tie the clicked send in this period to a person."],
         ],
         [
@@ -229,7 +229,7 @@ describe('impactSteps', () => {
             { ...impact, clicked: 0, not_clicked: 50, clicks_untracked: 40, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [0, undefined],
-            ['Needs link tagging', true, expect.stringContaining('Connecting email clicks to sessions is off')],
+            [undefined, true, undefined],
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded'],
         ],
         [
@@ -237,7 +237,7 @@ describe('impactSteps', () => {
             { ...untracked, clicked: 3 },
             [0, undefined],
             [3, undefined],
-            ['Needs link tagging', true, expect.stringContaining('Connecting email clicks to sessions is off')],
+            [undefined, true, undefined],
             [null, 'None followed', "PostHog couldn't tie any of the 3 clicked sends"],
         ],
         [
@@ -245,7 +245,7 @@ describe('impactSteps', () => {
             { ...untracked, not_clicked: 50, untracked: 40, without_click: impact.without_click },
             [0, undefined],
             [0, undefined],
-            ['Needs link tagging', true, expect.stringContaining('Connecting email clicks to sessions is off')],
+            [undefined, true, undefined],
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded'],
         ],
     ] as const)('says why a step has no data when %s', (_, data, opened, clicked, session, converted) => {

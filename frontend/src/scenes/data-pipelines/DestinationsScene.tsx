@@ -9,6 +9,7 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -65,6 +66,8 @@ const TABS: LemonTab<DestinationsSceneTab>[] = [
 
 export function DestinationsScene(): JSX.Element {
     const { activeTab } = useValues(destinationsSceneLogic)
+    const { preflight } = useValues(preflightLogic)
+    const tabs = preflight?.batch_exports_enabled === false ? TABS.filter((tab) => tab.key !== 'batch') : TABS
     const { setActiveTab } = useActions(destinationsSceneLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -111,7 +114,7 @@ export function DestinationsScene(): JSX.Element {
                 }}
                 actions={action}
             />
-            <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={TABS} sceneInset />
+            <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} sceneInset />
         </SceneContent>
     )
 }

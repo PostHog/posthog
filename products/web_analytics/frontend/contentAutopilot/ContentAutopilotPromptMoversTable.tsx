@@ -1,10 +1,12 @@
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
-import { percentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import type { AEOPromptMoverApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { moverDelta } from './movers'
 
 /** The prompts that moved, gains first. A prompt opens its page. */
@@ -17,7 +19,7 @@ export const ContentAutopilotPromptMoversTable = ({
     days: number
     onOpenPrompt: (prompt: AEOPromptMoverApi) => void
 }): JSX.Element => (
-    <LemonTable<AEOPromptMoverApi>
+    <AiVisibilityTable<AEOPromptMoverApi>
         size="small"
         embedded
         dataSource={rows}
@@ -29,17 +31,17 @@ export const ContentAutopilotPromptMoversTable = ({
                 // The cell takes the width the numbers leave, and the text truncates to it.
                 className: 'w-full max-w-0',
                 render: (_, mover) => (
-                    <span className="block truncate font-semibold">
-                        <Link
-                            onClick={() => onOpenPrompt(mover)}
-                            // A button sizes to its text, so it needs the cell's width to truncate.
-                            className="block w-full truncate"
-                            title={mover.prompt}
-                            data-attr="content-autopilot-movers-prompt"
-                        >
-                            {mover.prompt}
-                        </Link>
-                    </span>
+                    <Button
+                        variant="link-foreground"
+                        size="sm"
+                        onClick={() => onOpenPrompt(mover)}
+                        // A button sizes to its text, so it needs the cell's width to truncate.
+                        className="w-full max-w-full justify-start font-semibold"
+                        title={mover.prompt}
+                        data-attr="content-autopilot-movers-prompt"
+                    >
+                        <span className="truncate">{mover.prompt}</span>
+                    </Button>
                 ),
             },
             {
@@ -48,9 +50,7 @@ export const ContentAutopilotPromptMoversTable = ({
                 align: 'right',
                 tooltip: 'Visibility in this date range.',
                 render: (_, { mention_rate, answers }) => (
-                    <span className="tabular-nums whitespace-nowrap">
-                        {percentage(mention_rate, 0)} <span className="text-secondary">of {answers}</span>
-                    </span>
+                    <ContentAutopilotRateBar rate={mention_rate} tooltip={`Out of ${pluralize(answers, 'answer')}`} />
                 ),
             },
             {
@@ -59,10 +59,10 @@ export const ContentAutopilotPromptMoversTable = ({
                 align: 'right',
                 tooltip: `Visibility in the ${days} days before.`,
                 render: (_, { previous_mention_rate, previous_answers }) => (
-                    <span className="tabular-nums whitespace-nowrap">
-                        {percentage(previous_mention_rate, 0)}{' '}
-                        <span className="text-secondary">of {previous_answers}</span>
-                    </span>
+                    <ContentAutopilotRateBar
+                        rate={previous_mention_rate}
+                        tooltip={`Out of ${pluralize(previous_answers, 'answer')}`}
+                    />
                 ),
             },
             {

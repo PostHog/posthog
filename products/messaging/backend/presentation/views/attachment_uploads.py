@@ -41,6 +41,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     TOO_MANY_FILES_REASON,
     Reason,
 )
+from products.messaging.backend.presentation.views.docs_order import MessagingDocsOrder
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_SEND_SCOPE,
     require_email_from_code,
@@ -268,6 +269,7 @@ class AttachmentUploadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle)
 
 
 class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    schema_docs_order = MessagingDocsOrder.ATTACHMENTS
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]

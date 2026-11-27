@@ -89,11 +89,23 @@ describe('emailImpactLogic', () => {
         expect(capture.mock.calls.filter(([name]) => name === 'transactional email impact loaded')).toEqual([
             [
                 'transactional email impact loaded',
-                { has_event: false, days: 30, has_untracked_sends: false, has_clicks_untracked_sends: false },
+                {
+                    has_event: false,
+                    days: 30,
+                    has_untracked_sends: false,
+                    has_clicks_untracked_sends: false,
+                    shows_link_tracking_prompt: false,
+                },
             ],
             [
                 'transactional email impact loaded',
-                { has_event: true, days: 30, has_untracked_sends: false, has_clicks_untracked_sends: true },
+                {
+                    has_event: true,
+                    days: 30,
+                    has_untracked_sends: false,
+                    has_clicks_untracked_sends: true,
+                    shows_link_tracking_prompt: false,
+                },
             ],
         ])
     })
