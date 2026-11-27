@@ -13035,10 +13035,10 @@ Today (13): `billing_coupons`, `billing_customers`, `billing_meters`, `billing_p
 
 Diffed against: <https://docs.schematichq.com/llms.txt>
 
-- [ ] `Feature usage (GET /feature-usage)` — Current usage against entitlement per company and feature, the core metering view (high)
-- [ ] `Feature usage history (GET /feature-usage-history)` — Usage over time per company and feature, for trends and overage analysis (high)
-- [ ] `Events (GET /events)` — Raw usage events sent to Schematic, the source behind metered features (medium)
-- [ ] `Billing credits (GET /billing/credits)` — Credit definitions used in credit-based pricing (medium)
+- [x] `Feature usage (GET /feature-usage)` — Current usage against entitlement per company and feature, the core metering view (high)
+- [x] `Feature usage history (GET /feature-usage-history)` — Usage over time per company and feature, for trends and overage analysis (high)
+- [ ] `Events (GET /events)` — Raw usage events sent to Schematic, the source behind metered features (medium). Skipped: the endpoint has no server-side time filter and no sort parameter, and it keeps 365 days of events, including every flag check, so each sync would read the full year again. `feature_usage_history` gives the daily totals.
+- [x] `Billing credits (GET /billing/credits)` — Credit definitions used in credit-based pricing (medium)
 - [ ] `Company credit grants (GET /billing/credits/grants/company/list)` — Credits granted to each company, with balance and expiry (medium)
 - [ ] `Credit bundles (GET /billing/credits/bundles)` — Purchasable credit packs (low)
 - [ ] `Plan credit grants (GET /billing/credits/plan-grants)` — Credits that each plan grants, a link between plans and credits (low)
