@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import uuid
 import datetime as dt
+import dataclasses
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 from typing import Any
@@ -52,6 +53,7 @@ from products.aeo.backend import (
     prompt_limit,
     rankings,
     run_stop,
+    search_details,
     suggestions,
     topics,
 )
@@ -114,6 +116,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
+    PromptSetSearchDetail,
     PromptSetSearchPrompt,
     PromptSetTopicCounts,
     PromptStats,
@@ -929,6 +932,35 @@ def get_prompt_set_rankings(
         ),
         refresh=refresh,
     )
+
+
+def get_prompt_set_search_detail(
+    team_id: int,
+    query: str,
+    *,
+    timezone_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
+    refresh: bool = False,
+) -> PromptSetSearchDetail:
+    """The sites cited by the answers that ran one web search from `date_from` to `date_to` in the team's
+    timezone, the searches they ran next to it, the tracked keywords it contains and its prompts. `query` is
+    normalized the way the overview's searches are. Raises InvalidDateRangeError."""
+    window = _window(timezone_name, date_from, date_to)
+    query = _normalize_search(query)
+    detail = stored_result(
+        team_id,
+        "search_detail",
+        (*_window_key(timezone_name, window, branded, engine, topic), query),
+        lambda: search_details.get_search_detail(
+            team_id, query, window=window, scope=CheckScope(segment=branded, engine=engine, topic=topic)
+        ),
+        refresh=refresh,
+    )
+    return dataclasses.replace(detail, keywords=search_details.matching_keywords(team_id, query))
 
 
 def get_prompt_set_movers(

@@ -45,6 +45,7 @@ from products.aeo.backend.facade.api import (
     get_prompt_set_movers,
     get_prompt_set_overview,
     get_prompt_set_rankings,
+    get_prompt_set_search_detail,
     get_prompt_stats,
     get_prompt_suggestions,
     import_prompts,
@@ -71,10 +72,13 @@ from products.aeo.backend.facade.contracts import (
     BRAND_NAME_MAX_LENGTH,
     COMPETITOR_CANDIDATE_DAYS,
     DEFAULT_DATE_FROM,
+    MAX_DETAIL_DOMAINS,
+    MAX_DETAIL_PROMPTS,
     MAX_MOVERS,
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
+    MAX_RELATED_SEARCHES,
     MAX_SUGGESTED_COMPETITORS,
     MAX_TOPIC_PROMPT_IDS,
     MAX_WINDOW_DAYS,
@@ -121,7 +125,9 @@ from products.aeo.backend.facade.contracts import (
     PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
+    PromptSetRelatedSearch,
     PromptSetSearch,
+    PromptSetSearchDetail,
     PromptSetSearchPrompt,
     PromptSetTopicCounts,
     PromptStats,
@@ -739,6 +745,61 @@ class AEOPromptSetSearchSerializer(DataclassSerializer):
         }
 
 
+class AEOPromptSetRelatedSearchSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptSetRelatedSearch
+        ref_name = "AEOPromptSetRelatedSearch"
+        extra_kwargs = {
+            "query": {"help_text": "Another web search the engines ran in the same answers, normalized the same way."},
+            "answers": {"help_text": "Answers that ran both searches in the window."},
+            "share_of_answers": {
+                "help_text": "Share (0-1) of the answers that ran the requested search and ran this one too."
+            },
+        }
+
+
+class AEOPromptSetSearchDetailSerializer(DataclassSerializer):
+    domains = AEOPromptSetDomainSerializer(
+        many=True,
+        help_text=(
+            f"The {MAX_DETAIL_DOMAINS} domains cited most by the answers that ran the search, most cited first, then the "
+            "best-ranked own domain when it ranks lower. 'share_of_answers' is over those answers. An answer usually runs "
+            "several searches, and a citation is not tied to one of them, so a domain may come from another search of the "
+            "same answer."
+        ),
+    )
+    related_searches = AEOPromptSetRelatedSearchSerializer(
+        many=True,
+        help_text=f"Up to {MAX_RELATED_SEARCHES} other searches the same answers ran most, most common first.",
+    )
+    top_prompts = AEOPromptSetSearchPromptSerializer(
+        many=True,
+        help_text=f"Up to {MAX_DETAIL_PROMPTS} prompts whose answers ran the search, the ones that ran it most first.",
+    )
+
+    class Meta:
+        dataclass = PromptSetSearchDetail
+        ref_name = "AEOPromptSetSearchDetail"
+        extra_kwargs = {
+            "query": {
+                "help_text": "The search, lowercased with whitespace collapsed, as in the overview's top_searches."
+            },
+            "window_from": {"help_text": "First day of the window, in the project's timezone."},
+            "window_to": {"help_text": "Last day of the window, in the project's timezone."},
+            "answers": {
+                "help_text": "Answered web-search checks in the window that ran the search. The base of every share."
+            },
+            "prompts": {"help_text": "Distinct prompts whose answers ran the search."},
+            "cited": {"help_text": "Of those answers, how many cited a URL on the project's own domains."},
+            "engines": {"help_text": "Answer engines that ran the search, ordered by engine."},
+            "domains_cited": {"help_text": "Distinct registrable domains those answers cited."},
+            "target_rank": {
+                "help_text": "Place of the best-ranked own domain among the domains those answers cited, from 1. Null when none of them cited it."
+            },
+            "keywords": {"help_text": "The project's tracked keywords that appear in the search, alphabetical."},
+        }
+
+
 class AEOPromptSetOverviewSerializer(DataclassSerializer):
     current = AEOPromptSetCountsSerializer(help_text="Checks across the prompt set from 'window_from' to 'window_to'.")
     previous = AEOPromptSetCountsSerializer(help_text="The same counts for the 'days' days before 'window_from'.")
@@ -1007,6 +1068,13 @@ class AEOPromptSetOverviewQuerySerializer(AEOCheckScopeQuerySerializer):
             "judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. "
             + BRANDED_PROMPT_HELP
         ),
+    )
+
+
+class AEOPromptSetSearchDetailQuerySerializer(AEOPromptSetOverviewQuerySerializer):
+    search = serializers.CharField(
+        max_length=1000,
+        help_text="The web search to describe. Case and repeated spaces are ignored, as in the overview's top_searches.",
     )
 
 
@@ -1667,6 +1735,37 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     def overview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         overview = self._prompt_set_report(request, get_prompt_set_overview)
         return Response(AEOPromptSetOverviewSerializer(overview).data)
+
+    @validated_request(
+        query_serializer=AEOPromptSetSearchDetailQuerySerializer,
+        operation_id="aeo_prompts_search_detail",
+        summary="Get what one AEO web search tells",
+        description=(
+            "Gets one web search the engines ran from 'date_from' to 'date_to' (default the last 30 days) in the "
+            "project's timezone: how many answers and prompts ran it, the domains those answers cited with their share "
+            "and the rank of the project's own domain, the other searches the same answers ran, the tracked keywords it "
+            "contains, and the prompts that ran it most. Citations are stored per answer, not per search, so a domain "
+            "may come from another search of the same answer. Pass the 'branded', 'engine' and 'topic' values of the "
+            "overview so the counts match it."
+        ),
+        responses={200: OpenApiResponse(response=AEOPromptSetSearchDetailSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def search_detail(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        query = request.validated_query_data
+        with date_range_errors():
+            detail = get_prompt_set_search_detail(
+                self.team_id,
+                query["search"],
+                timezone_name=self.team.timezone,
+                date_from=query["date_from"],
+                date_to=query["date_to"],
+                branded=BrandedSegment(query["branded"]),
+                engine=query["engine"],
+                topic=query["topic"],
+            )
+        return Response(AEOPromptSetSearchDetailSerializer(detail).data)
 
     @validated_request(
         query_serializer=AEOPromptSetReportQuerySerializer,

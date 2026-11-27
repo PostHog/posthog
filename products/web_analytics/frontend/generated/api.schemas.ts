@@ -1323,6 +1323,47 @@ export interface AEOPromptSetRankingsApi {
     competitors_confirmed: boolean
 }
 
+export interface AEOPromptSetRelatedSearchApi {
+    /** Another web search the engines ran in the same answers, normalized the same way. */
+    query: string
+    /** Answers that ran both searches in the window. */
+    answers: number
+    /** Share (0-1) of the answers that ran the requested search and ran this one too. */
+    share_of_answers: number
+}
+
+export interface AEOPromptSetSearchDetailApi {
+    /** The 10 domains cited most by the answers that ran the search, most cited first, then the best-ranked own domain when it ranks lower. 'share_of_answers' is over those answers. An answer usually runs several searches, and a citation is not tied to one of them, so a domain may come from another search of the same answer. */
+    domains: AEOPromptSetDomainApi[]
+    /** Up to 8 other searches the same answers ran most, most common first. */
+    related_searches: AEOPromptSetRelatedSearchApi[]
+    /** Up to 10 prompts whose answers ran the search, the ones that ran it most first. */
+    top_prompts: AEOPromptSetSearchPromptApi[]
+    /** The search, lowercased with whitespace collapsed, as in the overview's top_searches. */
+    query: string
+    /** First day of the window, in the project's timezone. */
+    window_from: string
+    /** Last day of the window, in the project's timezone. */
+    window_to: string
+    /** Answered web-search checks in the window that ran the search. The base of every share. */
+    answers: number
+    /** Distinct prompts whose answers ran the search. */
+    prompts: number
+    /** Of those answers, how many cited a URL on the project's own domains. */
+    cited: number
+    /** Answer engines that ran the search, ordered by engine. */
+    engines: string[]
+    /** Distinct registrable domains those answers cited. */
+    domains_cited: number
+    /**
+     * Place of the best-ranked own domain among the domains those answers cited, from 1. Null when none of them cited it.
+     * @nullable
+     */
+    target_rank: number | null
+    /** The project's tracked keywords that appear in the search, alphabetical. */
+    keywords: string[]
+}
+
 export interface AEOPromptSuggestRequestApi {
     /**
      * The site to suggest prompts for, for example posthog.com. The model reads it with web search.
@@ -3734,6 +3775,57 @@ export type AeoPromptsRankingsParams = {
 export type AeoPromptsRankingsBranded = (typeof AeoPromptsRankingsBranded)[keyof typeof AeoPromptsRankingsBranded]
 
 export const AeoPromptsRankingsBranded = {
+    All: 'all',
+    Branded: 'branded',
+    NonBranded: 'non_branded',
+} as const
+
+export type AeoPromptsSearchDetailParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsSearchDetailBranded
+    /**
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null
+    /**
+     * The web search to describe. Case and repeated spaces are ignored, as in the overview's top_searches.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    search: string
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null
+}
+
+export type AeoPromptsSearchDetailBranded =
+    (typeof AeoPromptsSearchDetailBranded)[keyof typeof AeoPromptsSearchDetailBranded]
+
+export const AeoPromptsSearchDetailBranded = {
     All: 'all',
     Branded: 'branded',
     NonBranded: 'non_branded',

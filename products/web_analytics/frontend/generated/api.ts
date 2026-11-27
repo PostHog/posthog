@@ -27,6 +27,7 @@ import type {
     AEOPromptSetMoversApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
+    AEOPromptSetSearchDetailApi,
     AEOPromptStatsApi,
     AEOPromptSuggestRequestApi,
     AEOPromptSuggestionJobApi,
@@ -53,6 +54,7 @@ import type {
     AeoPromptsMoversParams,
     AeoPromptsOverviewParams,
     AeoPromptsRankingsParams,
+    AeoPromptsSearchDetailParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -808,6 +810,37 @@ export const aeoPromptsRankings = async (
     options?: RequestInit
 ): Promise<AEOPromptSetRankingsApi> => {
     return apiMutator<AEOPromptSetRankingsApi>(getAeoPromptsRankingsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsSearchDetailUrl = (projectId: string, params: AeoPromptsSearchDetailParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/search_detail/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/search_detail/`
+}
+
+/**
+ * Gets one web search the engines ran from 'date_from' to 'date_to' (default the last 30 days) in the project's timezone: how many answers and prompts ran it, the domains those answers cited with their share and the rank of the project's own domain, the other searches the same answers ran, the tracked keywords it contains, and the prompts that ran it most. Citations are stored per answer, not per search, so a domain may come from another search of the same answer. Pass the 'branded', 'engine' and 'topic' values of the overview so the counts match it.
+ * @summary Get what one AEO web search tells
+ */
+export const aeoPromptsSearchDetail = async (
+    projectId: string,
+    params: AeoPromptsSearchDetailParams,
+    options?: RequestInit
+): Promise<AEOPromptSetSearchDetailApi> => {
+    return apiMutator<AEOPromptSetSearchDetailApi>(getAeoPromptsSearchDetailUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
