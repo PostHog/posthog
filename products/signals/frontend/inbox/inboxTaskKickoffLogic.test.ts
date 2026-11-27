@@ -391,6 +391,25 @@ describe('inboxTaskKickoffLogic', () => {
             expect(cancelledRuns).toHaveLength(0)
         })
 
+        it.each([
+            [
+                'a billing-limit 429',
+                0,
+                429,
+                { type: 'billing_limit', code: 'fake_limit_code', error: 'Limit reached.' },
+            ],
+            ['a 500', 1, 500, { detail: 'Server error.' }],
+        ])('captures a report warm that failed with %s %i times', async (_, expectedReports, status, body) => {
+            useMocks({ post: { '/api/projects/:team/tasks/warm/': () => [status, body] } })
+
+            await expectLogic(logic, () => {
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            }).toFinishAllListeners()
+
+            expect(posthog.captureException).toHaveBeenCalledTimes(expectedReports)
+            expect(logic.values.reportWarmLease).toBeNull()
+        })
+
         it.each(['implementation', 'discussion'] as const)(
             'leaves the %s model to settings when the project set a default',
             async (relationship) => {
