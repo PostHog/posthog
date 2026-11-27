@@ -35,6 +35,13 @@ from products.batch_exports.backend.temporal.utils import JsonType
             ),
         ),
         (
+            pa.timestamp("ms", tz="Etc/UTC"),
+            pa.int64(),
+            True,
+            pa.array([12_345, None], type=pa.timestamp("ms", tz="Etc/UTC")),
+            pa.array([12, None], type=pa.int64()),
+        ),
+        (
             pa.string(),
             JsonType(),
             True,

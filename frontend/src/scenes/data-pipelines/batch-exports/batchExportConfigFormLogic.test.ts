@@ -1462,6 +1462,22 @@ describe('batchExportConfigFormLogic', () => {
                 expect(patchBodiesById[fixture.id]).not.toHaveProperty('filters')
             }
         })
+
+        // The backend merges a PATCH into the stored config, so a switch the payload drops can never be turned off.
+        it.each([true, false])('sends the new events table switch set to %s', async (useNewEventsSchema) => {
+            await initLogic({ service: null, id: AWS_S3_BATCH_EXPORT.id })
+            logic.actions.setConfigurationValue('use_new_events_schema', useNewEventsSchema)
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            expect(patchBodiesById[AWS_S3_BATCH_EXPORT.id].destination.config.use_new_events_schema).toBe(
+                useNewEventsSchema
+            )
+        })
     })
 
     // The model select and the sections below it follow `selectedModel`, while a save sends `configuration.model`.

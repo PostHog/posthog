@@ -30,7 +30,8 @@ import type {
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { parseBatch } from './message-parsing'
+import { parseBatch, readTeamIdHeader } from './message-parsing'
+import { counterTeamIdHeaderMismatch, counterTeamIdSource } from './metrics'
 
 export type LightweightPluginConfig = {
     id: number
@@ -63,7 +64,14 @@ const legacyPluginExecutionResultCounter = new Counter({
 })
 
 export type CdpLegacyEventsConsumerConfig = CdpConsumerBaseConfig &
-    Pick<PluginsServerConfig, 'CDP_LEGACY_EVENT_CONSUMER_TOPIC' | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID' | 'SITE_URL'>
+    Pick<
+        PluginsServerConfig,
+        | 'CDP_LEGACY_EVENT_CONSUMER_TOPIC'
+        | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID'
+        | 'CDP_LEGACY_EVENT_CONSUMER_PLUGINS_SKIP_BY_TEAM_HEADER'
+        | 'CDP_LEGACY_EVENT_CONSUMER_WEBHOOKS_SKIP_BY_TEAM_HEADER'
+        | 'SITE_URL'
+    >
 
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group
@@ -94,7 +102,12 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         })
 
         this.legacyPluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
-        this.legacyWebhookService = new LegacyWebhookService(deps.postgres, deps.teamManager, deps.pubSub)
+        this.legacyWebhookService = new LegacyWebhookService(
+            deps.postgres,
+            deps.teamManager,
+            deps.pubSub,
+            config.CDP_LEGACY_EVENT_CONSUMER_WEBHOOKS_SKIP_BY_TEAM_HEADER
+        )
 
         this.pluginConfigsLoader = new LazyLoader({
             name: 'plugin_config_hog_functions',
@@ -387,27 +400,60 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         return await parseBatch<TeamWithPluginConfigs>(messages, {
             errorLog: 'Error parsing message',
             parse: (message) => {
-                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                const parseEvent = (): RawClickHouseEvent => parseJSON(message.value!.toString()) as RawClickHouseEvent
+                const buildGlobals = (
+                    { team, pluginConfigs }: TeamWithPluginConfigs,
+                    clickHouseEvent: RawClickHouseEvent
+                ) => {
+                    const globals = convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
+                    this.pluginConfigsByGlobals.set(globals, pluginConfigs)
+                    return globals
+                }
+
+                const skipByHeader = this.config.CDP_LEGACY_EVENT_CONSUMER_PLUGINS_SKIP_BY_TEAM_HEADER
+                const headerTeamId = skipByHeader ? readTeamIdHeader(message) : null
+                if (headerTeamId !== null) {
+                    counterTeamIdSource.labels({ source: 'header' }).inc()
+                    // The body stays unparsed until the team turns out to have a legacy plugin. Most do not.
+                    return {
+                        teamId: headerTeamId,
+                        toGlobals: (loaded) => {
+                            const clickHouseEvent = parseEvent()
+                            if (clickHouseEvent.team_id !== headerTeamId) {
+                                // The plugins loaded for the header's team must not get another team's event.
+                                counterTeamIdHeaderMismatch.inc()
+                                throw new Error('team_id_header_mismatch')
+                            }
+                            return buildGlobals(loaded, clickHouseEvent)
+                        },
+                    }
+                }
+
+                if (skipByHeader) {
+                    counterTeamIdSource.labels({ source: 'body' }).inc()
+                }
+                const clickHouseEvent = parseEvent()
                 return {
                     teamId: clickHouseEvent.team_id,
-                    toGlobals: ({ team, pluginConfigs }) => {
-                        const globals = convertToHogFunctionInvocationGlobals(
-                            clickHouseEvent,
-                            team,
-                            this.config.SITE_URL
-                        )
-                        this.pluginConfigsByGlobals.set(globals, pluginConfigs)
-                        return globals
-                    },
+                    toGlobals: (loaded) => buildGlobals(loaded, clickHouseEvent),
                 }
             },
             loadTeam: async (teamId) => {
-                const team = await this.deps.teamManager.getTeam(teamId)
-                if (!team) {
+                if (!this.config.CDP_LEGACY_EVENT_CONSUMER_PLUGINS_SKIP_BY_TEAM_HEADER) {
+                    const team = await this.deps.teamManager.getTeam(teamId)
+                    if (!team) {
+                        return null
+                    }
+                    const pluginConfigs = await this.pluginConfigsLoader.get(team.id.toString())
+                    return pluginConfigs?.length ? { team, pluginConfigs } : null
+                }
+                // An empty list is cached too, so a team without a legacy plugin never reaches the team lookup.
+                const pluginConfigs = await this.pluginConfigsLoader.get(teamId.toString())
+                if (!pluginConfigs?.length) {
                     return null
                 }
-                const pluginConfigs = await this.pluginConfigsLoader.get(team.id.toString())
-                return pluginConfigs?.length ? { team, pluginConfigs } : null
+                const team = await this.deps.teamManager.getTeam(teamId)
+                return team ? { team, pluginConfigs } : null
             },
         })
     }

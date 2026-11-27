@@ -142,7 +142,7 @@ export interface ProductEmptyStateConfig {
      * Takes precedence over `primaryAction`. With `wizard` also set, the terminal card
      * stays the hero and this renders under the "or" divider.
      */
-    PrimaryAction?: ComponentType
+    PrimaryAction?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
     /** Product-specific installation options below the primary setup action. */
     SetupActions?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
     FooterActions?: ComponentType<{ children: ReactNode }>

@@ -1,14 +1,19 @@
+from collections.abc import Mapping
+from typing import Literal
+
 import httpx
 from anthropic import Anthropic, APIError
 
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
+from ..backend.facade.enums import CriterionEffect
 from ..backend.settings import DocsSource
 from .deadline import CheckDeadline
 from .facts import MergeFacts, extract_facts, verify_quotes
-from .gates import fact_gates, gate_row, rule_gates, with_existing_docs_pull_requests
+from .gates import FACTS_SOURCE, fact_gates, gate_row, rule_gates, with_existing_docs_pull_requests
 from .gather import DocsPage, MergeEvidence, docs_content_root, gather_merge
 from .judge import Decision, decide_with_judge, single_line
 from .sources import (
+    MAX_READ_PAGES,
     GitHubReader,
     LandedChange,
     merged_pull_request,
@@ -20,6 +25,8 @@ from .sources import (
 NOT_ON_DEFAULT_BRANCH_REASON = "not_on_default_branch"
 NO_PULL_REQUEST_REASON = "no_pull_request"
 DOCS_SOURCE_UNCONFIGURED_REASON = "docs_source_unconfigured"
+
+PageFate = Literal["read", "not_listed", "quote_not_in_diff", "no_source_path", "over_read_cap", "read_failed"]
 
 
 class MergeNotConfirmed(Exception):
@@ -105,6 +112,19 @@ def run_merge_check(
     page_text_by_key = read_page_sources(
         github, source.docs_repository, source_path_by_key, docs_commit_sha=evidence.docs_commit_sha
     )
+    picker_page_paths = (
+        [page.page_path for page in extracted_facts.changed_pages] if extracted_facts is not None else []
+    )
+    gate_rows = (
+        *gate_rows,
+        picked_pages_row(
+            picker_page_paths,
+            verified_page_paths=set(named_page_keys),
+            listed_page_paths=set(evidence.docs_page_paths),
+            source_path_by_key=source_path_by_key,
+            page_text_by_key=page_text_by_key,
+        ),
+    )
     decision = decide_with_judge(anthropic_client, evidence, page_text_by_key=page_text_by_key, deadline=deadline)
     return decided_report(
         evidence,
@@ -113,6 +133,39 @@ def run_merge_check(
         gate_rows=gate_rows,
         low_confidence=low_confidence,
         author_login=pull_request.author_login,
+    )
+
+
+def picked_pages_row(
+    named_page_paths: list[str],
+    verified_page_paths: set[str],
+    listed_page_paths: set[str],
+    source_path_by_key: Mapping[str, str],
+    page_text_by_key: Mapping[str, str],
+) -> CriterionResult:
+    read_position_by_key = {key: position for position, key in enumerate(source_path_by_key)}
+
+    def page_fate(page_path: str) -> PageFate:
+        if page_path not in listed_page_paths:
+            return "not_listed"
+        if page_path not in verified_page_paths:
+            return "quote_not_in_diff"
+        if page_path not in source_path_by_key:
+            return "no_source_path"
+        if page_path in page_text_by_key:
+            return "read"
+        if read_position_by_key[page_path] >= MAX_READ_PAGES:
+            return "over_read_cap"
+        return "read_failed"
+
+    fate_by_page = {page_path: page_fate(page_path) for page_path in named_page_paths}
+    read_count = sum(fate == "read" for fate in fate_by_page.values())
+    return CriterionResult(
+        criterion="picked_pages",
+        value=f"{read_count}/{len(fate_by_page)}",
+        source=FACTS_SOURCE,
+        evidence="\n".join(f"{fate}: {single_line(page_path)}" for page_path, fate in fate_by_page.items()),
+        effect=CriterionEffect.NEUTRAL,
     )
 
 

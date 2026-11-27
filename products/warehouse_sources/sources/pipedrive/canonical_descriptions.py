@@ -477,3 +477,73 @@ CANONICAL_DESCRIPTIONS["archived_projects"] = {
     "description": "An archived project in Pipedrive Projects. The projects table leaves these out.",
     "docs_url": "https://developers.pipedrive.com/docs/api/v1/Projects#getArchivedProjects",
 }
+CANONICAL_DESCRIPTIONS["archived_leads"] = {
+    **CANONICAL_DESCRIPTIONS["leads"],
+    "description": "An archived lead in Pipedrive. The leads table leaves these out.",
+    "docs_url": "https://developers.pipedrive.com/docs/api/v1/Leads#getArchivedLeads",
+}
+
+# The v1 field lists of every entity share the deal field shape.
+for _schema, _entity, _docs_url in (
+    ("activity_fields", "activities", "https://developers.pipedrive.com/docs/api/v1/ActivityFields"),
+    ("product_fields", "products", "https://developers.pipedrive.com/docs/api/v1/ProductFields"),
+    ("lead_fields", "leads", "https://developers.pipedrive.com/docs/api/v1/LeadFields"),
+    ("note_fields", "notes", "https://developers.pipedrive.com/docs/api/v1/NoteFields"),
+):
+    CANONICAL_DESCRIPTIONS[_schema] = {
+        **CANONICAL_DESCRIPTIONS["deal_fields"],
+        "description": f"A field definition (standard or custom) available on {_entity} in Pipedrive.",
+        "docs_url": _docs_url,
+        "columns": {
+            **CANONICAL_DESCRIPTIONS["deal_fields"]["columns"],
+            "key": f"The field's API key used in {_entity} payloads.",
+        },
+    }
+
+CANONICAL_DESCRIPTIONS["project_fields"] = {
+    "description": "A field definition (standard or custom) available on projects in Pipedrive Projects.",
+    "docs_url": "https://developers.pipedrive.com/docs/api/v2/ProjectFields",
+    "columns": {
+        "field_code": "Unique identifier of the field, used as its key in project payloads.",
+        "field_name": "Human-readable name of the field.",
+        "field_type": "Data type of the field (e.g. varchar, enum, monetary, date).",
+        "options": "Available options for enum/set fields.",
+        "subfields": "Subfields of complex fields such as address or monetary.",
+        "is_custom_field": "Whether the field was created by a user.",
+        "is_optional_response_field": "Whether project responses leave the field out by default.",
+    },
+}
+
+CANONICAL_DESCRIPTIONS["deal_participants"] = {
+    "description": "A person linked to a deal in Pipedrive as a participant, beyond the deal's main contact.",
+    "docs_url": "https://developers.pipedrive.com/docs/api/v1/Deals#getDealParticipants",
+    "columns": {
+        "deal_id": "ID of the deal the person participates in.",
+        "id": "Unique identifier for the participant record.",
+        "person_id": "The participating person, with their ID under value.",
+        "add_time": "Time at which the person was added to the deal.",
+        "active_flag": "Whether the participant is active.",
+        "added_by_user_id": "ID of the user who added the participant.",
+    },
+}
+
+CANONICAL_DESCRIPTIONS["organization_relationships"] = {
+    "description": (
+        "A parent or related link between two organizations in Pipedrive. Each relationship is listed once "
+        "for each of its two organizations."
+    ),
+    "docs_url": "https://developers.pipedrive.com/docs/api/v1/OrganizationRelationships",
+    "columns": {
+        "org_id": "ID of the organization the row was read for. Calculated fields are relative to it.",
+        "id": "Unique identifier for the relationship.",
+        "type": "Type of the relationship (parent or related).",
+        "rel_owner_org_id": "The organization that owns the relationship, with its ID under value.",
+        "rel_linked_org_id": "The organization linked by the relationship, with its ID under value.",
+        "calculated_type": "Type of the relationship as seen from org_id.",
+        "calculated_related_org_id": "ID of the other organization in the relationship, as seen from org_id.",
+        "related_organization_name": "Name of the other organization in the relationship.",
+        "active_flag": "Whether the relationship is active.",
+        "add_time": "Time at which the relationship was created.",
+        "update_time": "Time at which the relationship was last updated.",
+    },
+}

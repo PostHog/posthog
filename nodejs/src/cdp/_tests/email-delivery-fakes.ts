@@ -172,8 +172,7 @@ export class BucketProxy {
                 response.writeHead(answer.statusCode!, answer.headers)
                 if (fileItHas && this.answer === 'stallFileBodies') {
                     answer.once('data', (chunk: Buffer) => {
-                        response.write(chunk.subarray(0, 1))
-                        setTimeout(this.bodyStalled, 100)
+                        response.write(chunk.subarray(0, 1), () => this.bodyStalled())
                     })
                     answer.resume()
                     this.stalled.push(response)
@@ -185,6 +184,8 @@ export class BucketProxy {
         request.pipe(upstream)
     }
 }
+
+export const ENDPOINT_THAT_REFUSES_CONNECTIONS = 'http://127.0.0.1:1'
 
 export const sesTransportFor = (ses: Pick<FakeSes, 'endpoint'>, overrides: SesClientOptions = {}): SesTransport =>
     new SesTransport({

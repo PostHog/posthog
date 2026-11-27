@@ -9,11 +9,6 @@ import {
     FieldLabel,
     Heading,
     Input,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
     Spinner,
     Text,
     ToggleGroup,
@@ -26,6 +21,7 @@ import {
 import { AttributionMode } from '~/queries/schema/schema-general'
 
 import { ATTRIBUTION_WINDOW_OPTIONS, MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS } from '../../logic/utils'
+import { QuillOptionSelect } from '../common/QuillOptionSelect'
 
 type WindowValue = number | string
 
@@ -94,30 +90,15 @@ export function QuillAttributionSettings({
                     />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <Select<WindowValue>
+                    <QuillOptionSelect<WindowValue>
                         value={windowSelectValue}
-                        onValueChange={(next) => next !== null && onDaysChange(next)}
-                    >
-                        <SelectTrigger
-                            aria-label="Attribution window"
-                            className="w-50"
-                            data-attr="attribution-window-select"
-                            disabledReason={restrictedReason}
-                        >
-                            <SelectValue>
-                                {(selected: WindowValue | null) =>
-                                    ATTRIBUTION_WINDOW_OPTIONS.find((option) => option.value === selected)?.label
-                                }
-                            </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                            {ATTRIBUTION_WINDOW_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                    {option.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                        onChange={onDaysChange}
+                        options={ATTRIBUTION_WINDOW_OPTIONS}
+                        ariaLabel="Attribution window"
+                        className="w-50"
+                        dataAttr="attribution-window-select"
+                        disabledReason={restrictedReason}
+                    />
                     <Input
                         id={windowInputId}
                         type="number"

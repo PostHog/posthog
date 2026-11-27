@@ -54,6 +54,7 @@ _FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
     "customer_analytics_account": "account",
     "posthog_action": "action",
     "customer_analytics_customertask": "customer_task",
+    "posthog_experiment": "experiment",
     "posthog_experimentsavedmetric": "experiment_saved_metric",
 }
 

@@ -6,6 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { AdventShareButton } from './AdventShareButton'
 import { AdventStage } from './AdventStage'
 
 export const scene: SceneExport = {
@@ -26,7 +27,8 @@ export function AdventCalendarScene(): JSX.Element {
     return (
         <div className="flex min-h-0 flex-1 flex-col gap-2 pb-3">
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                <h1 className="m-0 text-xl font-bold">THE WORKFLOWS ADVENT CALENDAR</h1>
+                <h1 className="m-0 text-xl font-bold">A very merry PostHog</h1>
+                <AdventShareButton />
             </div>
             <AdventStage />
         </div>

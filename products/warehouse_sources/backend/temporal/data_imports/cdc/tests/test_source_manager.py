@@ -306,6 +306,45 @@ class TestCDCSourceManager:
         # 400 → under the limit, 800 → cut, then the trailing 400 flushes at the end.
         assert [t.num_rows for t in tables] == [800, 400]
 
+    @pytest.mark.parametrize(
+        "files,expected_rows",
+        [
+            # Each file is small in rows and bytes, so only the fill limit can cut between them.
+            ([["D", "D", "I"], ["D", "D", "I"], ["D", "D", "I"]], [3, 3, 3]),
+            ([["D", "I", "D"], ["I", "I", "I"], ["D", "D", "I"]], [6, 3]),
+            # One file over the limit is cut inside, after its third filled row.
+            ([["D", "I", "D", "D", "I", "D", "D"]], [5, 2]),
+            ([["U*", "U", "U*", "U*", "U*"]], [4, 1]),
+            ([["D", "U*", "I", "D"], ["U*"]], [4, 1]),
+            ([["I", "U", "I"], ["I", "I", "U"], ["U", "I", "I"]], [9]),
+        ],
+        ids=[
+            "deletes_across_files",
+            "deletes_fit_until_the_third_file",
+            "one_file_of_deletes_over_the_limit",
+            "toast_omitted_updates",
+            "deletes_and_toast_omitted_count_together",
+            "no_filled_rows",
+        ],
+    )
+    async def test_batches_are_cut_at_the_rows_the_loader_fills(self, files, expected_rows):
+        # "U*" is an UPDATE with a TOAST-omitted column. DELETEs and these rows carry only a key or
+        # part of a row, so the loader reads each full stored row back from the Delta table.
+        buffer: dict[str, bytes] = {}
+        next_id = 0
+        for file_number, ops in enumerate(files):
+            ids = list(range(next_id, next_id + len(ops)))
+            seqs = [(file_number + 1) * 100 + offset for offset in range(len(ops))]
+            omitted = [["big"] if op == "U*" else None for op in ops]
+            table = _ops(ids, seqs, ops=[op.rstrip("*") for op in ops], omitted=omitted)
+            buffer[_key(seqs[0], seqs[-1])] = _parquet_bytes(table)
+            next_id += len(ops)
+
+        tables = await _collect(_FakeS3(buffer), batch_fill_limit=3)
+
+        assert [t.num_rows for t in tables] == expected_rows
+        assert [row_id for t in tables for row_id in t.column("id").to_pylist()] == list(range(next_id))
+
 
 class TestServedLanes:
     @parameterized.expand(

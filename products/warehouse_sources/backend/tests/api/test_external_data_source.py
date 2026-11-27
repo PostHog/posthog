@@ -8,10 +8,10 @@ from urllib.parse import parse_qs, urlparse
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, Mock, PropertyMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, PropertyMock, call, patch
 
 from django.conf import settings
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -27,6 +27,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.constants import AvailableFeature
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReference
 from posthog.models import OrganizationMembership, Team
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
@@ -35,6 +36,8 @@ from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.facade.models import HogFunction
+from products.data_modeling.backend.facade.api import set_declared_target
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_TRINO_URL_PATTERN
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
@@ -110,6 +113,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SimpleSource,
     VersionDeprecation,
     WebhookCreationResult,
+    nest_flat_select_containers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
@@ -1923,6 +1927,73 @@ class TestExternalDataSource(APIBaseTest):
         assert schema_one.should_sync is False
         assert schema_two.should_sync is False
 
+    def test_bulk_update_schemas_reschedules_a_shared_view_once(self):
+        source = self._create_external_data_source()
+        dag = DAG.get_or_create_default(self.team)
+        view = DataWarehouseSavedQuery.objects.create(
+            name="orders_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        view_node = Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.MAT_VIEW)
+        set_declared_target(view_node, timedelta(minutes=15))
+        schemas = []
+        for name in ("Customers", "Invoices"):
+            table = DataWarehouseTable.objects.create(name=f"stripe_{name.lower()}", team=self.team)
+            schemas.append(
+                ExternalDataSchema.objects.create(
+                    name=name,
+                    team_id=self.team.pk,
+                    source=source,
+                    table=table,
+                    should_sync=True,
+                    sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+                    sync_frequency_interval=timedelta(hours=24),
+                )
+            )
+            source_node = Node.objects.create(
+                team=self.team,
+                dag=dag,
+                name=name,
+                type=NodeType.TABLE,
+                properties={"origin": "warehouse", "warehouse_table_id": str(table.id)},
+            )
+            Edge.objects.create(team=self.team, dag=dag, source=source_node, target=view_node)
+
+        async def no_existing_schedules(*_args, **_kwargs):
+            async def empty():
+                return
+                yield
+
+            return empty()
+
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        reconcile = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=True,
+            ),
+            patch(f"{service}.sync_connect"),
+            patch(f"{service}.update_schedule"),
+            patch(f"{service}.trigger_schedule"),
+            patch(f"{reconcile}.async_connect", new=AsyncMock(return_value=Mock(list_schedules=no_existing_schedules))),
+            patch(f"{reconcile}.a_create_schedule", new=AsyncMock()) as create_tier_schedule,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={
+                    "schemas": [
+                        {"id": str(schemas[0].id), "sync_frequency": "1hour"},
+                        {"id": str(schemas[1].id), "sync_frequency": "15min"},
+                    ]
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        created_tier_ids = [create_call.kwargs["id"] for create_call in create_tier_schedule.call_args_list]
+        assert created_tier_ids == [f"{dag.id}:{int(timedelta(minutes=15).total_seconds())}"]
+
     @parameterized.expand(
         [
             ("canonical", "24hour", 200, timedelta(hours=24)),
@@ -2106,6 +2177,68 @@ class TestExternalDataSource(APIBaseTest):
         assert savepoint_depth_at_call == [baseline_savepoint_depth]
         schema.refresh_from_db()
         assert schema.should_sync is True
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_to_xmin_discovers_every_table_in_one_call_outside_transaction(
+        self, _mock_workflow_exists
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+            SourceSchema as _SourceSchema,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schemas = {
+            name: ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team.pk,
+                source=source,
+                should_sync=False,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+                sync_type_config={"primary_key_columns": ["id"]},
+            )
+            for name in ("orders", "users", "orders_view")
+        }
+
+        baseline_savepoint_depth = len(connection.savepoint_ids)
+        discovery_calls: list[tuple[list[str], int]] = []
+
+        def discover(_config, _team_id, names=None, api_version=None):
+            discovery_calls.append((sorted(names or []), len(connection.savepoint_ids)))
+            return [
+                _SourceSchema(
+                    name=name,
+                    supports_incremental=False,
+                    supports_append=False,
+                    supports_xmin=name != "orders_view",
+                )
+                for name in names or []
+            ]
+
+        with patch.object(PostgresSource, "get_schemas", side_effect=discover):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "sync_type": "xmin"} for schema in schemas.values()]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        detail = response.json()["detail"]
+        assert "orders_view (xmin replication is not available" in detail
+        assert discovery_calls == [(["orders", "orders_view", "users"], baseline_savepoint_depth)]
+        for name, schema in schemas.items():
+            schema.refresh_from_db()
+            expected = (
+                ExternalDataSchema.SyncType.FULL_REFRESH if name == "orders_view" else ExternalDataSchema.SyncType.XMIN
+            )
+            assert schema.sync_type == expected, name
 
     @parameterized.expand(
         [
@@ -3922,6 +4055,180 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert SourceInputsStore.load(source)["auth_method"]["personal_access_token"] == "ghp_secret"
 
+    @parameterized.expand(
+        [
+            # The settings form resubmits what GET returned, with the secrets left out.
+            ("form_resubmit", None, "AKIAEXAMPLE", "example-secret", False),
+            # An API client still on the old shape rotates the keys at the top level.
+            (
+                "flat_rotation",
+                {"aws_access_key_id": "AKIAROTATED", "aws_secret_access_key": "rotated-secret"},
+                "AKIAROTATED",
+                "rotated-secret",
+                True,
+            ),
+            # A client edits the top-level copy that GET returned and sends the whole object back.
+            (
+                "rotation_through_returned_copy",
+                {
+                    "aws_auth": {"selection": "access_keys", "aws_access_key_id": "AKIAEXAMPLE"},
+                    "aws_access_key_id": "AKIAROTATED",
+                    "aws_secret_access_key": "rotated-secret",
+                    "region": "eu-west-1",
+                },
+                "AKIAROTATED",
+                "rotated-secret",
+                True,
+            ),
+            # An API client rotates one secret in the container and leaves out the selection.
+            (
+                "nested_partial_rotation",
+                {"aws_auth": {"aws_secret_access_key": "rotated-secret"}},
+                "AKIAEXAMPLE",
+                "rotated-secret",
+                True,
+            ),
+            # The settings form edits the container and echoes the unchanged top-level copy.
+            (
+                "form_edit_with_echoed_copy",
+                {
+                    "aws_auth": {
+                        "selection": "access_keys",
+                        "aws_access_key_id": "AKIAFORM",
+                        "aws_secret_access_key": "form-secret",
+                    },
+                    "aws_access_key_id": "AKIAEXAMPLE",
+                    "region": "eu-west-1",
+                },
+                "AKIAFORM",
+                "form-secret",
+                True,
+            ),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.sources.aws_config.source.AwsConfigSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_of_keys_stored_before_the_auth_select(
+        self, _name, submitted, expected_key_id, expected_secret, expect_probe, mock_validate
+    ):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="AwsConfig",
+            created_by=self.user,
+            prefix="aws",
+            job_inputs={
+                "aws_access_key_id": "AKIAEXAMPLE",
+                "aws_secret_access_key": "example-secret",
+                "aws_session_token": "example-session",
+                "region": "eu-west-1",
+            },
+        )
+
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        assert get_response.json()["job_inputs"] == {
+            "aws_auth": {"selection": "access_keys", "aws_access_key_id": "AKIAEXAMPLE"},
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "region": "eu-west-1",
+        }
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": submitted or get_response.json()["job_inputs"]},
+        )
+        assert patch_response.status_code == 200
+
+        source.refresh_from_db()
+        aws_config = SourceRegistry.get_source(ExternalDataSourceType.AWSCONFIG)
+        stored: dict[str, Any] = nest_flat_select_containers(
+            SourceInputsStore.load(source), aws_config.get_source_config.fields, aws_config.flat_stored_selects
+        )
+        # An unchanged resubmit keeps the legacy row, which reads lift into the container.
+        assert {key: value for key, value in stored["aws_auth"].items() if value is not None} == {
+            "selection": "access_keys",
+            "aws_access_key_id": expected_key_id,
+            "aws_secret_access_key": expected_secret,
+            "aws_session_token": "example-session",
+        }
+        # Workers deployed before `aws_auth` read the keys at the top level only.
+        assert (
+            SourceInputsStore.load(source)["aws_access_key_id"],
+            SourceInputsStore.load(source)["aws_secret_access_key"],
+        ) == (
+            expected_key_id,
+            expected_secret,
+        )
+        assert mock_validate.called is expect_probe
+
+    @patch(
+        "products.warehouse_sources.sources.aws_config.source.AwsConfigSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_with_access_keys_at_the_top_level(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "AwsConfig",
+                "created_via": "api",
+                "payload": {
+                    "aws_access_key_id": "AKIAEXAMPLE",
+                    "aws_secret_access_key": "example-secret",
+                    "region": "eu-west-1",
+                    "schemas": [{"name": "config_rules", "should_sync": True, "sync_type": "full_refresh"}],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert SourceInputsStore.load(source)["aws_auth"]["selection"] == "access_keys"
+        assert SourceInputsStore.load(source)["aws_auth"]["aws_secret_access_key"] == "example-secret"
+        assert SourceInputsStore.load(source)["aws_secret_access_key"] == "example-secret"
+
+    @patch(
+        "products.warehouse_sources.sources.aws_config.source.AwsConfigSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_switching_flat_keys_to_a_role_drops_the_stored_keys(self, _mock_validate):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="AwsConfig",
+            created_by=self.user,
+            prefix="aws",
+            job_inputs={
+                "aws_access_key_id": "AKIAEXAMPLE",
+                "aws_secret_access_key": "example-secret",
+                "aws_session_token": "example-session",
+                "region": "eu-west-1",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "aws_auth": {"selection": "role", "aws_integration_id": 5},
+                    "aws_access_key_id": "AKIAEXAMPLE",
+                    "region": "eu-west-1",
+                }
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        source.refresh_from_db()
+        assert SourceInputsStore.load(source)["aws_auth"]["selection"] == "role"
+        stored_keys = {"aws_access_key_id", "aws_secret_access_key", "aws_session_token"}
+        assert stored_keys.isdisjoint(source.job_inputs)
+        assert not any(SourceInputsStore.load(source)["aws_auth"].get(key) for key in stored_keys)
+
     def test_update_with_malformed_auth_method_returns_400(self):
         source = self._create_external_data_source()
 
@@ -4098,7 +4405,13 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
+        other_source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
+        other_user = User.objects.create_user(email="other@example.com", first_name="Sam", password="test")
+        for user, ref in [(self.user, source.pk), (other_user, source.pk), (self.user, other_source.pk)]:
+            FileSystemShortcut.objects.create(
+                team=self.team, user=user, path="Stripe", type="data_source", ref=str(ref)
+            )
 
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
 
@@ -4106,6 +4419,9 @@ class TestExternalDataSource(APIBaseTest):
 
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+        assert list(
+            FileSystemShortcut.objects.filter(team=self.team, type="data_source").values_list("ref", flat=True)
+        ) == [str(other_source.pk)]
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.delete_discover_schemas_schedule"
@@ -11627,6 +11943,123 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
         unrelated_table.refresh_from_db()
         assert unrelated_table.deleted is False
 
+    def _create_source_mid_first_sync(self) -> tuple[ExternalDataSource, ExternalDataSchema, DataWarehouseTable]:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        # A first sync creates the table before it links the schema to it.
+        schema = ExternalDataSchema.objects.create(name="orders", team_id=self.team.pk, source_id=source.pk)
+        unlinked_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="test_orders",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/main",
+        )
+        return source, schema, unlinked_table
+
+    def test_destroy_locks_tables_before_schemas(self):
+        source, schema, unlinked_table = self._create_source_mid_first_sync()
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        statements = [query["sql"] for query in queries.captured_queries]
+
+        def first_index(predicate: t.Callable[[str], bool]) -> int:
+            return next((i for i, sql in enumerate(statements) if predicate(sql)), len(statements))
+
+        table_lock = first_index(lambda sql: "FOR UPDATE" in sql and 'FROM "posthog_datawarehousetable"' in sql)
+        schema_write = first_index(
+            lambda sql: (
+                sql.startswith('UPDATE "posthog_externaldataschema"')
+                or ("FOR UPDATE" in sql and 'FROM "posthog_externaldataschema"' in sql)
+            )
+        )
+        # The sync locks the table and then writes the schema row, so the other order deadlocks.
+        assert table_lock < schema_write
+
+        schema.refresh_from_db()
+        unlinked_table.refresh_from_db()
+        assert schema.deleted is True
+        assert unlinked_table.deleted is True
+
+    def test_destroy_cleans_up_a_table_the_sync_linked_while_destroy_waited(self):
+        source, schema, synced_table = self._create_source_mid_first_sync()
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=synced_table.name,
+            source_table_key="id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="persons",
+        )
+        real_assert_can_write_schemas = ExternalDataSourceViewSet._assert_can_write_schemas
+        checks = 0
+
+        def link_table_after_destroy_read_schemas(viewset: Any, schemas: Any) -> None:
+            nonlocal checks
+            checks += 1
+            if checks == 1:
+                ExternalDataSchema.objects.filter(pk=schema.pk).update(table=synced_table)
+            real_assert_can_write_schemas(viewset, schemas)
+
+        with patch.object(
+            ExternalDataSourceViewSet,
+            "_assert_can_write_schemas",
+            autospec=True,
+            side_effect=link_table_after_destroy_read_schemas,
+        ):
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        schema.refresh_from_db()
+        synced_table.refresh_from_db()
+        join.refresh_from_db()
+        assert (schema.deleted, schema.table_id) == (True, None)
+        assert synced_table.deleted is True
+        assert synced_table.deleted_at is not None
+        assert join.deleted is True
+
+    @parameterized.expand(
+        [
+            ("deadlock_once_is_retried", psycopg.errors.DeadlockDetected, 1, 204),
+            ("deadlock_twice_fails", psycopg.errors.DeadlockDetected, 2, 500),
+            ("other_operational_error_is_not_retried", psycopg.errors.LockNotAvailable, 1, 500),
+        ]
+    )
+    def test_destroy_retries_once_on_deadlock(
+        self, _name: str, cause: type[psycopg.Error], failures: int, expected_status: int
+    ):
+        source, schema, unlinked_table = self._create_source_mid_first_sync()
+        real_soft_delete = ExternalDataSource.soft_delete
+        attempts = 0
+
+        def soft_delete_hitting_lock_error(source_instance: ExternalDataSource) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts <= failures:
+                raise OperationalError("lock error") from cause("lock error")
+            real_soft_delete(source_instance)
+
+        self.client.raise_request_exception = False
+        with patch.object(ExternalDataSource, "soft_delete", autospec=True, side_effect=soft_delete_hitting_lock_error):
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == expected_status
+        source.refresh_from_db()
+        schema.refresh_from_db()
+        unlinked_table.refresh_from_db()
+        expect_deleted = expected_status == 204
+        assert (source.deleted, schema.deleted, unlinked_table.deleted) == (expect_deleted,) * 3
+
 
 class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):
     @parameterized.expand(
@@ -16393,6 +16826,41 @@ class TestSourceUpdateCredentialsRow(APIBaseTest):
         row = IntegrationManager.source("postgresql").credentials.get(self.team.pk, int(self._reference(first)))
         assert row.sensitive_config["fields"]["password"] == "fake-rotated"
         assert self._reference(second) == self._reference(first)
+
+    @patch(
+        "products.warehouse_sources.sources.aws_config.source.AwsConfigSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_resubmitting_keys_stored_before_the_auth_select_needs_no_confirmation(
+        self, _validate_aws: MagicMock, _validate: MagicMock
+    ) -> None:
+        inputs = {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "example-secret", "region": "eu-west-1"}
+        first = SourceInputsStore.create(
+            inputs=inputs,
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="AwsConfig",
+            created_by=self.user,
+        )
+        other = SourceInputsStore.create(
+            inputs=inputs,
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="AwsConfig",
+            created_by=self.user,
+        )
+        ExternalDataSource.objects.filter(pk=other.pk).update(credentials_integration_id=self._reference(first))
+        returned = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{first.pk}").json()
+
+        response = self._patch(first, returned["job_inputs"])
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_an_edit_keeps_the_stored_reference(self, _validate: MagicMock) -> None:
         source = self._create(self.INPUTS)

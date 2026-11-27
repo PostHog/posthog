@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
@@ -13,19 +13,18 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardActions } from '../dashboard/actions/DashboardActions'
-import { DashboardUnavailable } from '../dashboard/DashboardUnavailable'
-import { DashboardView } from '../dashboard/DashboardView'
+import { DashboardUnavailable } from '../dashboard/core/DashboardUnavailable'
+import { DashboardView } from '../dashboard/core/DashboardView'
+import { SaveConflictDialog } from '../dashboard/saved/SaveConflictDialog'
+import { savedDashboardLogic } from '../dashboard/saved/savedDashboardLogic'
+import { SaveStatus } from '../dashboard/saved/SaveStatus'
 import { ANALYTICS_FILTER_TYPES } from '../filters/analytics/analyticsFilterTypes'
 import { useDashboardFilters } from '../filters/useDashboardFilters'
 import { runSampleQuery } from '../fixtures/runSampleQuery'
 import { createChartPanel } from '../panels/chart/createChartPanel'
 import { markdownPanel } from '../panels/markdown/markdownSpec'
 import { createQueryBatchRunner } from '../query/queryBatchRunner'
-import { BoardConflictDialog } from './BoardConflictDialog'
-import { BoardSaveStatus } from './BoardSaveStatus'
-import { type DashboardSceneLogicProps, dashboardSceneLogic } from './dashboardSceneLogic'
-
-const SAMPLE_PANELS = [createChartPanel({ runQuery: runSampleQuery }), markdownPanel]
+import { type DashboardSceneLogicProps, savedDashboardLogicProps, dashboardSceneLogic } from './dashboardSceneLogic'
 
 export const scene: SceneExport = {
     component: DashboardScene,
@@ -33,17 +32,21 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { uid } }): DashboardSceneLogicProps => ({ uid }),
 }
 
-export function DashboardScene(): JSX.Element {
+export function DashboardScene({ uid }: DashboardSceneLogicProps): JSX.Element {
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.DASHBOARDS_V2} fallback={<NotFound object="page" />}>
-            <DashboardV2 />
+            <BindLogic logic={savedDashboardLogic} props={savedDashboardLogicProps({ uid })}>
+                <DashboardV2 />
+            </BindLogic>
         </FlaggedFeature>
     )
 }
 
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo, unavailable } = useValues(dashboardSceneLogic)
-    const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardSceneLogic)
+    const { dashboard, disabledReasonFor, canUndo, canRedo, unavailable } = useValues(savedDashboardLogic)
+    const { undo, redo } = useActions(savedDashboardLogic)
+    const { activeTabId } = useValues(dashboardSceneLogic)
+    const { applyDashboardEdit, setActiveTab } = useActions(dashboardSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId, timezone } = useValues(teamLogic)
     const tabRef = useRef(activeTabId)
@@ -59,22 +62,16 @@ function DashboardV2(): JSX.Element {
         !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
         !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2_USERS] &&
         !!currentTeamId
+    const sampleData = shouldShowSampleData || forceSampleData
     // The chart cache is keyed by runner, so a runner per visit drops results checked against this person's access
     // when they leave, instead of showing them again after their access changes.
-    const panels = useMemo(
-        () =>
+    const panels = useMemo(() => {
+        const runQuery =
             runsRealQueries && currentTeamId
-                ? [
-                      createChartPanel({
-                          runQuery: createQueryBatchRunner(currentTeamId, {
-                              context: () => ({ dashboard_tab_id: tabRef.current }),
-                          }),
-                      }),
-                      markdownPanel,
-                  ]
-                : SAMPLE_PANELS,
-        [runsRealQueries, currentTeamId]
-    )
+                ? createQueryBatchRunner(currentTeamId, { context: () => ({ dashboard_tab_id: tabRef.current }) })
+                : runSampleQuery
+        return [createChartPanel({ runQuery, sampleData }), markdownPanel]
+    }, [runsRealQueries, currentTeamId, sampleData])
     // TODO(2026-11-25): Offer filters with real queries once the query batch request carries them; until then only the
     // sample runner applies them, so a filter bar there would narrow nothing.
     const { filters, timeRange } = useDashboardFilters({
@@ -94,7 +91,6 @@ function DashboardV2(): JSX.Element {
         <>
             <DashboardView
                 surface="dashboard-v2-scene"
-                sampleData={shouldShowSampleData || forceSampleData}
                 dashboard={dashboard}
                 activeTabId={activeTabId}
                 panels={panels}
@@ -114,13 +110,13 @@ function DashboardV2(): JSX.Element {
                             )}
                         </div>
                         <div className="flex items-center gap-2">
-                            <BoardSaveStatus />
+                            <SaveStatus />
                             <DashboardActions />
                         </div>
                     </header>
                 }
             />
-            <BoardConflictDialog />
+            <SaveConflictDialog />
         </>
     )
 }

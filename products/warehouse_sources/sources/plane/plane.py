@@ -114,6 +114,11 @@ def get_resource(
     client = _client_config(base_url, api_key)
 
     if endpoint.fanout is not None:
+        parent_name = endpoint.fanout.parent_name
+        child_path_params = {
+            param: {"type": "resolve", "resource": parent_name, "field": parent_field}
+            for param, parent_field in endpoint.parent_path_fields.items()
+        }
         return build_dependent_resource(
             endpoint_configs=ENDPOINTS,
             child_endpoint=endpoint_name,
@@ -126,8 +131,10 @@ def get_resource(
             page_size_param="per_page",
             parent_endpoint_extra={"data_selector": "data", "data_selector_required": True, "paginator": _paginator()},
             child_endpoint_extra={"data_selector": "data", "data_selector_required": True, "paginator": _paginator()},
+            child_params_extra=child_path_params or None,
             resume_hook=resume_hook,
             initial_paginator_state=initial_paginator_state,
+            resume_parent_pagination=endpoint.resume_parent_pagination,
         )
 
     params: dict[str, Any] = {**endpoint.params, "per_page": endpoint.page_size}

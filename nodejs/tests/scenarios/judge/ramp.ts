@@ -6,14 +6,8 @@ import { type Admission, admissionsOf } from '../runner/status'
 import { BarResult, StepReading, WriterCpu, judgeStep, unsourced } from './bars'
 import { type DeliveryEvidence, acceptedDeliveriesOf, missedDeliveriesOf, refusalsOf } from './invariants'
 import type { Convergence, InvariantResult, JournalEntry } from './judge'
-import {
-    type DriveWindow,
-    type HostSample,
-    type MetricSample,
-    type QueueSample,
-    SCRAPE_GAP_MS,
-    baselineOf,
-} from './measurements'
+import { type DriveWindow, type HostSample, type MetricSample, type QueueSample, baselineOf } from './measurements'
+import { SCRAPE_GAP_MS } from './pickups'
 
 export type RampEnd = 'broke' | 'ceiling' | 'harness_limit'
 
