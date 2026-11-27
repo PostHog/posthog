@@ -334,7 +334,7 @@ export class MirrorService {
 
         const entry: AuditEntry = {
             actor: caller.actor,
-            occurredAt: new Date(),
+            occurredAt: caller.requestedAt,
             operation: 'mirror',
             outcome,
             ownerType: written.row.ownerType,
