@@ -81,10 +81,10 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
                      WHERE c.oid = 'cyclotron_jobs'::regclass
                         OR c.oid IN (SELECT indexrelid FROM pg_index WHERE indrelid = 'cyclotron_jobs'::regclass)`
                 )
-                // Without pg_read_all_stats, PostgreSQL hides an autovacuum worker's relation and start, so
-                // vacuumingSince stays null whether or not a worker runs.
+                // Without pg_read_all_stats, or with track_activities off, PostgreSQL hides an autovacuum worker's
+                // relation and start, so vacuumingSince stays null whether or not a worker runs.
                 const visibility = await client.query<{ visible: boolean }>(
-                    `SELECT pg_has_role('pg_read_all_stats', 'USAGE') AS visible`
+                    `SELECT pg_has_role('pg_read_all_stats', 'USAGE') AND current_setting('track_activities')::bool AS visible`
                 )
                 return {
                     settings: Object.fromEntries(settings.rows.map(({ name, value }) => [name, value])),

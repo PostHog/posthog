@@ -1951,6 +1951,7 @@ describe('runner through seed, drive and judge', () => {
                 drive: { endedAt: number }
                 vacuum: { at: number }[]
             }
+            expect(vacuum.at(-1)).toMatchObject({ at: expect.any(Number), deadTuples: expect.any(Number) })
             expect(vacuum.at(-1)!.at).toBeGreaterThanOrEqual(drive.endedAt)
             expect(existsSync(path.join(result.evidenceDir, 'writer-cpu.json'))).toBe(false)
         },
