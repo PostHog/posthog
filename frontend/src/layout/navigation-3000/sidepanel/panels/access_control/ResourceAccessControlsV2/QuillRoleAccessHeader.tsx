@@ -20,16 +20,21 @@ import {
 
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
+import { accessControlsLogic } from './accessControlsLogic'
 import { roleMemberNames } from './helpers'
 import type { AccessControlRoleEntry } from './types'
 
-export function QuillRoleAccessHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
+export function QuillRoleAccessHeader({
+    projectId,
+    role,
+}: {
+    projectId: string
+    role: AccessControlRoleEntry
+}): JSX.Element {
     const { sortedRoles, canEditRoles } = useValues(roleAccessControlLogic)
     const { deleteRole } = useActions(roleAccessControlLogic)
-    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    const { closeAccessDetailDialog } = useActions(accessControlsLogic({ projectId }))
     const [confirmOpen, setConfirmOpen] = useState(false)
 
     const members = sortedRoles.find((r) => r.id === role.role_id)?.members ?? []
@@ -87,8 +92,8 @@ export function QuillRoleAccessHeader({ role }: { role: AccessControlRoleEntry }
                             onClick={() => {
                                 setConfirmOpen(false)
                                 deleteRole(role.role_id)
-                                // The role this panel shows is gone, so don't stay open on "Role not found"
-                                closeSidePanel()
+                                // The role this dialog shows is gone, so don't stay open on "Role not found"
+                                closeAccessDetailDialog()
                             }}
                         >
                             Delete role

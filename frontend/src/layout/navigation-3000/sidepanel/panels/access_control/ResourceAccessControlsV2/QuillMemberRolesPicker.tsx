@@ -81,6 +81,8 @@ export function QuillMemberRolesPicker({ userUuid }: { userUuid: string }): JSX.
     return (
         <Combobox<RoleChoice, true>
             multiple
+            // The chips only grey out; the open list would still accept a second click on a role that is saving
+            disabled={!!disabledReason}
             autoHighlight
             items={items}
             itemToStringLabel={choiceLabel}

@@ -22,7 +22,11 @@ export function QuillAccessControlDetail({
 
     return (
         <div className="flex flex-col gap-6">
-            {isMemberEntry(entry) ? <QuillMemberAccessHeader member={entry} /> : <QuillRoleAccessHeader role={entry} />}
+            {isMemberEntry(entry) ? (
+                <QuillMemberAccessHeader member={entry} />
+            ) : (
+                <QuillRoleAccessHeader projectId={projectId} role={entry} />
+            )}
 
             <QuillProjectAccessItem
                 projectId={projectId}

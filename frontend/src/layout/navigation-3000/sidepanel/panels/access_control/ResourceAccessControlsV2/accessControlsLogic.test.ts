@@ -1,6 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -336,6 +339,20 @@ describe('accessControlsLogic', () => {
                 activePanelSubject: { scopeType: 'member', subjectId: 'member-2' },
             })
             expect(router.values.hashParams).toEqual({ panel: 'access-detail:member:member-2' })
+        })
+
+        it('shows the member picked in the dialog over a stale panel link', async () => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL, FEATURE_FLAGS.TODAY_RAIL_NAV],
+                { [FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL]: true, [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }
+            )
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, 'member:member-1')
+
+            logic.actions.openAccessDetail('member', 'member-2')
+
+            await expectLogic(logic).toMatchValues({
+                activePanelSubject: { scopeType: 'member', subjectId: 'member-2' },
+            })
         })
 
         it('keeps a tab the user picked after a deep link', async () => {

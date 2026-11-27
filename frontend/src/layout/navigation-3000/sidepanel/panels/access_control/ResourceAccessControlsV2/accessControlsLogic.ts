@@ -480,6 +480,7 @@ export interface accessControlsLogicMeta {
             }[]
         }
         activePanelSubject: (
+            accessDetailInDialog: boolean,
             panelOptionsSubject: AccessDetailSubject | null,
             panelSubject: AccessDetailSubject | null
         ) => AccessDetailSubject | null
@@ -826,11 +827,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
         /** Who the access detail panel shows: fresh options win, the stored selection covers tab switches. */
         activePanelSubject: [
-            (s) => [s.panelOptionsSubject, s.panelSubject],
+            (s) => [s.accessDetailInDialog, s.panelOptionsSubject, s.panelSubject],
             (
+                accessDetailInDialog: boolean,
                 panelOptionsSubject: AccessDetailSubject | null,
                 panelSubject: AccessDetailSubject | null
-            ): AccessDetailSubject | null => panelOptionsSubject ?? panelSubject,
+            ): AccessDetailSubject | null =>
+                // The dialog has no panel options of its own, so options left by an earlier #panel= link are stale
+                accessDetailInDialog ? panelSubject : (panelOptionsSubject ?? panelSubject),
         ],
 
         canUseRoles: [
