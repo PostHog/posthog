@@ -37,7 +37,15 @@ type Running = { batch: Pending[]; controller: AbortController; unanswered: Map<
 export interface QueryBatchRunnerOptions {
     /** Read when a query is asked, and added to its batch's timing event, such as the tab on screen. */
     context?: () => Record<string, unknown>
+    /**
+     * Whether a query may read this project. Left out, a query may read only the runner's own project. A saved board
+     * names its projects, so without this check a board could run queries as its viewer in a project the viewer never
+     * chose, such as one in another organization.
+     */
+    allowsProject?: (project: number) => boolean
 }
+
+export const PROJECT_NOT_ALLOWED_ERROR = 'This chart queries a project outside your organization, so it was not run.'
 
 // TODO(2026-11-25): Send no time when the request has none, once the query batch endpoint accepts that.
 // The endpoint requires a time range on every query, so a query with no range of its own here gets this one.
@@ -307,6 +315,11 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
         new Promise<QueryResult>((resolve, reject) => {
             if (signal?.aborted) {
                 reject(abortError())
+                return
+            }
+            const project = request.project ?? teamId
+            if (project !== teamId && !options.allowsProject?.(project)) {
+                reject(new Error(PROJECT_NOT_ALLOWED_ERROR))
                 return
             }
             const pending: Pending = {

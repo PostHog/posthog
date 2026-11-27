@@ -11,6 +11,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -60,6 +61,9 @@ function DashboardV2(): JSX.Element {
     const { currentTeamId, timezone } = useValues(teamLogic)
     const tabRef = useRef(activeTabId)
     tabRef.current = activeTabId
+    const { currentOrganization } = useValues(organizationLogic)
+    const organizationRef = useRef(currentOrganization)
+    organizationRef.current = currentOrganization
     // The same check as v1 insights: a project that has sent no events yet sees sample charts instead of empty ones.
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
     // TODO(2026-11-25): Remove with the kitchen sink fixture, once the board list can open saved boards.
@@ -77,7 +81,13 @@ function DashboardV2(): JSX.Element {
     const panels = useMemo(() => {
         const runQuery =
             runsRealQueries && currentTeamId
-                ? createQueryBatchRunner(currentTeamId, { context: () => ({ dashboard_tab_id: tabRef.current }) })
+                ? createQueryBatchRunner(currentTeamId, {
+                      context: () => ({ dashboard_tab_id: tabRef.current }),
+                      allowsProject: (project) =>
+                          !!organizationRef.current?.teams.some(
+                              (team) => team.id === project || team.project_id === project
+                          ),
+                  })
                 : runSampleQuery
         return [createChartPanel({ runQuery, sampleData }), markdownPanel, KITCHEN_SINK_CUSTOM_PANEL]
     }, [runsRealQueries, currentTeamId, sampleData])
