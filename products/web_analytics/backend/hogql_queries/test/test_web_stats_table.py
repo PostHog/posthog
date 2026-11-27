@@ -42,6 +42,7 @@ from posthog.schema import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
+from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.models import Element
 from posthog.models.utils import uuid7
 
@@ -3132,13 +3133,29 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
         assert restricted == unrestricted
         assert len(unrestricted) >= 2
 
-    def test_session_restriction_skipped_when_events_match_most_sessions(self):
+    @parameterized.expand(
+        [
+            ("restricted", True, 10, True, True),
+            ("declined_when_events_match_most_sessions", True, 0, False, False),
+            ("flag_off", False, 10, False, None),
+        ]
+    )
+    def test_session_restriction_decision_is_tagged(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        server_only_sessions: int,
+        expected_restricted: bool,
+        expected_tag: Optional[bool],
+    ):
         self._create_channel_sessions()
+        self._create_server_only_sessions(server_only_sessions)
+        reset_query_tags()
 
         with (
             time_machine.travel(self.QUERY_TIMESTAMP, tick=False),
             override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]),
-            patch.object(WebStatsTableQueryRunner, "_session_restriction_flag_enabled", True),
+            patch.object(WebStatsTableQueryRunner, "_session_restriction_flag_enabled", flag_enabled),
             patch(
                 "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_RESTRICTION_MIN_SESSIONS_IN_RANGE",
                 0,
@@ -3147,7 +3164,8 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             runner = self._make_runner(breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE, includeBounceRate=False)
             runner.calculate()
 
-        assert runner.restrict_sessions is False
+        assert runner.restrict_sessions is expected_restricted
+        assert get_query_tags().web_analytics_sessions_restricted is expected_tag
 
     @parameterized.expand(
         [

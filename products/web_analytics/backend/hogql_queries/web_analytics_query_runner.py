@@ -449,8 +449,8 @@ WHERE and(
         if not self._session_restriction_flag_enabled:
             return False
         restricted = self._run_session_restriction_preflight()
-        if restricted:
-            tag_queries(web_analytics_sessions_restricted=True)
+        # Tagged both ways, so query_log tells declined reads (False) apart from reads with the flag off (no tag).
+        tag_queries(web_analytics_sessions_restricted=restricted)
         return restricted
 
     def events_evaluable_filters(self) -> ast.Expr:
