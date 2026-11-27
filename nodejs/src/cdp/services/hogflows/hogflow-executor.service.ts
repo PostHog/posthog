@@ -20,7 +20,7 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
     WarehouseWebhookPayload,
-    sendsEmail,
+    isEmailQueue,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
@@ -743,7 +743,7 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
-            queueMetadata: sendsEmail(invocation.queue)
+            queueMetadata: isEmailQueue(invocation.queue)
                 ? withoutMetadata(invocation.queueMetadata, PER_SEND_METADATA_KEYS)
                 : undefined,
         })

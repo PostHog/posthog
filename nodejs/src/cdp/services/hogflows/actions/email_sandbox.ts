@@ -6,7 +6,7 @@ import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
     SandboxEmailOutcome,
-    sendsEmail,
+    isEmailQueue,
 } from '../../../types'
 import { EmailStatusService, isTransactionalEmailRun, messageCreatedAtOf } from '../../messaging/email-status.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
@@ -181,6 +181,6 @@ function toStepResult({ outcome, reason, messageId }: SandboxEmailOutcome): Sand
 }
 
 function priorityOutsideEmailQueue(invocation: CyclotronJobInvocationHogFlow): number {
-    const originPriority = sendsEmail(invocation.queue) ? invocation.queueMetadata?.originPriority : undefined
+    const originPriority = isEmailQueue(invocation.queue) ? invocation.queueMetadata?.originPriority : undefined
     return typeof originPriority === 'number' ? originPriority : invocation.queuePriority
 }

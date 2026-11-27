@@ -15,7 +15,7 @@ import type {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
-import { sendsEmail } from '../types'
+import { isEmailQueue } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import {
@@ -151,7 +151,7 @@ export class HogExecutorAsyncService {
                 // back to hogflow will be when overall execution time exceeds the
                 // budget, to avoid blocking the queue.
                 if (queueParamsType === 'fetch') {
-                    if (sendsEmail(invocation.queue)) {
+                    if (isEmailQueue(invocation.queue)) {
                         // Intermediate results clone away queueMetadata (createInvocationResult
                         // drops it unless the target queue is passed explicitly), so read the
                         // stash through the entry invocation too — it still carries the row's copy.
@@ -172,13 +172,13 @@ export class HogExecutorAsyncService {
                         nextInvocation,
                         options?.isTest ?? false
                     )
-                    if (sendsEmail(invocation.queue) && !result.finished) {
+                    if (isEmailQueue(invocation.queue) && !result.finished) {
                         this.keepPushRetryInEmailQueueOrder(result, invocation)
                     }
                 } else if (queueParamsType === 'email') {
                     // Route to the email queue unless this is a test run: tests execute in-process and
                     // never enqueue, so routing would leave the job unworked.
-                    const routeToEmailQueue = !sendsEmail(invocation.queue) && !options?.isTest
+                    const routeToEmailQueue = !isEmailQueue(invocation.queue) && !options?.isTest
                     if (routeToEmailQueue) {
                         // Stash the entry invocation's priority as the origin, not nextInvocation's:
                         // an earlier execute()/executeFetch() in this loop cloned the invocation and
@@ -190,7 +190,7 @@ export class HogExecutorAsyncService {
                         // through routeEmailToQueue's classification. Refresh the priority from
                         // the current action's metadata so a throttle retry re-queues under this
                         // send's class rather than the previous email action's.
-                        if (sendsEmail(invocation.queue)) {
+                        if (isEmailQueue(invocation.queue)) {
                             nextInvocation.queueMetadata = invocation.queueMetadata
                             nextInvocation.queuePriority = getEmailQueuePriority(nextInvocation.hogFunction.metadata)
                         }

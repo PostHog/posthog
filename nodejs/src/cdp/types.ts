@@ -350,29 +350,31 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-type QueueTraits = { sendsEmail: boolean; fairDequeue: boolean }
+type QueueTraits =
+    | { drainedByEmailWorker: true; fairDequeue: true }
+    | { drainedByEmailWorker: false; fairDequeue: boolean }
 
 export const QUEUE_TRAITS = {
-    hog: { sendsEmail: false, fairDequeue: false },
-    hogoverflow: { sendsEmail: false, fairDequeue: false },
-    hogdlq: { sendsEmail: false, fairDequeue: false },
-    hogflow: { sendsEmail: false, fairDequeue: false },
-    email: { sendsEmail: true, fairDequeue: true },
-    emailsandbox: { sendsEmail: false, fairDequeue: false },
+    hog: { drainedByEmailWorker: false, fairDequeue: false },
+    hogoverflow: { drainedByEmailWorker: false, fairDequeue: false },
+    hogdlq: { drainedByEmailWorker: false, fairDequeue: false },
+    hogflow: { drainedByEmailWorker: false, fairDequeue: false },
+    email: { drainedByEmailWorker: true, fairDequeue: true },
+    emailsandbox: { drainedByEmailWorker: false, fairDequeue: false },
 } as const satisfies Record<CyclotronJobQueueKind, QueueTraits>
 
 export type EmailQueueKind = {
-    [Q in CyclotronJobQueueKind]: (typeof QUEUE_TRAITS)[Q]['sendsEmail'] extends true ? Q : never
+    [Q in CyclotronJobQueueKind]: (typeof QUEUE_TRAITS)[Q]['drainedByEmailWorker'] extends true ? Q : never
 }[CyclotronJobQueueKind]
 
 export const EMAIL_QUEUES = CYCLOTRON_INVOCATION_JOB_QUEUES.filter(
-    (queue): queue is EmailQueueKind => QUEUE_TRAITS[queue].sendsEmail
+    (queue): queue is EmailQueueKind => QUEUE_TRAITS[queue].drainedByEmailWorker
 )
 export const FAIR_DEQUEUE_QUEUES = CYCLOTRON_INVOCATION_JOB_QUEUES.filter((queue) => QUEUE_TRAITS[queue].fairDequeue)
 
 export const CYCLOTRON_QUEUE_ROLES = { emailQueues: EMAIL_QUEUES, fairDequeueQueues: FAIR_DEQUEUE_QUEUES }
 
-export function sendsEmail(queue: string): boolean {
+export function isEmailQueue(queue: string): queue is EmailQueueKind {
     return (EMAIL_QUEUES as readonly string[]).includes(queue)
 }
 
@@ -383,7 +385,7 @@ export function emailQueueFor(_invocation: FieldsLeftAfterSealing): EmailQueueKi
 }
 
 export function queueToStore(invocation: CyclotronJobInvocation): CyclotronJobQueueKind {
-    return sendsEmail(invocation.queue) ? emailQueueFor(invocation) : invocation.queue
+    return isEmailQueue(invocation.queue) ? emailQueueFor(invocation) : invocation.queue
 }
 
 export const DEAD_LETTER_QUEUE = 'hogdlq' satisfies CyclotronJobQueueKind

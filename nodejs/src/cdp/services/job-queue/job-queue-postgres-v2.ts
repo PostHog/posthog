@@ -13,8 +13,8 @@ import {
     CyclotronJobInvocation,
     CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
+    isEmailQueue,
     queueToStore,
-    sendsEmail,
 } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { settleAllThenThrowFirst } from '../../utils/settle-all'
@@ -67,7 +67,7 @@ function priorityPersistedOnlyAcrossEmailQueueTransitions(
     invocation: CyclotronJobInvocation,
     fromQueue: string
 ): number | undefined {
-    return sendsEmail(invocation.queue) || sendsEmail(fromQueue) ? invocation.queuePriority : undefined
+    return isEmailQueue(invocation.queue) || isEmailQueue(fromQueue) ? invocation.queuePriority : undefined
 }
 
 async function settleBefore(deadline: number, work: Promise<unknown>): Promise<boolean> {
