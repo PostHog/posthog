@@ -1033,23 +1033,18 @@ describe('valves', () => {
             )
             await edgeHeld.held
             const answered: string[] = []
-            const heldSends = [send(), send()].map((sending) => sending.then((outcome) => answered.push(outcome)))
+            const noted = (name: string) => (outcome: string) => answered.push(`${name} ${outcome}`)
+            const heldSends = [send(), send()].map((sending) => sending.then(noted('held')))
             await waitForExpect(() => expect(edge.sent).toHaveLength(2), 2000, 5)
-            const third = await send()
-            const answeredBeforeRelease = [...answered]
+            const third = send().then(noted('third'))
+            await waitForExpect(() => expect(answered).toContain('third sent'), 2000, 5)
+            answered.push('release')
             await valves.releaseAll()
-            await Promise.all(heldSends)
+            await Promise.all([...heldSends, third])
             const truth = parseJSON(await (await internalFetch(`${edge.url}/_truth`)).text()) as TruthPage
 
-            expect({
-                third,
-                answeredBeforeRelease,
-                answered,
-                sends: truth.records.map(({ status, fault }) => [status, fault]),
-            }).toEqual({
-                third: 'sent',
-                answeredBeforeRelease: [],
-                answered: ['sent', 'sent'],
+            expect({ answered, sends: truth.records.map(({ status, fault }) => [status, fault]) }).toEqual({
+                answered: ['third sent', 'release', 'held sent', 'held sent'],
                 sends: [
                     [200, 'ses.hold'],
                     [200, 'ses.hold'],

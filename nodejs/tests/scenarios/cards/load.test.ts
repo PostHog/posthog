@@ -310,6 +310,25 @@ describe('load', () => {
             `valves.0.target: ${valve} stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
         ]),
         [
+            'role.terminate after an ses.hold while the profile runs more than one email worker',
+            {
+                ...card,
+                drive: { ...card.drive, for: '60s' },
+                valves: [
+                    { valve: 'ses.hold', target: 'ses', dose: { count: 2 }, at: '40s', for: '10s' },
+                    {
+                        valve: 'role.terminate',
+                        target: 'cdp-cyclotron-worker-email',
+                        dose: { grace: '20s' },
+                        at: '45s',
+                        for: '5s',
+                    },
+                ],
+            },
+            { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
+            "valves.1.target: role.terminate stops cdp-cyclotron-worker-email replica 0 only, and ses.hold can hold another replica's send; run one email worker replica on this card",
+        ],
+        [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
             undefined,

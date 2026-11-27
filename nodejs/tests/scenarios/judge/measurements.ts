@@ -211,49 +211,59 @@ export const resentInvocations: MeasurementDefinition = {
     measure: () => [{ key: 'total', ...unmeasured('not measured: a run-scoped resend count is a follow-up') }],
 }
 
-const unreadTruthOf = ({ unread, unsettled, converged, truth, truthFrom }: MeasureEvidence): string | undefined =>
-    unread !== undefined
-        ? `the truth could not be read: ${unread}`
-        : (unsettled ??
-          truthGapOf(truth, truthFrom) ??
-          (converged === false
-              ? 'the run did not converge, so a resend could still land after the final read'
-              : undefined))
+const unreadTruthOf = ({ unread, unsettled, truth, truthFrom }: MeasureEvidence): string | undefined =>
+    unread !== undefined ? `the truth could not be read: ${unread}` : (unsettled ?? truthGapOf(truth, truthFrom))
 
 const SES_HOLD = 'ses.hold'
 
-const heldSendsOf = (truth: MeasureEvidence['truth']): MeasureEvidence['truth'] =>
-    truth.filter(({ kind, fault }) => kind === 'ses.send' && fault === SES_HOLD)
+type HeldAtExit = { sends: MeasureEvidence['truth'] } | { reason: string }
+
+// The sends ses.hold took before the terminated worker exited, while the hold still kept their answers. A send the
+// hold took after the exit came from the worker that replaced it, so neither reading counts it.
+function heldAtExitOf({ timeline, truth }: MeasureEvidence): HeldAtExit {
+    const terminations = terminationsOf(timeline)
+    const holds = timeline.filter(({ valve, appliedAt }) => valve === SES_HOLD && appliedAt !== undefined)
+    const exitedAt = terminations[0]?.exit.exitedAt
+    if (terminations.length !== 1) {
+        return { reason: 'the card must terminate exactly one role' }
+    }
+    if (exitedAt === undefined) {
+        return { reason: `${terminations[0].target} did not exit` }
+    }
+    if (holds.length !== 1) {
+        return {
+            reason:
+                holds.length === 0
+                    ? 'the card held no SES answer'
+                    : 'the card holds SES answers more than once, so a held send has no one release to compare with the exit',
+        }
+    }
+    const { releasedAt } = holds[0]
+    if (releasedAt !== undefined && Date.parse(releasedAt) <= Date.parse(exitedAt)) {
+        return { reason: 'the hold answered before the worker exited, so no SES call was open at the exit' }
+    }
+    const sends = truth.filter(
+        ({ kind, fault, at }) => kind === 'ses.send' && fault === SES_HOLD && Date.parse(at) < Date.parse(exitedAt)
+    )
+    return sends.length === 0 ? { reason: 'the hold took no send before the worker exited' } : { sends }
+}
 
 export const sesCallsHeldPastExit: MeasurementDefinition = {
     name: 'ses_calls_held_past_exit',
     params: z.object({}).strict(),
     unit: 'sends',
     measure: (evidence) => {
-        const terminations = terminationsOf(evidence.timeline)
-        const hold = evidence.timeline.find(({ valve, appliedAt }) => valve === SES_HOLD && appliedAt !== undefined)
-        const exitedAt = terminations[0]?.exit.exitedAt
         const unreadTruth = unreadTruthOf(evidence)
-        if (terminations.length !== 1) {
-            return [unmeasured('the card must terminate exactly one role')]
-        }
-        if (exitedAt === undefined) {
-            return [unmeasured(`${terminations[0].target} did not exit`)]
-        }
-        if (hold === undefined) {
-            return [unmeasured('the card held no SES answer')]
-        }
+        const held = heldAtExitOf(evidence)
         if (unreadTruth !== undefined) {
             return [unmeasured(unreadTruth)]
         }
-        const answeredFrom = hold.releaseIntentAt ?? hold.releasedAt
-        return answeredFrom !== undefined && Date.parse(answeredFrom) <= Date.parse(exitedAt)
-            ? [{ value: 0 }]
-            : [{ value: heldSendsOf(evidence.truth).filter(({ at }) => Date.parse(at) < Date.parse(exitedAt)).length }]
+        return 'reason' in held ? [unmeasured(held.reason)] : [{ value: held.sends.length }]
     },
 }
 
 const SENDS = ['never', 'once', 'twice'] as const
+const HELD_SENDS = ['once', 'twice'] as const
 
 export const sendsPerDelivery: MeasurementDefinition = {
     name: 'sends_per_delivery',
@@ -270,26 +280,33 @@ export const sendsPerDelivery: MeasurementDefinition = {
                 accepted,
             ])
         )
-        const held = new Set(
-            heldSendsOf(evidence.truth).flatMap(({ unitId, actionId }) =>
-                unitId === undefined || actionId === undefined ? [] : [deliveryKey(unitId, actionId)]
-            )
-        )
         const expected = evidence.journal
             .filter(({ answer }) => answer.accepted)
             .flatMap(({ unitId, expect }) => expect.deliveries.map((actionId) => deliveryKey(unitId, actionId)))
         const sendsOf = (key: string): (typeof SENDS)[number] => SENDS[Math.min(accepted.get(key) ?? 0, 2)]
-        const counted = (keys: string[], prefix: string): Measured[] =>
-            SENDS.map((sends) => ({
-                key: `${prefix}${sends}`,
-                value: keys.filter((key) => sendsOf(key) === sends).length,
+        const unconverged = evidence.converged === false ? { incomplete: true as const } : {}
+        const held = heldAtExitOf(evidence)
+        const heldCounts = (keys: ReadonlySet<string>): Measured[] =>
+            HELD_SENDS.map((sends) => ({
+                key: `held_${sends}`,
+                value: expected.filter((key) => keys.has(key) && sendsOf(key) === sends).length,
+                ...unconverged,
             }))
         return [
-            ...counted(expected, ''),
-            ...counted(
-                expected.filter((key) => held.has(key)),
-                'held_'
-            ),
+            ...SENDS.map((sends) => ({
+                key: sends,
+                value: expected.filter((key) => sendsOf(key) === sends).length,
+                ...unconverged,
+            })),
+            ...('reason' in held
+                ? HELD_SENDS.map((sends) => ({ key: `held_${sends}`, ...unmeasured(held.reason) }))
+                : heldCounts(
+                      new Set(
+                          held.sends.flatMap(({ unitId, actionId }) =>
+                              unitId === undefined || actionId === undefined ? [] : [deliveryKey(unitId, actionId)]
+                          )
+                      )
+                  )),
         ]
     },
 }

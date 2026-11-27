@@ -316,47 +316,72 @@ describe('measurements', () => {
     })
 
     const heldBy = (truth: TruthRecord): TruthRecord => ({ ...truth, fault: 'ses.hold' })
-    const heldThenResent = [
+    const holding = (releasedAtMs: number): ValveTimelineEntry => ({
+        valve: 'ses.hold',
+        target: 'ses',
+        requestedAt: at(3000),
+        appliedAt: at(3000),
+        observedAt: at(4000),
+        releasedAt: at(releasedAtMs),
+    })
+    const exited = terminated({ exitedAt: at(30_000), code: 0 })
+    const heldPastExit = [
         heldBy(record(1, 'run-a-1', 4000)),
         heldBy(record(2, 'run-a-2', 4500)),
         record(3, 'run-a-3', 4600),
         heldBy(record(4, 'run-a-5', 35_000)),
         record(5, 'run-a-1', 42_000),
     ]
-    const holding = (releaseIntentAtMs: number): ValveTimelineEntry => ({
-        valve: 'ses.hold',
-        target: 'ses',
-        requestedAt: at(3000),
-        appliedAt: at(3000),
-        releaseIntentAt: at(releaseIntentAtMs),
-        releasedAt: at(releaseIntentAtMs + 100),
+    const heldUntilExit = {
+        timeline: [holding(40_100), exited],
+        truth: heldPastExit,
+        converged: false,
+    } satisfies Partial<MeasureEvidence>
+
+    it.each<[string, Partial<MeasureEvidence>, object]>([
+        [
+            'the sends held at the exit, not those the replacement worker sent into the hold',
+            heldUntilExit,
+            { value: 2 },
+        ],
+        [
+            'no reading when the hold answered before the worker exited',
+            { timeline: [holding(20_000), exited], truth: heldPastExit.slice(0, 3), converged: true },
+            {
+                value: null,
+                censored: true,
+                unmeasured: 'the hold answered before the worker exited, so no SES call was open at the exit',
+            },
+        ],
+        [
+            'no reading when the card holds SES answers twice',
+            { ...heldUntilExit, timeline: [holding(20_000), { ...holding(40_100), appliedAt: at(25_000) }, exited] },
+            {
+                value: null,
+                censored: true,
+                unmeasured:
+                    'the card holds SES answers more than once, so a held send has no one release to compare with the exit',
+            },
+        ],
+    ])('ses_calls_held_past_exit reads %s', (_story, held, reading) => {
+        expect(measure([{ name: 'ses_calls_held_past_exit', params: {} }], evidence(held))).toEqual([
+            { name: 'ses_calls_held_past_exit', unit: 'sends', ...reading },
+        ])
     })
 
-    it.each([
-        ['counts the held sends that arrived before the worker exited, while the hold outlasted it', 40_000, 2],
-        ['counts none when the hold answered before the worker exited', 20_000, 0],
-    ])('ses_calls_held_past_exit %s', (_story, releaseIntentAtMs, value) => {
-        const timeline = [holding(releaseIntentAtMs), terminated({ exitedAt: at(30_000), code: 0 })]
-
-        expect(
-            measure([{ name: 'ses_calls_held_past_exit', params: {} }], evidence({ timeline, truth: heldThenResent }))
-        ).toEqual([{ name: 'ses_calls_held_past_exit', unit: 'sends', value }])
-    })
-
-    it('counts how many deliveries went out never, once and twice, and the same for the deliveries SES held', () => {
+    it('counts how many deliveries went out never, once and twice, and the same for the sends held at the exit', () => {
         const journal = ['run-a-1', 'run-a-2', 'run-a-3', 'run-a-4', 'run-a-5'].map((unitId) => offered(unitId, 0))
 
         expect(
-            measure([{ name: 'sends_per_delivery', params: {} }], evidence({ journal, truth: heldThenResent })).map(
-                ({ key, value }) => [key, value]
+            measure([{ name: 'sends_per_delivery', params: {} }], evidence({ ...heldUntilExit, journal })).map(
+                ({ key, value, incomplete }) => [key, value, incomplete]
             )
         ).toEqual([
-            ['never', 1],
-            ['once', 3],
-            ['twice', 1],
-            ['held_never', 0],
-            ['held_once', 2],
-            ['held_twice', 1],
+            ['never', 1, true],
+            ['once', 3, true],
+            ['twice', 1, true],
+            ['held_once', 1, true],
+            ['held_twice', 1, true],
         ])
     })
 
