@@ -21,6 +21,7 @@ import {
     sampleOf,
     startSampler,
 } from './measurements'
+import { Buckets, p99Of, worstP99Of } from './pickups'
 
 const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const ROLE = 'cdp-cyclotron-worker-email'
@@ -606,7 +607,104 @@ describe('measurements', () => {
         })
     }
 
+    const pickedWith = (
+        picked: (second: number) => [fast: number, slow: number],
+        { replica = 0, slowFrom = 0 } = {}
+    ): MetricSample[] => {
+        let fast = 0
+        let slow = slowFrom
+        return everySecondOf(2, 1497, 5).map((second) => {
+            const [newFast, newSlow] = picked(second)
+            fast += newFast
+            slow += newSlow
+            return {
+                ...sample(second, 0, 1, 100, replica),
+                role: HOGFLOW,
+                lateness: { hogflow: { '0.5': fast, '5': fast + slow, '+Inf': fast + slow } },
+            }
+        })
+    }
+    const LAST_MINUTE_SCRAPES = between(822, 877)
+
     it.each<[string, MetricSample[], Omit<Measurement, 'name' | 'unit'>[]]>([
+        [
+            'reads a slow pickup in the last minute as not recovered, though fast pickups after the valve end share its closing interval',
+            pickedWith((second) =>
+                between(707, 757)(second)
+                    ? [0, 10]
+                    : second === 872
+                      ? [0, 1]
+                      : LAST_MINUTE_SCRAPES(second)
+                        ? [0, 0]
+                        : second === 882
+                          ? [100, 0]
+                          : [10, 0]
+            ),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 5 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
+            'reads 99 fast pickups of 101 in the last minute as not recovered when the closing interval could hold its second slow one',
+            pickedWith((second) =>
+                between(707, 757)(second)
+                    ? [0, 10]
+                    : second === 877
+                      ? [0, 1]
+                      : between(822, 872)(second)
+                        ? [9, 0]
+                        : second === 882
+                          ? [100, 1]
+                          : [10, 0]
+            ),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 5 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
+            'marks the last minute incomplete when a counter drops across the valve end with an unchanged start time',
+            [
+                ...pickedWith((second) => (between(872, 882)(second) ? [0, 0] : [10, 0])),
+                ...pickedWith((second) => (between(822, 867)(second) ? [0, 1] : [0, 0]), {
+                    replica: 1,
+                    slowFrom: 100,
+                }).map((scrape) =>
+                    scrape.at >= atS(882)
+                        ? { ...scrape, lateness: { hogflow: { '0.5': 0, '5': 99, '+Inf': 99 } } }
+                        : scrape
+                ),
+            ],
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 0.5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 5, incomplete: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
+            'still recovers when every pickup in the closing interval is fast',
+            pickedWith((second) => (between(707, 757)(second) ? [0, 10] : [10, 0])),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 0.5 },
+                { key: 'hogflow_recovery_seconds', value: 60 },
+            ],
+        ],
         [
             'recovers once every later minute of a queue stays at or under twice its baseline p99',
             pickedEvery5s(between(705, 760)),
@@ -730,6 +828,31 @@ describe('measurements', () => {
                 ...value,
             })),
         ])
+    })
+
+    it('bounds the last minute p99 at or above the p99 of any share of the closing pickups that falls inside it', () => {
+        let seed = 7
+        const random = (below: number): number => {
+            seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31
+            return seed % below
+        }
+        const cumulated = ([fast, slow, past]: number[]): Buckets => ({
+            '0.5': fast,
+            '5': fast + slow,
+            '+Inf': fast + slow + past,
+        })
+        for (let i = 0; i < 2000; i++) {
+            const inside = [random(200), random(4), random(2)]
+            const closing = [random(200), random(4), random(2)]
+            const share = closing.map((count) => random(count + 1))
+            if (inside.every((count) => count === 0)) {
+                continue
+            }
+            const actual = p99Of(cumulated(inside.map((count, bucket) => count + share[bucket])))
+            const bound = worstP99Of(cumulated(inside), cumulated(closing))
+            expect(bound.value).toBeGreaterThanOrEqual(actual.value)
+            expect(bound.beyond || !actual.beyond).toBe(true)
+        }
     })
 
     const SPIKE_BEFORE_THE_ENVELOPE = (second: number): typeof QUIET =>
