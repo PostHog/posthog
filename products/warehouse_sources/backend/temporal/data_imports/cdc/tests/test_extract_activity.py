@@ -185,6 +185,7 @@ def _capture_harness(source, schemas, events=()) -> Iterator[SimpleNamespace]:
         patch(f"{_ACTIVITIES}.CDCBufferWriter") as MockBufferWriter,
         patch(f"{_ACTIVITIES}.purge_buffer_prefix") as purge,
         patch(f"{_ACTIVITIES}.activity") as mock_activity,
+        patch(f"{_ACTIVITIES}.load_trigger_enabled", return_value=False),
         # The reset and failure paths call Temporal and Celery, which these tests must not reach.
         patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule"),
         patch("products.data_warehouse.backend.facade.api.pause_cdc_extraction_schedule"),
@@ -2032,6 +2033,37 @@ class TestBufferedIngressCapture:
 
         assert schema.sync_type_config[BUFFER_GENERATION_KEY] == 1
         assert BUFFER_WRITE_OPEN_KEY not in schema.sync_type_config
+
+    @parameterized.expand(
+        [
+            ("completed_run", None, [1]),
+            ("failed_run", RuntimeError("s3 down"), [None]),
+        ]
+    )
+    def test_a_run_triggers_loads_after_it_counted_its_writes_and_also_when_it_fails(
+        self, _name: str, write_error: Exception | None, generation_at_trigger: list[int | None]
+    ) -> None:
+        source = _make_source()
+        schema = _make_schema("users", source=source)
+        seen: list[int | None] = []
+
+        with (
+            _capture_harness(source, [schema], [_make_event(position="0/100")]) as capture,
+            patch(f"{_ACTIVITIES}.load_trigger_enabled", return_value=True),
+            patch(
+                f"{_ACTIVITIES}.trigger_loads",
+                side_effect=lambda *_, **__: seen.append(schema.sync_type_config.get(BUFFER_GENERATION_KEY)),
+            ),
+        ):
+            capture.buffer.write_batch.side_effect = write_error
+            capture.activity.info.return_value.attempt = CDC_MAX_EXTRACTION_ATTEMPTS
+            if write_error is None:
+                capture.extract()
+            else:
+                with pytest.raises(RuntimeError):
+                    capture.extract()
+
+        assert seen == generation_at_trigger
 
     @parameterized.expand(
         [

@@ -148,9 +148,12 @@ def consumer_tick_stands_down(schema_id: Any, team_id: int, logger: Any) -> bool
     """
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.temporal.data_imports.cdc import metrics
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.load_trigger import restore_own_schedule
 
     try:
         schema = ExternalDataSchema.objects.select_related("source").filter(id=schema_id, team_id=team_id).first()
+        if schema is not None:
+            restore_own_schedule(schema, logger)
         decision = consumer_tick_decision(schema, dt.datetime.now(dt.UTC)) if schema is not None else None
     except Exception as e:
         logger.warning("cdc_consumer_tick_gate_failed", schema_id=str(schema_id), error=str(e))
@@ -163,14 +166,21 @@ def consumer_tick_stands_down(schema_id: Any, team_id: int, logger: Any) -> bool
 
 
 def consumer_tick_decision(schema: ExternalDataSchema, now: dt.datetime) -> TickDecision | None:
-    """What a scheduled consumer tick of a streaming CDC table does. None means the gate does not apply.
+    """What a scheduled consumer tick of a streaming CDC table does. None means the gate does not apply."""
+    if not _gate_applies(schema) or not data_driven_load_enabled(schema.source):
+        return None
+    return tick_decision(schema, now)
+
+
+def tick_decision(schema: ExternalDataSchema, now: dt.datetime) -> TickDecision | None:
+    """`consumer_tick_decision` for a caller that already knows the flag is on.
 
     A tick that stands down after a job read records the generation it proved loaded on the schema.
     """
     from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
     from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import read_completed_listing_proof
 
-    if not _gate_applies(schema) or not data_driven_load_enabled(schema.source):
+    if not _gate_applies(schema):
         return None
 
     config = schema.sync_type_config or {}
