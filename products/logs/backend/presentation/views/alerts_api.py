@@ -7,20 +7,21 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import F, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import F, Manager, Max, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.hogql.database.schema.logs import PIPELINE_LOG_SERVICE_NAMES
 from posthog.hogql.errors import QueryError
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
@@ -37,6 +38,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade import api as access_control_api
 from products.alerts.backend.facade.destinations import (
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
@@ -471,6 +473,41 @@ class PlatformCopyDictField(serializers.DictField):
     # the empty value with the platform copy's value for an alert the platform owns.
     def get_attribute(self, instance: LogsAlertConfiguration) -> dict[str, str]:
         return {}
+
+
+def pipeline_logs_hidden(*, team_id: int, user: object, filters: dict) -> bool:
+    services = set(filters.get("serviceNames") or [])
+    if services and not services & PIPELINE_LOG_SERVICE_NAMES:
+        return False
+    return bool(
+        access_control_api.get_restricted_properties_with_group_type_index_for_team(
+            team_id=team_id, user=user if isinstance(user, User) else None
+        )
+    )
+
+
+def require_pipeline_log_access(*, team_id: int, user: object, filters: dict) -> None:
+    # Scheduled checks ignore property rules, so this is what keeps restricted members off pipeline logs.
+    if pipeline_logs_hidden(team_id=team_id, user=user, filters=filters):
+        raise PermissionDenied(
+            "Your property access permissions do not allow alerts on pipeline logs. "
+            "Pick the services this alert watches, without PostHog pipeline services."
+        )
+
+
+_TIMING_AND_NAME_FIELDS = frozenset(
+    {
+        "name",
+        "enabled",
+        "snooze_until",
+        "check_interval_minutes",
+        "evaluation_periods",
+        "datapoints_to_alarm",
+        "cooldown_minutes",
+        "schedule_restriction",
+    }
+)
+_PLATFORM_RUNTIME_FIELDS = frozenset({"grouping", "labels", "annotations"})
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -959,6 +996,31 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def _require_pipeline_log_access(self, filters: dict) -> None:
+        request = self.context.get("request")
+        require_pipeline_log_access(
+            team_id=self.context["get_team"]().id, user=request.user if request is not None else None, filters=filters
+        )
+
+    def _changes_reads_or_recipients(self, attrs: dict) -> bool:
+        if self.instance is None:
+            return True
+        runtime = None
+        for name, value in attrs.items():
+            if name in _TIMING_AND_NAME_FIELDS:
+                continue
+            if name in _PLATFORM_RUNTIME_FIELDS:
+                # These live on the platform row. Compare both as the API shows them, since a client can leave
+                # out a setting that has a default.
+                runtime = runtime or _platform_runtime_of([self.instance]).get(self.instance.id)
+                stored = self.fields[name].to_representation(getattr(runtime, name)) if runtime is not None else None
+                sent = self.fields[name].to_representation(value) if value is not None else None
+                if (sent or None) != (stored or None):
+                    return True
+            elif value != getattr(self.instance, name, None):
+                return True
+        return False
+
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
 
@@ -970,6 +1032,16 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
         if effective_enabled or filters:
             _validate_filters(filters)
+        # The threshold counts as reading, because moving it and watching the state shows the hidden counts.
+        starts_reading = (
+            self.instance is None
+            or (effective_enabled and not self.instance.enabled)
+            or self._changes_reads_or_recipients(attrs)
+        )
+        if starts_reading:
+            self._require_pipeline_log_access(filters)
+            if self.instance is not None:
+                self._require_pipeline_log_access(self.instance.filters or {})
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
         if window is not None and window not in ALLOWED_WINDOW_MINUTES:
@@ -1082,6 +1154,17 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             elif threshold_changed:
                 apply_outcome(instance, apply_threshold_change(snapshot), kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE)
                 close_reason = IncidentCloseReason.CONFIG_CHANGED
+            if _any_field_changed(instance, validated_data, {"filters"}) and (
+                enabled_change is not None or snooze_data is not _SENTINEL
+            ):
+                # Alert history hides earlier counts from restricted members from the last filter change on.
+                LogsAlertEvent.objects.create(
+                    alert=instance,
+                    kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+                    threshold_breached=False,
+                    state_before=instance.state,
+                    state_after=instance.state,
+                )
             # The edge check inside decides whether a close goes out, so a new branch above that forgets
             # its reason still closes the incident.
             close_incident_on_commit(
@@ -1640,6 +1723,19 @@ class _EventWindow(Sequence[LogsAlertEvent]):
         return self.newest[index]
 
 
+def _last_config_change_at(alert: LogsAlertConfiguration) -> datetime | None:
+    """Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
+    kinds = {LogsAlertEvent.Kind.THRESHOLD_CHANGE}
+    edits = [LogsAlertEvent.objects.filter(alert_id=alert.id, kind__in=kinds).aggregate(at=Max("created_at"))["at"]]
+    if alert.platform_owned:
+        changes = _read_platform_history(
+            lambda: platform_control_rows(team_id=alert.team_id, alert_id=alert.id, kinds=kinds, limit=1)
+        )
+        if changes is not None:
+            edits.extend(row.created_at for row in changes.rows)
+    return max((at for at in edits if at is not None), default=None)
+
+
 def _with_platform_history(
     alert: LogsAlertConfiguration, events: QuerySet[LogsAlertEvent], *, kind: str | None, rows_needed: int
 ) -> QuerySet[LogsAlertEvent] | _EventWindow:
@@ -1934,6 +2030,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
+            # The logs row of an alert the platform owns keeps its old filters.
+            (shown,) = _shown_from_copies([alert])
+            require_pipeline_log_access(team_id=alert.team_id, user=request.user, filters=shown.filters or {})
             configs = build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
@@ -2189,13 +2288,22 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if alert.platform_owned and rows_needed > MAX_MERGED_EVENT_ROWS:
             raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
         history = _with_platform_history(alert, queryset, kind=kind, rows_needed=rows_needed)
+        # The checks count every log, so a member who cannot see pipeline logs gets the state changes without
+        # the counts. A check from before the last change to its settings may have read pipeline logs.
+        (shown,) = _shown_from_copies([alert])
+        hide_counts = pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters=shown.filters or {})
+        hide_before = (
+            _last_config_change_at(alert)
+            if not hide_counts and pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters={})
+            else None
+        )
         page = self.paginate_queryset(history)
-        if page is not None:
-            serializer = LogsAlertEventSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = LogsAlertEventSerializer(history, many=True)
-        return Response(serializer.data)
+        rows = list(history if page is None else page)
+        data = LogsAlertEventSerializer(rows, many=True).data
+        for row, event in zip(rows, data):
+            if hide_counts or (hide_before is not None and row.created_at < hide_before):
+                event["result_count"] = None
+        return Response(data) if page is None else self.get_paginated_response(data)
 
     @extend_schema(
         request=None,
