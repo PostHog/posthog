@@ -157,6 +157,13 @@ The bar for a learning is verdicts on at least three separate reports from the l
 It is the one bar this skill uses, and a first value to tune.
 One dismissal, however clear, is feedback for the scout it was addressed to, not a learning.
 Each learning states the pattern in a sentence, then its evidence: how many reports, the date range, and the report ids.
+
+A person learning counts the person's whole routing record, not only the reports that led you to them.
+Before you write or re-confirm `learned:person:<github-login>`, list the notes that name the login: `scout-notes-list` with `text` set to the login, `include_expired=true`, `date_from` 90 days back, and `content_max_chars` set. If a page is full, walk back with `date_to`.
+Keep only the routing verdicts on that person, and count each report once, as in _New feedback_.
+Next to the reports you cite, state the totals by type: additions, claims, removals for each stated reason (`wrong_area`, `already_covered`, `unavailable`, `other`), and removals with no reason.
+The totals show how much of the record the cited reports are, so cite the reports that show the pattern, not every report.
+When the totals change the scope of the pattern, such as more `wrong_area` removals in the area the learning names, change the sentence that states it.
 Write the pattern as what happened ("dismissed 5 of 6 reports of this shape since …"), not as what a scout must do: a learning is evidence other scouts weigh.
 Read the existing entry by exact `key` before you write, and extend it rather than replace it.
 Give each learning an `expires_at`, 90 days ahead by default.
