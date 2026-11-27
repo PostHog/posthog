@@ -1,4 +1,5 @@
 import { act, fireEvent, render, within } from '@testing-library/react'
+import { NodeProps, ReactFlowProvider } from '@xyflow/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -10,6 +11,7 @@ import { UserType } from '~/types'
 
 import { adventCalendarLogic } from './adventCalendarLogic'
 import { AdventDoorCard } from './AdventDoorCard'
+import { AdventDoorNode, AdventDoorNodeType } from './AdventDoorNode'
 import { AdventShareButton } from './AdventShareButton'
 import { AdventStage } from './AdventStage'
 
@@ -106,6 +108,32 @@ describe('AdventStage', () => {
         expect(bottom.textContent).toBe('21MondayCoffee or teaOpens December 21.')
         expect(top.textContent).toBe('4FridayLockedOpens December 4.')
 
+        logic.unmount()
+    })
+
+    it.each([
+        [3, 'Door 3, ready', '3Today'],
+        [4, 'Door 4, opens December 4', '4'],
+        [21, 'Door 21, opens December 21', '21Coffee or tea?'],
+    ])('names door %s "%s" and shows "%s" on the stage', async (day, name, shown) => {
+        window.localStorage.setItem(
+            'workflows-advent-calendar-progress',
+            JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } })
+        )
+        const logic = adventCalendarLogic()
+        logic.mount()
+        const door = logic.values.graph.doors.find((candidate) => candidate.day === day)!
+        const props = { data: { door, isSelected: false, isToday: day === 3, isOpening: false } }
+        const { container } = render(
+            <ReactFlowProvider>
+                <AdventDoorNode {...(props as NodeProps<AdventDoorNodeType>)} />
+            </ReactFlowProvider>
+        )
+
+        expect(container.querySelector(`[data-attr="advent-door-${day}"]`)?.getAttribute('aria-label')).toBe(name)
+        expect(container.textContent).toBe(shown)
+
+        await expectLogic(logic).toFinishAllListeners()
         logic.unmount()
     })
 
