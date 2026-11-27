@@ -1403,6 +1403,21 @@ class TestPinningAnotherPersonsKey(APIBaseTest):
         self.assertEqual([row["can_use"] for row in listed], [allowed])
         self.assertEqual(created.status_code, 201 if allowed else 400, created.json())
 
+    @parameterized.expand(
+        [("provider_key_models", "provider_keys/{key}/models/"), ("models_list", "models/?key_id={key}")]
+    )
+    @patch("products.ai_observability.backend.llm.client.Client.list_models")
+    def test_listing_models_cannot_call_the_provider_with_another_members_key(
+        self, _name: str, path: str, list_models: Mock
+    ) -> None:
+        _make_member(self.organization_membership)
+        key = self._key_added_by("member")
+
+        response = self.client.get(_url(self.team, path.format(key=key.id)))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        list_models.assert_not_called()
+
     def test_deleting_a_key_cannot_move_its_judges_to_another_members_key(self) -> None:
         _make_member(self.organization_membership)
         own_key = _key(self.team, self.user)

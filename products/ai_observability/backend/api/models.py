@@ -12,8 +12,9 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import AccessControlPermission, is_service_auth
 
+from ..logic.provider_key_access import PIN_KEY_MESSAGE, can_use_provider_key
 from ..models.model_configuration import LLMModelConfiguration, provider_requires_key
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
@@ -129,6 +130,9 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     {"detail": f"No provider key '{key_id}' in this project. List the team's provider keys first."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            # Listing models calls the provider with the key's stored credential.
+            if not is_service_auth(request) and not can_use_provider_key(provider_key, request.user.pk):
+                return Response({"detail": PIN_KEY_MESSAGE}, status=status.HTTP_403_FORBIDDEN)
             if provider is not None and provider_key.provider != provider:
                 return Response(
                     {

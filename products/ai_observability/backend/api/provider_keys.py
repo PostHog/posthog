@@ -687,7 +687,11 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def models(self, request: Request, **_kwargs) -> Response:
         """Models this provider key can run, as the model pickers list them. Scoped to the project in the URL, so a
         page on a project other than the user's current one still lists its own keys' models."""
-        return Response(provider_key_models(self.get_object()))
+        instance = self.get_object()
+        # Listing models calls the provider with the key's stored credential.
+        if not is_service_auth(request) and not can_use_provider_key(instance, request.user.pk):
+            raise exceptions.PermissionDenied(PIN_KEY_MESSAGE)
+        return Response(provider_key_models(instance))
 
     @extend_schema(responses={200: ProviderKeyDependentConfigsSerializer})
     @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"])
