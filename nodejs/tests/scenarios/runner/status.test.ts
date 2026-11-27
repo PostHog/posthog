@@ -321,6 +321,33 @@ describe('statusOf', () => {
             'the ramp broke: refused_at_intake broke at the 2x step; the judge could not read the final state: The operation was aborted due to timeout',
         ],
         [
+            'a run that held while SES feedback was still in flight at the final read',
+            { convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 } },
+            'invalid',
+            IN_FLIGHT,
+        ],
+        [
+            'a ramp that held to its ceiling while SES feedback was still in flight at the final read',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                ramp: { end: 'ceiling', sustainedScale: 10, reason: 'every step held up to the 10x ceiling' },
+            },
+            'invalid',
+            IN_FLIGHT,
+        ],
+        [
+            'a ramp whose intake broke mid-ramp while SES feedback was still in flight, on a card without no_loss',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                invariants: [
+                    { name: 'refused_at_intake', passed: false, observed: 3, unitIds: ['run-9'], crossedBy: 'run-9' },
+                ],
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'refused_at_intake broke at the 2x step' },
+            },
+            'failed',
+            `the ramp broke: refused_at_intake broke at the 2x step; ${IN_FLIGHT}`,
+        ],
+        [
             'a ramp whose intake broke mid-ramp while SES feedback was still in flight at the final read',
             {
                 convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
