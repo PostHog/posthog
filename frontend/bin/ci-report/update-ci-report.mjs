@@ -19,6 +19,7 @@ export const SECTIONS = [
     { id: 'complexity-ts', title: 'Complexity (TypeScript)' },
     { id: 'duplication-python', title: 'Duplication (Python)' },
     { id: 'duplication-ts', title: 'Duplication (TypeScript)' },
+    { id: 'touched-typing', title: 'Typing (touched functions)' },
     { id: 'comment-density', title: 'Comment density' },
     { id: 'dependency-scan', title: 'Dependency scan' },
     { id: 'call-assertions', title: 'Call assertions' },
