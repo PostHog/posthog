@@ -19,6 +19,7 @@ export interface FakeSes {
     readonly sent: FakeSesMessage[]
     failWith(fault: FakeSesFault | null): void
     failInTurn(...faults: FakeSesFault[]): void
+    failOnce(fault: FakeSesFault): void
     close(): Promise<void>
 }
 
@@ -95,6 +96,10 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
             faults.forEach((fault, turn) =>
                 edge.addFault(faultRuleOf(fault, turn < faults.length - 1 ? { count: 1 } : { share: 1 }))
             )
+        },
+        failOnce: (fault) => {
+            edge.clearFaults()
+            edge.addFault(faultRuleOf(fault, { count: 1 }))
         },
         close: async () => {
             setVariables(previousCredentials)

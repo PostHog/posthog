@@ -1654,6 +1654,42 @@ class TestAddActionStats:
         if streamed.get("maxValues", {}).get("v") is not None:
             assert _typed(streamed["maxValues"]["v"], data_type) >= max(present)
 
+    @pytest.mark.parametrize(
+        "values,low,high",
+        [
+            pytest.param([b"a", b"\xfeabc"], "a", None, id="max_invalid_at_its_first_byte"),
+            pytest.param([b"\xfe", b"\xff", None], "", None, id="every_value_invalid"),
+            pytest.param([b"a\xe0b", b"zz"], "a", "zz", id="min_invalid_after_a_valid_prefix"),
+            pytest.param([b"a", b"b\xe0c"], "a", "c", id="max_invalid_after_a_valid_prefix"),
+            pytest.param([b"a\x80\xc3\xa9", b"b"], "a", "b", id="min_valid_again_after_the_invalid_byte"),
+            pytest.param([b"a", b"m\xe0", b"z"], "a", "z", id="invalid_value_between_the_bounds"),
+            pytest.param([b"0", b"a" * 70 + b"\xe0"], "0", "a" * 63 + "b", id="max_invalid_past_the_stats_cut"),
+        ],
+    )
+    def test_string_stats_bound_values_that_are_not_utf8(self, values, low, high, tmp_path):
+        # A string column can carry bytes that are not UTF-8 (for example from a ClickHouse String),
+        # because Arrow does not check UTF-8 on Parquet reads.
+        raw = pa.array(values, pa.binary())
+        strings = pa.Array.from_buffers(pa.string(), len(raw), raw.buffers(), null_count=raw.null_count)
+        table = pa.table(
+            {
+                "id": pa.array(range(len(values)), pa.int64()),
+                "v": strings,
+                PARTITION_KEY: pa.array(["p"] * len(values)),
+            }
+        )
+
+        _write_streamed(str(tmp_path / "streamed"), [table])
+
+        (stats,) = _raw_add_stats(str(tmp_path / "streamed"))
+        present = [value for value in values if value is not None]
+        assert stats["nullCount"]["v"] == len(values) - len(present)
+        assert stats["minValues"]["v"] == low
+        assert stats["minValues"]["v"].encode("utf-8") <= min(present)
+        assert stats["maxValues"].get("v") == high
+        if high is not None:
+            assert high.encode("utf-8") >= max(present)
+
     @staticmethod
     def _typed_table() -> pa.Table:
         rows = range(12)

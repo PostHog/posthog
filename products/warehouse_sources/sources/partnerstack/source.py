@@ -2,6 +2,8 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.partnerstack._config import PartnerStackSourceConfig
 from products.warehouse_sources.sources.partnerstack.partnerstack import (
+    FORBIDDEN_KEYS_MESSAGE,
+    INVALID_KEYS_MESSAGE,
     PartnerStackResumeConfig,
     partnerstack_source,
     validate_credentials as _validate_credentials,
@@ -85,8 +87,8 @@ You can find your **public key** and **private key** under **Settings → Integr
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://api.partnerstack.com": "Your PartnerStack API keys are invalid or have been revoked. Generate a new key pair under Settings → Integrations → PartnerStack API Keys, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.partnerstack.com": "Your PartnerStack API keys do not have access to this data. Check the keys' permissions, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.partnerstack.com": INVALID_KEYS_MESSAGE,
+            "403 Client Error: Forbidden for url: https://api.partnerstack.com": FORBIDDEN_KEYS_MESSAGE,
         }
 
     def get_schemas(

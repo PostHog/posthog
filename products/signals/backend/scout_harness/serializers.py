@@ -67,7 +67,12 @@ from products.signals.backend.report_discussions import (
     ReportInvolvement,
 )
 from products.signals.backend.report_metrics import MAX_LIVE_METRIC_QUERY_POINTS, MAX_REPORT_METRICS
-from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.report_prompts import (
+    MAX_SUGGESTED_PROMPT_LENGTH,
+    MAX_SUGGESTED_PROMPT_REQUEST_LENGTH,
+    MAX_SUGGESTED_PROMPTS,
+    MAX_SUGGESTED_PROMPTS_PER_REQUEST,
+)
 from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
@@ -1894,6 +1899,12 @@ _REPORT_METRICS_WRITE_HELP = (
     "without a query is invalid."
 )
 
+_SUGGESTED_PROMPTS_BOUNDS_HELP = (
+    f"The report stores at most {MAX_SUGGESTED_PROMPTS} unique prompts of up to {MAX_SUGGESTED_PROMPT_LENGTH} "
+    "characters each. A prompt past those bounds is left out, not cut, and the rest of the report is "
+    "stored. `quality_hints` says which bound left a prompt out."
+)
+
 
 class SourceIssueWriteSerializer(serializers.Serializer):
     """One external issue the report is about."""
@@ -2028,13 +2039,13 @@ class EmitReportRequestSerializer(serializers.Serializer):
     )
     suggested_prompts = serializers.ListField(
         required=False,
-        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
-        max_length=MAX_SUGGESTED_PROMPTS,
+        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_REQUEST_LENGTH),
+        max_length=MAX_SUGGESTED_PROMPTS_PER_REQUEST,
         help_text=(
             "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or "
             "next-step actions to request (e.g. carrying out the report's recommendation). The reader "
             "clicks one to fill the box with it, then sends or edits it. Write the prompts your own "
-            "research left open, phrased as the reader would send them."
+            "research left open, phrased as the reader would send them. " + _SUGGESTED_PROMPTS_BOUNDS_HELP
         ),
     )
     links = serializers.ListField(
@@ -2106,8 +2117,9 @@ class ReportQualityHintSerializer(serializers.Serializer):
 
 
 QUALITY_HINTS_HELP_TEXT = (
-    "Quality checks the title or summary matched. A `repair` hint means the stored text differs from what "
-    "you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: "
+    "Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored "
+    "differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within "
+    "their bounds. A `hint` means the text was stored as sent: "
     "correct it with edit_report if the hint applies. Empty when no check matched."
 )
 
@@ -2278,14 +2290,15 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
     suggested_prompts = serializers.ListField(
         required=False,
         allow_null=True,
-        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
-        max_length=MAX_SUGGESTED_PROMPTS,
+        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_REQUEST_LENGTH),
+        max_length=MAX_SUGGESTED_PROMPTS_PER_REQUEST,
         help_text=(
             "The full set of follow-up prompts (questions or next-step actions) the report should "
             "offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, "
             "so send every one you want kept. Omit the field (or send null) to leave them untouched, "
             "and send an empty list to take them down, which is what you want once a rewrite has "
-            "left them pointing at the old report."
+            "left them pointing at the old report. " + _SUGGESTED_PROMPTS_BOUNDS_HELP + " When every prompt you "
+            "send is left out, the stored prompts stay as they were."
         ),
     )
     links = serializers.ListField(
