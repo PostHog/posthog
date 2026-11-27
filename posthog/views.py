@@ -162,15 +162,6 @@ def not_found(request: HttpRequest) -> HttpResponse:
     return HttpResponseNotFound()
 
 
-def security_txt(request):
-    SECURITY_TXT_CONTENT = """
-        Contact: mailto:engineering@posthog.com
-        Hiring: https://posthog.com/careers
-        Expires: 2024-03-14T00:00:00.000Z
-        """
-    return HttpResponse(SECURITY_TXT_CONTENT, content_type="text/plain")
-
-
 @xframe_options_exempt
 def render_query(request: HttpRequest) -> HttpResponse:
     """Render a lightweight container for third parties to display PostHog visualizations."""

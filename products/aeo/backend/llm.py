@@ -1,4 +1,4 @@
-"""Ask Claude, through the AI gateway, for a JSON array after it researches with web search.
+"""Ask Claude, through the AI gateway, for a JSON answer after it researches with web search.
 
 Prompt and keyword suggestions both make this call. Each caller turns failures into its own message.
 """
@@ -29,6 +29,7 @@ MIN_CALL_SECONDS = 15
 # Web search can pause a turn (`pause_turn`); each continuation is another call, all under one deadline.
 MAX_CONTINUATIONS = 3
 DEADLINE_SECONDS = 300
+MAX_JSON_START_ATTEMPTS = 50
 
 
 class UnreadableAnswerError(Exception):
@@ -50,10 +51,13 @@ def ask_with_web_search(
     aeo_feature: str,
     max_tokens: int,
     max_searches: int,
+    deadline: float | None = None,
+    model: str | None = None,
 ) -> ClaudeAnswer | None:
-    """Claude's final answer, or None when the deadline passes first. Raises `requests.RequestException`
-    or `ValueError` when a call fails, and `AICreditsExhausted` when the gateway refuses the team for lack of
-    AI credits. An answer cut off by the token limit keeps its complete items."""
+    """Claude's final answer, or None when the deadline (a `time.monotonic()` value, DEADLINE_SECONDS from now
+    by default) passes first. Raises `requests.RequestException` or `ValueError` when a call fails, and
+    `AICreditsExhausted` when the gateway refuses the team for lack of AI credits. An answer cut off by the token
+    limit keeps its complete items."""
     messages: list[dict[str, Any]] = [{"role": "user", "content": instructions}]
     headers = gateway_request_headers(
         gateway,
@@ -61,7 +65,8 @@ def ask_with_web_search(
         properties={"team_id": str(team_id), "aeo_feature": aeo_feature},
         anthropic=True,
     )
-    deadline = time.monotonic() + DEADLINE_SECONDS
+    if deadline is None:
+        deadline = time.monotonic() + DEADLINE_SECONDS
     assistant_content: list[Any] = []
     with requests.Session() as session:
         # Keep the in-cluster gateway call off any egress proxy, as the engines do.
@@ -74,7 +79,7 @@ def ask_with_web_search(
                 gateway.url.rstrip("/") + "/messages",
                 headers=headers,
                 json={
-                    "model": settings.AEO_ANTHROPIC_MODEL,
+                    "model": model or settings.AEO_ANTHROPIC_MODEL,
                     "max_tokens": max_tokens,
                     "messages": messages,
                     "tools": [
@@ -126,9 +131,47 @@ def visible(text: str) -> str:
 
 
 def _complete_items_prefix(text: str) -> str:
-    """Close an array the token limit cut off after its last complete object."""
     end = text.rfind("}")
-    return text[: end + 1] + "]" if end != -1 else text
+    if end == -1:
+        return text
+    prefix = text[: end + 1]
+    # Commentary before the JSON can carry brackets of its own, so each opening bracket is tried as the start
+    # until the closed text decodes. The attempts are capped because each one scans the rest of the answer.
+    starts = [i for i, char in enumerate(prefix) if char in "[{"][:MAX_JSON_START_ATTEMPTS]
+    for start in starts:
+        closers = _unclosed_brackets(prefix, start)
+        if closers is None:
+            continue
+        try:
+            json.loads(prefix[start:] + closers)
+        except json.JSONDecodeError:
+            continue
+        return prefix + closers
+    return prefix + "]"
+
+
+def _unclosed_brackets(text: str, start: int) -> str | None:
+    closers: list[str] = []
+    in_string = False
+    escaped = False
+    for char in text[start:]:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char in "[{":
+            closers.append("]" if char == "[" else "}")
+        elif char in "]}":
+            if not closers or closers.pop() != char:
+                return None
+    if in_string:
+        return None
+    return "".join(reversed(closers))
 
 
 def _answer_text(body: dict[str, Any]) -> str:
