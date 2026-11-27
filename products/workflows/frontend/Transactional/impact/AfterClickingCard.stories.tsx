@@ -149,7 +149,8 @@ export const Scanning: StoryObj<AfterClickingStoryArgs> = {
 export const Answers: StoryObj<AfterClickingStoryArgs> = {
     render: Template,
     args: { sessions: SESSIONS, scan: [202, FINISHED] },
-    play: ({ canvasElement }) => scan(canvasElement, '9 sessions have no answer.'),
+    // pluralize joins the number and the word with a no-break space.
+    play: ({ canvasElement }) => scan(canvasElement, '9\u00a0sessions have no answer.'),
 }
 
 export const NoSessionsYet: StoryObj<AfterClickingStoryArgs> = {

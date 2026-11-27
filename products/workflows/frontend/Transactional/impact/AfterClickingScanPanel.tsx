@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
-import { VERDICT_LABEL } from 'products/replay_vision/frontend/utils/observation'
-
+import { AfterClickingAnswers } from './AfterClickingAnswers'
 import { AfterClickingNotice } from './AfterClickingNotice'
 import { SCAN_QUESTION, afterClickingScanLogic } from './afterClickingScanLogic'
 
@@ -71,31 +69,7 @@ export function AfterClickingScanPanel(): JSX.Element {
                 </AfterClickingNotice>
             )
         case 'finished':
-            return (
-                <AfterClickingNotice title={SCAN_QUESTION}>
-                    {state.answers.map(({ sessionId, verdict, reasoning }) => (
-                        <div key={sessionId} className="flex flex-col gap-1 items-start border-t pt-2 w-full">
-                            <LemonTag type={verdict === 'yes' ? 'highlight' : 'muted'}>
-                                {VERDICT_LABEL[verdict]}
-                            </LemonTag>
-                            <span className="text-secondary text-sm whitespace-pre-wrap">{reasoning}</span>
-                            <Link
-                                to={urls.replaySingle(sessionId)}
-                                className="text-sm"
-                                data-attr="email-impact-open-session"
-                            >
-                                Watch session
-                            </Link>
-                        </div>
-                    ))}
-                    {state.withoutAnswer > 0 && (
-                        <span className="text-secondary text-sm">
-                            {pluralize(state.withoutAnswer, 'session', 'sessions')}{' '}
-                            {state.withoutAnswer === 1 ? 'has' : 'have'} no answer.
-                        </span>
-                    )}
-                </AfterClickingNotice>
-            )
+            return <AfterClickingAnswers answers={state.answers} withoutAnswer={state.withoutAnswer} />
         case 'scan-error':
             return (
                 <AfterClickingNotice title="The scan didn't finish">
