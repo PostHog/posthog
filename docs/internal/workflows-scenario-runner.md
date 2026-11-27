@@ -630,7 +630,7 @@ Settings whose name starts with `KAFKA_PRODUCER_` configure the runner's load pr
 Every role gets every setting too, but no CDP role reads that prefix: the roles build their producers from `KAFKA_CDP_PRODUCER_*` and the per-producer config maps.
 A scorecard records the profile's name and hash, never its numbers.
 `postgres.autovacuum` names autovacuum and vacuum settings, and `maintenance_work_mem`, with the values the card expects on the Cyclotron database. The runner applies none of them.
-`autovacuum_settings_differ` compares them with the values the vacuum probe read, in any unit PostgreSQL accepts. An integer setting reads a leading zero as octal and `0x` as hex, as PostgreSQL does. `count` is the number that differ, and each differing setting gets its own key.
+`autovacuum_settings_differ` compares them with the values the vacuum probe read, in any unit PostgreSQL accepts. The loader refuses a value written with a leading zero or in hex, such as `060` or `0x10`, because PostgreSQL reads those in another base. Write each value in decimal. `count` is the number that differ, and each differing setting gets its own key.
 
 ### Runner
 

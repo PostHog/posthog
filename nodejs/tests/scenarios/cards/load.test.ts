@@ -178,6 +178,18 @@ describe('load', () => {
             'profile.postgres.autovacuum: name at least one autovacuum setting, or leave postgres out',
         ],
         [
+            'a profile autovacuum value with a leading zero, which PostgreSQL reads as octal',
+            card,
+            { ...profile, postgres: { autovacuum: { autovacuum_naptime: '060' } } },
+            'profile.postgres.autovacuum.autovacuum_naptime: write the value in decimal with no leading zero, as PostgreSQL reads 060 as octal',
+        ],
+        [
+            'a profile autovacuum value in hex',
+            card,
+            { ...profile, postgres: { autovacuum: { autovacuum_work_mem: '-0x1' } } },
+            'profile.postgres.autovacuum.autovacuum_work_mem: write the value in decimal with no leading zero, as PostgreSQL reads 060 as octal',
+        ],
+        [
             'an unknown bar',
             { ...card, bars: [{ name: 'writer_iops_under' }] },
             undefined,

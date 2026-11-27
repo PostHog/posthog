@@ -235,7 +235,13 @@ export const Profile = z
         postgres: z
             .object({
                 autovacuum: z
-                    .record(VacuumSettingName, z.string())
+                    .record(
+                        VacuumSettingName,
+                        z.string().regex(/^(?!-?0[\dxX])/, {
+                            message:
+                                'write the value in decimal with no leading zero, as PostgreSQL reads 060 as octal',
+                        })
+                    )
                     .refine((settings) => Object.keys(settings).length > 0, {
                         message: 'name at least one autovacuum setting, or leave postgres out',
                     }),
