@@ -1180,15 +1180,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not isinstance(user, User):
             raise PermissionDenied("You must be logged in to apply for the startup program")
 
-        organization_id = request.data.get("organization_id") or self.kwargs.get(
-            f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id"
-        )
-        if not organization_id:
+        # initial() scopes the request to the organization in the path, or on /api/billing/ to the body's
+        # organization_id. Without either, there is no organization to apply for.
+        if f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id" not in self.kwargs:
             raise ValidationError({"organization_id": "This field is required."})
-
-        organization = Organization.objects.get(id=organization_id)
-        if not organization:
-            raise ValidationError({"organization_id": "Organization not found."})
+        organization = self.organization
 
         if not user_has_billing_access(user, organization):
             raise PermissionDenied("You need Billing access to apply for the startup program")
@@ -1198,6 +1194,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Add user info to the request
         data = {
             **request.data,
+            "organization_id": str(organization.id),
             "email": user.email,
         }
 
