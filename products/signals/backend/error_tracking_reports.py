@@ -13,7 +13,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 
-from products.error_tracking.backend.facade.api import issue_exists_by_id
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_merge import merge_survivor_ids
@@ -152,14 +151,10 @@ def _signal_report_ids(team: "Team", issue_id: UUID, *, max_execution_time: int 
     return report_ids
 
 
-def reports_referencing_error_tracking_issue(*, team: "Team", issue_id: UUID) -> set[str]:
-    if not issue_exists_by_id(team_id=team.id, issue_id=issue_id):
-        return set()
-    return reports_referencing_known_issue(team=team, issue_id=issue_id)
-
-
-def reports_referencing_known_issue(*, team: "Team", issue_id: UUID, max_execution_time: int | None = None) -> set[str]:
-    """`reports_referencing_error_tracking_issue` for a caller that already loaded the issue for this team."""
+def reports_referencing_error_tracking_issue(
+    *, team: "Team", issue_id: UUID, max_execution_time: int | None = None
+) -> set[str]:
+    """Report ids that reference the issue. The caller must check first that the issue belongs to the team."""
     report_ids = _signal_report_ids(team, issue_id, max_execution_time=max_execution_time)
     summaries = (
         SignalReport.objects.filter(team_id=team.id, summary__icontains=str(issue_id))

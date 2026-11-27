@@ -625,12 +625,6 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a cutoff, instead of reading every page.'
         ),
-    error_tracking_issue_id: zod
-        .string()
-        .optional()
-        .describe(
-            "Find reports referencing this Error Tracking issue UUID in this project. Matches exact source IDs from Error Tracking or scouts, Error Tracking evidence that scout findings cite, and exact issue URLs in current evidence or report summaries. Inspects up to 1,000 recent evidence and summary candidates each. A reference does not prove a report's linked PR fixes the issue. No matches does not rule out related reports; use search with the issue's name or error terms to investigate further."
-        ),
     exclude: zod
         .array(zod.string())
         .max(signalsReportsListQueryExcludeMax)

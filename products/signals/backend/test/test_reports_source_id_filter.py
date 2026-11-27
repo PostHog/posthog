@@ -8,8 +8,6 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.models import Team
-
 from products.error_tracking.backend.facade.testing import create_issue
 from products.signals.backend.error_tracking_reports import cites_error_tracking_issue, references_error_tracking_issue
 from products.signals.backend.facade.reports import inbox_report_ids_for_error_tracking_issue
@@ -136,7 +134,7 @@ class TestReportsSourceIdFilter(APIBaseTest):
         assert response.status_code == 200
         fetch.assert_not_called()
 
-    def test_error_tracking_filter_reuses_visible_reports_and_ignores_untrusted_report_ids(self) -> None:
+    def test_issue_reports_keep_visible_reports_and_ignore_untrusted_report_ids(self) -> None:
         issue_id = create_issue(team_id=self.team.id, name="Example error")
         suppressed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
         deleted = SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
@@ -151,27 +149,11 @@ class TestReportsSourceIdFilter(APIBaseTest):
                 ]
             ),
         ):
-            response = self.client.get(self._url(f"error_tracking_issue_id={issue_id}"))
-            facade_ids = inbox_report_ids_for_error_tracking_issue(team=self.team, issue_id=issue_id)
+            report_ids = inbox_report_ids_for_error_tracking_issue(team=self.team, issue_id=issue_id)
 
-        assert response.status_code == 200
-        assert [row["id"] for row in response.json()["results"]] == [str(self.linked.id)]
-        assert facade_ids == [str(self.linked.id)]
+        assert report_ids == [str(self.linked.id)]
 
-    @parameterized.expand([("unknown", False), ("other team", True)])
-    def test_unknown_error_tracking_issue_skips_evidence_query(self, _name: str, other_team: bool) -> None:
-        issue_id = UUID(TICKET_ID)
-        if other_team:
-            team = Team.objects.create(organization=self.organization, name="Another project")
-            issue_id = create_issue(team_id=team.id, name="Other project's error")
-        with patch("products.signals.backend.error_tracking_reports.execute_hogql_query") as query:
-            response = self.client.get(self._url(f"error_tracking_issue_id={issue_id}"))
-
-        assert response.status_code == 200
-        assert response.json()["results"] == []
-        query.assert_not_called()
-
-    def test_error_tracking_filter_returns_merge_survivor_before_signal_move(self) -> None:
+    def test_issue_reports_return_merge_survivor_before_signal_move(self) -> None:
         issue_id = create_issue(team_id=self.team.id, name="Example error")
         merge_reports(
             team=self.team,
@@ -185,10 +167,9 @@ class TestReportsSourceIdFilter(APIBaseTest):
                 results=[[str(self.unlinked.id), str(issue_id), "error_tracking", "", "evidence"]]
             ),
         ):
-            response = self.client.get(self._url(f"error_tracking_issue_id={issue_id}"))
+            report_ids = inbox_report_ids_for_error_tracking_issue(team=self.team, issue_id=issue_id)
 
-        assert response.status_code == 200
-        assert [row["id"] for row in response.json()["results"]] == [str(self.linked.id)]
+        assert report_ids == [str(self.linked.id)]
 
     def test_merge_resolution_queries_each_shared_level_once(self) -> None:
         sources = SignalReport.objects.bulk_create(
@@ -212,8 +193,3 @@ class TestReportsSourceIdFilter(APIBaseTest):
             survivors = merge_survivor_ids(team_id=self.team.id, report_ids=[str(report.id) for report in sources])
 
         assert survivors == {str(self.linked.id)}
-
-    def test_rejects_malformed_error_tracking_issue_id(self) -> None:
-        response = self.client.get(self._url("error_tracking_issue_id=invalid"))
-        assert response.status_code == 400
-        assert "error_tracking_issue_id" in str(response.json())

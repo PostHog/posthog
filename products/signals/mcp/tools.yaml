@@ -666,10 +666,6 @@ tools:
             `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking: for
             a newer, focused, or refreshed list, use inbox-reports-for-me.
 
-            For an Error Tracking issue, pass `error_tracking_issue_id` to find exact references in source IDs,
-            evidence, and report summaries. Then search by the issue name or error terms to investigate other related
-            reports. An exact reference does not establish that a linked PR fixes the error.
-
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
             `fix`. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score.
             inbox-ranking-outcomes-list explains each outcome. When the response has `source_metadata_available: false`,

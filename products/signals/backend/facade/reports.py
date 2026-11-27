@@ -7,7 +7,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.error_tracking_reports import reports_referencing_known_issue
+from products.signals.backend.error_tracking_reports import reports_referencing_error_tracking_issue
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.scout_authorship import inbox_hidden_report_filter, report_is_hidden_from_inbox
@@ -80,7 +80,9 @@ def inbox_report_ids_for_error_tracking_issue(
     The caller must already have loaded the issue for this team. The ids are the reports the inbox
     list shows: suppressed and deleted reports, and reports a scout kept out of the inbox, are left out.
     """
-    report_ids = reports_referencing_known_issue(team=team, issue_id=issue_id, max_execution_time=max_execution_time)
+    report_ids = reports_referencing_error_tracking_issue(
+        team=team, issue_id=issue_id, max_execution_time=max_execution_time
+    )
     if not report_ids:
         return []
     return [
