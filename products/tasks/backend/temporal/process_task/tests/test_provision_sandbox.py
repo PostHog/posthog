@@ -137,15 +137,7 @@ def test_build_sandbox_tags_drops_none_values():
     assert all(isinstance(value, str) for value in tags.values())
 
 
-# Every SANDBOX_*_URL setting is pinned: they feed the enforced allowlist
-# outside DEBUG, so a developer's environment value (an ngrok SANDBOX_API_URL)
-# would otherwise leak into these exact-equality expectations.
-@override_settings(
-    DEBUG=False,
-    SANDBOX_API_URL=None,
-    SANDBOX_AI_GATEWAY_URL=None,
-    SANDBOX_MCP_URL=None,
-)
+@override_settings(DEBUG=False)
 @pytest.mark.parametrize(
     "allowed_domains, expected",
     [

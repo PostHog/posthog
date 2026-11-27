@@ -1,10 +1,18 @@
 import os
+from typing import Any
 
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.settings.access import SECRET_KEY
-from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
+from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, IN_EVAL_TESTING, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
+
+
+def _get_from_env_unless_test(key: str, default: Any, **kwargs: Any) -> Any:
+    if TEST and not IN_EVAL_TESTING:
+        return default
+    return get_from_env(key, default, **kwargs)
+
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
 TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "temporal")
@@ -99,10 +107,10 @@ TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED: bool = get_from_env(
     "TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED", False, type_cast=str_to_bool
 )
 
-SANDBOX_PROVIDER: str | None = get_from_env(
+SANDBOX_PROVIDER: str | None = _get_from_env_unless_test(
     "SANDBOX_PROVIDER", None, optional=True
-)  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
-SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
+)  # When not set: defaults to "modal"
+SANDBOX_API_URL: str | None = _get_from_env_unless_test("SANDBOX_API_URL", None, optional=True)
 AGENT_EGRESS_PROBE_CONFIG_DIR: str = get_from_env("AGENT_EGRESS_PROBE_CONFIG_DIR", "")
 AGENT_EGRESS_STAGING_PROBE_RUN_ID: str = get_from_env("AGENT_EGRESS_STAGING_PROBE_RUN_ID", "")
 AGENT_EGRESS_OBSERVATION_CONFIG: str = get_from_env("AGENT_EGRESS_OBSERVATION_CONFIG", "")
@@ -117,21 +125,25 @@ HOGLAND_API_TOKEN: str | None = get_from_env("HOGLAND_API_TOKEN", None, optional
 HOGLAND_API_TOKEN_FILE: str | None = get_from_env("HOGLAND_API_TOKEN_FILE", None, optional=True)
 # SANDBOX_AI_GATEWAY_PRODUCTS names the ai_product values the worker mints tokens for. A gateway-billed
 # run whose product is unlisted, or with either setting unset, fails with gateway_token_unavailable.
-SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
-SANDBOX_AI_GATEWAY_WORKER_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_WORKER_URL", None, optional=True)
-SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
+SANDBOX_AI_GATEWAY_URL: str | None = _get_from_env_unless_test("SANDBOX_AI_GATEWAY_URL", None, optional=True)
+SANDBOX_AI_GATEWAY_WORKER_URL: str | None = _get_from_env_unless_test(
+    "SANDBOX_AI_GATEWAY_WORKER_URL", None, optional=True
+)
+SANDBOX_AI_GATEWAY_PRODUCTS: str | None = _get_from_env_unless_test("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
 # Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
 # gateway-routed sandbox runs. Unset: runs fail at provisioning like an unset URL above.
-SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
+SANDBOX_AI_GATEWAY_MINT_KEY: str | None = _get_from_env_unless_test("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
 # Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
 # runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
 # The cap must fit a run's real spend plus its in-flight admission holds: a cap near
 # typical spend ends runs after the work is written and before it is committed.
 # TTL 0 (the default) derives the run-duration cap that applies to the token's own product,
 # plus 1h, so a capped run never outlives its token; a positive value overrides.
-SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "10")
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = _get_from_env_unless_test("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "10")
 # Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
-SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = _get_from_env_unless_test(
+    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", ""
+)
 # Per-product per-run cap overrides as a JSON object of ai_product to dollars. A product
 # entry beats the team override and the default: run cost tracks the kind of work, and
 # implementation runs regularly outspend every other stage. Each interactive cap and the
@@ -152,22 +164,28 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
 }
 # A JSON object merged onto the defaults per product. Malformed JSON is captured at mint and
 # leaves the defaults in force.
-SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = _get_from_env_unless_test(
     "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES", ""
 )
-SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
+SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = _get_from_env_unless_test(
+    "SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int
+)
 GATEWAY_COMPUTE_DEBIT_ENABLED: bool = get_from_env("GATEWAY_COMPUTE_DEBIT_ENABLED", False, type_cast=str_to_bool)
 GATEWAY_COMPUTE_SETTLE_SINCE: str | None = get_from_env("GATEWAY_COMPUTE_SETTLE_SINCE", None, optional=True)
 GATEWAY_COMPUTE_BILLABLE_SINCE: str | None = get_from_env("GATEWAY_COMPUTE_BILLABLE_SINCE", None, optional=True)
-SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
+SANDBOX_MCP_URL: str | None = _get_from_env_unless_test("SANDBOX_MCP_URL", None, optional=True)
 
 # OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
 # Full ingest URLs (e.g. https://us.i.posthog.com/i/v1/logs and .../i/v1/traces)
 # plus the project API key of the telemetry project. Telemetry stays off unless
 # URL + token are set; the traces URL additionally enables APM spans.
-SANDBOX_AGENT_OTEL_LOGS_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_URL", None, optional=True)
-SANDBOX_AGENT_OTEL_LOGS_TOKEN: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_TOKEN", None, optional=True)
-SANDBOX_AGENT_OTEL_TRACES_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_TRACES_URL", None, optional=True)
+SANDBOX_AGENT_OTEL_LOGS_URL: str | None = _get_from_env_unless_test("SANDBOX_AGENT_OTEL_LOGS_URL", None, optional=True)
+SANDBOX_AGENT_OTEL_LOGS_TOKEN: str | None = _get_from_env_unless_test(
+    "SANDBOX_AGENT_OTEL_LOGS_TOKEN", None, optional=True
+)
+SANDBOX_AGENT_OTEL_TRACES_URL: str | None = _get_from_env_unless_test(
+    "SANDBOX_AGENT_OTEL_TRACES_URL", None, optional=True
+)
 
 # client_id of the OAuthApplication used to mint the access token the PostHog setup wizard
 # uses when it runs inside a task sandbox (the "run the wizard in the cloud" onboarding path).
