@@ -1,6 +1,7 @@
+import './ActivityLog.scss'
+
 import clsx from 'clsx'
-import { router } from 'kea-router'
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
@@ -14,16 +15,16 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { ActivityClientTag } from 'lib/components/ActivityLog/ActivityClientTag'
-import { ActivityLogDescription } from 'lib/components/ActivityLog/ActivityLogDescription'
-import { ActivityLogDiff } from 'lib/components/ActivityLog/ActivityLogDiff'
-import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
-import { AgentAttribution } from 'lib/components/ActivityLog/AgentAttribution'
-import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { ActivityClientTag } from './ActivityClientTag'
+import { ActivityLogDescription } from './ActivityLogDescription'
+import { ActivityLogDiff } from './ActivityLogDiff'
+import { AgentAttribution } from './AgentAttribution'
+import { HumanizedActivityLogItem } from './humanizeActivity'
+import { useCopyActivityLink } from './useCopyActivityLink'
 
 type ActivityLogTab = 'details' | 'extended description' | 'diff' | 'raw'
 
@@ -59,23 +60,30 @@ function RawPayload({ value }: { value: unknown }): JSX.Element {
     return <pre>{JSON.stringify(value, null, 2)}</pre>
 }
 
-export function QuillActivityLogRow({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
+/** Quill sibling of `ActivityLogRow`, for the activity side panel and the quill History page. */
+export function QuillActivityLogRow({
+    logItem,
+    highlighted,
+    actions,
+}: {
+    logItem: HumanizedActivityLogItem
+    /** Scrolls the row into view and opens it, for a link to one activity. */
+    highlighted?: boolean
+    /** Extra buttons for the row, shown before its link button. */
+    actions?: JSX.Element | null
+}): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [activeTab, setActiveTab] = useState<ActivityLogTab>(logItem.expandedView ? 'details' : 'diff')
     const detailsId = useId()
+    const rowRef = useRef<HTMLDivElement>(null)
+    const copyLink = useCopyActivityLink(logItem.id)
 
-    const copyLink = (): void => {
-        if (!logItem.id) {
-            return
+    useEffect(() => {
+        if (highlighted && rowRef.current) {
+            rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            setExpanded(true)
         }
-        const { pathname, search, hash } = router.values.currentLocation
-        const url = new URL(pathname, window.location.origin)
-        url.search = search || ''
-        url.hash = hash || ''
-        url.searchParams.delete(ACTIVITY_SEARCH_PARAM)
-        url.searchParams.set(ACTIVITY_SEARCH_PARAM, logItem.id)
-        void copyToClipboard(url.toString(), 'activity link')
-    }
+    }, [highlighted])
 
     const avatar = (
         <QuillPersonAvatar
@@ -116,10 +124,12 @@ export function QuillActivityLogRow({ logItem }: { logItem: HumanizedActivityLog
 
     return (
         <div
+            ref={rowRef}
             className={clsx(
                 'group/activity flex flex-col rounded-md text-xs',
                 expanded && 'border border-border',
-                logItem.unread && 'bg-fill-selected'
+                logItem.unread && 'bg-fill-selected',
+                highlighted && 'ActivityLogRow--highlighted'
             )}
         >
             <div className="flex gap-2 p-2">
@@ -165,6 +175,7 @@ export function QuillActivityLogRow({ logItem }: { logItem: HumanizedActivityLog
                     {!logItem.summary && heading}
                 </div>
                 <div className="flex shrink-0 items-start gap-0.5">
+                    {actions}
                     {logItem.id && (
                         <IconButton
                             label="Copy link to this activity"
