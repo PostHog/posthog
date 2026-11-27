@@ -9,9 +9,10 @@
     padding-block: 0;
 }
 
-/* A closed section's rows are 10px taller than its header, so the header sits in the middle of them. */
+/* A closed section's rows are 10px taller than its header, so half of that goes above the header. A fixed space, not
+   centering, because the section is still tall while it closes and centering would drop the header into its middle. */
 .SectionTile:not(:has(> .SectionTile__body)) {
-    justify-content: center;
+    padding-top: 5px;
 }
 
 /* The header's title row and its actions share one line, centered on it, so the chevron, title and buttons line up. */
