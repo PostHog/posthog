@@ -1,4 +1,5 @@
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
 import type { Team } from '~/types'
 
 import { SecretKeyTeams, isUnknownToken, loggableToken } from './secret-key-teams'
@@ -39,6 +40,15 @@ describe('SecretKeyTeams', () => {
         const teams = secretKeyTeams(scopes?.length ? [{ secure_value: exampleKeyHash, team_id: 7, scopes }] : [])
 
         expect(await isUnknownToken(token, teams)).toEqual(expected)
+    })
+
+    it('logs no full digest when it loads a key', async () => {
+        const debug = jest.spyOn(logger, 'debug').mockImplementation(() => {})
+
+        await secretKeyTeams([]).getTeam(exampleKeyHash)
+
+        expect(debug).toHaveBeenCalledWith('[LazyLoader]', 'SecretKeyTeams', 'Loading: ', ['sha256$e39f0789'])
+        debug.mockRestore()
     })
 
     it('treats no digest as unknown without a secret key lookup', async () => {

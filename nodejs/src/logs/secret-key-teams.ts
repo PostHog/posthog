@@ -45,6 +45,7 @@ export class SecretKeyTeams {
             refreshAgeMs: 2 * 60 * 1000,
             refreshJitterMs: 30 * 1000,
             loader: (hashes) => this.fetchKeys(hashes),
+            loggableKey: loggableToken,
         })
     }
 

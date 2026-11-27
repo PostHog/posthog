@@ -1542,6 +1542,7 @@ export class LogsIngestionConsumer {
                     }
                     const sentSecretKey = isSecretKeyDigest(token)
                     const sentUnhashedKey = isUnhashedSecretKey(token)
+                    const secretKeyTeams = this.appSource === 'logs' ? this.deps.secretKeyTeams : undefined
 
                     let team
                     try {
@@ -1551,7 +1552,7 @@ export class LogsIngestionConsumer {
                             isDevEnv() && token === 'phc_local'
                                 ? this.deps.teamManager.getTeam(1)
                                 : sentSecretKey
-                                  ? (this.deps.secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
+                                  ? (secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
                                   : sentUnhashedKey
                                     ? Promise.resolve(null)
                                     : this.deps.teamManager.getTeamByToken(token)
@@ -1571,7 +1572,7 @@ export class LogsIngestionConsumer {
                         logger.warn('team_not_found', {
                             token_with_no_team: loggableToken(token),
                         })
-                        if (await isUnknownToken(token, this.deps.secretKeyTeams)) {
+                        if (await isUnknownToken(token, secretKeyTeams)) {
                             this.unknownTokens.record(token)
                         }
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })

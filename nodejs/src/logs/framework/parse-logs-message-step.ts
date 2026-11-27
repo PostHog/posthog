@@ -37,6 +37,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
     context: LogsPipelineContext
 ): ProcessingStep<T, LogsIngestionMessage> {
     const { deps, internalLogsVerifier } = context
+    const secretKeyTeams = context.identity.appSource === 'logs' ? deps.secretKeyTeams : undefined
     return async function parseLogsMessageStep(input) {
         const message = input.message
         try {
@@ -59,7 +60,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                     isDevEnv() && token === 'phc_local'
                         ? deps.teamManager.getTeam(1)
                         : sentSecretKey
-                          ? (deps.secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
+                          ? (secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
                           : sentUnhashedKey
                             ? Promise.resolve(null)
                             : deps.teamManager.getTeamByToken(token)
@@ -73,7 +74,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
             if (!team) {
                 // capture-logs has no Postgres access, so an unknown token is a client-input drop found only here.
                 logger.warn('team_not_found', { token_with_no_team: loggableToken(token) })
-                if (await isUnknownToken(token, deps.secretKeyTeams)) {
+                if (await isUnknownToken(token, secretKeyTeams)) {
                     context.unknownTokens?.record(token)
                 }
                 countDropped('team_not_found')

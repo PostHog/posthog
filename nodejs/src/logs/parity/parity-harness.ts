@@ -369,16 +369,11 @@ export function buildParityConsumer(
 
     const deps: TracesIngestionConsumerDeps = {
         teamManager: teamManager as unknown as LogsIngestionConsumerDeps['teamManager'],
-        secretKeyTeams:
-            scenario.consumer === 'traces'
-                ? undefined
-                : {
-                      getTeam: (digest: string) =>
-                          Promise.resolve(
-                              (teamsById.get(scenario.secret_key_teams?.[digest] ?? NaN) ?? null) as Team | null
-                          ),
-                      exists: (digest: string) => Promise.resolve(scenario.secret_key_teams?.[digest] !== undefined),
-                  },
+        secretKeyTeams: {
+            getTeam: (digest: string) =>
+                Promise.resolve((teamsById.get(scenario.secret_key_teams?.[digest] ?? NaN) ?? null) as Team | null),
+            exists: (digest: string) => Promise.resolve(scenario.secret_key_teams?.[digest] !== undefined),
+        },
         quotaLimiting: {
             isTeamTokenQuotaLimited: (token: string, resource: string) => {
                 if (!options.discard) {
