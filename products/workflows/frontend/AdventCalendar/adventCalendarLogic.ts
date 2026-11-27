@@ -31,23 +31,38 @@ const CLOCK_REFRESH_MS = 60_000
 // pinned: the localStorage key of each person's opened doors. Renaming it resets them.
 const PROGRESS_STORAGE_KEY = 'workflows-advent-calendar-progress'
 
-function isAdventDay(day: unknown): boolean {
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isAdventDay(day: unknown): day is number {
     return Number.isInteger(day) && (day as number) >= 1 && (day as number) <= ADVENT_LAST_DAY
 }
 
-function isAdventProgress(value: unknown): value is AdventProgress {
-    if (!value || typeof value !== 'object') {
-        return false
+function cleanProgress(value: unknown): AdventProgress | null {
+    if (!isRecord(value) || !Array.isArray(value.opened)) {
+        return null
     }
-    const { opened, answers } = value as Partial<AdventProgress>
-    return (
-        Array.isArray(opened) &&
-        opened.length <= ADVENT_LAST_DAY &&
-        opened.every(isAdventDay) &&
-        !!answers &&
-        typeof answers === 'object' &&
-        !Array.isArray(answers) &&
-        Object.entries(answers).every(([day, optionId]) => isAdventDay(Number(day)) && typeof optionId === 'string')
+    const answers = isRecord(value.answers) ? Object.entries(value.answers) : []
+    return {
+        opened: [...new Set(value.opened.filter(isAdventDay))],
+        answers: Object.fromEntries(
+            answers.filter(
+                (answer): answer is [string, string] => isAdventDay(Number(answer[0])) && typeof answer[1] === 'string'
+            )
+        ),
+    }
+}
+
+function cleanProgressByUser(value: unknown): Record<string, AdventProgress> {
+    if (!isRecord(value)) {
+        return {}
+    }
+    return Object.fromEntries(
+        Object.entries(value).flatMap(([uuid, progress]) => {
+            const clean = cleanProgress(progress)
+            return clean ? [[uuid, clean]] : []
+        })
     )
 }
 
@@ -58,12 +73,7 @@ function storedProgress(value: string): Record<string, AdventProgress> | null {
     } catch {
         return null
     }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return null
-    }
-    return Object.fromEntries(
-        Object.entries(parsed).filter((entry): entry is [string, AdventProgress] => isAdventProgress(entry[1]))
-    )
+    return isRecord(parsed) ? cleanProgressByUser(parsed) : null
 }
 
 function sameAdventProgress(a: AdventProgress, b: AdventProgress): boolean {
@@ -203,7 +213,8 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             {} as Record<string, AdventProgress>,
             { persist: true, storageKey: PROGRESS_STORAGE_KEY },
             {
-                syncProgress: (state, { progressByUser }) => {
+                syncProgress: (stored, { progressByUser }) => {
+                    const state = cleanProgressByUser(stored)
                     const merged: Record<string, AdventProgress> = Object.fromEntries(
                         [...new Set([...Object.keys(state), ...Object.keys(progressByUser)])]
                             .sort()
@@ -222,12 +233,13 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                             sameAdventProgress(state[uuid], progress) &&
                             sameAdventProgress(progressByUser[uuid], progress)
                     )
-                    return isSettled ? state : merged
+                    return isSettled ? stored : merged
                 },
-                openDoor: (state, { userUuid, day, optionId }) => {
+                openDoor: (stored, { userUuid, day, optionId }) => {
+                    const state = cleanProgressByUser(stored)
                     const progress = state[userUuid] ?? EMPTY_ADVENT_PROGRESS
                     if (progress.opened.includes(day)) {
-                        return state
+                        return stored
                     }
                     return {
                         ...state,
@@ -259,7 +271,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             (
                 progressByUser: adventCalendarLogicValues['progressByUser'],
                 user: adventCalendarLogicValues['user']
-            ): AdventProgress => progressByUser[user?.uuid ?? ''] ?? EMPTY_ADVENT_PROGRESS,
+            ): AdventProgress => cleanProgressByUser(progressByUser)[user?.uuid ?? ''] ?? EMPTY_ADVENT_PROGRESS,
         ],
         today: [
             (s) => [s.localDate, s.searchParams, s.user, s.preflight],

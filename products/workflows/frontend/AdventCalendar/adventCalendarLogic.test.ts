@@ -114,11 +114,6 @@ describe('adventCalendarLogic', () => {
         )
 
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'James Hawkins' })
-        expect(
-            JSON.parse(window.localStorage.getItem('workflows-advent-calendar-progress') ?? '{}')[
-                '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
-            ].answers[2]
-        ).toBe('james')
 
         logic.unmount()
         logic = adventCalendarLogic()
@@ -178,6 +173,23 @@ describe('adventCalendarLogic', () => {
             ]
         ).toEqual({ opened: [1, 2], answers: { 2: 'tim' } })
     })
+
+    it.each(['null', '[1]', '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}'])(
+        'loads with %s already stored and opens doors from the start',
+        (stored) => {
+            logic.unmount()
+            window.localStorage.setItem('workflows-advent-calendar-progress', stored)
+            logic = adventCalendarLogic()
+            logic.mount()
+
+            expect(doorOf(logic, 'door-1')?.status).toBe('ready')
+
+            logic.actions.activateDoor('door-1')
+            logic.actions.answerDoor('door-2', 'tim')
+
+            expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+        }
+    )
 
     it('opens a question door with the answer and drops the path not taken', () => {
         logic.actions.activateDoor('door-1')
