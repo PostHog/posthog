@@ -20,7 +20,6 @@ import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
 import {
     GRID,
-    type SizeOf,
     type Tile,
     type TilePlace,
     columnWidthPx,
@@ -28,6 +27,7 @@ import {
     spanPx,
     panelSize,
 } from '../dashboard/document/dashboardTypes'
+import { type SizeOf } from '../panels/core/panelSpec'
 import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './drag/dropTargets'
 import { useGridDrag } from './drag/gridDrag'
 import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './drag/resizeFeedback'
@@ -43,7 +43,7 @@ const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too. Text marked
 // `TileGrid__text` selects instead, and the space around it still drags.
 const DRAG_CANCEL =
-    '.SectionTile__body, .dash-PanelCard__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
+    '.SectionTile__body, .dash-ContentTile__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
 
 /**
  * A resize handle sits over the tile's edge, so a right-click there would miss the tile's menu. Sends the event on to

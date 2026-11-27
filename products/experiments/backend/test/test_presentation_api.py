@@ -2635,7 +2635,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIsNone(response.json()["start_date"])
         self.assertEqual(response.json()["end_date"], "2024-02-11T00:00:00Z")
 
-    def test_invalid_update(self):
+    @parameterized.expand(
+        [
+            (
+                "changed_flag_key",
+                {"description": "Bazinga", "filters": {}, "feature_flag_key": "new_key"},
+                "Can't update keys: feature_flag_key on Experiment",
+            ),
+            (
+                "folder",
+                {"description": "Bazinga", "_create_in_folder": "Special Folder/Experiments"},
+                "Can't update keys: _create_in_folder on Experiment",
+            ),
+        ]
+    )
+    def test_invalid_update(self, _name: str, update: dict[str, Any], message: str) -> None:
         # Draft experiment
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -2654,19 +2668,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         id = response.json()["id"]
 
         # Now update
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}",
-            {
-                "description": "Bazinga",
-                "filters": {},
-                "feature_flag_key": "new_key",
-            },  # invalid
-        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/experiments/{id}", update)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Can't update keys: get_feature_flag_key on Experiment",
-        )
+        self.assertEqual(response.json()["detail"], message)
 
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
@@ -10065,19 +10069,49 @@ class TestExperimentTags(APILicensedTest):
         row = next(r for r in response.json()["results"] if r["id"] == experiment["id"])
         assert row["tags"] == ["growth"]
 
+    def _create_view_only_experiment(self, flag_key: str) -> Experiment:
+        other_user = self._create_user(f"{flag_key}@posthog.com")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key=flag_key)
+        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
+        AccessControl.objects.create(
+            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
+        )
+        return view_only
+
     def test_bulk_update_tags(self):
-        # Wiring guard for TaggedItemViewSetMixin on the experiments viewset: team-scoped queryset,
-        # per-object mutation, and missing IDs reported as skipped.
+        # This viewset's own bulk_update_tags: edit check, project scope, skipped entries and activity log.
         experiment = self._create_experiment("Bulk", "tags-bulk-flag", tags=["existing"])
+        view_only = self._create_view_only_experiment("tags-bulk-flag-b")
+        other_project = Team.objects.create(organization=self.organization, name="Other project")
+        elsewhere = Experiment.objects.create(
+            team=other_project,
+            name="Elsewhere",
+            feature_flag=FeatureFlag.objects.create(team=other_project, created_by=self.user, key="tags-bulk-flag-c"),
+        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/bulk_update_tags/",
-            {"ids": [experiment["id"], 999999], "action": "add", "tags": ["added"]},
+            {"ids": [experiment["id"], view_only.id, elsewhere.id, 999999], "action": "add", "tags": ["added"]},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["updated"] == [{"id": experiment["id"], "tags": ["added", "existing"]}]
-        assert body["skipped"] == [{"id": 999999, "reason": "Not found or no edit access"}]
+        assert body["skipped"] == [
+            {"id": view_only.id, "reason": "Not found or no edit access"},
+            {"id": elsewhere.id, "reason": "Not found or no edit access"},
+            {"id": 999999, "reason": "Not found or no edit access"},
+        ]
+        log = ActivityLog.objects.get(scope="Experiment", activity="updated", item_id=str(experiment["id"]))
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {
+                "type": "Experiment",
+                "action": "changed",
+                "field": "tags",
+                "before": ["existing"],
+                "after": ["added", "existing"],
+            }
+        ]
 
     def test_bulk_update_tags_works_with_personal_api_key(self):
         # scope_object_write_actions must include bulk_update_tags for PAT access — a config-only
@@ -10109,13 +10143,7 @@ class TestExperimentTags(APILicensedTest):
 
     def test_matching_ids_excludes_view_only_experiments(self):
         editable = self._create_experiment("Mine", "tags-acl-flag-a")
-
-        other_user = self._create_user("other-tags-acl@posthog.com")
-        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="tags-acl-flag-b")
-        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
-        AccessControl.objects.create(
-            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
-        )
+        view_only = self._create_view_only_experiment("tags-acl-flag-b")
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/matching_ids/")
         assert response.status_code == status.HTTP_200_OK, response.json()

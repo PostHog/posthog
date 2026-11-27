@@ -27,6 +27,13 @@ MAX_SUGGESTED_PROMPTS = 3
 # then extend in the textarea, not a brief, so the bound is about one long sentence.
 MAX_SUGGESTED_PROMPT_LENGTH = 200
 
+# The bounds the scout report request serializers accept, wider than the stored bounds above. A
+# prompt is optional and the report is not, so the report tools leave out a prompt past a stored
+# bound and store the rest (`report_quality.repair_suggested_prompts`). With the stored bounds on the
+# request schema, the serializer and the generated MCP client would refuse the whole report first.
+MAX_SUGGESTED_PROMPTS_PER_REQUEST = 10
+MAX_SUGGESTED_PROMPT_REQUEST_LENGTH = 2000
+
 
 def normalize_suggested_prompts(prompts: Sequence[str]) -> list[str]:
     """The set as it should be stored: invisible characters removed, each prompt trimmed, blank

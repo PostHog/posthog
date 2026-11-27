@@ -20,6 +20,7 @@ from posthog.dataclasses import frozen
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.dashboards.backend.facade.enums import (
     BoardManagedBy,
+    CachedTileStatus,
     DashboardCreationMode,
     DashboardTemplateOrdering,
     DashboardTemplateScope,
@@ -225,10 +226,10 @@ class AppliedDashboard(Protocol):
     def id(self) -> int: ...
 
     @property
-    def filters(self) -> dict[str, Any]: ...
+    def filters(self) -> dict[str, JsonValue]: ...
 
     @property
-    def variables(self) -> dict[str, Any] | None: ...
+    def variables(self) -> dict[str, JsonValue] | None: ...
 
 
 @dataclass(frozen=True)
@@ -475,6 +476,163 @@ class QueryBatchInput:
     cache_only: bool = False
     max_data_points: int | None = None
     tile: str | None = None
+
+
+@frozen
+class WidgetCatalogEntry:
+    """A registered widget type, as the widget catalog documents it for agents."""
+
+    widget_type: str
+    group_id: str
+    group_label: str
+    label: str
+    description: str
+    config_schema: dict[str, JsonValue]
+    required_product_access: str | None
+    product_access_denied_message: str | None
+    availability_requirements: tuple[str, ...]
+    live: bool
+
+
+@frozen
+class WidgetRun:
+    """A widget tile of a dashboard that can run, with the config it runs with."""
+
+    tile_id: int
+    widget_type: str
+    config: JsonValue
+    # The API scopes a key needs to run this widget. A `:read` scope is also met by the matching `:write` scope.
+    required_scopes: tuple[str, ...]
+
+
+@frozen
+class WidgetRunRefusal:
+    """A requested tile that cannot run, because it is not a widget tile of the dashboard or its widget type is not registered."""
+
+    tile_id: int
+    widget_type: str | None
+    error: str
+
+
+@frozen
+class WidgetRunResult:
+    """The outcome of one widget run. A failed run has `error` and no `result`."""
+
+    tile_id: int
+    widget_type: str
+    # The widget type's own payload. It can hold values such as datetimes that the API renderer serializes.
+    result: dict[str, Any] | None
+    error: str | None
+
+
+@frozen
+class NewWidgetTile:
+    """A widget tile to add to a dashboard. Without `layouts`, the tile goes below the dashboard's other tiles."""
+
+    widget_type: str
+    # The config as the request sent it. The widget type's config model validates it before the write.
+    config: JsonValue
+    name: str | None = None
+    description: str = ""
+    layouts: dict[str, JsonValue] | None = None
+    # None keeps the tile default.
+    show_description: bool | None = None
+
+
+@frozen
+class ValidatedWidget:
+    """A widget type and config that passed the checks for a new widget."""
+
+    widget_type: str
+    config: dict[str, JsonValue]
+
+
+@frozen
+class WidgetPatch:
+    """Changes to the settings of a widget. Only the fields named in `fields_set` change."""
+
+    fields_set: frozenset[str]
+    # The widget type cannot change. A patch names it only to pick the config shape.
+    widget_type: str | None = None
+    # Merged over the stored config.
+    config: JsonValue = None
+    # An empty name clears it.
+    name: str | None = None
+    description: str = ""
+
+
+@frozen
+class UpdatedWidget:
+    """A widget after a patch, with what the caller's analytics event reads."""
+
+    widget_type: str
+    # True when the patch changed the config fields that hold the filters of the tile.
+    filters_changed: bool
+    filters_count: int
+
+
+@dataclass(frozen=True)
+class InsightTilePlacement:
+    """The dashboards `plan_insight_tile_placement` cleared to receive a tile for one insight of this team.
+
+    Planned before the insight row exists, so a refusal cannot leave an orphaned insight behind, and
+    applied with `create_planned_insight_tiles` once it does.
+    """
+
+    team_id: int
+    dashboards: tuple[DashboardRef, ...]
+
+
+@dataclass(frozen=True)
+class InsightTileOnDashboard:
+    """The tile that places one insight on one dashboard, with the dashboard it sits on."""
+
+    id: int
+    dashboard: DashboardSummary
+    color: str | None
+    # A tile can still hold its layouts as stringified JSON from an old migration. The facade parses it,
+    # so this is the parsed value.
+    layouts: JsonValue
+
+
+@dataclass(frozen=True)
+class InsightRenderTile:
+    """The tile an insight renders as on a dashboard, as far as running the insight reads it."""
+
+    id: int
+    filters_overrides: dict[str, JsonValue] | None
+
+
+@frozen
+class CachedTileResult:
+    """One entry of the batched cached-tiles read, which returns one per requested tile ID in request order.
+
+    `insight` holds the tile's cached result on a hit and is None otherwise. Its `result` can be cached JSON that
+    is still encoded (`orjson.Fragment`), so this contract is a plain frozen dataclass that never validates or
+    copies the payload."""
+
+    id: int
+    status: CachedTileStatus
+    insight: dict[str, JsonValue] | None = None
+
+
+@frozen
+class DashboardQuerySharingTileEvent:
+    """One tile that a job of the dashboard query stream computed, as the dashboard tile serializer renders it.
+    The stream sends it as a `tile` event, with the job's diagnostics when the request asks for them."""
+
+    tile: dict[str, JsonValue]
+
+
+@frozen
+class DashboardQuerySharingCachedEvent:
+    """The first event of a `dashboard-v2` board stream.
+
+    `tiles` holds every requested tile's cached result in request order, with stale hits marked. `pending` holds
+    the tiles that the stream computes next, in compute order."""
+
+    tiles: list[dict[str, JsonValue]]
+    pending: list[int]
 
 
 class DashboardCustomizationRejected(ValueError):

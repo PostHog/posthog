@@ -1412,7 +1412,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
         submitCohortFailure: () => {
             scrollToFormError({
-                extraErrorSelectors: ['.CohortCriteriaRow__Criteria--error'],
+                extraErrorSelectors: [
+                    '.CohortCriteriaRow__Criteria--error',
+                    '.CohortCriteriaGroups__matching-group__error',
+                ],
                 fallbackErrorMessage:
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
             })

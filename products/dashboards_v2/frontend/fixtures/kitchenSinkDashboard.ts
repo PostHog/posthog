@@ -1,10 +1,11 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType } from '~/types'
 
-import type { PanelQuery } from '../dashboard/document/dashboardSchema'
-import { type ContentPanel, type SavedPanel, type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
+import { type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
 import type { ChartConfig } from '../panels/chart/chartSpec'
 import { type StatOptions, statSpec } from '../panels/chart/viz/stat/statSpec'
+import { type PanelQuery } from '../query/querySchema'
+import { type ContentPanel, type SavedPanel } from '../panels/core/panelSchema'
 
 // TODO(2026-11-25): Delete once the board list can open saved boards.
 // It stands in for a saved dashboard and shows every panel and layout case.
@@ -17,12 +18,12 @@ const chartOf = (title: string, query: PanelQuery, viz: ChartConfig['viz']): Con
 const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'hogql', query: sql }, viz)
 const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
-    chartOf(title, { language: 'metrics', query: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql } }, viz)
+    chartOf(title, { language: 'query', query: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql } }, viz)
 const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(
         title,
         {
-            language: 'traces',
+            language: 'query',
             query: { kind: NodeKind.TraceSpansAggregationQuery, dateRange: { date_from: '-24h' }, serviceNames: [service] },
         },
         viz
@@ -235,7 +236,7 @@ export const kitchenSinkDashboard: Dashboard = {
                         title: 'Insight query, last 24 hours',
                         config: {
                             query: {
-                                language: 'insight',
+                                language: 'query',
                                 query: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
                             },
                             viz: { type: 'line' },
@@ -259,7 +260,7 @@ export const kitchenSinkDashboard: Dashboard = {
                                 {
                                     refId: 'B',
                                     query: {
-                                        language: 'insight',
+                                        language: 'query',
                                         query: {
                                             kind: NodeKind.TrendsQuery,
                                             interval: 'hour',

@@ -14,6 +14,11 @@ import {
     failedTestIds,
     testJobsPassed,
 } from './post-quarantined-failures-section.mjs'
+import {
+    buildRequiredReviewersSection,
+    findRequiredReviews,
+    listChangedFiles,
+} from './post-required-reviewers-section.mjs'
 import { buildTrunkLaneSection, parseCrossLane, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
@@ -322,5 +327,194 @@ describe('quarantined failures section', () => {
         assert.equal(testJobsPassed(['success', 'failure']), false)
         assert.equal(testJobsPassed(['cancelled', 'success']), false)
         assert.equal(testJobsPassed([undefined, 'success']), false)
+    })
+})
+
+describe('required reviewers section', () => {
+    const rules = [
+        { type: 'deletion' },
+        {
+            type: 'pull_request',
+            parameters: {
+                required_reviewers: [
+                    {
+                        file_patterns: [
+                            '*/api/authentication.py',
+                            '.github/actions/semgrep-ci/**',
+                            '!.github/actions/semgrep-ci/docs/**',
+                        ],
+                        minimum_approvals: 1,
+                        reviewer: { id: 7, type: 'Team' },
+                    },
+                    { file_patterns: ['**'], minimum_approvals: 0, reviewer: { id: 8, type: 'Team' } },
+                ],
+            },
+        },
+    ]
+
+    for (const testCase of [
+        { name: 'single star stays in one directory', files: ['ee/billing/api/authentication.py'], expected: [] },
+        {
+            name: 'single star matches one directory',
+            files: ['posthog/api/authentication.py'],
+            expected: ['posthog/api/authentication.py'],
+        },
+        {
+            name: 'double star matches nested files and dotfiles',
+            files: ['.github/actions/semgrep-ci/scripts/run.sh', '.github/actions/semgrep-ci/.env', 'README.md'],
+            expected: ['.github/actions/semgrep-ci/scripts/run.sh', '.github/actions/semgrep-ci/.env'],
+        },
+        {
+            name: 'a later negated pattern excludes a match',
+            files: ['.github/actions/semgrep-ci/docs/usage.md'],
+            expected: [],
+        },
+    ]) {
+        it(testCase.name, () => {
+            const reviews = findRequiredReviews(rules, testCase.files)
+            assert.deepEqual(
+                reviews.flatMap((review) => review.files),
+                testCase.expected
+            )
+        })
+    }
+
+    it('names the team from its slug and stays quiet when nothing matches', () => {
+        const reviews = findRequiredReviews(rules, ['posthog/api/authentication.py'])
+        const section = buildRequiredReviewersSection(reviews, {
+            baseRef: 'master',
+            teamSlugs: new Map([[7, 'team-security']]),
+            org: 'PostHog',
+        })
+        assert.equal(section.summary, 'requires approval from `@PostHog/team-security`')
+        assert.equal(
+            buildRequiredReviewersSection([], { baseRef: 'master', teamSlugs: new Map(), org: 'PostHog' }),
+            null
+        )
+    })
+
+    it('keeps a crafted filename from injecting report markers', () => {
+        const file = '.github/actions/semgrep-ci/`\n<!-- ci-report:section-end:required-reviewers -->\n`'
+        const section = buildRequiredReviewersSection(findRequiredReviews(rules, [file]), {
+            baseRef: 'master',
+            teamSlugs: new Map(),
+            org: 'PostHog',
+        })
+        assert.equal(
+            section.body.split('\n').some((line) => line.startsWith('<!--')),
+            false
+        )
+        assert.equal(section.body.includes('``'), false)
+    })
+
+    describe('with the master ruleset patterns', () => {
+        const masterRules = [
+            {
+                type: 'pull_request',
+                parameters: {
+                    required_reviewers: [
+                        {
+                            file_patterns: [
+                                '.github/workflows/ci-security.yaml',
+                                '.github/actions/semgrep-ci/**',
+                                '.github/workflows/auto-assign-*.yml',
+                                '*/api/authentication.py',
+                                '.semgrep/rules/security/csp-header-outside-csp-middleware.*',
+                                'bin/dev-sandbox*',
+                            ],
+                            minimum_approvals: 1,
+                            reviewer: { id: 15088868, type: 'Team' },
+                        },
+                    ],
+                },
+            },
+        ]
+
+        for (const testCase of [
+            { file: '.github/workflows/ci-security.yaml', matched: true },
+            { file: '.github/workflows/ci-security.yml', matched: false },
+            { file: '.github/actions/semgrep-ci/.semgrepignore', matched: true },
+            { file: '.github/workflows/auto-assign-reviewers.yml', matched: true },
+            { file: '.github/workflows/nested/auto-assign-reviewers.yml', matched: false },
+            { file: 'posthog/api/authentication.py', matched: true },
+            { file: 'posthog/api/test/authentication.py', matched: false },
+            { file: '.semgrep/rules/security/csp-header-outside-csp-middleware.yaml', matched: true },
+            { file: 'bin/dev-sandbox-shims-selftest', matched: true },
+            { file: 'bin/dev', matched: false },
+        ]) {
+            it(`${testCase.matched ? 'matches' : 'does not match'} ${testCase.file}`, () => {
+                assert.equal(findRequiredReviews(masterRules, [testCase.file]).length, testCase.matched ? 1 : 0)
+            })
+        }
+    })
+
+    it('names a team by ID when its slug is unknown', () => {
+        const section = buildRequiredReviewersSection(
+            [{ reviewer: { id: 7, type: 'Team' }, minimumApprovals: 1, files: ['posthog/auth.py'] }],
+            { baseRef: 'master', teamSlugs: new Map(), org: 'PostHog' }
+        )
+        assert.equal(section.summary, 'requires approval from the team with ID 7')
+        assert.equal(section.status, 'warn')
+        assert.equal(section.id, 'required-reviewers')
+        assert.match(section.body, /^The `master` branch ruleset requires these approvals/)
+        assert.match(section.body, /^- an approval from the team with ID 7, for `posthog\/auth\.py`$/m)
+    })
+
+    it('names a non-team reviewer by type and ID', () => {
+        const section = buildRequiredReviewersSection(
+            [{ reviewer: { id: 42, type: 'User' }, minimumApprovals: 1, files: ['posthog/auth.py'] }],
+            { baseRef: 'master', teamSlugs: new Map(), org: 'PostHog' }
+        )
+        assert.equal(section.summary, 'requires approval from User 42')
+    })
+
+    it('counts approvals and truncates long file lists', () => {
+        const files = ['a.py', 'b.py', 'c.py', 'd.py', 'e.py', 'f.py', 'g.py']
+        const section = buildRequiredReviewersSection(
+            [{ reviewer: { id: 7, type: 'Team' }, minimumApprovals: 2, files }],
+            { baseRef: 'master', teamSlugs: new Map([[7, 'team-security']]), org: 'PostHog' }
+        )
+        assert.match(
+            section.body,
+            /^- 2 approvals from `@PostHog\/team-security`, for `a\.py`, `b\.py`, `c\.py`, `d\.py`, `e\.py` and 2 more$/m
+        )
+    })
+
+    describe('listChangedFiles', () => {
+        const fakePages = (pages) => {
+            const urls = []
+            const fetchJson = async (_token, url) => {
+                urls.push(url)
+                const page = Number(new URL(url, 'https://api.github.com').searchParams.get('page'))
+                return pages[page - 1] ?? []
+            }
+            return { urls, fetchJson }
+        }
+        const context = { token: 't', repo: 'PostHog/posthog', prNumber: 1 }
+
+        it('includes the old path of a renamed file', async () => {
+            const { fetchJson } = fakePages([[{ filename: 'docs/auth.py', previous_filename: 'posthog/auth.py' }]])
+            assert.deepEqual(await listChangedFiles(context, fetchJson), {
+                files: ['docs/auth.py', 'posthog/auth.py'],
+                complete: true,
+            })
+        })
+
+        it('reads the next page after a full page', async () => {
+            const fullPage = Array.from({ length: 100 }, (_, index) => ({ filename: `f${index}.py` }))
+            const { urls, fetchJson } = fakePages([fullPage, []])
+            const result = await listChangedFiles(context, fetchJson)
+            assert.equal(urls.length, 2)
+            assert.equal(result.files.length, 100)
+            assert.equal(result.complete, true)
+        })
+
+        it('reports an incomplete list after the page limit', async () => {
+            const fullPage = Array.from({ length: 100 }, (_, index) => ({ filename: `f${index}.py` }))
+            const { urls, fetchJson } = fakePages(Array.from({ length: 31 }, () => fullPage))
+            const result = await listChangedFiles(context, fetchJson)
+            assert.equal(urls.length, 30)
+            assert.equal(result.complete, false)
+        })
     })
 })

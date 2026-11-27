@@ -198,6 +198,104 @@ export interface CodeReviewApprovalPullRequestRoutingApi {
     readonly pinned_routed_head: string
 }
 
+/**
+ * * `pending` - Waiting for Stamphog
+ * * `open` - Waiting for a person
+ * * `approved` - Approved by a person
+ * * `stamphog_approved` - Approved by Stamphog
+ * * `merged` - Merged
+ * * `closed` - Closed
+ */
+export type BroadcastRequestStatusEnumApi =
+    (typeof BroadcastRequestStatusEnumApi)[keyof typeof BroadcastRequestStatusEnumApi]
+
+export const BroadcastRequestStatusEnumApi = {
+    Pending: 'pending',
+    Open: 'open',
+    Approved: 'approved',
+    StamphogApproved: 'stamphog_approved',
+    Merged: 'merged',
+    Closed: 'closed',
+} as const
+
+/**
+ * * `github` - Pull request comment
+ * * `slack` - Slack
+ * * `api` - API
+ * * `slack_link` - Slack link
+ */
+export type BroadcastRequestSourceEnumApi =
+    (typeof BroadcastRequestSourceEnumApi)[keyof typeof BroadcastRequestSourceEnumApi]
+
+export const BroadcastRequestSourceEnumApi = {
+    Github: 'github',
+    Slack: 'slack',
+    Api: 'api',
+    SlackLink: 'slack_link',
+} as const
+
+/**
+ * * `slack_message` - Slack message
+ */
+export type BroadcastRequestDeliveryKindEnumApi =
+    (typeof BroadcastRequestDeliveryKindEnumApi)[keyof typeof BroadcastRequestDeliveryKindEnumApi]
+
+export const BroadcastRequestDeliveryKindEnumApi = {
+    SlackMessage: 'slack_message',
+} as const
+
+export interface CodeReviewApprovalBroadcastRequestDeliveryApi {
+    /** Where the request was posted. 'slack_message' is a message in the repository's Slack channel.
+     *
+     * * `slack_message` - Slack message */
+    readonly kind: BroadcastRequestDeliveryKindEnumApi
+    /**
+     * Link that opens the posted message, as Slack returned it. Null when Slack did not return one.
+     * @nullable
+     */
+    readonly url: string | null
+}
+
+export interface CodeReviewApprovalBroadcastRequestApi {
+    /** ID of the Broadcast request. */
+    readonly id: string
+    /** 'pending' while auto-approval reviews the head, so nothing is posted yet. 'open' when auto-approval did not approve and the request waits for a person. 'approved' when a person approved the current head; a new push sets 'open' again. 'stamphog_approved' when auto-approval approved, so no person needs to look. 'merged' or 'closed' when the pull request merged or closed. Only 'pending', 'open' and 'approved' are active, and a pull request has at most one active request.
+     *
+     * * `pending` - Waiting for Stamphog
+     * * `open` - Waiting for a person
+     * * `approved` - Approved by a person
+     * * `stamphog_approved` - Approved by Stamphog
+     * * `merged` - Merged
+     * * `closed` - Closed */
+    readonly status: BroadcastRequestStatusEnumApi
+    /** The pull request head the request follows. A push moves it. */
+    readonly head_sha: string
+    /** Where the request came from: a pull request comment ('github'), a Slack mention ('slack') or the API ('api').
+     *
+     * * `github` - Pull request comment
+     * * `slack` - Slack
+     * * `api` - API
+     * * `slack_link` - Slack link */
+    readonly requested_via: BroadcastRequestSourceEnumApi
+    /** The requester's note for the people who review, shown in Slack only. Blank when there is none. */
+    readonly note: string
+    /** Slack display names of the people who said they will look, in the order they said it. */
+    readonly looking: readonly string[]
+    /** GitHub login of the person whose approval of the current head set 'approved'. Blank otherwise. */
+    readonly approved_by_login: string
+    /** Where the request was posted. Empty until auto-approval does not approve. */
+    readonly deliveries: readonly CodeReviewApprovalBroadcastRequestDeliveryApi[]
+    /**
+     * How many broadcast messages the requester caused in the 7 days up to this request's message, this one included. Counted once when the message is posted. Null until then.
+     * @nullable
+     */
+    readonly requester_card_count: number | null
+    /** When somebody asked for people to review. */
+    readonly created_at: string
+    /** When the request last changed. */
+    readonly updated_at: string
+}
+
 export interface CodeReviewApprovalPullRequestApi {
     readonly id: string
     /** Full name of the repository this pull request belongs to. */
@@ -235,6 +333,8 @@ export interface CodeReviewApprovalPullRequestApi {
     readonly routing_mode: RoutingModeEnumApi
     /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
     readonly routing: CodeReviewApprovalPullRequestRoutingApi | null
+    /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. */
+    readonly broadcast_request: CodeReviewApprovalBroadcastRequestApi | null
     /** When this pull request was first captured. */
     readonly created_at: string
     /** When this pull request was last updated. */
@@ -295,8 +395,14 @@ export interface CodeReviewApprovalRepositoryApi {
     readonly routing_fork_labels: CodeReviewApprovalRepositoryApiRoutingForkLabels
     /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
     readonly review_on_clean_external_review: boolean
+    /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+    readonly broadcast_enabled: boolean
+    /** Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set. */
+    readonly broadcast_slack_channel_id: string
+    /** Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go. */
+    readonly broadcast_slack_channel_name: string
     /**
-     * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
+     * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, broadcast_enabled, broadcast_slack_channel_id or broadcast_slack_channel_name.
      * @nullable
      */
     readonly user_access_level: string | null
@@ -356,6 +462,18 @@ export interface CodeReviewApprovalRepositoryWriteApi {
     routing_fork_labels?: CodeReviewApprovalRepositoryWriteApiRoutingForkLabels
     /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
     review_on_clean_external_review?: boolean
+    /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+    broadcast_enabled?: boolean
+    /**
+     * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+     * @maxLength 64
+     */
+    broadcast_slack_channel_id?: string
+    /**
+     * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+     * @maxLength 255
+     */
+    broadcast_slack_channel_name?: string
 }
 
 /**
@@ -401,6 +519,18 @@ export interface PatchedCodeReviewApprovalRepositoryWriteApi {
     routing_fork_labels?: PatchedCodeReviewApprovalRepositoryWriteApiRoutingForkLabels
     /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
     review_on_clean_external_review?: boolean
+    /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+    broadcast_enabled?: boolean
+    /**
+     * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+     * @maxLength 64
+     */
+    broadcast_slack_channel_id?: string
+    /**
+     * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+     * @maxLength 255
+     */
+    broadcast_slack_channel_name?: string
 }
 
 /**
@@ -1062,6 +1192,8 @@ export interface ReviewRunApi {
      * @nullable
      */
     readonly approval_dismissed_at: string | null
+    /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. It belongs to the pull request, so every run of the pull request shows it. */
+    readonly broadcast_request: CodeReviewApprovalBroadcastRequestApi | null
     /** When the review run was created. */
     readonly created_at: string
     /** When the review run was last updated. */
@@ -1093,6 +1225,13 @@ export interface ReviewRequestApi {
      * @minimum 1
      */
     pr_number: number
+    /** Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have broadcasting turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review. */
+    allow_broadcast?: boolean
+    /**
+     * A short note for the people who review, shown in Slack only and never on GitHub. Needs allow_broadcast set to true. A request that is already active keeps its note.
+     * @maxLength 200
+     */
+    note?: string
 }
 
 /**
@@ -1103,6 +1242,8 @@ export interface ReviewRequestResponseApi {
     readonly run: ReviewRunApi
     /** True when this request queued a new run. False when a queued, running, or finished run already covered the current head, which is returned instead. */
     readonly created: boolean
+    /** The request for people to review that this request made or found active. Null unless allow_broadcast was true. */
+    readonly broadcast_request: CodeReviewApprovalBroadcastRequestApi | null
 }
 
 export type CodeReviewApprovalsDigestsListParams = {

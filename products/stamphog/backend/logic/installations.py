@@ -8,9 +8,10 @@ once and each one rewrites the whole list.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import cast
 
 from django.db import router, transaction
-from django.db.models import QuerySet
+from django.db.models import Field, QuerySet
 
 from ..models import StamphogInstallation, StamphogRepoConfig
 
@@ -23,17 +24,23 @@ def reset_unverified_review_policy(config: StamphogRepoConfig) -> list[str]:
     installation and turns on: all mode reviews every pull request, and a label nobody uses
     reviews nothing. Reviewer routing does not wait for the row to turn on, so a routing mode
     picked there would request reviewers as soon as the row binds. The clean-review switch widens
-    when reviews run, the same way a mode does.
+    when reviews run, the same way a mode does. A Slack channel picked for Broadcast requests would start
+    to get pull requests as soon as a manager turns the row on, although nobody with GitHub access chose it.
     """
+    fields = [
+        "review_mode",
+        "trigger_label",
+        "routing_mode",
+        "routing_fork_labels",
+        "review_on_clean_external_review",
+        "broadcast_enabled",
+        "broadcast_slack_channel_id",
+        "broadcast_slack_channel_name",
+    ]
     # Read the defaults off the model so the reset cannot drift from what a fresh row gets.
-    config.review_mode = StamphogRepoConfig._meta.get_field("review_mode").get_default()
-    config.trigger_label = StamphogRepoConfig._meta.get_field("trigger_label").get_default()
-    config.routing_mode = StamphogRepoConfig._meta.get_field("routing_mode").get_default()
-    config.routing_fork_labels = StamphogRepoConfig._meta.get_field("routing_fork_labels").get_default()
-    config.review_on_clean_external_review = StamphogRepoConfig._meta.get_field(
-        "review_on_clean_external_review"
-    ).get_default()
-    return ["review_mode", "trigger_label", "routing_mode", "routing_fork_labels", "review_on_clean_external_review"]
+    for name in fields:
+        setattr(config, name, cast(Field, StamphogRepoConfig._meta.get_field(name)).get_default())
+    return fields
 
 
 def _write_db() -> str:

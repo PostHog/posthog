@@ -3,6 +3,9 @@ export type Region = 'us' | 'eu'
 export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
 export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
 
+// Matches AGENT_AUTH_SKILL_URL in posthog/api/oauth/metadata.py.
+export const AGENT_MANIFEST_URL = 'https://posthog.com/auth.md'
+
 export const REGION_BASE_URLS: Record<Region, string> = {
     us: POSTHOG_US_BASE_URL,
     eu: POSTHOG_EU_BASE_URL,

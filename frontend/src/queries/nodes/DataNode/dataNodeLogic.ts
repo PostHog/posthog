@@ -171,6 +171,7 @@ export interface DataNodeLogicProps {
     maxPaginationRows?: number
     /** Limit context sent to the /query endpoint */
     limitContext?: 'posthog_ai'
+    queryTeamId?: number
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -1027,15 +1028,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        const hasQueryChanged = !compareDataNodeQuery(props.query, oldProps.query, {
-            ignoreVisualizationOnlyChanges: true,
-        })
+        const hasQueryChanged =
+            props.queryTeamId !== oldProps.queryTeamId ||
+            !compareDataNodeQuery(props.query, oldProps.query, {
+                ignoreVisualizationOnlyChanges: true,
+            })
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
 
         // Insight logics can mount this node before the component supplies its query.
         const retainedResponse =
             (hasQueryChanged || props.retainResponseOnUnmount !== oldProps.retainResponseOnUnmount) &&
-            getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
+            getRetainedResponse(responseCacheKey(props, values.user?.id, props.queryTeamId ?? values.currentTeamId))
         if (retainedResponse) {
             actions.loadData()
             return
@@ -1079,7 +1082,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ) {
             // Use cached results if available, otherwise this logic will load the data again
             if (props.cachedResults !== oldProps.cachedResults) {
-                retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
+                retainResponse(
+                    responseCacheKey(props, values.user?.id, props.queryTeamId ?? values.currentTeamId),
+                    props.cachedResults
+                )
             }
             actions.setResponse(props.cachedResults)
         }
@@ -1129,7 +1135,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const key = responseCacheKey(
                         overrideQuery ? { ...props, query: overrideQuery } : props,
                         values.user?.id,
-                        values.currentTeamId
+                        props.queryTeamId ?? values.currentTeamId
                     )
                     const retainedResponse = !pollOnly && !refreshArg?.startsWith('force_') && getRetainedResponse(key)
                     // Do not extend the retained response's lifetime when displaying it again.
@@ -1206,7 +1212,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
 
-                    if (!values.currentTeamId) {
+                    const queryTeamId = props.queryTeamId ?? values.currentTeamId
+                    if (!queryTeamId) {
                         // if shared/exported, the team is not loaded
                         return null
                     }
@@ -1239,6 +1246,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         captureQueryTelemetry: props.captureQueryTelemetry,
                         signal: abortController.signal,
                         onRequestTiming: (timing) => requestTimings.push(timing),
+                        ...(props.queryTeamId != null ? { teamId: props.queryTeamId } : {}),
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
@@ -1294,7 +1302,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                   fn: runQuery,
                               })
                         if (key && keepRunningOnUnmount) {
-                            const teamId = values.currentTeamId
+                            const teamId = queryTeamId
                             // The in-flight entry retains the result, so `loadDataSuccess` skips its copy.
                             cache.responseCacheKey = null
                             cache.inflightQuery = trackInflightResponse(
@@ -2331,7 +2339,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cache.inflightQuery = null
         },
         abortQuery: async ({ queryId }) => {
-            await cancelQueryOnServer(values.currentTeamId, queryId)
+            await cancelQueryOnServer(props.queryTeamId ?? values.currentTeamId, queryId)
         },
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
@@ -2448,14 +2456,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cancelQuery: actions.cancelQuery,
         })
 
-        const retainedResponse = getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
+        const retainedResponse = getRetainedResponse(
+            responseCacheKey(props, values.user?.id, props.queryTeamId ?? values.currentTeamId)
+        )
         if (retainedResponse) {
             actions.loadData()
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
             // and if we never change the props, the cached results will never be used.
-            retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
+            retainResponse(
+                responseCacheKey(props, values.user?.id, props.queryTeamId ?? values.currentTeamId),
+                props.cachedResults
+            )
             actions.setResponse(props.cachedResults)
         } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
             // Initial load should use non-force variant

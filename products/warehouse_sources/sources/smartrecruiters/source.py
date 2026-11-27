@@ -22,6 +22,8 @@ from products.warehouse_sources.sources.smartrecruiters._config import Smartrecr
 from products.warehouse_sources.sources.smartrecruiters.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SCHEMA_DESCRIPTIONS,
+    SHOULD_SYNC_DEFAULT,
     SMARTRECRUITERS_ENDPOINTS,
 )
 from products.warehouse_sources.sources.smartrecruiters.smartrecruiters import (
@@ -102,7 +104,13 @@ A SmartRecruiters administrator can create an API key in the [Credential Manager
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=SCHEMA_DESCRIPTIONS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,

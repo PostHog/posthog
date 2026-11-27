@@ -2,12 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import type {
     Capability,
     CapabilityReadiness,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
+
+import { QuillReadinessHeader } from './QuillReadinessHeader'
 
 /** Each capability is a column or chart in Marketing analytics, so the chip has to
  * name the thing the user will actually see — an acronym on its own is a riddle. */
@@ -87,6 +90,31 @@ export function ReadinessHeader(): JSX.Element {
     const { readiness, degraded, truncated, setupPlanLoading, visibleSuggestions, focusedCapability } =
         useValues(setupPlanLogic)
     const { focusCapability } = useActions(setupPlanLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillReadinessHeader
+                loading={setupPlanLoading && !readiness.length}
+                chips={readiness.map((entry) => ({
+                    key: entry.capability,
+                    label: CAPABILITY_COPY[entry.capability]?.label ?? entry.capability,
+                    statusLabel: STATUS_COPY[entry.status],
+                    what: CAPABILITY_COPY[entry.capability]?.what,
+                    explanation: entry.explanation,
+                    ready: entry.status === 'unlocked',
+                    blockerCount: visibleSuggestions.filter((suggestion) =>
+                        suggestion.unlocks.includes(entry.capability)
+                    ).length,
+                    focused: focusedCapability === entry.capability,
+                    onFocus: () => focusCapability(entry.capability),
+                }))}
+                unlocked={readiness.filter((entry) => entry.status === 'unlocked').length}
+                degraded={degraded}
+                truncated={truncated}
+            />
+        )
+    }
 
     if (setupPlanLoading && !readiness.length) {
         return (
