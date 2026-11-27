@@ -41,10 +41,10 @@ body included. request_hosts lists the hosts the rules count as request targets,
 the code can send any request at all.
 - account: the organization's age, minutes from signup to this save, whether billing reports a subscription, \
 members, projects, the billing trust score for this product, and its tier (new means fresh, free and small).
-- history: the function's edit and test history, oldest first. Updates show the new code. Tests that sent real \
+- history: the function's latest edits and tests, oldest first, and how many earlier ones were left out. Updates show the new code. Tests that sent real \
 requests show the origins they reached. Draft saves show only that the draft changed, never its content.
-- org_functions: the organization's other functions, including disabled and deleted ones, with the hosts each one \
-names and its rule hits.
+- org_functions: counts of the organization's other functions: how many there are, how many are deleted or \
+disabled, and how many of the most recently updated ones hit each rule.
 
 Work through this checklist before you answer:
 1. Treat a rule hit alone as weak evidence. Most rule hits are legitimate: a local link in chat message text or a \
@@ -63,8 +63,8 @@ subscription. Account facts alone never make a verdict.
 5. What is the iteration pattern? Many quick saves or tests that swap one internal target for another, encode an \
 address in other forms, or step through ports or paths are probing. Edits that fix a payload or an auth header \
 for one public service are ordinary debugging.
-6. What do the other functions show? The same internal targets elsewhere, deleted attempts, or a set of functions \
-that only probe weigh toward abuse. A history of working integrations weighs against it.
+6. What do the other functions show? Deleted functions and other functions that hit the same rules weigh toward \
+abuse. Many working functions with no rule hits weigh against it.
 
 Answer with:
 - findings: one to {MAX_FINDINGS} short, concrete observations from the case file that decide the verdict, each one citing \

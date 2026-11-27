@@ -138,16 +138,23 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert case["history"][2]["request_origins"][0] == "http://169.254.169.254"
         assert len(case["history"][2]["request_origins"]) == case_file.MAX_ORIGINS_PER_TEST
         assert case["history"][2]["request_origins_omitted"] == 26 - case_file.MAX_ORIGINS_PER_TEST
-        others = {other["name"]: other for other in case["org_functions"]}
-        assert others["Deleted probe"]["deleted"] is True
-        assert others["Deleted probe"]["rule_hits"] == ["internal_host"]
-        assert others["Paused"]["enabled"] is False
-        assert others["Paused"]["named_hosts"] == ["api.example.com"]
-        assert others["Many hosts"]["named_hosts"][0] == "localhost"
-        assert len(others["Many hosts"]["named_hosts"]) == case_file.MAX_HOSTS_PER_FUNCTION
-        assert others["Many hosts"]["named_hosts_omitted"] == 26 - case_file.MAX_HOSTS_PER_FUNCTION
-        assert others["Secret target"]["rule_hits"] == ["internal_host"]
-        assert others["Secret target"]["named_hosts"] == []
+        assert case["org_functions"] == {
+            "total": 4,
+            "deleted": 1,
+            "disabled": 3,
+            "checked_for_rules": 4,
+            "rule_hits": {"internal_host": 3},
+        }
+
+    def test_flagged_hosts_lead_the_capped_host_list(self) -> None:
+        many_hosts = "".join(f"fetch('https://host{index:02}.example.com');" for index in range(25))
+        destination = self.create_destination(hog=many_hosts + "fetch('http://localhost:8000')")
+
+        function = self.case_of(destination)["function"]
+
+        assert function["named_hosts"][0] == "localhost"
+        assert len(function["named_hosts"]) == case_file.MAX_HOSTS_PER_FUNCTION
+        assert function["named_hosts_omitted"] == 28 - case_file.MAX_HOSTS_PER_FUNCTION
 
     @parameterized.expand(
         [
@@ -251,13 +258,13 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert SECRET_VALUE not in serialized
         assert "https://hooks.example.com/orders" in serialized
 
-    def test_history_and_org_functions_are_capped_to_the_latest(self) -> None:
+    def test_history_and_the_org_function_check_are_capped_to_the_latest(self) -> None:
         destination = self.create_destination()
         for version in range(case_file.MAX_HISTORY_ENTRIES + 5):
             entry = self.log(destination, "updated", changes=[{"field": "hog", "after": f"// version {version}"}])
             ActivityLog.objects.filter(pk=entry.pk).update(created_at=timezone.now() + timedelta(seconds=version))
-        for index in range(case_file.MAX_ORG_FUNCTIONS + 3):
-            self.other_function(self.team, name=f"Function {index}")
+        for index in range(case_file.MAX_ORG_FUNCTIONS_CHECKED + 3):
+            self.other_function(self.team, name=f"Function {index}", hog="fetch('http://localhost:8000')")
 
         case = self.case_of(destination)
 
@@ -265,28 +272,26 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert case["history_omitted"] == 5
         assert case["history"][0]["code"] == "// version 5"
         assert case["history"][-1]["code"] == f"// version {case_file.MAX_HISTORY_ENTRIES + 4}"
-        assert len(case["org_functions"]) == case_file.MAX_ORG_FUNCTIONS
-        assert case["org_functions_omitted"] == 3
+        assert case["org_functions"]["total"] == case_file.MAX_ORG_FUNCTIONS_CHECKED + 3
+        assert case["org_functions"]["checked_for_rules"] == case_file.MAX_ORG_FUNCTIONS_CHECKED
+        assert case["org_functions"]["rule_hits"] == {"internal_host": case_file.MAX_ORG_FUNCTIONS_CHECKED}
 
-    def test_an_oversized_case_file_trims_both_history_and_functions_to_fit(self) -> None:
+    def test_an_oversized_case_file_drops_the_oldest_history_to_fit(self) -> None:
         destination = self.create_destination()
         for version in range(10):
             entry = self.log(destination, "updated", changes=[{"field": "hog", "after": f"{version}" + "x" * 400}])
             ActivityLog.objects.filter(pk=entry.pk).update(created_at=timezone.now() + timedelta(seconds=version))
-        for index in range(10):
-            self.other_function(self.team, name=f"Function {index} " + "n" * 300)
 
-        with patch.object(case_file, "MAX_CASE_FILE_CHARS", 8_000):
+        with patch.object(case_file, "MAX_CASE_FILE_CHARS", 6_000):
             destination.refresh_from_db()
             built = build_case_file(destination, score(destination))
 
         serialized = built.to_json()
-        assert len(serialized) <= 8_000
+        assert len(serialized) <= 6_000
         assert "169.254.169.254" in serialized
         assert 0 < len(built.history) < 10
         assert len(built.history) + built.history_omitted == 10
-        assert 0 < len(built.org_functions) < 10
-        assert len(built.org_functions) + built.org_functions_omitted == 10
+        assert built.history[-1].code == "9" + "x" * 400
 
     @parameterized.expand(
         [

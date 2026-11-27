@@ -1,13 +1,16 @@
-"""The case file a frontier model reviews for a severe save: the function, its edit and test history, the account,
-and every other function in the organization.
+"""The case file a frontier model reviews for a severe save: the function, its recent edit and test history, the
+account, and counts of the organization's other functions.
 
 Built from Postgres only, bounded in size, and without secret input values.
 """
 
 import json
+from collections import Counter
 from dataclasses import asdict, replace
 from datetime import datetime
 from urllib.parse import urlsplit
+
+from django.db.models import Count, Q
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -20,15 +23,16 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.services.destination_test_runs import redact_secrets_in_origins, stored_secret_values
 from products.ml_inference.backend.facade.contracts import JsonValue
 
-MAX_HISTORY_ENTRIES = 30
-MAX_ORG_FUNCTIONS = 50
+MAX_HISTORY_ENTRIES = 10
+MAX_ORG_FUNCTIONS_CHECKED = 50
 MAX_HOSTS_PER_FUNCTION = 20
 MAX_RULE_EVIDENCE = 20
 UNLOCATED = "not explained by the public content: depends on a secret input"
 MAX_HISTORY_CODE_CHARS = 4_000
 MAX_ORIGINS_PER_TEST = 20
 MAX_ORIGIN_CHARS = 300
-MAX_CASE_FILE_CHARS = 200_000
+# Room for the function's config, which `build_state` caps at the Jev state limit, and a short history.
+MAX_CASE_FILE_CHARS = 100_000
 _TRUNCATED_MARKER = " [truncated]"
 # Only these fields of an update show their new value. The activity log masks the inputs, but not every field that
 # can hold a secret: the default of a secret input sits unmasked in the inputs schema.
@@ -99,19 +103,17 @@ class AccountFacts:
 
 
 @frozen
-class OrgFunction:
-    name: str | None
-    type: str | None
-    template_id: str | None
-    code_modified_from_template: bool | None
-    enabled: bool
-    deleted: bool
-    created_at: datetime
-    updated_at: datetime
-    named_hosts: tuple[str, ...]
-    named_hosts_omitted: int
-    # Matched with the secret inputs too, like a save is. Only the rule names leave, never the values.
-    rule_hits: tuple[str, ...]
+class OrgFunctionCounts:
+    """The organization's other functions, across all its projects."""
+
+    total: int
+    deleted: int
+    # Not deleted, and not enabled.
+    disabled: int
+    # Rule hits are matched on the most recently updated functions only, with their secret inputs like a save is.
+    checked_for_rules: int
+    # How many of the checked functions hit each rule.
+    rule_hits: dict[str, int]
 
 
 @frozen
@@ -121,9 +123,7 @@ class CaseFile:
     # Oldest first. Entries before these are left out, and `history_omitted` counts them.
     history: tuple[HistoryEntry, ...]
     history_omitted: int
-    # The other functions of the organization, last updated first, deleted and disabled ones included.
-    org_functions: tuple[OrgFunction, ...]
-    org_functions_omitted: int
+    org_functions: OrgFunctionCounts
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False, separators=(",", ":"), default=_json_default)
@@ -132,15 +132,13 @@ class CaseFile:
 def build_case_file(hog_function: HogFunction, scored: ScoredHogFunction) -> CaseFile:
     team = hog_function.team
     history = _history(hog_function)
-    org_functions = _org_functions(hog_function)
     return _fit(
         CaseFile(
             function=_function_under_review(hog_function, scored),
             account=_account_facts(hog_function, team, scored),
             history=history.entries,
             history_omitted=history.omitted,
-            org_functions=org_functions.entries,
-            org_functions_omitted=org_functions.omitted,
+            org_functions=_org_function_counts(hog_function),
         )
     )
 
@@ -283,44 +281,33 @@ def _redacted_origins(origins: list[JsonValue], secrets: list[str]) -> tuple[str
     return tuple(_cut(origin, MAX_ORIGIN_CHARS) for origin in ranked[:MAX_ORIGINS_PER_TEST])
 
 
-@frozen
-class _OrgFunctions:
-    entries: tuple[OrgFunction, ...]
-    omitted: int
-
-
-def _org_functions(hog_function: HogFunction) -> _OrgFunctions:
+def _org_function_counts(hog_function: HogFunction) -> OrgFunctionCounts:
     # Scoped to the organization, not the team: a probe often spreads its attempts over several projects.
     others = HogFunction.objects.filter(team__organization_id=hog_function.team.organization_id).exclude(
         pk=hog_function.pk
     )
-    total = others.count()
-    latest = (
+    counts = others.aggregate(
+        total_count=Count("id"),
+        deleted_count=Count("id", filter=Q(deleted=True)),
+        disabled_count=Count("id", filter=Q(deleted=False, enabled=False)),
+    )
+    recent = list(
         others.select_related("hog_function_template")
         .defer("bytecode", "transpiled", "draft", "draft_encrypted_inputs")
-        .order_by("-updated_at")[:MAX_ORG_FUNCTIONS]
+        .order_by("-updated_at")[:MAX_ORG_FUNCTIONS_CHECKED]
     )
-    return _OrgFunctions(
-        entries=tuple(_org_function(other) for other in latest), omitted=max(total - MAX_ORG_FUNCTIONS, 0)
+    # The linked template only, so the check costs no query per function. Only rule names leave, never values.
+    hits = Counter(
+        rule.value
+        for other in recent
+        for rule in rules.matched_rules(_with_secret_inputs(other, content_of(other, other.hog_function_template)))
     )
-
-
-def _org_function(hog_function: HogFunction) -> OrgFunction:
-    # The linked template only, so the list costs no query per function.
-    content = content_of(hog_function, hog_function.hog_function_template)
-    hosts = _named_hosts(content)
-    return OrgFunction(
-        name=hog_function.name,
-        type=hog_function.type,
-        template_id=hog_function.template_id,
-        code_modified_from_template=content.code_modified_from_template,
-        enabled=hog_function.enabled,
-        deleted=hog_function.deleted,
-        created_at=hog_function.created_at,
-        updated_at=hog_function.updated_at,
-        named_hosts=hosts.shown,
-        named_hosts_omitted=hosts.omitted,
-        rule_hits=tuple(rule.value for rule in rules.matched_rules(_with_secret_inputs(hog_function, content))),
+    return OrgFunctionCounts(
+        total=counts["total_count"],
+        deleted=counts["deleted_count"],
+        disabled=counts["disabled_count"],
+        checked_for_rules=len(recent),
+        rule_hits=dict(sorted(hits.items())),
     )
 
 
@@ -336,20 +323,9 @@ def _named_hosts(content: HogFunctionContent) -> _Hosts:
 
 
 def _fit(case_file: CaseFile) -> CaseFile:
-    """Drop the oldest history or the least recently updated function of the organization, from whichever section
-    is larger, until the case file fits, so neither section can push the other out. The function under review and
-    the account are bounded on their own, so they always stay."""
-    while len(case_file.to_json()) > MAX_CASE_FILE_CHARS:
-        if case_file.history and _size(case_file.history) >= _size(case_file.org_functions):
-            case_file = replace(case_file, history=case_file.history[1:], history_omitted=case_file.history_omitted + 1)
-        elif case_file.org_functions:
-            case_file = replace(
-                case_file,
-                org_functions=case_file.org_functions[:-1],
-                org_functions_omitted=case_file.org_functions_omitted + 1,
-            )
-        else:
-            break
+    """Drop the oldest history until the case file fits. Every other part is bounded on its own, so it stays."""
+    while case_file.history and len(case_file.to_json()) > MAX_CASE_FILE_CHARS:
+        case_file = replace(case_file, history=case_file.history[1:], history_omitted=case_file.history_omitted + 1)
     return case_file
 
 
@@ -358,10 +334,6 @@ def _origin_host(origin: str) -> str:
         return urlsplit(origin).hostname or ""
     except ValueError:
         return ""
-
-
-def _size(section: tuple[HistoryEntry, ...] | tuple[OrgFunction, ...]) -> int:
-    return len(json.dumps([asdict(entry) for entry in section], ensure_ascii=False, default=_json_default))
 
 
 def _cut(text: str, limit: int) -> str:
