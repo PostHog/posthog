@@ -359,11 +359,18 @@ class TestGetRows:
         assert result.paths == [expected_path]
         assert result.saved_states == []
 
-    def test_too_many_applications_is_rejected(self) -> None:
+    @parameterized.expand(
+        [
+            ("business_transactions", "/controller/rest/applications"),
+            ("database_health_rule_violations", "/controller/rest/databases/servers"),
+        ]
+    )
+    def test_too_many_parents_is_rejected_as_non_retryable(self, endpoint: str, parent_path: str) -> None:
         many = [{"id": i} for i in range(appdynamics_module.MAX_APPLICATIONS + 1)]
-        result = _driver().run("business_transactions", [ScriptedResponse(json=many)])
+        result = _driver().run(endpoint, [ScriptedResponse(json=many)])
         assert isinstance(result.raised, AppdynamicsError)
-        assert result.paths == ["/controller/rest/applications"]
+        assert result.paths == [parent_path]
+        assert any(key in str(result.raised) for key in AppdynamicsSource().get_non_retryable_errors())
 
     def test_metric_data_fan_out_budget_is_enforced(self) -> None:
         # Max applications × max metric paths × the 7-day metric window blows the aggregate
