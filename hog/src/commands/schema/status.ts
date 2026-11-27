@@ -1,14 +1,16 @@
+import { dirname } from 'node:path'
+
 import { defineCommand } from '@/core/command'
-import type { TypeScriptSdk } from '@/core/config'
+import type { SchemaSdk } from '@/core/config'
 import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { absolutePath } from '@/core/paths'
 import { plural } from '@/core/text'
 
-import { configRoot, fetchDefinitions, isLanguage, moduleInfo } from './shared'
+import { configRoot, fetchDefinitions, isLanguage, moduleInfo, projectSdk } from './shared'
 
 interface LanguageStatus {
     language: string
-    sdk: TypeScriptSdk | undefined
+    sdk: SchemaSdk | undefined
     file: string
     // `outdated` means the event definitions changed since the module was generated.
     status: 'up_to_date' | 'outdated' | 'missing' | 'unknown_language'
@@ -43,9 +45,11 @@ export default defineCommand({
                 languages.push({ ...base, status: 'missing' })
                 continue
             }
-            const definitions = await fetchDefinitions(ctx, language, saved.sdk)
+            const sdk = await projectSdk(ctx, language, saved, dirname(file))
+            const definitions = await fetchDefinitions(ctx, language, sdk)
             languages.push({
                 ...base,
+                sdk,
                 status: saved.schema_hash === definitions.schema_hash ? 'up_to_date' : 'outdated',
                 eventCount: definitions.event_count,
             })
