@@ -80,6 +80,9 @@ Some tables read a limited history on their first sync, because AppFollow charge
 
 `reviews_semantic` needs the AppFollow Advanced API add-on, and `aso_reports` needs the App Store Connect integration in AppFollow.
 `console_ratings` needs the Google Play Console integration in AppFollow.
+It skips apps that return HTTP 424 and continues with other apps.
+Successful scans save each app's coverage, including empty results, so later incremental syncs only repeat the seven-day overlap.
+After an interruption, the next scan continues from the saved coverage. Full refresh reads the initial window again.
 
 `reviews_version_stats` preserves review tag counts by version in nested columns.
 `featured_apps` uses full refresh for the last year of App Store featuring events. It uses the same country selection as `app_versions`.

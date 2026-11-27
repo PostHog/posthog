@@ -1,6 +1,7 @@
 from collections.abc import Iterator
+from dataclasses import field
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -16,6 +17,7 @@ from products.warehouse_sources.sources.appfollow.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
+    SourceCursorManager,
     SourceResponse,
     frozen,
     make_tracked_session,
@@ -44,6 +46,12 @@ FALLBACK_COUNTRY = "us"
 
 class AppfollowRetryableError(Exception):
     pass
+
+
+@frozen
+class AppfollowScanCursor:
+    cursor_kind: ClassVar[str] = "appfollow_console_scan_v1"
+    completed_through: dict[str, str] = field(default_factory=dict)
 
 
 @frozen
@@ -701,7 +709,10 @@ def _get_console_ratings(
     manager: ResumableSourceManager[AppfollowResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    cursor_manager: SourceCursorManager[AppfollowScanCursor] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
+    stored = cursor_manager.load() if cursor_manager is not None else None
+    completed_through = dict(stored.completed_through) if stored is not None else {}
     targets: list[dict[str, Any]] = []
     seen: set[tuple[int, str]] = set()
     for pair in _iter_collection_apps(session, logger, manager=manager):
@@ -732,7 +743,12 @@ def _get_console_ratings(
     start = _dated_fanout_start(config, today, should_use_incremental_field, db_incremental_field_last_value)
     for i, app in enumerate(targets):
         first_day = max(start, resume_from) if i == 0 and resume_from else start
+        scan_key = f"{app['app_collection_id']}:{app['ext_id']}"
+        if should_use_incremental_field and scan_key in completed_through:
+            scanned = min(date.fromisoformat(completed_through[scan_key]), today)
+            first_day = max(first_day, scanned - timedelta(days=DATED_FANOUT_LOOKBACK_DAYS))
         slices = _date_slices(config, first_day, today)
+        skip_app = False
         for j, date_slice in enumerate(slices):
             rows: list[dict[str, Any]] = []
             for metric in ("ratings", "users"):
@@ -744,7 +760,17 @@ def _get_console_ratings(
                     "period": "daily",
                     "fields": metric,
                 }
-                data = _fetch(session, f"{APPFOLLOW_BASE_URL}{config.path}", params, logger)
+                try:
+                    data = _fetch(session, f"{APPFOLLOW_BASE_URL}{config.path}", params, logger)
+                except requests.HTTPError as error:
+                    if error.response is None or error.response.status_code != 424:
+                        raise
+                    logger.warning(
+                        f"AppFollow {config.name}: skipping ext_id={app['ext_id']}, the endpoint returned 424"
+                    )
+                    skip_app = True
+                    rows = []
+                    break
                 fields = data.get("fields") if isinstance(data, dict) else None
                 values = fields.get(metric) if isinstance(fields, dict) else None
                 if isinstance(values, list):
@@ -759,7 +785,7 @@ def _get_console_ratings(
                         if isinstance(row, dict)
                     )
 
-            if j + 1 < len(slices):
+            if j + 1 < len(slices) and not skip_app:
                 manager.save_state(
                     AppfollowResumeConfig(
                         ext_id=str(app["ext_id"]),
@@ -778,6 +804,14 @@ def _get_console_ratings(
                 yield rows
             else:
                 manager.safe_point()
+            if skip_app:
+                break
+        if not skip_app:
+            completed_through[scan_key] = today.isoformat()
+
+    # The pipeline promotes this cursor only after a successful load, including an empty scan.
+    if cursor_manager is not None:
+        cursor_manager.stage(AppfollowScanCursor(completed_through=completed_through))
 
 
 def _iter_workspaces(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
@@ -905,6 +939,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[AppfollowResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    cursor_manager: SourceCursorManager[AppfollowScanCursor] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = endpoints_for_version(api_version)[endpoint]
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
@@ -934,6 +969,7 @@ def get_rows(
             resumable_source_manager,
             should_use_incremental_field,
             db_incremental_field_last_value,
+            cursor_manager,
         )
     elif config.kind == "app_fanout":
         yield from _get_app_fanout(
@@ -981,6 +1017,7 @@ def appfollow_source(
     resumable_source_manager: ResumableSourceManager[AppfollowResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    cursor_manager: SourceCursorManager[AppfollowScanCursor] | None = None,
 ) -> SourceResponse:
     config = endpoints_for_version(api_version)[endpoint]
 
@@ -994,6 +1031,7 @@ def appfollow_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            cursor_manager=cursor_manager,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,

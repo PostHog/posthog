@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.appfollow._config import AppfollowSource
 from products.warehouse_sources.sources.appfollow.appfollow import (
     APPFOLLOW_BASE_URL,
     AppfollowResumeConfig,
+    AppfollowScanCursor,
     _extract_rows,
     _to_date_str,
     _to_datetime_str,
@@ -25,6 +26,7 @@ from products.warehouse_sources.sources.appfollow.settings import (
     endpoints_for_version,
 )
 from products.warehouse_sources.sources.appfollow.source import AppfollowSource
+from products.warehouse_sources.sources.sdk import SourceCursorManager
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
@@ -45,6 +47,8 @@ def _run(
     resume_state: AppfollowResumeConfig | None = None,
     **inputs: Any,
 ) -> DriveResult:
+    if endpoint == "console_ratings":
+        inputs.setdefault("source_cursor", SourceCursorManager(AppfollowScanCursor, None, AppfollowSource()))
     return SourceDriver(AppfollowSource(), AppfollowSourceConfig(api_key="tok")).run(
         endpoint, script, api_version=api_version, resume_state=resume_state, **inputs
     )
@@ -632,6 +636,127 @@ def _console_api(respond: Callable[[RecordedRequest], ScriptedResponse]) -> Scri
 
 
 class TestConsoleRatings:
+    @pytest.mark.parametrize("watermark", [None, date(2026, 4, 15)])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_empty_scans_persist_coverage_across_jobs(self, watermark: date | None) -> None:
+        source = AppfollowSource()
+        cursor = SourceCursorManager(AppfollowScanCursor, None, source)
+        script = _console_api(lambda _: ScriptedResponse(json={"fields": {"ratings": None, "users": None}}))
+        first = _run(
+            "console_ratings",
+            script,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+            source_cursor=cursor,
+        )
+        assert first.raised is None
+        assert first.rows == []
+        assert _requests_to(first, "/meta/ratings/console/gp")[0].param("from") == (
+            "2026-04-08" if watermark else "2026-05-16"
+        )
+        payload = cursor.staged_payload()
+        assert payload is not None
+        next_cursor = SourceCursorManager.from_sync_type_config(
+            source, {"source_cursor": payload}, source_inputs("console_ratings").logger
+        )
+        with time_machine.travel("2026-06-16T09:00:00Z", tick=False):
+            second = _run(
+                "console_ratings",
+                script,
+                job_id="00000000-0000-4000-8000-000000000004",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=watermark,
+                source_cursor=next_cursor,
+            )
+        assert second.raised is None
+        assert second.rows == []
+        requests_ = _requests_to(second, "/meta/ratings/console/gp")
+        assert [(r.param("from"), r.param("to")) for r in requests_] == [("2026-06-08", "2026-06-16")] * 4
+
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_failed_scan_does_not_advance_coverage(self) -> None:
+        source = AppfollowSource()
+        cursor = SourceCursorManager(AppfollowScanCursor, None, source)
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("collection_name") == "second":
+                return ScriptedResponse(status=403, json={"detail": "Forbidden"})
+            return ScriptedResponse(json={"fields": {"ratings": None, "users": None}})
+
+        failed = _run(
+            "console_ratings",
+            _console_api(respond),
+            source_cursor=cursor,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 4, 15),
+        )
+        assert isinstance(failed.raised, requests.HTTPError)
+        assert cursor.staged_payload() is None
+        retry = _run(
+            "console_ratings",
+            _console_api(lambda _: ScriptedResponse(json={"fields": {}})),
+            source_cursor=SourceCursorManager(AppfollowScanCursor, cursor.load(), source),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 4, 15),
+        )
+        assert retry.raised is None
+        assert _requests_to(retry, "/meta/ratings/console/gp")[0].param("from") == "2026-04-08"
+
+    @pytest.mark.parametrize("incremental", [False, True])
+    @time_machine.travel("2026-06-16T09:00:00Z", tick=False)
+    def test_scan_coverage_is_specific_to_each_app_and_ignored_for_full_refresh(self, incremental: bool) -> None:
+        source = AppfollowSource()
+        stored = AppfollowScanCursor(completed_through={"10:example.app": "2026-06-15"})
+        discovery = _V2Api(
+            collections=[{"id": 10, "title_normalized": "first"}],
+            apps_by_collection={10: [{"ext_id": ext_id, "store": "gp"} for ext_id in ("example.app", "new.app")]},
+        )
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/meta/ratings/console/gp"):
+                return ScriptedResponse(json={"fields": {}})
+            return discovery(request)
+
+        result = _run(
+            "console_ratings",
+            respond,
+            source_cursor=SourceCursorManager(AppfollowScanCursor, stored, source),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=date(2026, 4, 15),
+        )
+        assert result.raised is None
+        first_dates: dict[str, str | None] = {}
+        for request in _requests_to(result, "/meta/ratings/console/gp"):
+            first_dates.setdefault(request.param("ext_id") or "", request.param("from"))
+        assert first_dates == {
+            "example.app": "2026-06-08" if incremental else "2026-05-17",
+            "new.app": "2026-04-08" if incremental else "2026-05-17",
+        }
+
+    @pytest.mark.parametrize("failed_metric", ["ratings", "users"])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_missing_integration_skips_to_the_next_collection(self, failed_metric: str) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("collection_name") == "first" and request.param("fields") == failed_metric:
+                return ScriptedResponse(status=424, json={"detail": "Failed Dependency"})
+            return ScriptedResponse(json={"fields": {request.param("fields"): [{"date": "2026-06-15", "value": 1}]}})
+
+        cursor = SourceCursorManager(AppfollowScanCursor, None, AppfollowSource())
+        result = _run(
+            "console_ratings",
+            _console_api(respond),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 6, 14),
+            source_cursor=cursor,
+        )
+        assert result.raised is None
+        assert [(row["collection_name"], row["metric"]) for row in result.rows] == [
+            ("second", "ratings"),
+            ("second", "users"),
+        ]
+        assert result.committed_states == [AppfollowResumeConfig(ext_id="example.app", collection_id=20)]
+        assert cursor.staged == AppfollowScanCursor(completed_through={"20:example.app": "2026-06-15"})
+
     @pytest.mark.parametrize("has_google_play_app", [False, True])
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_discovery_reaches_safe_points_between_empty_collections(self, has_google_play_app: bool) -> None:
@@ -648,7 +773,7 @@ class TestConsoleRatings:
             return discovery(request)
 
         source = AppfollowSource()
-        inputs = source_inputs("console_ratings")
+        inputs = source_inputs("console_ratings", source_cursor=SourceCursorManager(AppfollowScanCursor, None, source))
         manager = source.get_resumable_source_manager(inputs)
         with (
             scripted_network(script) as network,
