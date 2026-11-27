@@ -33,8 +33,11 @@ def seed_cloned_demo_timeseries(source_team_id: int, team_id: int, request_id: s
 
 
 def copy_demo_timeseries(source_team_id: int, target: ExperimentTimeseriesRecalculation, until: date) -> bool:
-    experiment = Experiment.objects.select_related("team", "feature_flag").get(
-        pk=target.experiment_id, team_id=target.team_id
+    experiment = (
+        Experiment.objects.for_team(target.team_id)
+        .including_deleted()
+        .select_related("team", "feature_flag")
+        .get(pk=target.experiment_id)
     )
     target_config = find_calculation_config_by_key(experiment, target.metric["uuid"], target.fingerprint)
     if target_config is None or experiment.start_date is None:
