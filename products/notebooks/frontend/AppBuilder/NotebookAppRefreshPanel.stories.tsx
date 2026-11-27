@@ -74,6 +74,16 @@ export const Reader: StoryObj<typeof RefreshDetails> = {
     args: { status: initial, busy: false, onReload: () => {} },
 }
 
+export const LimitedHistory: StoryObj<typeof RefreshDetails> = {
+    render: () => (
+        <RefreshDetails
+            status={{ ...initial, history: [], stale: null, last_success_at: null }}
+            busy={false}
+            onReload={() => {}}
+        />
+    ),
+}
+
 export const PrivateRuntimeChecks: StoryObj<typeof RefreshDetails> = {
     render: function PrivateRuntimeChecks() {
         const [status, setStatus] = useState<NotebookAppRefreshStatusApi>({

@@ -184,6 +184,9 @@ function scheduleState(status: NotebookAppRefreshStatusApi, active: boolean, has
     if (!active) {
         return 'Off'
     }
+    if (status.stale == null) {
+        return 'Scheduled'
+    }
     if (status.stale) {
         return 'Stale'
     }
@@ -204,7 +207,7 @@ function ScheduleSummary({
 }): JSX.Element {
     return (
         <summary className="cursor-pointer">
-            <strong>{hasChecks ? 'Scheduled refresh and runtime checks' : 'Scheduled SQL refresh'}</strong>
+            <strong>{hasChecks ? 'Scheduled refresh and runtime checks' : 'Scheduled refresh'}</strong>
             <span className="ml-2">
                 <LemonTag type={active && status.stale ? 'warning' : 'default'}>
                     {scheduleState(status, active, hasChecks)}
@@ -278,8 +281,12 @@ export function RefreshDetails({
                     </LemonBanner>
                 )}
                 <ScheduleTimes status={status} active={active} onReload={onReload} />
-                <strong>Refresh history</strong>
-                <RefreshHistory status={status} />
+                {status.stale != null && (
+                    <>
+                        <strong>Refresh history</strong>
+                        <RefreshHistory status={status} />
+                    </>
+                )}
             </div>
         </details>
     )
@@ -311,7 +318,7 @@ export function NotebookAppRefreshPanel({
             }
             setStatus(next)
             setError(false)
-            if (onOutputs && next.revision === revision && next.last_success_at) {
+            if (onOutputs && next.revision === revision) {
                 const result = await notebooksAppRefreshOutputsRetrieve(project, shortId, options)
                 if (!controller.signal.aborted && result.revision === revision) {
                     onOutputs(result.outputs)

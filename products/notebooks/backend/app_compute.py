@@ -24,13 +24,19 @@ from products.notebooks.backend.app_viewer import draft_app_release, viewer_vari
 from products.notebooks.backend.kernel_runtime import (
     APP_VIEWER_KERNEL_PREFIX,
     APP_VIEWER_MAX_OUTPUT_BYTES,
+    SCHEDULED_APP_KERNEL_PREFIX,
     KernelRuntimeSession,
     get_kernel_runtime,
 )
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds, apply_raw_page_bounds
-from products.notebooks.backend.sql_v2_state import NotebookCellState, build_dependency_edges, extract_cells
+from products.notebooks.backend.sql_v2_state import (
+    NotebookCellState,
+    ambiguous_cell_ids,
+    build_dependency_edges,
+    extract_cells,
+)
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
     NotebookVariableError,
@@ -46,6 +52,8 @@ MAX_CELLS = 20
 
 
 def _cell_chain(cells: list[NotebookCellState], target: str) -> list[NotebookCellState]:
+    if ambiguous_cell_ids(cells):
+        raise ValidationError("Assign a unique ID to every runnable cell before running this app.")
     by_id = {cell.node_id: cell for cell in cells}
     if target not in by_id:
         raise ValidationError("This cell has no runnable source.")
@@ -96,6 +104,7 @@ def run_app_cell(
     inputs: dict[str, NotebookVariableValue],
     *,
     draft_layout: dict[str, Any] | None = None,
+    workload: Workload = Workload.ONLINE,
 ) -> dict[str, JsonValue]:
     release = (
         draft_app_release(team_id, notebook_id, revision, draft_layout)
@@ -130,9 +139,14 @@ def run_app_cell(
         kernel = None
         deadline = monotonic() + 90
         if needs_kernel:
+            short_id = (
+                SCHEDULED_APP_KERNEL_PREFIX + secrets.token_urlsafe(7)
+                if workload == Workload.OFFLINE
+                else APP_VIEWER_KERNEL_PREFIX + secrets.token_urlsafe(8)
+            )
             scratch = Notebook(
                 team=notebook.team,
-                short_id=APP_VIEWER_KERNEL_PREFIX + secrets.token_urlsafe(8),
+                short_id=short_id,
                 visibility=Notebook.Visibility.INTERNAL,
             )
             kernel = get_kernel_runtime(scratch, user)
@@ -145,7 +159,7 @@ def run_app_cell(
         result: dict[str, JsonValue] = {}
         for cell in chain:
             try:
-                result = _run_cell(cell, notebook, user, variables, kernel, deadline, cell.node_id == node_id)
+                result = _run_cell(cell, notebook, user, variables, kernel, deadline, cell.node_id == node_id, workload)
             except NotebookVariableError as error:
                 raise ValidationError(str(error)) from error
         return result
@@ -159,6 +173,7 @@ def _run_cell(
     kernel: KernelRuntimeSession | None,
     deadline: float,
     final: bool,
+    workload: Workload,
 ) -> dict[str, JsonValue]:
     if cell.cell_type == "python":
         assert kernel is not None
@@ -195,7 +210,7 @@ def _run_cell(
         user=user,
         connection_id=cell.connection_id,
         send_raw_query=cell.send_raw_query,
-        workload=Workload.ONLINE,
+        workload=workload,
     )
     if response.error:
         raise ValidationError(response.error)

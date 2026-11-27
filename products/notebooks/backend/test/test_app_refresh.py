@@ -6,9 +6,11 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.hogql.context import HogQLContext
+
+from posthog.clickhouse.workload import Workload
 
 from products.notebooks.backend.app_refresh import (
     configure,
@@ -18,6 +20,8 @@ from products.notebooks.backend.app_refresh import (
     result_scope,
     run_slot,
 )
+from products.notebooks.backend.app_releases import review_sources
+from products.notebooks.backend.facade.contracts import AppBlockSource
 from products.notebooks.backend.markdown_conversion import (
     build_markdown_notebook_content,
     get_markdown_notebook_markdown,
@@ -98,7 +102,7 @@ class TestAppRefresh(APIBaseTest):
         schedule.refresh_from_db()
         assert schedule.outputs == payload
         assert schedule.last_success_at is not None
-        status = refresh_status(self.team.pk, self.notebook.pk)
+        status = refresh_status(self.team.pk, self.notebook.pk, self.user.pk)
         assert [item.status for item in status.history] == ["failed", "succeeded"]
         assert status.history[0].detail == "The schedule owner no longer has access."
 
@@ -197,7 +201,8 @@ class TestAppRefresh(APIBaseTest):
         self.publish_private_cells()
         executed = []
 
-        def compute(team_id, notebook_id, user, revision, node_id, inputs):
+        def compute(team_id, notebook_id, user, revision, node_id, inputs, *, workload):
+            assert workload == Workload.OFFLINE
             executed.append((team_id, notebook_id, user.pk, revision, node_id, inputs))
             return {"columns": ["private"], "rows": [["never persist this row"]]}
 
@@ -215,10 +220,13 @@ class TestAppRefresh(APIBaseTest):
             run = self.slot(schedule)
             run_slot(self.team.pk, run.pk)
             run_slot(self.team.pk, run.pk)
-        state = refresh_status(self.team.pk, self.notebook.pk)
+        state = refresh_status(self.team.pk, self.notebook.pk, self.user.pk)
         schedule.refresh_from_db()
         assert executed == [(self.team.pk, self.notebook.pk, self.user.pk, 3, node, {}) for node in ["counts", "score"]]
         assert state.history[0].status == "succeeded"
+        other_reader = refresh_status(self.team.pk, self.notebook.pk, self._create_user("reader@example.com").pk)
+        assert not other_reader.history and not other_reader.checked_node_ids
+        assert other_reader.last_success_at is None and other_reader.stale is None
         assert state.history[0].checked_count == 2
         assert state.history[0].duration_seconds is not None
         assert schedule.outputs == {}
@@ -230,17 +238,72 @@ class TestAppRefresh(APIBaseTest):
     def test_private_failure_never_records_the_exception_text_or_a_result(self, _flag):
         self.publish_private_cells()
 
-        def compute(*_args):
+        def compute(*_args, **_kwargs):
             raise ValueError("private output in error text")
 
         with patch("products.notebooks.backend.app_runtime_checks.run_app_cell", side_effect=compute):
             configure(self.team.pk, self.notebook.pk, self.user.pk, 3, 60, 90, True, ["score"])
             schedule = NotebookAppSchedule.objects.for_team(self.team.pk).get(notebook=self.notebook)
             run_slot(self.team.pk, self.slot(schedule).pk)
-        state = refresh_status(self.team.pk, self.notebook.pk)
+        state = refresh_status(self.team.pk, self.notebook.pk, self.user.pk)
         assert state.history[0].status == "failed"
         assert state.history[0].detail == "Runtime check failed for score. Open the app and run the cell to inspect it."
         assert state.last_success_at is None
+
+    def test_sql_rows_are_published_before_a_private_check_fails(self):
+        self.publish_private_cells()
+        configure(self.team.pk, self.notebook.pk, self.user.pk, 3, 60, 90, True, ["score"])
+        schedule = NotebookAppSchedule.objects.for_team(self.team.pk).get(notebook=self.notebook)
+        run = self.slot(schedule)
+        output = {"total": {"result": {"results": [[3]]}, "scope": "published"}}
+
+        def fail_check(*_args, **_kwargs):
+            schedule.refresh_from_db()
+            assert schedule.outputs == output
+            raise ValueError("check failed")
+
+        with (
+            patch("products.notebooks.backend.app_refresh.refresh_outputs", return_value=output),
+            patch("products.notebooks.backend.app_runtime_checks.run_app_cell", side_effect=fail_check),
+        ):
+            run_slot(self.team.pk, run.pk)
+        run.refresh_from_db()
+        schedule.refresh_from_db()
+        assert run.status == "failed" and run.output_count == 1
+        assert schedule.outputs == output and schedule.last_success_at is not None
+
+    def test_capacity_reservation_counts_other_active_schedules_for_the_owner(self):
+        self.publish_private_cells()
+        other = Notebook.objects.create(team=self.team, created_by=self.user)
+        NotebookAppSchedule.objects.for_team(self.team.pk).create(
+            team=self.team,
+            notebook=other,
+            owner=self.user,
+            revision=1,
+            checked_node_ids=["first", "second"],
+            interval_minutes=60,
+            freshness_minutes=90,
+            next_due_at=timezone.now(),
+        )
+        with patch("products.notebooks.backend.app_runtime_checks.SCHEDULED_KERNEL_STARTS_PER_USER_PER_HOUR", 3):
+            configure(self.team.pk, self.notebook.pk, self.user.pk, 3, 60, 90, True, ["score"])
+            with self.assertRaises(ValidationError):
+                configure(self.team.pk, self.notebook.pk, self.user.pk, 3, 60, 90, True, ["score", "counts"])
+
+    def test_ambiguous_runnable_cell_cannot_be_selected_for_a_check(self):
+        self.publish_private_cells()
+        release = NotebookAppRelease.objects.for_team(self.team.pk).get(notebook=self.notebook)
+        release.markdown += '\n\n<PythonV2 nodeId="score" code="print(7)" />'
+        release.save(update_fields=["markdown"])
+        self.notebook.content = build_markdown_notebook_content(release.markdown)
+        review = review_sources(
+            self.notebook, release.markdown, [AppBlockSource(id="score", node_id="score", kind="cell")]
+        )
+        assert any("unique ID" in message for message in review.problems)
+        state = refresh_status(self.team.pk, self.notebook.pk, self.user.pk)
+        assert {target.node_id for target in state.check_targets} == {"counts"}
+        with self.assertRaises(ValidationError):
+            configure(self.team.pk, self.notebook.pk, self.user.pk, 3, 60, 90, True, ["score"])
 
     @patch(
         "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
@@ -249,7 +312,7 @@ class TestAppRefresh(APIBaseTest):
         self.publish_private_cells()
         executed = []
 
-        def revoke_after_first(_team, _notebook, owner, _revision, node_id, _inputs):
+        def revoke_after_first(_team, _notebook, owner, _revision, node_id, _inputs, **_kwargs):
             executed.append(node_id)
             owner.is_active = False
             owner.save(update_fields=["is_active"])
@@ -259,7 +322,7 @@ class TestAppRefresh(APIBaseTest):
         schedule = NotebookAppSchedule.objects.for_team(self.team.pk).get(notebook=self.notebook)
         with patch("products.notebooks.backend.app_runtime_checks.run_app_cell", side_effect=revoke_after_first):
             run_slot(self.team.pk, self.slot(schedule).pk)
-        state = refresh_status(self.team.pk, self.notebook.pk)
+        state = refresh_status(self.team.pk, self.notebook.pk, self.user.pk)
         assert executed == ["counts"]
         assert state.history[0].status == "failed"
         assert state.history[0].checked_count == 1

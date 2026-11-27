@@ -25,7 +25,13 @@ from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
 from products.notebooks.backend.app_releases import read_release
-from products.notebooks.backend.app_runtime_checks import RuntimeCheckFailed, check_targets, run_checks, validate_checks
+from products.notebooks.backend.app_runtime_checks import (
+    RuntimeCheckFailed,
+    check_targets,
+    reserve_check_capacity,
+    run_checks,
+    validate_checks,
+)
 from products.notebooks.backend.app_viewer import resolve_viewer_queries
 from products.notebooks.backend.facade.contracts import AppRefreshedOutput, AppRefreshHistory, AppRefreshStatus
 from products.notebooks.backend.models import Notebook, NotebookAppRefreshRun, NotebookAppSchedule
@@ -104,6 +110,7 @@ def configure(
             return
         checks = sorted(checked_node_ids or [])
         current_plans(locked, revision, checks)
+        reserve_check_capacity(locked, user, checks)
         schedule, created = (
             NotebookAppSchedule.objects.for_team(locked.team_id)
             .select_for_update()
@@ -127,7 +134,11 @@ def configure(
             == (user.pk, revision, interval, freshness)
         ):
             return
-        if not created and (schedule.revision != revision or schedule.owner_id != user.pk):
+        if not created and (
+            schedule.revision != revision
+            or schedule.owner_id != user.pk
+            or (schedule.checked_node_ids and not checks and not schedule.outputs)
+        ):
             schedule.last_success_at = None
             schedule.outputs = {}
         schedule.checked_node_ids = checks
@@ -142,7 +153,7 @@ def configure(
         schedule.save()
 
 
-def refresh_status(team_id: int, notebook_id: UUID) -> AppRefreshStatus:
+def refresh_status(team_id: int, notebook_id: UUID, reader_id: int | None = None) -> AppRefreshStatus:
     schedule = NotebookAppSchedule.objects.for_team(team_id).filter(notebook_id=notebook_id).defer("outputs").first()
     release = read_release(team_id, notebook_id)
     if release is None:
@@ -151,7 +162,22 @@ def refresh_status(team_id: int, notebook_id: UUID) -> AppRefreshStatus:
     targets = check_targets(release)
     if not schedule:
         return AppRefreshStatus(published_revision=published_revision, enabled=False, history=[], check_targets=targets)
-    runs = NotebookAppRefreshRun.objects.for_team(team_id).filter(schedule=schedule).order_by("-due_at")
+    if schedule.checked_node_ids and reader_id != schedule.owner_id:
+        return AppRefreshStatus(
+            published_revision=published_revision,
+            enabled=schedule.enabled,
+            history=[],
+            check_targets=targets,
+            revision=schedule.revision,
+            interval_minutes=schedule.interval_minutes,
+            freshness_minutes=schedule.freshness_minutes,
+            next_due_at=schedule.next_due_at,
+        )
+    runs = (
+        NotebookAppRefreshRun.objects.for_team(team_id)
+        .filter(schedule=schedule, due_at__gte=schedule.configured_at)
+        .order_by("-due_at")
+    )
     threshold = (schedule.last_success_at or schedule.configured_at) + timedelta(minutes=schedule.freshness_minutes)
     return AppRefreshStatus(
         published_revision=published_revision,
@@ -296,6 +322,39 @@ def notify_owner(schedule: NotebookAppSchedule, title: str, key: str) -> None:
     )
 
 
+def store_sql_outputs(schedule: NotebookAppSchedule, outputs: dict[str, Any]) -> None:
+    now = timezone.now()
+    schedule.outputs = outputs
+    schedule.last_success_at = now
+    schedule.stale_at = now + timedelta(minutes=schedule.freshness_minutes)
+    schedule.stale_notified = False
+    schedule.save(update_fields=["outputs", "last_success_at", "stale_at", "stale_notified"])
+
+
+def publish_sql_before_checks(run: NotebookAppRefreshRun, outputs: dict[str, Any]) -> bool:
+    with transaction.atomic():
+        schedule = (
+            NotebookAppSchedule.objects.for_team(run.team_id)
+            .select_for_update()
+            .filter(
+                pk=run.schedule_id,
+                enabled=True,
+                revision=run.revision,
+                configured_at__lte=run.due_at,
+            )
+            .first()
+        )
+        if (
+            schedule is None
+            or not NotebookAppRefreshRun.objects.for_team(run.team_id)
+            .filter(pk=run.pk, status=NotebookAppRefreshRun.Status.RUNNING)
+            .exists()
+        ):
+            return False
+        store_sql_outputs(schedule, outputs)
+        return True
+
+
 def finish_run(
     run: NotebookAppRefreshRun,
     outputs: dict[str, Any] | None,
@@ -316,7 +375,7 @@ def finish_run(
             outputs, detail = None, "The schedule changed before this run finished."
         state = NotebookAppRefreshRun.Status
         updated = runs.filter(pk=run.pk, status=state.RUNNING).update(
-            status=state.SUCCEEDED if outputs is not None else state.FAILED,
+            status=state.SUCCEEDED if outputs is not None and not detail else state.FAILED,
             finished_at=now,
             detail=detail,
             output_count=len(outputs or {}),
@@ -324,13 +383,9 @@ def finish_run(
         )
         if not updated:
             return
-        if outputs is not None:
-            schedule.outputs = outputs
-            schedule.last_success_at = now
-            schedule.stale_at = now + timedelta(minutes=schedule.freshness_minutes)
-            schedule.stale_notified = False
-            schedule.save(update_fields=["outputs", "last_success_at", "stale_at", "stale_notified"])
-        elif schedule.enabled and run.due_at >= schedule.configured_at:
+        if outputs is not None and not detail and not (outputs and schedule.checked_node_ids):
+            store_sql_outputs(schedule, outputs)
+        if detail and schedule.enabled and run.due_at >= schedule.configured_at:
             previous = (
                 runs.filter(due_at__gte=schedule.configured_at, due_at__lt=run.due_at)
                 .order_by("-due_at")
@@ -364,6 +419,9 @@ def run_slot(team_id: int, run_id: UUID) -> None:
             return
         outputs = refresh_outputs(run.schedule)
         checks = run.schedule.checked_node_ids
+        if checks and outputs and not publish_sql_before_checks(run, outputs):
+            finish_run(run, None, "This schedule was changed.")
+            return
         run_checks(
             run.schedule.notebook,
             run.schedule.owner_id,
@@ -374,7 +432,7 @@ def run_slot(team_id: int, run_id: UUID) -> None:
     except RuntimeCheckFailed as failure:
         finish_run(
             run,
-            None,
+            outputs,
             f"Runtime check failed for {failure.node_id}. Open the app and run the cell to inspect it.",
             checked_count=failure.completed,
         )

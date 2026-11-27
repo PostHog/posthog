@@ -12,6 +12,7 @@ run row records which input runs or variable values it used.
 
 import re
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -238,6 +239,10 @@ def _referenced_names(cell: NotebookCellState, candidates: set[str]) -> set[str]
             # graph usable instead of dropping every edge.
             return {name for name in candidates if re.search(rf"\b{re.escape(name)}\b", cell.code)}
     return set()
+
+
+def ambiguous_cell_ids(cells: list[NotebookCellState]) -> set[str]:
+    return {node_id for node_id, count in Counter(cell.node_id for cell in cells).items() if count > 1}
 
 
 def get_dataframe_owners(cells: list[NotebookCellState]) -> dict[str, str]:

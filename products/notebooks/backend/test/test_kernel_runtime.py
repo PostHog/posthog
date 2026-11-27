@@ -17,6 +17,8 @@ from products.notebooks.backend.kernel_runtime import (
     NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM,
     NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR,
     NOTEBOOK_KERNEL_TTL_SECONDS,
+    SCHEDULED_APP_KERNEL_PREFIX,
+    SCHEDULED_KERNEL_STARTS_PER_USER_PER_HOUR,
     KernelRuntimeService,
     KernelSandboxLimitExceeded,
     _KernelHandle,
@@ -467,6 +469,23 @@ class TestKernelRuntimeService(BaseTest):
         assert mock_execute.call_args.kwargs["user"] == self.user
         header, body = sandbox.written_files["/tmp/resp.json"].split(b"\n", 1)
         assert int(header) == len(body)
+
+    def test_scheduled_starts_have_an_independent_bounded_hourly_allowance(self) -> None:
+        interactive = Notebook.objects.create(team=self.team)
+        scheduled = Notebook(team=self.team, short_id=SCHEDULED_APP_KERNEL_PREFIX + "check")
+        for _ in range(SCHEDULED_KERNEL_STARTS_PER_USER_PER_HOUR):
+            KernelRuntime.objects.create(
+                team=self.team,
+                user=self.user,
+                notebook_short_id=scheduled.short_id,
+                ended_at=timezone.now(),
+                status=KernelRuntime.Status.STOPPED,
+                backend=KernelRuntime.Backend.MODAL,
+            )
+        service = KernelRuntimeService()
+        service._check_sandbox_limits(interactive, self.user)
+        with self.assertRaises(KernelSandboxLimitExceeded):
+            service._check_sandbox_limits(scheduled, self.user)
 
     @parameterized.expand(
         [

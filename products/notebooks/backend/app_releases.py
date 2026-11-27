@@ -17,6 +17,7 @@ from products.notebooks.backend.models import Notebook, NotebookAppRelease, Note
 from products.notebooks.backend.sql_v2_state import (
     MAX_ADDRESSABLE_PROSE_BLOCKS,
     NotebookCellState,
+    ambiguous_cell_ids,
     annotate_run_state,
     build_dependency_edges,
     extract_cells,
@@ -113,6 +114,8 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
     }
     states = release_cell_states(notebook, result_ids)
     problems: list[str] = []
+    if ambiguous_cell_ids(extract_cells(notebook.content)):
+        problems.append("Assign a unique ID to every runnable cell before publishing this app.")
     completed: list[datetime] = []
     for block in blocks:
         name = block.title or block.id

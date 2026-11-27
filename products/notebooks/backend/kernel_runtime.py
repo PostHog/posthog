@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -45,8 +46,10 @@ NOTEBOOK_KERNEL_TTL_SECONDS = 1 * 60 * 60
 
 # Each sandbox is paid compute until its TTL. A normal user starts a few a day.
 NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR = 10
+SCHEDULED_KERNEL_STARTS_PER_USER_PER_HOUR = 30
 NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM = 20
 APP_VIEWER_KERNEL_PREFIX = "_"
+SCHEDULED_APP_KERNEL_PREFIX = "_."
 APP_VIEWER_MAX_OUTPUT_BYTES = 512 * 1024
 
 
@@ -737,8 +740,16 @@ class KernelRuntimeService:
     def _check_sandbox_limits(self, notebook: Notebook, user: User | None) -> None:
         now = timezone.now()
         if isinstance(user, User):
-            recent_starts = KernelRuntime.objects.filter(user=user, created_at__gte=now - timedelta(hours=1)).count()
-            if recent_starts >= NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR:
+            starts = KernelRuntime.objects.filter(user=user, created_at__gte=now - timedelta(hours=1))
+            scheduled = Q(notebook_id__isnull=True, notebook_short_id__startswith=SCHEDULED_APP_KERNEL_PREFIX)
+            scheduled_check = notebook._state.adding and notebook.short_id.startswith(SCHEDULED_APP_KERNEL_PREFIX)
+            recent_starts = (starts.filter(scheduled) if scheduled_check else starts.exclude(scheduled)).count()
+            limit = (
+                SCHEDULED_KERNEL_STARTS_PER_USER_PER_HOUR
+                if scheduled_check
+                else NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR
+            )
+            if recent_starts >= limit:
                 logger.warning("notebook_kernel_user_start_limit", team_id=notebook.team_id, user_id=user.id)
                 raise KernelSandboxLimitExceeded(
                     "You started too many notebook kernels in the last hour. Try again later."

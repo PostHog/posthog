@@ -976,7 +976,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         from products.notebooks.backend.facade.app_refresh import refresh_status
 
         notebook = self._published_app(request)
-        return Response(NotebookAppRefreshStatusSerializer(refresh_status(notebook.team_id, notebook.pk)).data)
+        return Response(
+            NotebookAppRefreshStatusSerializer(refresh_status(notebook.team_id, notebook.pk, request.user.pk)).data
+        )
 
     @extend_schema(request=NotebookAppScheduleSettingsSerializer, responses=NotebookAppRefreshStatusSerializer)
     @action(methods=["POST"], detail=True, required_scopes=["notebook:write", "query:read"])
@@ -999,7 +1001,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             data["enabled"],
             data.get("checked_node_ids"),
         )
-        return Response(NotebookAppRefreshStatusSerializer(refresh_status(notebook.team_id, notebook.pk)).data)
+        return Response(
+            NotebookAppRefreshStatusSerializer(refresh_status(notebook.team_id, notebook.pk, request.user.pk)).data
+        )
 
     @extend_schema(responses=NotebookAppRefreshOutputsSerializer)
     @action(methods=["GET"], detail=True, required_scopes=["notebook:read", "query:read"])
