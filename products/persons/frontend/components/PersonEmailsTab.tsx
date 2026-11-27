@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -11,7 +12,13 @@ import { urls } from 'scenes/urls'
 import { EmailViewerModal } from 'products/workflows/frontend/Workflows/EmailViewerModal'
 import { MessageAsset } from 'products/workflows/frontend/Workflows/messageAssetsApi'
 
-import { personEmailsLogic } from '../logics/personEmailsLogic'
+import { EmailOutcome, personEmailsLogic } from '../logics/personEmailsLogic'
+
+const OUTCOME_LABEL: Record<EmailOutcome, string> = {
+    clicked: 'Clicked',
+    opened: 'Opened',
+    not_opened: 'Not opened',
+}
 
 const HedgehogGreek = pngHoggie(greekPng)
 
@@ -34,7 +41,7 @@ function EmptyEmails(): JSX.Element {
 
 export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX.Element {
     const logic = personEmailsLogic({ teamId, personId })
-    const { emails, emailsLoading } = useValues(logic)
+    const { emails, emailsLoading, outcomes, outcomesLoading } = useValues(logic)
     const [selected, setSelected] = useState<MessageAsset | null>(null)
 
     return (
@@ -43,7 +50,10 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
                 loading={emailsLoading}
                 dataSource={emails}
                 onRow={(asset: MessageAsset) => ({
-                    onClick: () => setSelected(asset),
+                    onClick: () =>
+                        outcomes?.[asset.invocation_id]
+                            ? router.actions.push(urls.transactionalEmailLogEntry(asset.invocation_id))
+                            : setSelected(asset),
                     className: 'cursor-pointer',
                 })}
                 emptyState={<EmptyEmails />}
@@ -72,6 +82,21 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
                         key: 'sent_at',
                         render: (_, asset: MessageAsset) => <TZLabel time={asset.sent_at} />,
                     },
+                    ...(outcomes || outcomesLoading
+                        ? [
+                              {
+                                  title: 'What it led to',
+                                  key: 'outcome',
+                                  render: (_: unknown, asset: MessageAsset) => {
+                                      const outcome = outcomes?.[asset.invocation_id]
+                                      if (outcome) {
+                                          return OUTCOME_LABEL[outcome]
+                                      }
+                                      return outcomesLoading ? <LemonSkeleton className="h-4 w-20" /> : null
+                                  },
+                              },
+                          ]
+                        : []),
                 ]}
             />
             <EmailViewerModal
