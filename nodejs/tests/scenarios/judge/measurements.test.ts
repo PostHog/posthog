@@ -64,6 +64,7 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     journal: [],
     truth: [],
     fetchRetries: 3,
+    truthFrom: 0,
     samples: [],
     missed: [],
     host: [],
@@ -347,6 +348,12 @@ describe('measurements', () => {
                 },
             ],
             { unread: 'the edge did not answer', converged: true },
+        ],
+        [
+            'leaves the count unmeasured when the settled truth skips a record',
+            [resent[0], { ...record(3, 'run-a-2', 4500), invocationId: 'inv-b' }],
+            [{ key: 'total', value: null, censored: true, unmeasured: 'the truth skips from seq 1 to 3' }],
+            { converged: true },
         ],
     ])('resent_invocations %s', (_story, truth, measured, overrides) => {
         expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ truth, ...overrides }))).toEqual(

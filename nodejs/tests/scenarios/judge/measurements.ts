@@ -12,7 +12,7 @@ import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
-import { deliveryKey, isAccepted } from './invariants'
+import { deliveryKey, isAccepted, truthGapOf } from './invariants'
 import type { JudgeEvidence } from './invariants'
 
 export type MetricSample = {
@@ -55,6 +55,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         steps: readonly Step[]
         timeline: readonly ValveTimelineEntry[]
         counters?: CounterReading
+        truthFrom: number
         unread?: string
         horizonAt?: number
         converged?: boolean
@@ -194,10 +195,11 @@ export const roleExitMs: MeasurementDefinition = {
     },
 }
 
-const unreadTruthOf = ({ unread, unsettled, converged }: MeasureEvidence): string | undefined =>
+const unreadTruthOf = ({ unread, unsettled, converged, truth, truthFrom }: MeasureEvidence): string | undefined =>
     unread !== undefined
         ? `the truth could not be read: ${unread}`
         : (unsettled ??
+          truthGapOf(truth, truthFrom) ??
           (converged === false
               ? 'the run did not converge, so a resend could still land after the final read'
               : undefined))
