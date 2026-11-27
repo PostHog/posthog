@@ -49,16 +49,17 @@ def remember_filter_inputs(signal_id: str, inputs: AlertDeliveryWorkflowInputs, 
         logger.exception("error_tracking_filter_preview_snapshot_unavailable", team_id=inputs.team_id)
 
 
-def _read_exceptions(team: Team, timestamps: dict[str, datetime]) -> dict[str, dict]:
+def _read_exceptions(team: Team, timestamps: dict[str, datetime], keys: list[str]) -> dict[str, dict]:
     if not timestamps:
         return {}
     result = execute_hogql_query(
         query="""
-            SELECT toString(uuid), properties FROM events
+            SELECT toString(uuid), {fields} FROM events
             WHERE uuid IN {ids} AND timestamp >= {start} AND timestamp <= {end}
             LIMIT {count}
         """,
         placeholders={
+            "fields": ast.Call(name="tuple", args=[ast.Field(chain=["properties", key]) for key in keys]),
             "ids": ast.Tuple(exprs=[ast.Constant(value=value) for value in timestamps]),
             "start": ast.Constant(value=min(timestamps.values()) - timedelta(minutes=1)),
             "end": ast.Constant(value=max(timestamps.values()) + timedelta(minutes=1)),
@@ -69,7 +70,27 @@ def _read_exceptions(team: Team, timestamps: dict[str, datetime]) -> dict[str, d
         ch_user=ClickHouseUser.ERROR_TRACKING,
         workload=Workload.ONLINE,
     )
-    return {key: json.loads(props) if isinstance(props, str) else props for key, props in result.results or []}
+    return {event_id: dict(zip(keys, values, strict=True)) for event_id, values in result.results or []}
+
+
+def _original_values(properties: dict, keys: set[str], digests: dict[str, str]) -> dict | None:
+    original = {}
+    for key in keys:
+        if key not in properties:
+            return None
+        value = properties[key]
+        if _digest(value) != digests[key]:
+            # A HogQL property projection can return JSON text for numbers, arrays and objects.
+            if not isinstance(value, str):
+                return None
+            try:
+                value = json.loads(value)
+            except ValueError:
+                return None
+            if _digest(value) != digests[key]:
+                return None
+        original[key] = value
+    return original
 
 
 def replay_signal_filters(
@@ -80,6 +101,7 @@ def replay_signal_filters(
     cached = cache.get_many([_key(team.pk, signal_id) for signal_id in signal_ids])
     snapshots = {}
     timestamps = {}
+    event_keys: set[str] = set()
     for signal_id in signal_ids:
         snapshot = cached.get(_key(team.pk, signal_id))
         if snapshot is None:
@@ -95,15 +117,16 @@ def replay_signal_filters(
             and inputs.event_timestamp
             and (stamp := parse_datetime(inputs.event_timestamp))
         ):
+            event_keys.update(needed)
             timestamps[inputs.event_uuid] = stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)
 
-    exceptions = _read_exceptions(team, timestamps)
+    exceptions = _read_exceptions(team, timestamps, sorted(event_keys))
     verdicts = {}
     for signal_id, (inputs, fields, digests, needed) in snapshots.items():
         properties = exceptions.get(inputs.event_uuid or "", {})
-        if any(key not in properties or _digest(properties[key]) != digests[key] for key in needed):
+        original = _original_values(properties, needed, digests)
+        if original is None:
             continue
-        original = {key: properties[key] for key in needed}
         outcome = evaluate_lifecycle_filters(compiled, inputs, original, log_context={"preview": True})
         seen = {**original, **fields}
         verdicts[signal_id] = outcome, {key: seen[key] for key in sorted(keys) if key in seen}

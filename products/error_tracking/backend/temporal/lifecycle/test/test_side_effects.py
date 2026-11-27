@@ -471,19 +471,20 @@ def test_preview_replays_the_live_transition_filter(team):
         issue_filter_outcome,
     )
 
-    compiled = compile_signal_source_filters(team.pk, {"properties": [PRODUCTION, HIGH_SEVERITY]})
+    attempts = {"type": "event", "key": "attempts", "operator": "gt", "value": 1}
+    compiled = compile_signal_source_filters(team.pk, {"properties": [PRODUCTION, HIGH_SEVERITY, attempts]})
     expected = {}
     for environment in ("production", "staging"):
         stamp = timezone.now()
         inputs = replace(_inputs(), team_id=team.pk, event_uuid=str(uuid4()), event_timestamp=stamp.isoformat())
         signal_id = str(uuid4())
-        properties = {"environment": environment, "severity": "low"}
+        properties = {"environment": environment, "severity": "low", "attempts": 3}
         filter_inputs = alert_delivery_inputs(
             inputs, event="$error_tracking_issue_reopened", exception_timestamp=inputs.event_timestamp
         )
         expected[signal_id] = (
             issue_filter_outcome(filter_inputs, compiled, properties, source_type="issue_reopened"),
-            {"environment": environment, "severity": "high"},
+            {"environment": environment, "severity": "high", "attempts": 3},
         )
         remember_filter_inputs(signal_id, filter_inputs, properties)
         _create_event(
