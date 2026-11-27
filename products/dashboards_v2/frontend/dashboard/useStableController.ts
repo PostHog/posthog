@@ -52,7 +52,7 @@ export function useStableController(props: DashboardController): DashboardContro
     const {
         dashboard,
         activeTabId,
-        widgets,
+        panels,
         disabledReasonFor,
         tileActions,
         tilePlacementActions,
@@ -64,7 +64,7 @@ export function useStableController(props: DashboardController): DashboardContro
         () => ({
             dashboard,
             activeTabId,
-            widgets,
+            panels,
             disabledReasonFor,
             onEdit,
             onActiveTabChange,
@@ -79,7 +79,7 @@ export function useStableController(props: DashboardController): DashboardContro
         [
             dashboard,
             activeTabId,
-            widgets,
+            panels,
             disabledReasonFor,
             onEdit,
             onActiveTabChange,

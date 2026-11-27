@@ -1,4 +1,4 @@
-import type { QueryOutcome, QueryTiming } from '../../widgets/core/widgetHostContext'
+import type { QueryOutcome, QueryTiming } from '../../panels/core/panelHostContext'
 
 /** What started a load: opening the dashboard, a refresh, a filter or time range change, or another tab. */
 export type DashboardLoadTrigger = 'load' | 'refresh' | 'filters' | 'tab'

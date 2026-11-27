@@ -178,3 +178,11 @@ __all__ = [
     "TileGroupDisplay",
     "TileSpacing",
 ]
+
+
+class BoardManagedBy(LabeledStrEnum):
+    """Who writes a `dashboard-v2` board. Only native boards can be changed or deleted through the API."""
+
+    NATIVE = "native", "Native"
+    BUILTIN = "builtin", "Built-in"
+    IAC = "iac", "Infrastructure as code"

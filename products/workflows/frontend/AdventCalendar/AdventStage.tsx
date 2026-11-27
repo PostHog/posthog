@@ -2,14 +2,14 @@ import './AdventCalendar.scss'
 
 import { ReactFlowProvider } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
 import { adventCalendarLogic } from './adventCalendarLogic'
 import { AdventCanvas } from './AdventCanvas'
 import { AdventCardFace, AdventDoorCard } from './AdventDoorCard'
-import { ADVENT_DOOR_SIZE, AdventDoor, adventDoorCenter, adventDoorGround, adventHogSize } from './adventGraph'
+import { ADVENT_DOOR_SIZE, AdventDoor, adventDoorGround, adventHogSize } from './adventGraph'
 import { adventPaletteStyle } from './adventPalette'
 import { AdventPictureBackdrop } from './AdventPictureBackdrop'
 import { AdventPictureCast, AdventPictureReveal } from './AdventPictureCast'
@@ -19,6 +19,7 @@ import { useAdventCard } from './useAdventCard'
 import { useAdventEscape } from './useAdventEscape'
 import { AdventRevealPhase, useAdventReveal } from './useAdventReveal'
 import { AdventStageFit, useAdventStageFit } from './useAdventStageFit'
+import { useAdventTrackScroll } from './useAdventTrackScroll'
 
 function faceOf(door: AdventDoor, { zoom, box }: AdventStageFit, scrollLeft: number): AdventCardFace {
     const left = box.left - scrollLeft
@@ -43,8 +44,7 @@ export function AdventStage(): JSX.Element {
     const { activateDoor, answerDoor, clearSelection, finishReveal, clickTip, clearSnowPuffs } =
         useActions(adventCalendarLogic)
     const fit = useAdventStageFit()
-    const { ref, zoom, box, stage, scrollsSideways } = fit
-    const track = useRef<HTMLDivElement>(null)
+    const { ref, zoom, box, stage } = fit
     const revealingDoorId = revealingDoor?.id ?? null
     const selectedDoorId = selectedDoor?.id ?? null
     const reveal = useAdventReveal(revealingDoorId, finishReveal)
@@ -57,14 +57,13 @@ export function AdventStage(): JSX.Element {
         clearHover()
     }, [clearSelection, clearHover])
     useAdventEscape(!!revealingDoor, finishReveal, dismiss)
-
-    const todayDoor = graph.doors.find((door) => door.day === today)
-    const todayX = todayDoor ? adventDoorCenter(todayDoor).x : 0
-    useLayoutEffect(() => {
-        if (scrollsSideways && track.current) {
-            track.current.scrollLeft = todayX * zoom - stage.width / 2
-        }
-    }, [scrollsSideways, todayX, zoom, stage.width])
+    const { trackProps, scrollLeft } = useAdventTrackScroll({
+        graph,
+        today,
+        fit,
+        hasCard: !!cardDoor,
+        onScrollAway: dismiss,
+    })
 
     return (
         <div
@@ -75,11 +74,7 @@ export function AdventStage(): JSX.Element {
         >
             {zoom > 0 && (
                 <>
-                    <div
-                        ref={track}
-                        className={cn('AdventStage__track', scrollsSideways && 'AdventStage__track--scrolls')}
-                        onScroll={cardDoor ? dismiss : undefined}
-                    >
+                    <div {...trackProps}>
                         <div className="relative h-full" style={{ width: Math.max(stage.width, box.width) }}>
                             <div className="AdventPicture" style={box}>
                                 <AdventPictureBackdrop graph={graph} hasTracks={false} />
@@ -125,7 +120,7 @@ export function AdventStage(): JSX.Element {
                             key={cardDoor.id}
                             door={cardDoor}
                             shares={pollShares[cardDoor.day]}
-                            face={faceOf(cardDoor, fit, track.current?.scrollLeft ?? 0)}
+                            face={faceOf(cardDoor, fit, scrollLeft())}
                             stage={stage}
                             isOpen={card.isOpen}
                             isPinned={card.isPinned}
