@@ -79,8 +79,11 @@ def test_trace_dumps_declared_fields_in_camel_case_and_every_field_is_required_i
     }
 
 
-def _all_subclasses(cls: type) -> list[type]:
-    return [sub for direct in cls.__subclasses__() for sub in (direct, *_all_subclasses(direct))]
+def _all_subclasses(cls: type[contracts.Contract]) -> list[type[contracts.Contract]]:
+    subclasses: list[type[contracts.Contract]] = []
+    for direct in cls.__subclasses__():
+        subclasses.extend([direct, *_all_subclasses(direct)])
+    return subclasses
 
 
 def test_no_contract_field_or_alias_starts_with_a_dollar() -> None:
