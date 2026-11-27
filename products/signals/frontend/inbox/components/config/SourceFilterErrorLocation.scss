@@ -1,0 +1,11 @@
+.SourceFilterErrorLocation__mark {
+    text-decoration: underline wavy var(--color-text-error);
+    text-decoration-skip-ink: none;
+    text-underline-offset: 0.2em;
+}
+
+// One space is too narrow for the underline to read, so a caret line marks the position too.
+.SourceFilterErrorLocation__mark--point {
+    background: var(--color-bg-fill-error-highlight);
+    box-shadow: inset 2px 0 0 var(--color-text-error);
+}

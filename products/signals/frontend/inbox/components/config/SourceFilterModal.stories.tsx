@@ -8,6 +8,7 @@ import type {
     SourceFilterCatalogApi,
     SourceFilterPreviewRecordApi,
     SourceFilterPreviewResponseApi,
+    SourceFilterValidateResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
@@ -118,6 +119,18 @@ function preview(filtered: boolean): SourceFilterPreviewResponseApi {
     }
 }
 
+const MISTYPED_EXPRESSION = "NOT has(label_names, 'internal')\nAND priorty IN (1, 2)"
+const MISTYPED_FIELD_START = MISTYPED_EXPRESSION.indexOf('priorty')
+
+const MISTYPED_VALIDATION: SourceFilterValidateResponseApi = {
+    valid: false,
+    catalog_version: 2,
+    error: 'Unknown field "priorty". Use one of the listed fields.',
+    error_code: 'unknown_field',
+    error_start: MISTYPED_FIELD_START,
+    error_end: MISTYPED_FIELD_START + 'priorty'.length,
+}
+
 const meta: Meta<typeof SourceFilterModal> = {
     title: 'Scenes-App/Inbox/SourceFilterModal',
     component: SourceFilterModal,
@@ -192,5 +205,19 @@ export const SourceWithoutPreview: Story = {
         sourceConfig: linearConfig({
             hogql_filter: { expression: "NOT has(label_names, 'internal')", catalog_version: 2 },
         }),
+    },
+}
+
+export const InvalidFilter: Story = {
+    args: {
+        sourceConfig: linearConfig({ hogql_filter: { expression: MISTYPED_EXPRESSION, catalog_version: 2 } }),
+    },
+    decorators: [
+        mswDecorator({
+            post: { '/api/projects/:team_id/signals/source_configs/filter_validate/': MISTYPED_VALIDATION },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '.SourceFilterErrorLocation__mark', snapshotBrowsers: [] },
     },
 }

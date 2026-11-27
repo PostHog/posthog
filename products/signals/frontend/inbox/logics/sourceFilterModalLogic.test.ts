@@ -3,7 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { SourceFilterCatalogApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    SourceFilterCatalogApi,
+    SourceFilterValidateResponseApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../types'
 import { sourceFilterModalLogic } from './sourceFilterModalLogic'
@@ -16,6 +19,15 @@ const catalog: SourceFilterCatalogApi = {
     filter_fields: [{ name: 'assignee_id', type: 'string', description: 'Assignee.' }],
     starter_expressions: ['assignee_id IS NULL'],
     preview_supported: true,
+}
+
+const VALID: SourceFilterValidateResponseApi = {
+    valid: true,
+    catalog_version: 2,
+    error: null,
+    error_code: null,
+    error_start: null,
+    error_end: null,
 }
 
 function linearConfig(config: Record<string, any>): SignalSourceConfig {
@@ -37,6 +49,7 @@ describe('sourceFilterModalLogic', () => {
     let patchBodies: Record<string, any>[]
     let rejectWith: string | null
     let integrationsFail: boolean
+    let validationFor: (expression: string) => SourceFilterValidateResponseApi
     let onClose: jest.Mock
 
     function mountWith(config: Record<string, any>): void {
@@ -48,6 +61,7 @@ describe('sourceFilterModalLogic', () => {
         patchBodies = []
         rejectWith = null
         integrationsFail = false
+        validationFor = () => VALID
         onClose = jest.fn()
         useMocks({
             get: {
@@ -63,10 +77,10 @@ describe('sourceFilterModalLogic', () => {
             },
             post: {
                 // The editor previews as it mounts, so these answer instead of the network.
-                '/api/projects/:team_id/signals/source_configs/filter_validate/': () => [
-                    200,
-                    { valid: true, catalog_version: 2, error: null },
-                ],
+                '/api/projects/:team_id/signals/source_configs/filter_validate/': async ({ request }) => {
+                    const { expression } = (await request.json()) as { expression: string }
+                    return [200, validationFor(expression)]
+                },
                 '/api/projects/:team_id/signals/source_configs/filter_preview/': () => [500, {}],
             },
             patch: {
@@ -171,6 +185,33 @@ describe('sourceFilterModalLogic', () => {
         logic.actions.setSourceFilterValue('expression', "project_name = 'Web'")
         expect(logic.values.previewWaitsForEdit).toBe(false)
         expect(preview.values.previewInput).toEqual({ expression: "project_name = 'Web'", scopeIds: [] })
+    })
+
+    it('marks the invalid part only while the box holds the text that was checked', async () => {
+        jest.useFakeTimers()
+        try {
+            validationFor = (expression) =>
+                expression.includes('priorty')
+                    ? { ...VALID, valid: false, error: 'Unknown field.', error_start: 6, error_end: 13 }
+                    : { ...VALID, valid: false, error: 'Too long.' }
+            mountWith({})
+            const typeAndValidate = async (expression: string): Promise<void> => {
+                logic.actions.setSourceFilterValue('expression', expression)
+                await jest.advanceTimersByTimeAsync(300)
+                await expectLogic(sourceFilterPreviewLogic(logic.props)).toFinishAllListeners()
+            }
+
+            await typeAndValidate('a AND priorty = 1')
+            expect(logic.values.invalidExpressionSpan).toEqual({ start: 6, end: 13 })
+
+            logic.actions.setSourceFilterValue('expression', 'a AND priorty = 12')
+            expect(logic.values.invalidExpressionSpan).toBeNull()
+
+            await typeAndValidate('a AND b')
+            expect(logic.values.invalidExpressionSpan).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('sends nothing to the preview for a source it cannot preview', () => {
