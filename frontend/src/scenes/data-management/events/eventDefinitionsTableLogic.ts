@@ -658,7 +658,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         }
                         // Like the server, hiding also unverifies the event and unhiding cancels a scheduled delete
                         return hidden
-                            ? { ...d, hidden, verified: false }
+                            ? { ...d, hidden, verified: false, verified_by: undefined, verified_at: undefined }
                             : { ...d, hidden, scheduled_deletion_at: null }
                     })
                 },

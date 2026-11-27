@@ -331,7 +331,13 @@ describe('eventDefinitionsTableLogic', () => {
                 ...logic.cache.apiCache[key],
                 results: logic.cache.apiCache[key].results.map((d: EventDefinition) =>
                     d.id === hideRow.id
-                        ? { ...d, verified: true, hidden: false }
+                        ? {
+                              ...d,
+                              verified: true,
+                              verified_by: 'user-uuid',
+                              verified_at: '2026-03-01T14:00:00Z',
+                              hidden: false,
+                          }
                         : d.id === unhideRow.id
                           ? { ...d, hidden: true, scheduled_deletion_at: '2026-03-31T14:00:00Z' }
                           : d
@@ -345,7 +351,12 @@ describe('eventDefinitionsTableLogic', () => {
             ])
 
             const results = logic.values.eventDefinitions.results
-            expect(results.find((d) => d.id === hideRow.id)).toMatchObject({ hidden: true, verified: false })
+            expect(results.find((d) => d.id === hideRow.id)).toMatchObject({
+                hidden: true,
+                verified: false,
+                verified_by: undefined,
+                verified_at: undefined,
+            })
             expect(results.find((d) => d.id === unhideRow.id)).toMatchObject({
                 hidden: false,
                 scheduled_deletion_at: null,
