@@ -134,7 +134,12 @@ def open_broadcast_request_from_link(
         logger.exception("stamphog_broadcast_link_failed", slack_channel_id=channel_id, message_ts=message_ts)
         raise self.retry(exc=e, countdown=_RETRY_BASE_SECONDS * 2**self.request.retries)
     if asked is not None and asked.request is not None and asked.outcome in _OPENED_BY_THIS_POST:
-        queue_broadcast_request_refresh(asked.request.team_id, str(asked.request.id))
+        # Posted here rather than queued, so a failure retries this task. A retry finds its own request.
+        try:
+            broadcast_requests.refresh(asked.request.team_id, str(asked.request.id))
+        except Exception as e:
+            logger.exception("stamphog_broadcast_link_card_failed", slack_channel_id=channel_id)
+            raise self.retry(exc=e, countdown=_RETRY_BASE_SECONDS * 2**self.request.retries)
 
 
 def queue_open_broadcast_request_from_link(post: broadcast_links.LinkPost) -> None:

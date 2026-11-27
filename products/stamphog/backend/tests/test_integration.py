@@ -5167,6 +5167,8 @@ def test_a_pull_request_link_that_nobody_may_ask_about_stays_silent(
             id="active_request_without_a_card",
         ),
         pytest.param("stamphog_approved", "Stamphog already approved this pull request.", id="stamphog_approved"),
+        # A maintainer dismissed the approval on GitHub, which the product DB does not see.
+        pytest.param("stamphog_approval_dismissed", None, id="stamphog_approval_dismissed"),
         pytest.param("person_approved", "Already approved by maintainer.", id="person_approved"),
         # A silent review withheld its refusal, so the card goes out and shows nothing of it.
         pytest.param("withheld_refusal", None, id="withheld_silent_refusal"),
@@ -5211,7 +5213,15 @@ def test_a_pull_request_link_answers_in_its_thread_instead_of_a_second_card(
                 posted_at=timezone.now(),
             )
     else:
-        approved = case == "stamphog_approved"
+        approved = case in ("stamphog_approved", "stamphog_approval_dismissed")
+        if approved:
+            stamphog_chain.recorder.pr_reviews[(REPO, 192)] = [
+                {
+                    "user": {"login": "stamphog[bot]", "type": "Bot"},
+                    "state": "DISMISSED" if case == "stamphog_approval_dismissed" else "APPROVED",
+                    "commit_id": "sha192a",
+                }
+            ]
         ReviewRun.objects.for_team(team.id).create(
             team_id=team.id,
             pull_request=pull_request,
@@ -5222,7 +5232,8 @@ def test_a_pull_request_link_answers_in_its_thread_instead_of_a_second_card(
             output={} if approved else {"reviewer_raw": _refused_engine_output(), "review_trigger": "reviewhog_clean"},
         )
 
-    assert _post_link(f"<https://github.com/{REPO}/pull/192>", user_ids=(user.id,))
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
+        assert _post_link(f"<https://github.com/{REPO}/pull/192>", user_ids=(user.id,))
 
     replies = _link_replies()
     if expect_reply is None:

@@ -372,10 +372,16 @@ def post_card(card: BroadcastRequestCard, channel_id: str, channel_name: str, *,
 
 
 def post_thread_reply(team_id: int, integration_id: int, channel_id: str, thread_ts: str, text: str) -> None:
-    """Reply in a thread with fixed text. Never raises, because nothing depends on the reply."""
+    """Reply in a thread with fixed text.
+
+    A permanent Slack error is logged. Any other error raises, so the caller's task retries: the reply is
+    the only answer the person gets, and the post's claim stops Slack from delivering the post again.
+    """
     try:
         post_message(_slack(team_id, integration_id), channel_id, [section_block(text)], text, thread_ts=thread_ts)
-    except Exception as e:
+    except SlackApiError as e:
+        if str(e.response.get("error") or "") not in _PERMANENT_SLACK_ERRORS:
+            raise
         logger.warning("stamphog_broadcast_thread_reply_failed", slack_channel_id=channel_id, error=str(e))
 
 

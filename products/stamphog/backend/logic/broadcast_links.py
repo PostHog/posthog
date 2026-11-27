@@ -27,7 +27,14 @@ from posthog.models import Team, User
 from ..facade.enums import BroadcastRequestSource
 from ..models import BroadcastRequest, PullRequest, StamphogRepoConfig
 from .broadcast_request_slack import card_workspace, find_card_integration, post_thread_reply
-from .broadcast_requests import BroadcastRequestAsk, LinkAsk, LinkAskOutcome, human_approver, open_link_request
+from .broadcast_requests import (
+    BroadcastRequestAsk,
+    LinkAsk,
+    LinkAskOutcome,
+    human_approver,
+    open_link_request,
+    stamphog_approval_live,
+)
 from .github_client import StamphogGitHubClient, StamphogGitHubError
 from .installations import reviewable_repo_configs
 
@@ -133,6 +140,23 @@ def broadcast_channel_repositories(slack_team_id: str, channel_id: str) -> froze
     return frozenset(repositories)
 
 
+# One person's link posts that the handler takes in ``_POSTER_WINDOW_SECONDS``. Above it, posts are dropped
+# silently, so a loop of reposts cannot fill the task queue or the GitHub budget of the installation.
+_POSTER_LIMIT = 20
+_POSTER_WINDOW_SECONDS = 10 * 60
+
+
+def poster_within_limit(slack_team_id: str, slack_user_id: str) -> bool:
+    """Whether this poster may have another link post taken. True when the cache cannot answer."""
+    key = f"stamphog:broadcast_link_poster:{slack_team_id}:{slack_user_id}"
+    try:
+        cache.add(key, 0, _POSTER_WINDOW_SECONDS)
+        return cache.incr(key) <= _POSTER_LIMIT
+    except Exception:
+        logger.warning("stamphog_broadcast_link_poster_limit_failed", exc_info=True)
+        return True
+
+
 def claim_link_post(slack_team_id: str, channel_id: str, message_ts: str) -> bool:
     """Whether this call is the first for the post.
 
@@ -223,11 +247,8 @@ def open_from_link(post: LinkPost) -> LinkAsk | None:
         raise
     if pr.get("state") != "open":
         return None
-    approver = human_approver(
-        client.get_pr_reviews(repo_config.repository, post.link.pr_number),
-        pr["head"]["sha"],
-        (pr.get("user") or {}).get("login") or "",
-    )
+    reviews = client.get_pr_reviews(repo_config.repository, post.link.pr_number)
+    approver = human_approver(reviews, pr["head"]["sha"], (pr.get("user") or {}).get("login") or "")
     if approver:
         _reply(post, target, ALREADY_APPROVED.format(login=approver))
         return None
@@ -240,7 +261,13 @@ def open_from_link(post: LinkPost) -> LinkAsk | None:
     with transaction.atomic(using=db):
         pull_request = _pull_request_row(repo_config, pr, using=db)
         asked = open_link_request(
-            pull_request, pr["head"]["sha"], ask, channel_id=post.channel_id, thread_ts=post.message_ts, using=db
+            pull_request,
+            pr["head"]["sha"],
+            ask,
+            channel_id=post.channel_id,
+            thread_ts=post.message_ts,
+            stamphog_approval_live=stamphog_approval_live(reviews),
+            using=db,
         )
     if asked.outcome == LinkAskOutcome.ALREADY_ASKED:
         text = ALREADY_ASKED_WITH_LINK.format(permalink=asked.permalink) if asked.permalink else ALREADY_ASKED

@@ -48,7 +48,7 @@ from .broadcast_request_slack import (
     post_card,
     update_card,
 )
-from .github_client import StamphogGitHubClient
+from .github_client import StamphogGitHubClient, expected_app_bot_login
 from .merge_approval import retained_at_head
 from .rerun_evidence import is_person
 from .reviewer import parse_reviewer_output
@@ -194,6 +194,14 @@ class LinkAsk:
     permalink: str = ""
 
 
+def stamphog_approval_live(reviews: list[dict[str, Any]]) -> bool:
+    """Whether GitHub still shows an approval by this App. GitHub reports a dismissed review as ``DISMISSED``."""
+    own_login = expected_app_bot_login()
+    return own_login is not None and any(
+        (review.get("user") or {}).get("login") == own_login and review.get("state") == "APPROVED" for review in reviews
+    )
+
+
 def stamphog_approved_head(pull_request: PullRequest, head_sha: str, *, using: str) -> bool:
     """Whether GitHub shows a standing stamphog approval of ``head_sha``.
 
@@ -219,6 +227,7 @@ def open_link_request(
     *,
     channel_id: str,
     thread_ts: str,
+    stamphog_approval_live: bool,
     using: str,
 ) -> LinkAsk:
     """Open an OPEN request for a pull request link that a person posted, with its card due in the post's thread.
@@ -249,7 +258,8 @@ def open_link_request(
     earlier = asked_before()
     if earlier is not None:
         return earlier
-    if stamphog_approved_head(pull_request, head_sha, using=using):
+    # The product DB misses a maintainer dismissing the approval on GitHub, so GitHub must still show it.
+    if stamphog_approval_live and stamphog_approved_head(pull_request, head_sha, using=using):
         return LinkAsk(outcome=LinkAskOutcome.STAMPHOG_APPROVED)
     try:
         # The savepoint keeps the outer transaction usable when a concurrent ask wins the unique constraint.
@@ -525,12 +535,14 @@ def _next_state(
         and head_sha != decided_head_sha
     ):
         return None
+    reviews = client.get_pr_reviews(pull_request.repo_config.repository, pull_request.pr_number)
     if status == BroadcastRequestStatus.STAMPHOG_APPROVED:
-        return _NextState(status=status, approved_by_login="", run=run)
+        # A link request answers a person, so an approval that a maintainer dismissed on GitHub must not end it.
+        if request.requested_via != BroadcastRequestSource.SLACK_LINK or stamphog_approval_live(reviews):
+            return _NextState(status=status, approved_by_login="", run=run)
+        status, run = BroadcastRequestStatus.OPEN, None
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
-    approver = human_approver(
-        client.get_pr_reviews(pull_request.repo_config.repository, pull_request.pr_number), head_sha, author
-    )
+    approver = human_approver(reviews, head_sha, author)
     if approver:
         return _NextState(status=BroadcastRequestStatus.APPROVED, approved_by_login=approver, run=run)
     return _NextState(status=status, approved_by_login="", run=run)

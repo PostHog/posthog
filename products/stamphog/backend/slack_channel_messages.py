@@ -21,6 +21,7 @@ def handle_channel_message(message: ChannelMessage) -> bool:
         LinkPost,
         broadcast_channel_repositories,
         claim_link_post,
+        poster_within_limit,
         pull_request_links,
     )
     from products.stamphog.backend.tasks.broadcast_requests import (  # noqa: PLC0415
@@ -35,6 +36,8 @@ def handle_channel_message(message: ChannelMessage) -> bool:
     if not links:
         return False
     if not claim_link_post(message.slack_team_id, message.channel_id, message.message_ts):
+        return True
+    if not poster_within_limit(message.slack_team_id, message.slack_user_id):
         return True
     user_ids = message.poster_user_ids()
     if user_ids:

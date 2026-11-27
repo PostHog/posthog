@@ -365,6 +365,15 @@ class TestRouteThreadMessage(TestCase):
             ("a bot post", {"bot_id": "B_OTHER"}, "slack", True, False, False),
             ("an edit", {"subtype": "message_changed"}, "slack", True, False, False),
             ("an externally shared channel", {}, "shared", True, False, False),
+            # A post that tags the app is a command, which the ``app_mention`` copy runs.
+            (
+                "a post that tags the app",
+                {"text": "<@U0BOT> stamp https://github.com/org/repo/pull/7"},
+                "slack",
+                True,
+                False,
+                False,
+            ),
         ]
     )
     def test_a_channel_message_handler_that_takes_a_post_keeps_it_from_the_agent(
@@ -382,9 +391,11 @@ class TestRouteThreadMessage(TestCase):
             offered.append((message.channel_id, message.message_ts, message.slack_user_id, message.poster_user_ids()))
             return takes
 
-        event = self._make_question_event(
-            text="How many people signed up last week in PostHog? https://github.com/org/repo/pull/7", **overrides
+        overrides = dict(overrides)
+        text = overrides.pop(
+            "text", "How many people signed up last week in PostHog? https://github.com/org/repo/pull/7"
         )
+        event = self._make_question_event(text=text, **overrides)
         headers = {REGION_PROXY_HEADER: "1", EMIT_ONLY_MIRROR_HEADER: "1"} if delivery == "mirror" else {}
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com", headers=headers)
         with (

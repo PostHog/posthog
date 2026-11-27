@@ -2618,6 +2618,16 @@ def _poster_user_ids(
     return resolve
 
 
+def _channel_post_tags_app(event: dict[str, Any], slack_team_id: str, slack_user_id: str, channel: str) -> bool:
+    """Whether the post tags the app, so the ``app_mention`` copy runs it as a command instead."""
+    if "<@" not in str(event.get("text") or ""):
+        return False
+    candidates = load_integrations(
+        slack_team_id=slack_team_id, kinds=[SLACK_INTEGRATION_KIND], slack_user_id=slack_user_id, channel=channel
+    ).candidates
+    return bool(candidates) and _message_tags_bot(event, candidates[0])
+
+
 def _offer_channel_post_to_hooks(
     event: dict[str, Any], slack_team_id: str, event_id: str | None, *, is_ext_shared_channel: bool
 ) -> bool:
@@ -2637,6 +2647,8 @@ def _offer_channel_post_to_hooks(
     if is_ext_shared_channel or event.get("subtype") or event.get("channel_type") not in ("channel", "group"):
         return False
     if not _is_top_level_channel_post(event) or _thread_message_ignore_reason(event) is not None:
+        return False
+    if _channel_post_tags_app(event, slack_team_id, slack_user_id, channel):
         return False
     return dispatch_channel_message(
         ChannelMessage(
