@@ -478,6 +478,22 @@ class QueryBatchInput:
     tile: str | None = None
 
 
+@frozen
+class WidgetCatalogEntry:
+    """A registered widget type, as the widget catalog documents it for agents."""
+
+    widget_type: str
+    group_id: str
+    group_label: str
+    label: str
+    description: str
+    config_schema: dict[str, JsonValue]
+    required_product_access: str | None
+    product_access_denied_message: str | None
+    availability_requirements: tuple[str, ...]
+    live: bool
+
+
 @dataclass(frozen=True)
 class InsightTilePlacement:
     """The dashboards `plan_insight_tile_placement` cleared to receive a tile for one insight of this team.
