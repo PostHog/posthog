@@ -23,6 +23,7 @@ from products.notebooks.backend.sql_v2_variables import (
     NotebookVariableError,
     NotebookVariableValue,
     build_notebook_variables,
+    notebook_date_range_is_reversed,
     substitute_hogql_variables,
 )
 
@@ -55,7 +56,7 @@ def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariab
     dates = {var.name: var.value for var in variables}
     for block in ranges:
         start_date, end_date = dates.get(block["variable"]), dates.get(block.get("end_variable", ""))
-        if isinstance(start_date, str) and isinstance(end_date, str) and start_date[:10] > end_date[:10] and end_date:
+        if notebook_date_range_is_reversed(start_date, end_date):
             raise ValidationError("Choose an end date on or after the start date.")
     displayed = app_result_node_ids(release.layout)
     cells = extract_cells(build_markdown_notebook_content(release.markdown))

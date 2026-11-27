@@ -5,8 +5,9 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.notebooks.backend.app_releases import review_sources
 from products.notebooks.backend.app_viewer import resolve_viewer_queries
-from products.notebooks.backend.facade.contracts import AppRelease
+from products.notebooks.backend.facade.contracts import AppBlockSource, AppRelease
 from products.notebooks.backend.markdown_conversion import (
     build_markdown_notebook_content,
     get_markdown_notebook_markdown,
@@ -205,6 +206,25 @@ def test_date_range_exposes_and_orders_both_bounds() -> None:
     assert "2026-09-14" in plan.query and "2026-09-16" in plan.query
     with pytest.raises(ValidationError, match="end date"):
         resolve_viewer_queries(release, {"date_to": "2026-08-20"})
+    with pytest.raises(ValidationError, match="end date"):
+        resolve_viewer_queries(release, {"date_from": "2026-12-31", "date_to": "2026-W01-1"})
+    [plan] = resolve_viewer_queries(release, {"date_from": "2026-W01-1", "date_to": "20260101"})
+    assert "2026-W01-1" in plan.query and "20260101" in plan.query
+
+
+def test_release_review_compares_calendar_dates_in_saved_range() -> None:
+    notebook = Notebook(
+        variables=[
+            {"name": "start", "type": "date", "value": "2026-12-31"},
+            {"name": "end", "type": "date", "value": " 2026-W01-1 "},
+        ]
+    )
+    block = AppBlockSource(id="range", kind="input", input_kind="date_range", variable="start", end_variable="end")
+    assert review_sources(notebook, "", [block]).problems == [
+        "range: the start date must be on or before the end date."
+    ]
+    notebook.variables[0]["value"] = "20251229T23:00:00"
+    assert review_sources(notebook, "", [block]).problems == []
 
 
 class TestPublishedAppResults(APIBaseTest):

@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any
 
 from django.db import models
@@ -6,7 +5,7 @@ from django.db import models
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from products.notebooks.backend.sql_v2_variables import RESERVED_VARIABLE_NAMES
+from products.notebooks.backend.sql_v2_variables import RESERVED_VARIABLE_NAMES, notebook_calendar_date
 
 
 @extend_schema_field(serializers.DictField(child=serializers.FloatField()))
@@ -48,16 +47,6 @@ MAX_VARIABLES_PER_NOTEBOOK = 10
 MAX_VARIABLE_NAME_CHARS = 200
 MAX_VARIABLE_VALUE_CHARS = 1_000
 MAX_VARIABLE_LIST_ITEMS = 100
-
-
-def _is_absolute_date(value: Any) -> bool:
-    if not isinstance(value, str):
-        return False
-    try:
-        datetime.fromisoformat(value.strip())
-    except ValueError:
-        return False
-    return True
 
 
 class NotebookVariableSerializer(serializers.Serializer):
@@ -112,7 +101,7 @@ class NotebookVariableSerializer(serializers.Serializer):
         elif isinstance(value, list):
             raise serializers.ValidationError({"value": "Choose the list type to use multiple values."})
         # Relative dates would re-resolve against the clock when a cell checks for stale input.
-        if attrs.get("type") == "date" and value is not None and not _is_absolute_date(value):
+        if attrs.get("type") == "date" and value is not None and notebook_calendar_date(value) is None:
             raise serializers.ValidationError({"value": "Use an absolute date, like 2025-01-31."})
         return attrs
 

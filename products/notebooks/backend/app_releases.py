@@ -19,6 +19,7 @@ from products.notebooks.backend.sql_v2_state import (
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
     build_notebook_variables,
+    notebook_date_range_is_reversed,
     python_variable_bindings,
     substitute_duckdb_variables,
 )
@@ -115,12 +116,7 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             end = variables.get(block.end_variable, {})
             if start.get("type") != "date" or end.get("type") != "date" or block.variable == block.end_variable:
                 problems.append(f"{name}: choose two different date variables.")
-            elif (
-                isinstance(start_value := start.get("value"), str)
-                and isinstance(end_value := end.get("value"), str)
-                and end_value
-                and start_value[:10] > end_value[:10]
-            ):
+            elif notebook_date_range_is_reversed(start.get("value"), end.get("value")):
                 problems.append(f"{name}: the start date must be on or before the end date.")
         if block.kind != "cell" and not block.needs_query_choices:
             continue
