@@ -28,7 +28,7 @@ To review a rollout, choose **Start from a template** in an empty app, or **Add 
 
 The built-in template produces ordinary app components linked to notebook cells. Select a component in the builder to change its title, width, or tab. Choose **Open source cell** to edit the underlying notebook content. Editors can also refine the draft with **Ask AI**. Choose **Review and publish** when it is ready for viewers.
 
-The first funnel step requires the selected flag value on the event. **View drop-off recordings** opens the people who dropped off at the last step and their available recordings. The separate playlist shows recordings with the flag value over the funnel's date range. A funnel built from two events uses the last 30 days. An existing funnel without a start date uses the last seven days.
+The first funnel step requires the selected flag value on the event. Funnels that count people, groups, or unique sessions offer **View drop-off recordings** for actors who dropped off at the last step. The separate playlist shows recordings with the flag value over the funnel's date range, including for funnels with custom aggregations. A funnel built from two events uses the last 30 days. An existing funnel without a start date uses the last seven days.
 
 Generated code reads approved dataframe snapshots through `ph.readFrame`. It has no direct notebook-variable API. To expose control values, create a one-row SQL dataframe, for example `SELECT {region} AS region, {weeks} AS weeks, {target} AS target`, and ask the widget to read that frame alongside the analytical results. The analytical cells must use the same variables for filtering and calculations. Run these cells before generation so their schemas are available.
 

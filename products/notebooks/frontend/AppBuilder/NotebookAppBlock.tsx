@@ -14,6 +14,7 @@ import { retryImport } from 'lib/utils/retryImport'
 import { reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { NOTEBOOK_MARKDOWN_REGISTRY } from 'scenes/notebooks/Notebook/markdownNotebookRegistry'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
+import { canOpenFunnelActors } from 'scenes/trends/persons-modal/canOpenFunnelActors'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
@@ -25,7 +26,7 @@ import { appCellMarkdown } from './notebookAppLayout'
 function FunnelRecordingsButton({ cell }: { cell: NotebookBlockNode }): JSX.Element | null {
     const [loading, setLoading] = useState(false)
     const funnel = notebookFunnel(cell)
-    if (!funnel) {
+    if (!funnel || !canOpenFunnelActors(funnel.funnelsFilter)) {
         return null
     }
 

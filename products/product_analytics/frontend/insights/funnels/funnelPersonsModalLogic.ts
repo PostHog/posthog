@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, sele
 
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { canOpenFunnelActors } from 'scenes/trends/persons-modal/canOpenFunnelActors'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
@@ -115,25 +116,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
     selectors({
         canOpenPersonModal: [
             (s) => [s.funnelsFilter],
-            (funnelsFilter: null | import('~/queries/schema/schema-general').FunnelsFilter | undefined): boolean => {
-                if (funnelsFilter?.customAggregationTarget) {
-                    return false
-                }
-
-                const aggregateByHogQL = funnelsFilter?.funnelAggregateByHogQL
-
-                // Allow opening modal persons/groups
-                if (!aggregateByHogQL) {
-                    return true
-                }
-
-                // Allow opening modal when aggregating by unique sessions (properties.$session_id)
-                if (aggregateByHogQL === 'properties.$session_id') {
-                    return true
-                }
-
-                return false
-            },
+            (funnelsFilter: FunnelsFilter | null | undefined): boolean => canOpenFunnelActors(funnelsFilter),
         ],
     }),
 
