@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from unittest.mock import patch
 
@@ -10,7 +12,9 @@ from posthog.llm.gateway_internal_client import (
     USAGE_REPORT_TIMEOUT_SECONDS,
     AIGatewayInternalError,
     AIGatewayNotConfigured,
+    OrgProductSpend,
     add_credit,
+    get_org_spend,
     get_usage_report,
     get_usage_report_rows,
     get_wallet,
@@ -221,6 +225,49 @@ class TestGetUsageReport:
         with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, {"rows": []})):
             with pytest.raises(AIGatewayInternalError, match="no truncated flag"):
                 get_usage_report({"group_by": "obo"})
+
+
+class TestGetOrgSpend:
+    PAYLOAD = {
+        "balance_usd": "-3.500000",
+        "spend_usd": "12.000000",
+        "free_usd": "1.000000",
+        "products": [{"product": "posthog_code", "spend_usd": "12.000000", "free_usd": "1.000000"}],
+        "days": [],
+        "truncated": True,
+    }
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_reads_the_utc_days_and_parses_the_products(self, mock_settings):
+        _configured(mock_settings)
+        with patch(
+            "posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, self.PAYLOAD)
+        ) as mock_get:
+            spend = get_org_spend(ORG_ID, date(2026, 3, 1), date(2026, 4, 1))
+
+        assert mock_get.call_args.args[0] == f"http://gw/internal/accounts/{ORG_ID}/spend"
+        assert mock_get.call_args.kwargs["params"] == {"start": "2026-03-01", "end": "2026-04-01"}
+        assert mock_get.call_args.kwargs["headers"][INTERNAL_ACTOR_HEADER] == ADMIN_ACTOR
+        assert (spend.balance_usd, spend.spend_usd, spend.free_usd) == ("-3.500000", "12.000000", "1.000000")
+        assert spend.products == [OrgProductSpend(product="posthog_code", spend_usd="12.000000", free_usd="1.000000")]
+        assert spend.truncated is True
+
+    @pytest.mark.parametrize(
+        "response,match",
+        [
+            (_response(400, {"error": "end must be after start"}), "end must be after start"),
+            (_response(500), "organization spend read failed"),
+            (_response(200, {**PAYLOAD, "balance_usd": None}), "no balance_usd"),
+            (_response(200, {**PAYLOAD, "products": None}), "no products"),
+            (httpx.Response(200, text="<html>", request=httpx.Request("GET", "http://gw")), "read failed"),
+        ],
+    )
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_on_a_refusal_or_a_response_it_cannot_read(self, mock_settings, response, match):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=response):
+            with pytest.raises(AIGatewayInternalError, match=match):
+                get_org_spend(ORG_ID, date(2026, 3, 1), date(2026, 4, 1))
 
 
 class TestNotConfigured:

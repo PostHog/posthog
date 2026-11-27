@@ -160,3 +160,39 @@ class TeamWalletUnavailable(Exception):
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
         self.detail = detail
+
+
+@dataclass(frozen=True)
+class OrganizationAccess:
+    teams: int
+    # Teams that are enrolled and not revoked.
+    enrolled: int
+
+
+@dataclass(frozen=True)
+class OrganizationProductSpend:
+    product: str
+    charged_usd: Decimal
+    # List cost the organization was not charged, because a free allocation covered it.
+    free_usd: Decimal
+    # None when the usage report has no row for the product.
+    list_usd: Decimal | None
+
+
+@dataclass(frozen=True)
+class OrganizationWallet:
+    # The balance now, whatever the period. Below zero after overage.
+    balance_usd: Decimal
+    charged_usd: Decimal
+    free_usd: Decimal
+    products: list[OrganizationProductSpend]
+    # True when the organization has more products than the gateway lists. The totals still cover all of them.
+    truncated: bool
+
+
+class OrganizationWalletUnavailable(Exception):
+    """The wallet could not be read: the gateway's internal API is not set up in this region, or a call failed."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
