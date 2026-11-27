@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -21,7 +22,7 @@ from products.cohorts.backend.models.team_access import (
 )
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.workflows.backend.services.batch_audience import get_batch_audience_person_ids_snapshot
-from products.workflows.backend.services.blast_radius import get_audience_size
+from products.workflows.backend.services.blast_radius import AudienceCountInProgress, get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 _ON = datetime(2026, 1, 1, tzinfo=UTC)
@@ -299,8 +300,21 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert (size.affected, size.total) == expected
 
-    @parameterized.expand([("persons", None), ("unique_emails", "email")])
-    def test_audience_size_counts_a_new_audience_but_reuses_the_recent_person_total(self, _name, dedupe_key):
+    @parameterized.expand(
+        [
+            ("persons", None, 0, (2, 3)),
+            ("unique_emails", "email", 0, (2, 3)),
+            ("small_total_counted_again", None, 10_000, (2, 4)),
+        ]
+    )
+    def test_audience_size_counts_a_new_audience_but_reuses_the_recent_person_total(
+        self, _name, dedupe_key, min_total_to_cache, expected
+    ):
+        patcher = patch(
+            "products.workflows.backend.services.blast_radius.MIN_PERSON_TOTAL_TO_CACHE", min_total_to_cache
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._create_audience(["a@x.com", "b@x.com"])
         _create_person(
             team=self.team,
@@ -334,31 +348,45 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             refresh=False,
         )
 
-        assert (size.affected, size.total) == (2, 3)
+        assert (size.affected, size.total) == expected
 
     @parameterized.expand(
         [
             ("count_in_flight_finishes", "finishes", 999),
             ("count_in_flight_fails", "fails", 2),
             ("count_in_flight_never_ends", "hangs", 2),
+            ("another_waiter_took_over", "taken_over", None),
         ]
     )
     def test_audience_size_waits_for_the_same_count_in_flight(self, _name, other_request, expected_total):
         self._create_audience(["a@x.com", "b@x.com"])
         total_key = f"workflows:audience_person_total:{self.team.pk}"
         cache.set(f"{total_key}:counting", "other-request", 600)
+        if other_request == "taken_over":
+            cache.set(f"{total_key}:takeover", "other-waiter", 600)
         clock = iter(range(0, 10_000, 10))
 
         def other_request_progresses(_seconds: float) -> None:
             if other_request == "finishes":
                 cache.set(total_key, 999, 60)
-            if other_request != "hangs":
+            if other_request not in ("hangs", "taken_over"):
                 cache.delete(f"{total_key}:counting")
 
         with (
             patch("products.workflows.backend.services.blast_radius.sleep", side_effect=other_request_progresses),
             patch("products.workflows.backend.services.blast_radius.monotonic", side_effect=lambda: next(clock)),
         ):
+            if expected_total is None:
+                with pytest.raises(AudienceCountInProgress):
+                    get_audience_size(
+                        team_id=self.team.pk,
+                        filters=FILTERS,
+                        group_type_index=None,
+                        dedupe_key=None,
+                        sends_email=True,
+                        refresh=False,
+                    )
+                return
             size = get_audience_size(
                 team_id=self.team.pk,
                 filters=FILTERS,

@@ -5781,14 +5781,14 @@ class TestHogFlowAPI(APIBaseTest):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False)
         audience = {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]}
         with patch(
-            "products.workflows.backend.services.blast_radius.count_person_total", return_value=500
+            "products.workflows.backend.services.blast_radius.count_person_total", return_value=50_000
         ) as mock_count:
             for _ in range(3):
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {"filters": audience}
                 )
                 assert response.status_code == 200, response.json()
-                assert response.json()["total"] == 500
+                assert response.json()["total"] == 50_000
 
         assert mock_count.call_count == 1
 

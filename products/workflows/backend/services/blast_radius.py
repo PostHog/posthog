@@ -11,6 +11,8 @@ from uuid import uuid4
 from django.core.cache import caches
 
 import structlog
+from rest_framework import status
+from rest_framework.exceptions import APIException
 
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
@@ -50,14 +52,43 @@ COUNTING_LOCK_SECONDS = 200
 COUNTING_WAIT_SECONDS = 60
 COUNTING_POLL_SECONDS = 0.5
 
+# A small team's total is cheap to count, and a cached total of zero or close to it would cap every new audience's count
+# until it expired.
+MIN_PERSON_TOTAL_TO_CACHE = 10_000
+
 T = TypeVar("T")
 
 
-def _shared_count(cache_key: str, count: Callable[[], T], *, refresh: bool, wait_until: float) -> T:
+class AudienceCountInProgress(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "This audience is still being counted. Try again in a minute."
+    default_code = "audience_count_in_progress"
+
+
+def _release_lock(key: str, token: str | None) -> None:
+    if token is None:
+        return
+    try:
+        if counts_cache.get(key) == token:
+            counts_cache.delete(key)
+    except Exception:
+        logger.warning("workflows_audience_count_lock_release_failed", lock_key=key, exc_info=True)
+
+
+def _shared_count(
+    cache_key: str,
+    count: Callable[[], T],
+    *,
+    refresh: bool,
+    wait_until: float,
+    should_store: Callable[[T], bool] = lambda _: True,
+) -> T:
     """Reuse a recent count, wait until `wait_until` for the same count already in flight, or count and store it for
     the next caller. `refresh` always counts again, and its result still replaces the stored one."""
     lock_key = f"{cache_key}:counting"
+    takeover_key = f"{cache_key}:takeover"
     lock_token: str | None = None
+    takeover_token: str | None = None
     if not refresh:
         while True:
             cached = counts_cache.get(cache_key)
@@ -69,22 +100,28 @@ def _shared_count(cache_key: str, count: Callable[[], T], *, refresh: bool, wait
                 # The previous holder can store its result and release between the read above and this add.
                 cached = counts_cache.get(cache_key)
                 if cached is not None:
-                    counts_cache.delete(lock_key)
+                    _release_lock(lock_key, lock_token)
                     return cached
                 break
             if monotonic() >= wait_until:
+                # The holder is slow or died. One waiter takes over, so a dead holder's lock doesn't block the
+                # audience until it expires, and the other waiters answer at once instead of repeating the scan.
+                if not counts_cache.add(takeover_key, token, COUNTING_LOCK_SECONDS):
+                    raise AudienceCountInProgress()
+                takeover_token = token
                 break
             sleep(COUNTING_POLL_SECONDS)
     try:
         result = count()
-        try:
-            counts_cache.set(cache_key, result, AUDIENCE_COUNT_CACHE_SECONDS)
-        except Exception:
-            logger.warning("workflows_audience_count_cache_write_failed", cache_key=cache_key, exc_info=True)
+        if should_store(result):
+            try:
+                counts_cache.set(cache_key, result, AUDIENCE_COUNT_CACHE_SECONDS)
+            except Exception:
+                logger.warning("workflows_audience_count_cache_write_failed", cache_key=cache_key, exc_info=True)
         return result
     finally:
-        if lock_token is not None and counts_cache.get(lock_key) == lock_token:
-            counts_cache.delete(lock_key)
+        _release_lock(lock_key, lock_token)
+        _release_lock(takeover_key, takeover_token)
 
 
 def _person_total(team: Team, *, refresh: bool, wait_until: float) -> int:
@@ -93,6 +130,7 @@ def _person_total(team: Team, *, refresh: bool, wait_until: float) -> int:
         lambda: count_person_total(team),
         refresh=refresh,
         wait_until=wait_until,
+        should_store=lambda total: total >= MIN_PERSON_TOTAL_TO_CACHE,
     )
 
 
