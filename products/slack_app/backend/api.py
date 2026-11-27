@@ -4,7 +4,8 @@ import time
 import uuid
 import asyncio
 import hashlib
-from collections.abc import Sequence
+import functools
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -40,6 +41,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.slack.block_actions import BlockActionHandler, block_action_handler_for
+from posthog.slack.channel_messages import ChannelMessage, dispatch_channel_message
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
@@ -2587,6 +2589,67 @@ def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     return ROUTE_HANDLED_LOCALLY
 
 
+def _poster_user_ids(
+    slack_team_id: str, slack_user_id: str, channel: str, event_id: str | None
+) -> Callable[[], tuple[int, ...]]:
+    """Resolve the poster's PostHog accounts on the first call only, the same way a Slack command does."""
+
+    @functools.cache
+    def resolve() -> tuple[int, ...]:
+        workspace_result = load_integrations(
+            slack_team_id=slack_team_id,
+            kinds=[SLACK_INTEGRATION_KIND],
+            slack_user_id=slack_user_id,
+            channel=channel,
+        )
+        if not workspace_result.candidates:
+            return ()
+        resolution = resolve_user_for_workspace(
+            workspace_result=workspace_result,
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+            event_id=event_id,
+        )
+        if resolution.user is None:
+            return ()
+        linked = linked_posthog_user_ids(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
+        return tuple(dict.fromkeys((resolution.user.id, *linked)))
+
+    return resolve
+
+
+def _offer_channel_post_to_hooks(
+    event: dict[str, Any], slack_team_id: str, event_id: str | None, *, is_ext_shared_channel: bool
+) -> bool:
+    """Offer a top-level channel post by a person to the products that registered a channel message handler.
+
+    Returns True when a product took the post. A reply in an externally shared channel would reach
+    people outside the organization, so those posts are not offered.
+    """
+    text, channel, slack_user_id, message_ts = (event.get(key) for key in ("text", "channel", "user", "ts"))
+    if not (
+        isinstance(text, str)
+        and isinstance(channel, str)
+        and isinstance(slack_user_id, str)
+        and isinstance(message_ts, str)
+    ):
+        return False
+    if is_ext_shared_channel or event.get("subtype") or event.get("channel_type") not in ("channel", "group"):
+        return False
+    if not _is_top_level_channel_post(event) or _thread_message_ignore_reason(event) is not None:
+        return False
+    return dispatch_channel_message(
+        ChannelMessage(
+            slack_team_id=slack_team_id,
+            channel_id=channel,
+            message_ts=message_ts,
+            slack_user_id=slack_user_id,
+            text=text,
+            poster_user_ids=_poster_user_ids(slack_team_id, slack_user_id, channel, event_id),
+        )
+    )
+
+
 def _route_untagged_question(
     request: HttpRequest,
     event: dict[str, Any],
@@ -2883,6 +2946,11 @@ def route_posthog_code_event_to_relevant_region(
                     event_id=event_id,
                     is_ext_shared_channel=is_ext_shared_channel,
                 )
+                # The sending region offered the post only to the handlers of its own projects. The
+                # projects of this region exist only here, so this region offers the post again.
+                _offer_channel_post_to_hooks(
+                    event, slack_team_id, event_id, is_ext_shared_channel=is_ext_shared_channel
+                )
                 return ROUTE_HANDLED_LOCALLY
 
             should_try_other_region = request.headers.get(ALREADY_EMITTED_HEADER) != "1" and emit_slack_message_event(
@@ -2955,6 +3023,12 @@ def route_posthog_code_event_to_relevant_region(
             # Top-level channel posts dominate the wire volume, so they leave the shared pipeline
             # here and face cheap gates before any DB hit.
             if _is_top_level_channel_post(event):
+                # A post that a product took, such as a pull request link in a Broadcast channel, is not a
+                # question for the agent.
+                if _offer_channel_post_to_hooks(
+                    event, slack_team_id, event_id, is_ext_shared_channel=is_ext_shared_channel
+                ):
+                    return ROUTE_HANDLED_LOCALLY
                 return _route_untagged_question(
                     request,
                     event,
