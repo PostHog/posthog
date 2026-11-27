@@ -290,6 +290,11 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                       params,
                       (window) => {
                           const pickups = pickupsBetween(evidence.samples, [role], window, { straddlesEnd: false })
+                          if (pickups.reset) {
+                              return unmeasured(
+                                  'a worker restarted in the window, so the pickups it had not yet reported are lost'
+                              )
+                          }
                           if ('unread' in pickups) {
                               return unmeasured(pickups.unread)
                           }
