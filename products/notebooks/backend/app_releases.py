@@ -102,7 +102,7 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
     }
     displayed = {block.node_id for block in blocks if block.kind == "cell" and block.display != "source"}
     if any(node_id in sources and sources[node_id].tag_name == "Widget" for node_id in displayed):
-        widget_sources = widget_source_slots(notebook.team_id, notebook.id, markdown, displayed)
+        widget_sources = widget_source_slots(notebook.team_id, notebook.id, markdown, displayed, native_only=False)
         blocks = [
             *blocks,
             *(

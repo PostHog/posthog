@@ -19,7 +19,7 @@ class ApprovedWidgetSource:
 
 
 def widget_source_slots(
-    team_id: int, notebook_id: UUID, markdown: str, displayed: set[str]
+    team_id: int, notebook_id: UUID, markdown: str, displayed: set[str], *, native_only: bool = True
 ) -> dict[str, list[AppWidgetSlot]]:
     content = build_markdown_notebook_content(markdown)
     visible_widgets = displayed & widget_node_ids(content)
@@ -43,7 +43,7 @@ def widget_source_slots(
         for item in version.input_contract:
             if isinstance(item, dict) and isinstance(item.get("slot"), str):
                 node_id = owners.get(widget_source_name(instance, item))
-                if node_id is not None and node_id in native_sql:
+                if node_id is not None and (not native_only or node_id in native_sql):
                     by_node[node_id].append(
                         AppWidgetSlot(node_id=instance.node_id, version_id=version.id, slot=item["slot"])
                     )
