@@ -34,6 +34,11 @@ const OWN_EVENT: Record<'delivered' | 'opened', string> = {
     opened: '$workflows_email_opened',
 }
 
+/** Clicks and visits come from events, so a send that went out has them even when no copy of the email was kept. */
+export function emailWentOut(email: TransactionalEmailLogDetailApi): boolean {
+    return email.timeline.some((step) => step.kind === 'sent')
+}
+
 /** When the email was delivered and first opened, then each click with the session it started, oldest first. */
 export function emailOutcomeRows(
     email: TransactionalEmailLogDetailApi,
