@@ -7,22 +7,19 @@ import { loginLogic } from '../loginLogic'
 export function SessionRiskBanner({ className }: { className?: string }): JSX.Element | null {
     const { wasSignedOutForSessionRisk, wasSignedOutForUnboundSession } = useValues(loginLogic)
 
-    if (wasSignedOutForUnboundSession) {
-        return (
-            <AuthBanner variant="warning" className={className}>
-                For your security, we signed you out because this session was used without the device you signed in on.
-                Sign back in to continue.
-            </AuthBanner>
-        )
-    }
+    const message = wasSignedOutForUnboundSession
+        ? 'For your security, we signed you out because this session was used without the device you signed in on. Sign back in to continue.'
+        : wasSignedOutForSessionRisk
+          ? 'For your security, we signed you out because this session showed unusual activity. Sign back in to continue.'
+          : null
 
-    if (!wasSignedOutForSessionRisk) {
+    if (message === null) {
         return null
     }
 
     return (
         <AuthBanner variant="warning" className={className}>
-            For your security, we signed you out because this session showed unusual activity. Sign back in to continue.
+            {message}
         </AuthBanner>
     )
 }
