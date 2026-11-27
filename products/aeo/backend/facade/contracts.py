@@ -356,6 +356,44 @@ class PromptSetSearch:
     top_prompts: tuple[PromptSetSearchPrompt, ...]
 
 
+# The length of each list in a search detail.
+MAX_DETAIL_DOMAINS = 10
+MAX_RELATED_SEARCHES = 8
+MAX_DETAIL_PROMPTS = 10
+
+
+@frozen
+class PromptSetRelatedSearch:
+    """Another search the engines ran in the same answers as the search a detail is for."""
+
+    query: str
+    answers: int
+    share_of_answers: float
+
+
+@frozen
+class PromptSetSearchDetail:
+    """What the answers that ran one web search in the window cited, searched for next to it, and came from.
+
+    The fact rows tie a citation to the answer, not to one of its searches, so `domains` counts the sites
+    those answers cited, whichever of their searches surfaced them."""
+
+    query: str
+    window_from: dt.date
+    window_to: dt.date
+    answers: int
+    prompts: int
+    cited: int
+    engines: tuple[str, ...]
+    domains_cited: int
+    # Place of the best-ranked own domain among every cited domain, from 1. None when no answer cited one.
+    target_rank: int | None
+    domains: tuple[PromptSetDomain, ...]
+    related_searches: tuple[PromptSetRelatedSearch, ...]
+    keywords: tuple[str, ...]
+    top_prompts: tuple[PromptSetSearchPrompt, ...]
+
+
 @frozen
 class PromptSetOverview:
     """How the whole prompt set did from `window_from` to `window_to`, against the `days` days before."""

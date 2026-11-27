@@ -23,7 +23,11 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import AEOKeywordReportBurstRateThrottle, AEOTopicRelabelBurstRateThrottle
+from posthog.rate_limit import (
+    AEOKeywordReportBurstRateThrottle,
+    AEOSearchDetailBurstRateThrottle,
+    AEOTopicRelabelBurstRateThrottle,
+)
 
 from products.aeo.backend import brand, catalog
 from products.aeo.backend.check_brands import enrich_check_brands
@@ -1207,6 +1211,106 @@ class TestAEOPromptAPI(APIBaseTest):
         ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_search_detail_ranks_the_sites_and_searches_of_the_answers_that_ran_it(self) -> None:
+        create_own_brand(self.team, "example.com")
+        create_keywords(self.team.pk, ["pricing", "session replay"])
+        ids = self._import_prompts([{"prompt": "pricing?"}, {"prompt": "cheapest?"}])
+        rivals = [f"https://rival{index}.dev/" for index in range(11)]
+        # Every rival is cited twice and the own site once, so it ranks below the top ten and still gets a row.
+        self._record_check(
+            ids["pricing?"],
+            "openai-web-search",
+            minutes_ago=60,
+            cited_urls=rivals,
+            search_queries=["acme pricing", "acme free tier"],
+        )
+        self._record_check(
+            ids["cheapest?"],
+            "openai-web-search",
+            minutes_ago=120,
+            cited=True,
+            position=12,
+            cited_urls=[*rivals, "https://docs.example.com/pricing"],
+            search_queries=["Acme  Pricing", "acme free tier", "acme vs rival"],
+        )
+        # Left out: another engine when the request names one, a failed answer, and an answer that ran other searches.
+        self._record_check(
+            ids["pricing?"], "claude-web-search", minutes_ago=60, cited_urls=rivals, search_queries=["acme pricing"]
+        )
+        self._record_check(
+            ids["pricing?"], "openai-web-search", minutes_ago=30, check_failed=True, search_queries=["acme pricing"]
+        )
+        self._record_check(
+            ids["cheapest?"], "openai-web-search", minutes_ago=30, cited_urls=rivals, search_queries=["acme free tier"]
+        )
+
+        response = self.client.get(
+            f"{self.url}search_detail/",
+            {"search": "  ACME pricing ", "engine": "openai-web-search", "date_from": "-7d"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        detail = response.json()
+        assert (detail["query"], detail["answers"], detail["prompts"], detail["cited"], detail["engines"]) == (
+            "acme pricing",
+            2,
+            2,
+            1,
+            ["openai-web-search"],
+        )
+        assert (detail["domains_cited"], detail["target_rank"]) == (12, 12)
+        assert [(row["domain"], row["share_of_answers"], row["is_target"]) for row in detail["domains"]] == [
+            *[(f"rival{index}.dev", 1.0, False) for index in sorted(range(11), key=str)[:10]],
+            ("example.com", 0.5, True),
+        ]
+        assert [(row["query"], row["answers"], row["share_of_answers"]) for row in detail["related_searches"]] == [
+            ("acme free tier", 2, 1.0),
+            ("acme vs rival", 1, 0.5),
+        ]
+        assert detail["keywords"] == ["pricing"]
+        assert sorted(prompt["text"] for prompt in detail["top_prompts"]) == ["cheapest?", "pricing?"]
+
+        # The generated client sends an unset filter as the text 'null', which counts every engine and topic.
+        unfiltered = self.client.get(
+            f"{self.url}search_detail/",
+            {"search": "acme pricing", "engine": "null", "topic": "null", "date_from": "-7d"},
+        ).json()
+        assert (unfiltered["answers"], unfiltered["engines"]) == (3, ["claude-web-search", "openai-web-search"])
+
+    @parameterized.expand(
+        [
+            ("read_scope", ["web_analytics:read"], status.HTTP_200_OK),
+            ("other_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_search_detail_reads_with_a_personal_api_key(self, _name: str, scopes: list[str], expected: int) -> None:
+        # Session auth skips scope checks, so only a scoped key catches an action left out of the read actions.
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="aeo read", secure_value=hash_key_value(value), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"{self.url}search_detail/", {"search": "acme pricing"}, headers={"authorization": f"Bearer {value}"}
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_search_detail_is_throttled_for_the_session_authenticated_ui(self, _rate_limit_enabled: MagicMock) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with patch.object(AEOSearchDetailBurstRateThrottle, "rate", "2/minute"):
+            statuses = [
+                self.client.get(f"{self.url}search_detail/", {"search": f"nonce {index}"}).status_code
+                for index in range(3)
+            ]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_use_the_competitors_confirmed_in_the_catalog(self) -> None:
         ids = self._import_prompts([{"prompt": "funnels?"}])
         with team_scope(self.team.pk):
@@ -1779,6 +1883,9 @@ class TestAEOPromptAPI(APIBaseTest):
             ("longer_window", "domain=example.com&date_from=-60d", ["best funnel tools?", "best funnel tools?"]),
             ("past_range", "domain=example.com&date_from=-60d&date_to=-30d", ["best funnel tools?"]),
             ("engine", "domain=example.com&engine=claude-web-search", []),
+            ("topic", "domain=example.com&topic=Flags", []),
+            ("no_topic", "domain=example.com&topic=", ["best funnel tools?"]),
+            ("unset_filters_sent_as_null", "domain=example.com&engine=null&topic=null", ["best funnel tools?"]),
             ("search_normalized", "search=%20FUNNEL%20%20tools%20", ["best funnel tools?"]),
             ("search_branded", "search=funnel%20tools%20pricing&branded=branded", ["is example good?"]),
             ("search_non_branded", "search=funnel%20tools%20pricing&branded=non_branded", []),
