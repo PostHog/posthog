@@ -1069,7 +1069,6 @@ class TestCaptureBatchInternal(SimpleTestCase):
 
         result = entry_point(events=[_make_event(event=event_name)], token="tok", event_source="lanemetric")
 
-        # Four attempts: three retried, the last one failed.
         assert (submitted._value.get(), retried._value.get(), failed._value.get()) == (
             before[0] + 4,
             before[1] + 3,

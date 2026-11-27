@@ -79,7 +79,6 @@ _MAX_REPORTED_REASON_CHARS = 64
 
 _KNOWN_RESULT_STATUSES = frozenset({"ok", "drop", "warning", "retry"})
 
-# Whole-request statuses capture v1 clients retry; every other non-200 is final.
 _RETRYABLE_STATUSES = frozenset({404, 408, 429, 500, 502, 503, 504})
 
 # --------------------------------------------------------------------------- #
@@ -576,10 +575,9 @@ def _submit_batch_chunk(
                 result.unaccounted.append(uid)
         return result
 
-    # Every retry goes through this loop, never an HTTP library retry, so each attempt
-    # sends its own PostHog-Attempt and PostHog-Request-Timestamp.
+    # Capture v1 retries keep one PostHog-Request-Id and restamp PostHog-Attempt and
+    # PostHog-Request-Timestamp, so retries stay in this loop, never in an HTTP library.
     with internal_requests_session() as session:
-        # Capture v1 expects one PostHog-Request-Id for every attempt of a batch; only the attempt and timestamp change.
         request_id = str(uuid4())
         while True:
             headers = _build_v1_headers(token, attempt, request_id)
