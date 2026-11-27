@@ -1133,6 +1133,34 @@ class TestAdminConsoleViews(BaseTest):
         assert 'value="2026-10-22"' in content and "Preview" in content
         assert re.search(r'<input type="hidden" name="step" value="details"', content)
 
+    @parameterized.expand([("for_its_record", True), ("without_a_record", False)])
+    def test_a_tool_about_one_record_leads_back_through_that_record(self, _name: str, with_record: bool) -> None:
+        tool = type("TeamReport", (_Tool,), {"subject": "team", "page": lambda self, request: Page(blocks=())})()
+        url = tool.url_for(self.team) if with_record else f"/admin/console/tools/{tool.key}/"
+
+        with patch.object(console, "get_tool", return_value=tool):
+            response = self.client.get(url)
+
+        crumbs = [crumb.href for crumb in response.context["subject_crumbs"]]
+        if with_record:
+            assert crumbs == [
+                f"/admin/console/organizations/{self.organization.pk}/",
+                f"/admin/console/projects/{self.project.pk}/",
+                f"/admin/console/teams/{self.team.pk}/",
+            ]
+        else:
+            assert crumbs == [] and "/admin/console/tools/#tools-infrastructure" in response.content.decode()
+
+    def test_a_tool_looks_its_record_up_once_per_request(self) -> None:
+        tool = type("TeamReport", (_Tool,), {"subject": "team"})()
+        request = RequestFactory().get(tool.url_for(self.team))
+
+        with CaptureQueriesContext(connection) as queries:
+            first, second = tool.subject_of(request), tool.subject_of(request)
+
+        assert first == second == self.team
+        assert len(queries) == 1
+
     def test_a_decision_runs_its_operation_in_one_click_and_returns_to_the_next_item(self) -> None:
         _DecidingTool.decided = []
         with patch.object(console, "get_tool", return_value=_DecidingTool()):

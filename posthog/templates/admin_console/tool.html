@@ -2,8 +2,16 @@
 {% block title %}{{ tool.title }} · PostHog Admin{% endblock %}
 {% block content %}
     <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
-        <a class="text-muted-foreground"
-           href="{% url 'admin_console_tools' %}#tools-{{ tool.group|slugify }}">Tools</a> › {{ tool.group }}
+        {% if subject_crumbs %}
+            <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Home</a>
+            {% for crumb in subject_crumbs %}
+                ›
+                <a class="text-muted-foreground" href="{{ crumb.href }}">{{ crumb.label }}</a>
+            {% endfor %}
+        {% else %}
+            <a class="text-muted-foreground"
+               href="{% url 'admin_console_tools' %}#tools-{{ tool.group|slugify }}">Tools</a> › {{ tool.group }}
+        {% endif %}
     </nav>
     <div class="flex flex-wrap items-start gap-4 mt-1.5 mb-4">
         <div class="min-w-0">

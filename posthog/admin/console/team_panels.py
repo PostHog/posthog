@@ -5,10 +5,10 @@ from django.contrib import messages
 from django.db import IntegrityError, transaction
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
-from django.urls import reverse
 
 from posthog.admin.console.panels import Fact, Operation, Panel, Tone
 from posthog.admin.console.registry import console
+from posthog.admin.console.remote_config_tool import RemoteConfigCacheTool
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
@@ -46,13 +46,12 @@ class RemoteConfigPanel(Panel):
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
-        tool_url = reverse("admin_console_tool", kwargs={"tool_key": "remote-config-cache"})
         return [
             Fact(
                 label="Cache", value="SDKs read the team's config from this cache. It rebuilds when the config changes."
             ),
             Fact(label="Cache key", value=RemoteConfig.get_hypercache().get_cache_key(obj.api_token), mono=True),
-            Fact(label="Cached config", value="View the JSON", href=f"{tool_url}?team={obj.pk}"),
+            Fact(label="Cached config", value="View the JSON", href=RemoteConfigCacheTool.url_for(obj)),
         ]
 
     def operations(self, obj: Model) -> list[Operation]:
