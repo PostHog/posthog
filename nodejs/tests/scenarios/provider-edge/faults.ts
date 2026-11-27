@@ -88,6 +88,7 @@ export type SesAnswer =
     | { kind: 'no-answer' }
     | { kind: 'stalled-body' }
     | { kind: 'ambiguous'; accepted: boolean }
+    | { kind: 'accepted-then-status'; answer: SesStatusAnswer }
     | { kind: 'hold-answer' }
 
 export type WebhookAnswer =
@@ -194,7 +195,10 @@ const isPgAnswer = (answer: Answer): answer is PgAnswer =>
 const isSesAnswer = (answer: Answer): answer is SesAnswer => !isWebhookAnswer(answer) && !isPgAnswer(answer)
 
 const reachesSes = (answer: Answer): boolean =>
-    answer.kind === 'bounce' || answer.kind === 'hold-answer' || (answer.kind === 'ambiguous' && answer.accepted)
+    answer.kind === 'bounce' ||
+    answer.kind === 'hold-answer' ||
+    answer.kind === 'accepted-then-status' ||
+    (answer.kind === 'ambiguous' && answer.accepted)
 
 function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean {
     if (request.channel === 'webhook') {
