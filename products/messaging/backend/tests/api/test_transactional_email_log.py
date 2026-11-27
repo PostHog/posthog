@@ -901,14 +901,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
         ):
             impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
-            listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert (impact["clicked"], impact["sessions"]) == (CLICKED_SENDS_PAST_ONE_BATCH, 3)
-        assert sorted(session["session_id"] for session in listed["sessions"]) == [
-            "first-batch-session",
-            "second-batch-session",
-            "shared-session",
-        ]
 
     def test_counts_sessions_of_the_newest_clicked_sends_with_ties_broken_by_message_id(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
@@ -925,9 +919,17 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert impact["sessions"] == 2
 
     @parameterized.expand(
-        [("every_session", 200, ["b-session", "a-session"], False), ("newest_only", 1, ["b-session"], True)]
+        [
+            ("every_session", True, 200, ["b-session", "a-session", "old-session"], False),
+            ("newest_only", True, 1, ["b-session"], True),
+            ("link_tagging_off", False, 200, [], False),
+        ]
     )
-    def test_lists_the_sessions_from_this_emails_links_newest_first(self, _flag, _name, limit, expected, has_more):
+    def test_lists_the_sessions_from_this_emails_links_newest_first(
+        self, _flag, _name, link_tagging_enabled, limit, expected, has_more
+    ):
+        self.team.workflows_config.email_workflow_run_link_tag_enabled = link_tagging_enabled
+        self.team.workflows_config.save()
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
         a = self._send(120, "a@example.com", clicked)
         b = self._send(90, "b@example.com", clicked)
@@ -935,8 +937,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         other_workflow = create_workflow_for_test(team_id=self.team.id, name="Welcome").id
         welcome = self._send(70, "d@example.com", clicked, workflow_id=other_workflow)
         self._land("a", "a-session", a, at=NOW - timedelta(minutes=50))
-        self._land("a", "a-session", a, at=NOW - timedelta(minutes=10))
+        self._land("a", "a-session", b, at=NOW - timedelta(minutes=10))
         self._land("b", "b-session", b, at=NOW - timedelta(minutes=20))
+        self._land("b", "old-session", b, at=NOW - timedelta(minutes=100))
         self._land("c", "not-clicked-session", not_clicked)
         self._land("d", "welcome-session", welcome)
         self._land("b", "untagged-session", None)
@@ -948,8 +951,42 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         first_pageviews = {
             "a-session": {"session_id": "a-session", "message_id": a, "first_pageview_at": "2026-06-15T11:10:00Z"},
             "b-session": {"session_id": "b-session", "message_id": b, "first_pageview_at": "2026-06-15T11:40:00Z"},
+            "old-session": {"session_id": "old-session", "message_id": b, "first_pageview_at": "2026-06-15T10:20:00Z"},
         }
         assert listed == {"sessions": [first_pageviews[session] for session in expected], "has_more": has_more}
+
+    def test_lists_a_session_by_its_first_pageview_across_query_batches(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_ids = [
+            self._send(minutes_ago, f"reader-{minutes_ago}@example.com", clicked)
+            for minutes_ago in range(10, 10 + CLICKED_SENDS_PAST_ONE_BATCH)
+        ]
+        first_batch, second_batch = message_ids[0], message_ids[-1]
+        self._land("reader", "shared-session", first_batch, at=NOW - timedelta(minutes=50))
+        self._land("reader", "first-batch-session", first_batch, at=NOW - timedelta(minutes=40))
+        self._land("reader", "another-first-batch-session", first_batch, at=NOW - timedelta(minutes=30))
+        self._land("reader", "shared-session", second_batch, at=NOW - timedelta(minutes=10))
+        self._land("reader", "second-batch-session", second_batch, at=NOW - timedelta(minutes=20))
+        flush_persons_and_events()
+
+        with (
+            patch.dict(
+                CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+            ),
+            patch("products.messaging.backend.services.transactional_email_log.MAX_IMPACT_SESSIONS", 1),
+        ):
+            listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert listed == {
+            "sessions": [
+                {
+                    "session_id": "second-batch-session",
+                    "message_id": second_batch,
+                    "first_pageview_at": "2026-06-15T11:40:00Z",
+                }
+            ],
+            "has_more": True,
+        }
 
     def test_has_no_session_count_when_a_batch_fills_the_row_limit(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]

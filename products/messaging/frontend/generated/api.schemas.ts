@@ -1778,16 +1778,16 @@ export interface TransactionalEmailImpactApi {
 export interface TransactionalEmailImpactSessionApi {
     /** The session ID, the same one session recordings use. */
     session_id: string
-    /** The send whose link started the session: the ph_workflow_run tag on its first pageview. */
+    /** The send in the ph_workflow_run tag of the session's earliest pageview from this email. */
     message_id: string
     /** The session's first pageview from a link in this email. */
     first_pageview_at: string
 }
 
 export interface TransactionalEmailImpactSessionsApi {
-    /** The sessions `impact` counts, newest first pageview first, 200 at most. Each had a pageview whose URL carries the ph_workflow_run tag of a clicked send, up to 7 days after the period. */
+    /** The sessions `impact` counts, newest first pageview first, 200 at most. Each had a pageview whose URL carries the ph_workflow_run tag of a clicked send, up to 7 days after the period. Empty while link tagging is off, when `impact` returns no session count. */
     sessions: TransactionalEmailImpactSessionApi[]
-    /** True when older sessions were left out. */
+    /** True when sessions were left out: there are more than 200, or too many to rank them all. */
     has_more: boolean
 }
 

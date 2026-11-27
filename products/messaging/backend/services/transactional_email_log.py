@@ -795,40 +795,60 @@ def transactional_email_impact_sessions(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> TransactionalEmailImpactSessions:
-    """The newest sessions with a pageview from a link in one email, the same sessions `transactional_email_impact`
-    counts, newest first pageview first."""
+    if not is_email_workflow_run_link_tag_enabled(team_id=team.id):
+        return TransactionalEmailImpactSessions(sessions=(), has_more=False)
     period = _window(date_from, date_to)
+    batches = list(
+        _batches_by_query_size(team.id, _clicked_message_ids(team, workflow_id, period), _escaped_literal_bytes)
+    )
+    batch_limit = _sessions_to_rank_exactly(len(batches))
     first_pageviews: dict[str, TransactionalEmailImpactSession] = {}
-    for batch in _batches_by_query_size(
-        team.id, _clicked_message_ids(team, workflow_id, period), _escaped_literal_bytes
-    ):
-        for session in _session_landings_in_batch(team, user, batch, period):
-            known = first_pageviews.get(session.session_id)
-            if known is None or session.first_pageview_at < known.first_pageview_at:
-                first_pageviews[session.session_id] = session
-    newest = sorted(first_pageviews.values(), key=lambda session: session.first_pageview_at, reverse=True)
+    truncated = False
+    for batch in batches:
+        landings = _session_landings_in_batch(team, user, batch, period, batch_limit)
+        truncated = truncated or len(landings) >= batch_limit
+        for landing in landings:
+            known = first_pageviews.get(landing.session_id)
+            if known is None or _landing_order(landing) < _landing_order(known):
+                first_pageviews[landing.session_id] = landing
+    newest = sorted(
+        first_pageviews.values(), key=lambda session: (session.first_pageview_at, session.session_id), reverse=True
+    )
     return TransactionalEmailImpactSessions(
-        sessions=tuple(newest[:MAX_IMPACT_SESSIONS]), has_more=len(newest) > MAX_IMPACT_SESSIONS
+        sessions=tuple(newest[:MAX_IMPACT_SESSIONS]), has_more=truncated or len(newest) > MAX_IMPACT_SESSIONS
     )
 
 
+def _sessions_to_rank_exactly(batch_count: int) -> int:
+    one_past_the_page = MAX_IMPACT_SESSIONS + 1
+    a_session_can_land_from_two_batches = batch_count > 1
+    return MAX_SELECT_RETURNED_ROWS if a_session_can_land_from_two_batches else one_past_the_page
+
+
+def _landing_order(landing: TransactionalEmailImpactSession) -> tuple[datetime, str]:
+    return landing.first_pageview_at, landing.message_id
+
+
 def _session_landings_in_batch(
-    team: Team, user: User | None, message_ids: list[str], period: _Period
+    team: Team, user: User | None, message_ids: list[str], period: _Period, limit: int
 ) -> list[TransactionalEmailImpactSession]:
     response = execute_hogql_query(
         """
         SELECT
             $session_id,
-            argMin(extractURLParameter(properties.$current_url, 'ph_workflow_run'), timestamp),
+            argMin(run_id, tuple(timestamp, run_id)),
             min(timestamp) AS first_pageview_at
-        FROM events
-        WHERE event = '$pageview'
-          AND timestamp >= {start} AND timestamp < {end}
-          AND $session_id != ''
-          AND position(properties.$current_url, 'ph_workflow_run=') > 0
-          AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
+        FROM (
+            SELECT $session_id, timestamp, extractURLParameter(properties.$current_url, 'ph_workflow_run') AS run_id
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= {start} AND timestamp < {end}
+              AND $session_id != ''
+              AND position(properties.$current_url, 'ph_workflow_run=') > 0
+              AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
+        )
         GROUP BY $session_id
-        ORDER BY first_pageview_at DESC
+        ORDER BY first_pageview_at DESC, $session_id DESC
         LIMIT {limit}
         """,
         team=team,
@@ -837,8 +857,7 @@ def _session_landings_in_batch(
             "start": ast.Constant(value=period.start),
             "end": ast.Constant(value=period.end + timedelta(days=IMPACT_WINDOW_DAYS)),
             "message_ids": ast.Constant(value=message_ids),
-            # One past the page, so a batch with more sessions than the page sets has_more.
-            "limit": ast.Constant(value=MAX_IMPACT_SESSIONS + 1),
+            "limit": ast.Constant(value=limit),
         },
         query_type="transactional_email_impact_session_list",
         workload=Workload.ONLINE,

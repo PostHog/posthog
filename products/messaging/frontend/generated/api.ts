@@ -1339,7 +1339,7 @@ export const getTransactionalEmailLogImpactSessionsRetrieveUrl = (
 
 /**
  * List the newest sessions with a pageview from a link in one email, the sessions `impact` counts.
- * @summary List the sessions a transactional email started
+ * @summary List the sessions with a pageview from a transactional email
  */
 export const transactionalEmailLogImpactSessionsRetrieve = async (
     projectId: string,

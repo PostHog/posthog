@@ -293,7 +293,7 @@ class TransactionalEmailImpactSessionsQuerySerializer(DateRangeQuerySerializer):
 class TransactionalEmailImpactSessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(help_text="The session ID, the same one session recordings use.")
     message_id = serializers.CharField(
-        help_text="The send whose link started the session: the ph_workflow_run tag on its first pageview."
+        help_text="The send in the ph_workflow_run tag of the session's earliest pageview from this email."
     )
     first_pageview_at = serializers.DateTimeField(help_text="The session's first pageview from a link in this email.")
 
@@ -302,9 +302,12 @@ class TransactionalEmailImpactSessionsSerializer(serializers.Serializer):
     sessions = TransactionalEmailImpactSessionSerializer(
         many=True,
         help_text="The sessions `impact` counts, newest first pageview first, 200 at most. Each had a pageview whose "
-        "URL carries the ph_workflow_run tag of a clicked send, up to 7 days after the period.",
+        "URL carries the ph_workflow_run tag of a clicked send, up to 7 days after the period. Empty while link "
+        "tagging is off, when `impact` returns no session count.",
     )
-    has_more = serializers.BooleanField(help_text="True when older sessions were left out.")
+    has_more = serializers.BooleanField(
+        help_text="True when sessions were left out: there are more than 200, or too many to rank them all."
+    )
 
 
 def _entry_data(entry: TransactionalEmailLogEntry) -> dict[str, Any]:
@@ -642,7 +645,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             ),
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
-        summary="List the sessions a transactional email started",
+        summary="List the sessions with a pageview from a transactional email",
         description="List the newest sessions with a pageview from a link in one email, the sessions `impact` counts.",
     )
     @action(detail=False, methods=["GET"])
