@@ -142,9 +142,9 @@ class TestAdventCalendarAPI(APIBaseTest):
             repeat = self._open_door_as(self.user, 3, "hoggy-elf", 60)
             other_day = self._open_door_as(self.user, 4, "hoggy-elf", 60)
 
-        assert first == {"day": 3, "opened_at": "2026-12-03T07:30:00Z"}
+        assert first == {"day": 3, "opened_at": "2026-12-03T07:30:00Z", "utc_offset_minutes": -300}
         assert repeat == first
-        assert other_day == {"day": 4, "opened_at": "2026-12-04T07:30:00Z"}
+        assert other_day == {"day": 4, "opened_at": "2026-12-04T07:30:00Z", "utc_offset_minutes": 60}
         stored = AdventCalendarDoorOpen.objects.get(user_id=self.user.id, day=3)
         assert (stored.hoggy, stored.utc_offset_minutes) == ("hoggy-santa", -300)
 
@@ -210,7 +210,7 @@ class TestAdventCalendarAPI(APIBaseTest):
         assert not AdventCalendarDoorOpen.objects.exists()
         self._results()
 
-    def test_each_signed_in_person_has_their_own_request_budget_even_with_api_rate_limits_off(self) -> None:
+    def test_each_signed_in_person_has_their_own_request_budget_and_a_separate_one_for_door_opens(self) -> None:
         teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
         with (
             override_settings(
@@ -221,10 +221,12 @@ class TestAdventCalendarAPI(APIBaseTest):
             try:
                 is_rate_limit_enabled.cache_clear()
                 self._answer_as(self.user, self.team, 2, "tim")
-                self._open_door_as(self.user, 2, "hoggy-santa", 0)
-                for _ in range(28):
+                for _ in range(29):
                     self._results()
                 over_budget = self.client.get(self._url(self.team, "results"))
+                open_over_budget = self.client.post(
+                    self._url(self.team, "open"), {"day": 24, "hoggy": "hoggy-santa", "utc_offset_minutes": 0}
+                )
                 teammate_answer = self._answer_as(teammate, self.team, 2, "james")
             finally:
                 for alias in ("default", "throttle_history"):
@@ -234,6 +236,7 @@ class TestAdventCalendarAPI(APIBaseTest):
                 is_rate_limit_enabled.cache_clear()
 
         assert over_budget.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert open_over_budget.status_code == status.HTTP_200_OK
         assert teammate_answer["questions"][0]["shares"] == [
             {"option": "james", "share": 50},
             {"option": "tim", "share": 50},

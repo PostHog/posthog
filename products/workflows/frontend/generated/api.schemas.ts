@@ -3014,6 +3014,8 @@ export interface AdventCalendarDoorOpenApi {
     day: number
     /** When the server stored the person's first open of this door. Opening it again keeps this time. */
     opened_at: string
+    /** The browser's UTC offset in minutes at the first open of this door. Opening it again keeps this offset, so the first open's local day stays the same on every device. */
+    utc_offset_minutes: number
 }
 
 export interface DataSuggestionBuildRequestApi {

@@ -128,6 +128,10 @@
     transition-property: clip-path;
 }
 
+.AdventCard--facesDown {
+    flex-direction: column-reverse;
+}
+
 .AdventCard__face {
     display: flex;
     flex-shrink: 0;
@@ -188,8 +192,6 @@
 
 .AdventTicketFlight {
     position: absolute;
-
-    /* Above the door card (10), because the card opens over the door the ticket leaves from. */
     z-index: 11;
     pointer-events: none;
     animation: AdventTicketFlight__x 820ms cubic-bezier(0.45, 0, 0.55, 1) both;
@@ -254,7 +256,6 @@
         animation: none;
     }
 
-    /* The flight ends on its animationend event, so it keeps a 1 ms animation that lands the ticket at once. */
     .AdventTicketFlight,
     .AdventTicketFlight__arc {
         animation-duration: 1ms;

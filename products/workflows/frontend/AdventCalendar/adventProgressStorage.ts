@@ -16,19 +16,16 @@ function isAdventAnswer(answer: [string, unknown]): answer is [string, string] {
     return !!ADVENT_QUESTIONS[Number(answer[0])]?.options.some((option) => option.id === answer[1])
 }
 
-function cleanProgress(opened: unknown[], answers: unknown, onTime: unknown): AdventProgress {
-    const onTimeDays = Array.isArray(onTime) ? [...new Set(onTime.filter(isAdventDay))] : []
+function cleanProgress(opened: unknown[], answers: unknown): AdventProgress {
     return {
         opened: [...new Set(opened.filter(isAdventDay))],
         answers: Object.fromEntries(Object.entries(isRecord(answers) ? answers : {}).filter(isAdventAnswer)),
-        ...(onTimeDays.length ? { onTime: onTimeDays } : {}),
     }
 }
 
-export function reachableProgress(progress: AdventProgress): AdventProgress {
-    const { opened, answers } = progress
+export function reachableProgress({ opened, answers }: AdventProgress): AdventProgress {
     const unanswered = ADVENT_QUESTION_DAYS.find((day) => opened.includes(day) && !answers[day])
-    return { ...progress, opened: opened.filter((day) => unanswered === undefined || day < unanswered) }
+    return { opened: opened.filter((day) => unanswered === undefined || day < unanswered), answers }
 }
 
 export function storedProgressByUser(): unknown {
@@ -43,8 +40,26 @@ export function cleanProgressByUser(value: unknown): Record<string, AdventProgre
     return Object.fromEntries(
         Object.entries(isRecord(value) ? value : {}).flatMap(([uuid, progress]) =>
             isRecord(progress) && Array.isArray(progress.opened)
-                ? [[uuid, cleanProgress(progress.opened, progress.answers, progress.onTime)]]
+                ? [[uuid, cleanProgress(progress.opened, progress.answers)]]
                 : []
+        )
+    )
+}
+
+export const TICKETS_STORAGE_KEY = 'workflows-advent-calendar-tickets'
+
+export function storedTicketsByUser(): unknown {
+    try {
+        return JSON.parse(window.localStorage.getItem(TICKETS_STORAGE_KEY) ?? 'null')
+    } catch {
+        return null
+    }
+}
+
+export function cleanTicketsByUser(value: unknown): Record<string, number[]> {
+    return Object.fromEntries(
+        Object.entries(isRecord(value) ? value : {}).flatMap(([uuid, days]) =>
+            Array.isArray(days) ? [[uuid, [...new Set(days.filter(isAdventDay))].sort((x, y) => x - y)]] : []
         )
     )
 }

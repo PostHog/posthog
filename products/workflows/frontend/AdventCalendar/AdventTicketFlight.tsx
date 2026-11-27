@@ -20,7 +20,6 @@ export function AdventTicketFlight({ from, to, onLand }: AdventTicketFlightProps
         '--advent-fly-dy': `${dy}px`,
         '--advent-fly-peak': `${Math.min(dy, 0) - ARC_HEIGHT}px`,
     } as CSSProperties
-    // The inner element runs its own animation, and its end event bubbles up to this element.
     const land = (event: AnimationEvent): void => {
         if (event.target === event.currentTarget) {
             onLand()

@@ -99,6 +99,10 @@ class AdventCalendarDoorOpenSerializer(serializers.Serializer):
     opened_at = serializers.DateTimeField(
         help_text="When the server stored the person's first open of this door. Opening it again keeps this time."
     )
+    utc_offset_minutes = serializers.IntegerField(
+        help_text="The browser's UTC offset in minutes at the first open of this door. Opening it again keeps this "
+        "offset, so the first open's local day stays the same on every device."
+    )
 
 
 class AdventCalendarUserThrottle(PersonalApiKeyRateThrottle):
@@ -113,6 +117,11 @@ class AdventCalendarUserThrottle(PersonalApiKeyRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": request.user.pk}
 
 
+class AdventCalendarOpenThrottle(AdventCalendarUserThrottle):
+    scope = "workflow_advent_calendar_open"
+    rate = "60/minute"
+
+
 class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """How people open the doors of the Workflows advent calendar and answer its questions."""
 
@@ -121,7 +130,8 @@ class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
 
     def get_throttles(self) -> list[BaseThrottle]:
-        return [AdventCalendarUserThrottle(), *super().get_throttles()]
+        person_throttle = AdventCalendarOpenThrottle() if self.action == "open" else AdventCalendarUserThrottle()
+        return [person_throttle, *super().get_throttles()]
 
     @extend_schema(operation_id="workflow_advent_calendar_results", responses={200: AdventCalendarResultsSerializer})
     @action(detail=False, methods=["get"])
