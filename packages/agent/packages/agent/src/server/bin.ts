@@ -89,6 +89,9 @@ const envSchema = z.object({
   POSTHOG_AGENT_OTEL_LOGS_URL: z.url().optional(),
   POSTHOG_AGENT_OTEL_LOGS_TOKEN: z.string().min(1).optional(),
   POSTHOG_AGENT_OTEL_TRACES_URL: z.url().optional(),
+  POSTHOG_AGENT_OTEL_SLACK_CHANNEL_ID: z.string().regex(/^[A-Za-z0-9]+$/).optional(),
+  POSTHOG_AGENT_OTEL_SLACK_THREAD_TS: z.string().regex(/^\d+\.\d+$/).optional(),
+  POSTHOG_AGENT_OTEL_SLACK_THREAD_URL: z.url().optional(),
 });
 
 const program = new Command();
@@ -264,6 +267,9 @@ program
     // bodies can't leak it. Defense in depth, not a boundary: same-UID
     // processes can still read the container's initial env via /proc.
     delete process.env.POSTHOG_AGENT_OTEL_LOGS_TOKEN;
+    delete process.env.POSTHOG_AGENT_OTEL_SLACK_CHANNEL_ID;
+    delete process.env.POSTHOG_AGENT_OTEL_SLACK_THREAD_TS;
+    delete process.env.POSTHOG_AGENT_OTEL_SLACK_THREAD_URL;
     delete process.env.POSTHOG_TASK_RUN_SESSION_TOKEN;
 
     const mode = options.mode === "background" ? "background" : "interactive";
@@ -334,6 +340,9 @@ program
       otelLogsUrl: env.POSTHOG_AGENT_OTEL_LOGS_URL,
       otelLogsToken: env.POSTHOG_AGENT_OTEL_LOGS_TOKEN,
       otelTracesUrl: env.POSTHOG_AGENT_OTEL_TRACES_URL,
+      otelSlackChannelId: env.POSTHOG_AGENT_OTEL_SLACK_CHANNEL_ID,
+      otelSlackThreadTs: env.POSTHOG_AGENT_OTEL_SLACK_THREAD_TS,
+      otelSlackThreadUrl: env.POSTHOG_AGENT_OTEL_SLACK_THREAD_URL,
       repositoryPath: options.repositoryPath,
       repoReadyFile: options.repoReadyFile,
       apiUrl: env.POSTHOG_API_URL,

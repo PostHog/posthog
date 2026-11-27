@@ -267,6 +267,9 @@ export class PiAgentServer {
           adapter: "pi",
           mode: payload.mode ?? this.config.mode,
           agentVersion: this.config.version,
+          slackChannelId: this.config.otelSlackChannelId,
+          slackThreadTs: this.config.otelSlackThreadTs,
+          slackThreadUrl: this.config.otelSlackThreadUrl,
         },
         new Logger({
           debug: false,

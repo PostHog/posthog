@@ -948,16 +948,7 @@ def _to_node_event(event: NodeEvent) -> contracts.TraceNodeEvent:
 
 
 def _to_node_detail_event(event: NodeEvent) -> contracts.TraceNodeDetailEvent:
-    properties = event.custom_properties
-    channel_id = properties.get("slack_channel_id")
-    thread_ts = properties.get("slack_thread_ts")
-    return contracts.TraceNodeDetailEvent(
-        name=event.row.event,
-        uuid=event.row.uuid,
-        timestamp=event.row.timestamp,
-        slack_channel_id=channel_id if isinstance(channel_id, str) else None,
-        slack_thread_ts=thread_ts if isinstance(thread_ts, str) else None,
-    )
+    return contracts.TraceNodeDetailEvent(name=event.row.event, uuid=event.row.uuid, timestamp=event.row.timestamp)
 
 
 def _to_node_raw(node_id: str, event: NodeEvent | None) -> contracts.TraceNodeRaw:

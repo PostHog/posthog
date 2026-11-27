@@ -2185,8 +2185,6 @@ export interface TraceNodeEventApi {
     name: string
     uuid: string
     timestamp: string
-    slackChannelId: string | null
-    slackThreadTs: string | null
     /** The event's properties as ingested, including its input and output values. */
     properties: TraceNodeEventApiProperties
     /** Which keys of `properties` hold the node's input, output and tools, or null when it has none. */
@@ -2353,8 +2351,6 @@ export interface TraceNodeDetailEventApi {
     name: string
     uuid: string
     timestamp: string
-    slackChannelId: string | null
-    slackThreadTs: string | null
 }
 
 export type TraceMessageRoleEnumApi = (typeof TraceMessageRoleEnumApi)[keyof typeof TraceMessageRoleEnumApi]

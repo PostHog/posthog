@@ -199,13 +199,6 @@ class BaseAgentRunner(ABC):
                     "ai_product": self._ai_product,
                     "conversation_type": self._conversation.type,
                 }
-                if slack_thread_context:
-                    callback_properties.update(
-                        {
-                            "slack_channel_id": slack_thread_context.channel,
-                            "slack_thread_ts": slack_thread_context.thread_ts,
-                        }
-                    )
                 # Use SubagentCallbackHandler when parent_span_id is provided to nest all events under the parent
                 if parent_span_id:
                     return SubagentCallbackHandler(

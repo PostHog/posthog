@@ -65,6 +65,9 @@ export interface OtelSessionResource {
   /** Run mode: "interactive" or "background" */
   mode?: string;
   agentVersion?: string;
+  slackChannelId?: string;
+  slackThreadTs?: string;
+  slackThreadUrl?: string;
 }
 
 export interface MappedLogRecord {
@@ -335,6 +338,9 @@ export class OtelRunTelemetry implements SessionLogSink {
     strAttr(resourceAttributes, "distinct_id", resource.distinctId);
     strAttr(resourceAttributes, "adapter", resource.adapter);
     strAttr(resourceAttributes, "run_mode", resource.mode);
+    strAttr(resourceAttributes, "slack_channel_id", resource.slackChannelId);
+    strAttr(resourceAttributes, "slack_thread_ts", resource.slackThreadTs);
+    strAttr(resourceAttributes, "slack_thread_url", resource.slackThreadUrl);
 
     const otelResource = resourceFromAttributes(resourceAttributes);
 

@@ -119,8 +119,6 @@ class TraceNodeDetailEvent(Contract):
     name: str
     uuid: str
     timestamp: datetime
-    slack_channel_id: str | None = None
-    slack_thread_ts: str | None = None
 
 
 class TraceNodeEvent(TraceNodeDetailEvent):

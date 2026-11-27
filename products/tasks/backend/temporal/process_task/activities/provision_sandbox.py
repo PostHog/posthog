@@ -694,7 +694,13 @@ def _build_environment_variables(
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 
     if ctx.agent_otel_telemetry_enabled and task.is_scout_experiment is not True:
-        environment_variables.update(get_sandbox_otel_env_vars())
+        environment_variables.update(
+            get_sandbox_otel_env_vars(
+                origin_product=ctx.origin_product,
+                slack_channel_id=ctx.slack_channel_id,
+                slack_thread_ts=ctx.slack_thread_ts,
+            )
+        )
 
     if ctx.allowed_domains is not None:
         environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
