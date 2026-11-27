@@ -1482,6 +1482,23 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand([("organization_id",), ("@current",)])
+    @patch("ee.billing.billing_manager.BillingManager.apply_startup_program", return_value={"success": True})
+    def test_startup_apply_on_the_organization_route_without_a_body_organization(
+        self, path_organization: str, mock_apply_startup_program: MagicMock
+    ) -> None:
+        if path_organization == "organization_id":
+            path_organization = str(self.organization.id)
+
+        response = self.client.post(
+            f"/api/organizations/{path_organization}/billing/startups/apply/", {}, content_type="application/json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        organization, data = mock_apply_startup_program.call_args.args
+        assert organization == self.organization
+        assert data["organization_id"] == str(self.organization.id)
+
     def test_startup_apply_missing_org_id(self):
         empty_data: dict[str, Any] = {}
 
