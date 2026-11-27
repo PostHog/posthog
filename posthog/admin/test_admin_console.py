@@ -1614,7 +1614,6 @@ class TestAdminConsoleViews(BaseTest):
         assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
 
 
-@time_machine.travel("2026-10-20T12:00:00Z", tick=False)
 class TestAdminConsoleDuringImpersonation(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1647,6 +1646,7 @@ class TestAdminConsoleDuringImpersonation(BaseTest):
         assert {call.kwargs["user"].id for call in log_activity.call_args_list} == {self.user.id}
 
 
+@time_machine.travel("2026-10-20T12:00:00Z", tick=False)
 class TestAdminConsoleProjectDeletion(BaseTest):
     def setUp(self) -> None:
         super().setUp()

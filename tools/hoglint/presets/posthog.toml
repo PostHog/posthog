@@ -1318,9 +1318,9 @@ ways       = [
 example    = { finding = "from posthog.admin.console.records import RECORD_TYPES  # in products/<product>/backend/api.py", fixed = "Link to the console page from products/<product>/backend/console.py, or call the product's facade." }
 kinds      = ["import", "reference", "dotted-path"]
 contexts   = { exclude = ["migration"] }
-from       = "src.console_user != 'shell' and src.registry != 'admin_console' and src.settings != true and not (src.path startswith 'products/' and src.testcode == true)"
+from       = "src.console_user != 'shell' and src.registry != 'admin_console' and not (src.path startswith 'products/' and src.testcode == true)"
 endpoint   = "surface"
 deny       = "dst.path startswith 'posthog/admin/console/'"
-unless     = "src.console_user == 'moved-button' and dst.module == 'posthog.admin.console.moved'"
+unless     = "(src.console_user == 'moved-button' and dst.module == 'posthog.admin.console.moved') or (src.settings == true and edge.kind == 'dotted-path')"
 identity   = "module-pair"
 growth_key = ["dst.module", "src.package"]
