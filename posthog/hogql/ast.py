@@ -386,7 +386,7 @@ class SelectQueryType(Type):
     is_lambda_type: bool = False
 
     implicit_table_aliases: set[str] | None = field(default=None, compare=False, repr=False)
-    lazy_join_aliases: dict[str, str] | None = field(default=None, compare=False, repr=False)
+    lazy_join_aliases: dict[tuple[str, ...], str] | None = field(default=None, compare=False, repr=False)
 
     def register_implicit_table_alias(self, alias: str) -> str:
         if self.implicit_table_aliases is None:

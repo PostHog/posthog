@@ -746,8 +746,21 @@ class TestLazyJoins(BaseTest):
 
         assert [tuple(row) for row in result.results] == [("signed_up", UUID(str(person.uuid)), 1)]
 
-    def test_lazy_join_moved_onto_another_join_name_keeps_both_joins(self) -> None:
-        for field_name, source_table_key in [("lookup", "distinct_id"), ("lookup_2", "event")]:
+    @parameterized.expand(
+        [
+            (
+                "sibling_join",
+                [("lookup", "distinct_id"), ("lookup_2", "event")],
+                "e.lookup.id, e.lookup_2.id",
+                "e__lookup",
+            ),
+            ("join_below_a_moved_join", [("pdi_2__person", "event")], "e.pdi.person.id, e.pdi_2__person.id", "e__pdi"),
+        ]
+    )
+    def test_lazy_joins_keep_their_own_aliases_when_one_moves(
+        self, name: str, joins: list[tuple[str, str]], columns: str, table_name: str
+    ) -> None:
+        for field_name, source_table_key in joins:
             DataWarehouseJoin(
                 team=self.team,
                 source_table_name="events",
@@ -756,14 +769,16 @@ class TestLazyJoins(BaseTest):
                 joining_table_key="properties.email",
                 field_name=field_name,
             ).save()
-        by_distinct_id = create_person(team=self.team, distinct_ids=["a"], properties={"email": "lookup-user"})
-        by_event = create_person(team=self.team, distinct_ids=["b"], properties={"email": "lookup_event"})
-        event_uuid = _create_event(team=self.team, event="lookup_event", distinct_id="lookup-user")
+        by_distinct_id = create_person(
+            team=self.team, distinct_ids=[f"{name}-user"], properties={"email": f"{name}-user"}
+        )
+        by_event = create_person(team=self.team, distinct_ids=[f"{name}-other"], properties={"email": f"{name}_event"})
+        event_uuid = _create_event(team=self.team, event=f"{name}_event", distinct_id=f"{name}-user")
         flush_persons_and_events()
 
         result = execute_hogql_query(
-            "SELECT e.lookup.id, e.lookup_2.id, e__lookup.marker FROM events AS e "
-            "CROSS JOIN (SELECT 1 AS marker) AS e__lookup WHERE e.uuid = {event_uuid}",
+            f"SELECT {columns}, {table_name}.marker FROM events AS e "
+            f"CROSS JOIN (SELECT 1 AS marker) AS {table_name} WHERE e.uuid = {{event_uuid}}",
             team=self.team,
             placeholders={"event_uuid": ast.Constant(value=event_uuid)},
         )

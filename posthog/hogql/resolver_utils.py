@@ -304,26 +304,38 @@ def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> O
     return None
 
 
-def _lazy_join_alias(select: ast.SelectQueryType, name: str) -> str:
-    """Give the lazy join `name` an alias that no other table or lazy join of the scope uses.
+def _lazy_join_path(select: ast.SelectQueryType, type: ast.Type) -> tuple[str, ...]:
+    """The fields that lead to a lazy join from a table the query names, for example `("e", "pdi", "person")`."""
+    match type:
+        case (
+            ast.LazyJoinType(table_type=table_type, field=field)
+            | ast.VirtualTableType(table_type=table_type, field=field)
+        ):
+            return (*_lazy_join_path(select, table_type), field)
+        case _:
+            return (get_long_table_name(select, type),)
+
+
+def _lazy_join_alias(select: ast.SelectQueryType, path: tuple[str, ...], name: str) -> str:
+    """Give the lazy join at `path` an alias that no other table or lazy join of the scope uses.
 
     `name` is `{table alias}__{field}`, which a query can also give its own table, for example `d__tags`. The lazy join
-    then takes the first free suffix, such as `d__tags_2`. The scope remembers the alias of each join by its name, so a
-    repeated call for the same join returns the same alias, and a lazy join that is itself named `d__tags_2` takes
-    another one.
+    then takes the first free suffix, such as `d__tags_2`. The scope remembers the alias of each join by its path, not by
+    its name, because two joins can have the same name: a join below a moved alias, `d__tags_2__x`, and a join whose
+    field is named `tags_2__x`. A repeated call for the same join returns the same alias.
     """
     if select.lazy_join_aliases is None:
         select.lazy_join_aliases = {}
     aliases = select.lazy_join_aliases
-    if name in aliases:
-        return aliases[name]
+    if path in aliases:
+        return aliases[path]
     taken = set(select.tables) | set(aliases.values())
     candidate = name
     index = 1
     while candidate in taken:
         index += 1
         candidate = f"{name}_{index}"
-    aliases[name] = candidate
+    aliases[path] = candidate
     return candidate
 
 
@@ -347,7 +359,9 @@ def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
             ast.LazyJoinType(table_type=table_type, field=field)
             | ast.VirtualTableType(table_type=table_type, field=field)
         ):
-            return _lazy_join_alias(select, f"{get_long_table_name(select, table_type)}__{field}")
+            return _lazy_join_alias(
+                select, _lazy_join_path(select, type), f"{get_long_table_name(select, table_type)}__{field}"
+            )
         case _:
             raise ResolutionError(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
 
