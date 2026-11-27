@@ -148,7 +148,7 @@ class Migration(migrations.Migration):
                         db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="deliveries",
-                        to="stamphog.expressrequest",
+                        to="stamphog.broadcastrequest",
                     ),
                 ),
             ],
@@ -187,7 +187,7 @@ class Migration(migrations.Migration):
                         db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="participants",
-                        to="stamphog.expressrequest",
+                        to="stamphog.broadcastrequest",
                     ),
                 ),
             ],
@@ -200,7 +200,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AddConstraint(
-            model_name="expressrequest",
+            model_name="broadcastrequest",
             constraint=models.UniqueConstraint(
                 condition=models.Q(("status__in", ["approved", "open", "pending"])),
                 fields=("pull_request",),
@@ -208,14 +208,14 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddConstraint(
-            model_name="expressrequestdelivery",
+            model_name="broadcastrequestdelivery",
             constraint=models.UniqueConstraint(
                 fields=("broadcast_request", "kind"),
                 name="unique_stamphog_broadcast_request_delivery",
             ),
         ),
         migrations.AddConstraint(
-            model_name="expressrequestparticipant",
+            model_name="broadcastrequestparticipant",
             constraint=models.UniqueConstraint(
                 fields=("broadcast_request", "slack_user_id"),
                 name="unique_stamphog_broadcast_request_participant",
