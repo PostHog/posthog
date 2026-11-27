@@ -9,24 +9,33 @@ import {
     MAX_NOTEBOOK_VARIABLE_VALUE_CHARS,
 } from 'scenes/notebooks/Notebook/notebookVariables'
 
+import type { TableDraft } from './notebookAppTableDraftsLogic'
+
 export function NotebookAppTableInput({
     title,
     columns,
     disabled,
+    draft,
+    onDraftChange,
     onApply,
 }: {
     title: string
     columns: { name: string; values: string[] }[]
     disabled: boolean
+    draft: TableDraft | undefined
+    onDraftChange: (draft: TableDraft | undefined) => void
     onApply: (changes: Record<string, string[]>) => void
 }): JSX.Element {
-    const [rows, setRows] = useState(() =>
+    const source = JSON.stringify(columns)
+    const [initialRows] = useState(() =>
         Array.from({ length: Math.max(0, ...columns.map((column) => column.values.length)) }, (_, row) => ({
             id: uuid(),
             cells: columns.map((column) => column.values[row] ?? ''),
         }))
     )
-    const [dirty, setDirty] = useState(false)
+    const dirty = draft?.source === source
+    const rows = dirty ? draft.rows : initialRows
+    const setRows = (rows: TableDraft['rows']): void => onDraftChange({ source, rows })
     const largeColumn = columns.find(
         (_, index) =>
             rows.reduce((length, row) => length + Array.from(row.cells[index]).length, 0) >
@@ -52,9 +61,8 @@ export function NotebookAppTableInput({
                                 maxLength={MAX_NOTEBOOK_VARIABLE_VALUE_CHARS}
                                 disabled={disabled}
                                 onChange={(value) => {
-                                    setDirty(true)
-                                    setRows((current) =>
-                                        current.map((r) =>
+                                    setRows(
+                                        rows.map((r) =>
                                             r.id === row.id
                                                 ? {
                                                       ...r,
@@ -78,8 +86,7 @@ export function NotebookAppTableInput({
                                 aria-label={`Remove row ${rows.indexOf(row) + 1}`}
                                 disabledReason={disabled ? 'Open the app preview to edit rows' : undefined}
                                 onClick={() => {
-                                    setDirty(true)
-                                    setRows((current) => current.filter((r) => r.id !== row.id))
+                                    setRows(rows.filter((r) => r.id !== row.id))
                                 }}
                             />
                         ),
@@ -104,8 +111,7 @@ export function NotebookAppTableInput({
                               : undefined
                     }
                     onClick={() => {
-                        setDirty(true)
-                        setRows((current) => [...current, { id: uuid(), cells: columns.map(() => '') }])
+                        setRows([...rows, { id: uuid(), cells: columns.map(() => '') }])
                     }}
                 >
                     Add row
@@ -129,7 +135,7 @@ export function NotebookAppTableInput({
                                 columns.map((column, i) => [column.name, rows.map((row) => row.cells[i])])
                             )
                         )
-                        setDirty(false)
+                        onDraftChange(undefined)
                     }}
                 >
                     Apply changes

@@ -19,6 +19,40 @@ describe('published viewer refreshes', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => jest.restoreAllMocks())
 
+    it('offers single-variable chart filters only for inputs outside editable tables', async () => {
+        const names = ['segment', 'target', 'region']
+        jest.spyOn(notebookApi, 'notebooksAppReleaseRetrieve').mockResolvedValue({
+            revision: 1,
+            title: 'Targets',
+            markdown: '',
+            has_previous: false,
+            results_as_of: null,
+            published_at: null,
+            layout: {
+                ...emptyAppLayout(),
+                blocks: [
+                    {
+                        id: 'targets',
+                        kind: 'input',
+                        tab_id: 'overview',
+                        variable: 'segment',
+                        input_kind: 'table',
+                        table_columns: ['target'],
+                    },
+                    { id: 'region', kind: 'input', tab_id: 'overview', variable: 'region', input_kind: 'select' },
+                ],
+            },
+            variables: names.map((name) => ({ name, type: 'list', value: ['a', 'b'] })),
+        })
+        const viewer = notebookAppViewerLogic({ project: '1', shortId: 'targets', sessionId: 'filters' })
+        const unmount = viewer.mount()
+        try {
+            await waitFor(() => expect(viewer.values.chartFilterVariables.map((v) => v.name)).toEqual(['region']))
+        } finally {
+            unmount()
+        }
+    })
+
     it('applies a list for this viewer and recognizes the published defaults when reselected', async () => {
         const regions = { name: 'regions', type: 'list', value: ['North'] }
         jest.spyOn(notebookApi, 'notebooksAppReleaseRetrieve').mockResolvedValue({

@@ -1,4 +1,5 @@
-import { CSSProperties, useMemo } from 'react'
+import { useActions, useValues } from 'kea'
+import { CSSProperties, useId, useMemo } from 'react'
 
 import { IconChevronDown, IconCopy, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
@@ -11,6 +12,7 @@ import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/N
 
 import type { NotebookAppLayoutApi } from '../generated/api.schemas'
 import { NotebookAppBlock } from './NotebookAppBlock'
+import { notebookAppTableDraftsLogic } from './notebookAppTableDraftsLogic'
 
 export function NotebookAppCanvas({
     layout,
@@ -49,6 +51,9 @@ export function NotebookAppCanvas({
     onCellOutput?: (nodeId: string, markdown: string) => void
     renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
 }): JSX.Element {
+    const tableState = notebookAppTableDraftsLogic({ sessionId: useId() })
+    const { drafts } = useValues(tableState)
+    const { setDraft } = useActions(tableState)
     const cellsById = useMemo(() => {
         const index = new Map<string, NotebookBlockNode>()
         for (const cell of cells) {
@@ -154,6 +159,8 @@ export function NotebookAppCanvas({
                             </div>
                         )}
                         <NotebookAppBlock
+                            tableDraft={drafts[block.id]}
+                            onTableDraftChange={(draft) => setDraft(block.id, draft)}
                             block={block}
                             cell={cellsById.get(block.node_id ?? '')}
                             stale={!!staleNodeIds[block.node_id || '']}

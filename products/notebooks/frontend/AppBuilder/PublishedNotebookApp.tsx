@@ -39,12 +39,12 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
     const { shortId, sessionId } = viewer
     const { layout } = release
     const logic = notebookAppViewerLogic(viewer)
-    const { variables, results, publishedResults, refreshFailed: error } = useValues(logic)
+    const { variables, chartFilterVariables, results, publishedResults, refreshFailed: error } = useValues(logic)
     const { changeInput, changeInputs } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
     const chartInputFilters = Object.fromEntries(
-        variables.map((v) => [
+        chartFilterVariables.map((v) => [
             v.name,
             (value: unknown) => {
                 if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
