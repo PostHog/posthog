@@ -175,8 +175,6 @@ struct IssueReopenedWorkflowInput<'a> {
     event_uuid: Uuid,
     event_timestamp: &'a str,
     assignee: Option<&'a str>,
-    // Omitted rather than null, so an ordinary reopen sends the same input as before this field
-    // existed, and only a reopen by a release depends on a Python worker that knows the field.
     #[serde(skip_serializing_if = "Option::is_none")]
     reopened_by_release: Option<&'a ReopenedByRelease>,
     #[serde(skip_serializing_if = "Option::is_none")]

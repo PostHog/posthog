@@ -219,7 +219,6 @@ mod tests {
         assert!(failed.is_err());
         assert_eq!(first.unwrap().status, IssueStatus::Active);
         assert_eq!(second.unwrap().status, IssueStatus::Active);
-        // One failed run, then one shared run for both callers.
         assert_eq!(runs.load(AtomicOrdering::SeqCst), 2);
     }
 }

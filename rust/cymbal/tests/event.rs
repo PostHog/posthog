@@ -896,8 +896,6 @@ async fn each_release_in_a_batch_is_applied_to_the_issue(db: PgPool) {
     let issue_id = created.take_properties().issue_id();
     harness.resolve(issue_id, "new_release").await;
 
-    // The batch applies at most 64 events at once by default, so the older-release events at the
-    // end start only after the reopen by `newer` finished.
     let mut events = vec![
         make_release_event("same-batch", Some(older)),
         make_release_event("same-batch", Some(newer)),

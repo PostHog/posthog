@@ -199,7 +199,6 @@ async fn apply_event_release(
     let first_seen = loaded.first_seen;
     let issue = ctx.batch_issue_state.current(loaded.issue);
     let release = input.release();
-    // Most events land on an active issue, and those must not pay for a transaction.
     match issue.release_check(release.map(ReleaseInfo::created_at)) {
         ReleaseCheck::Unchanged => return Ok(issue),
         ReleaseCheck::StaysResolved => {
