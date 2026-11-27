@@ -33,7 +33,7 @@ from .installations import reviewable_repo_configs
 
 logger = structlog.get_logger(__name__)
 
-# The owner and repository name rules of GitHub. Only the first link in a post counts.
+# The owner and repository name rules of GitHub.
 _PULL_REQUEST_LINK = re.compile(
     r"https?://(?:www\.)?github\.com/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100})/pull/(\d{1,9})\b",
     re.IGNORECASE,
@@ -41,6 +41,8 @@ _PULL_REQUEST_LINK = re.compile(
 # Short, because a manager who turns Broadcast on for a channel expects the next link to work. The task
 # reads the config again from the writer, so a stale entry never posts on its own.
 _CHANNEL_CACHE_SECONDS = 60
+# Several links in one post each get a card, up to this many, so one post cannot fill a thread.
+MAX_LINKS_PER_POST = 5
 # Longer than Slack retries a delivery, and long enough for the copy that the other region forwards.
 _CLAIM_SECONDS = 60 * 60
 
@@ -65,6 +67,8 @@ class LinkPost:
     message_ts: str
     slack_user_id: str
     link: PullRequestLink
+    # How many links of the post are handled. With more than one, each thread reply names its pull request.
+    link_count: int
     # The PostHog accounts of the person who posted, the one the Slack app resolved for them first.
     user_ids: tuple[int, ...]
 
@@ -76,11 +80,20 @@ class _LinkTarget:
     integration_id: int
 
 
-def first_pull_request_link(text: str) -> PullRequestLink | None:
-    match = _PULL_REQUEST_LINK.search(text)
-    if match is None:
-        return None
-    return PullRequestLink(repository=match.group(1), pr_number=int(match.group(2)))
+def pull_request_links(text: str) -> tuple[PullRequestLink, ...]:
+    """The distinct pull request links in ``text``, in order, at most ``MAX_LINKS_PER_POST``."""
+    links: list[PullRequestLink] = []
+    seen: set[tuple[str, int]] = set()
+    for match in _PULL_REQUEST_LINK.finditer(text):
+        link = PullRequestLink(repository=match.group(1), pr_number=int(match.group(2)))
+        key = (link.repository.lower(), link.pr_number)
+        if key in seen:
+            continue
+        seen.add(key)
+        links.append(link)
+        if len(links) == MAX_LINKS_PER_POST:
+            break
+    return tuple(links)
 
 
 def _workspace_project_ids(slack_team_id: str) -> set[int]:
@@ -184,6 +197,12 @@ def _pull_request_row(repo_config: StamphogRepoConfig, pr: dict, *, using: str) 
     return pull_request
 
 
+def _reply(post: LinkPost, target: _LinkTarget, text: str) -> None:
+    if post.link_count > 1:
+        text = f"{post.link.repository}#{post.link.pr_number}: {text}"
+    post_thread_reply(target.repo_config.team_id, target.integration_id, post.channel_id, post.message_ts, text)
+
+
 def open_from_link(post: LinkPost) -> LinkAsk | None:
     """Open the Broadcast request that a posted link asks for, or answer in the post's thread why not.
 
@@ -210,13 +229,7 @@ def open_from_link(post: LinkPost) -> LinkAsk | None:
         (pr.get("user") or {}).get("login") or "",
     )
     if approver:
-        post_thread_reply(
-            repo_config.team_id,
-            target.integration_id,
-            post.channel_id,
-            post.message_ts,
-            ALREADY_APPROVED.format(login=approver),
-        )
+        _reply(post, target, ALREADY_APPROVED.format(login=approver))
         return None
     ask = BroadcastRequestAsk(
         requested_by_user_id=target.user_id,
@@ -235,5 +248,5 @@ def open_from_link(post: LinkPost) -> LinkAsk | None:
         text = STAMPHOG_ALREADY_APPROVED
     else:
         return asked
-    post_thread_reply(repo_config.team_id, target.integration_id, post.channel_id, post.message_ts, text)
+    _reply(post, target, text)
     return asked

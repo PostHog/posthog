@@ -110,6 +110,7 @@ def open_broadcast_request_from_link(
     repository: str,
     pr_number: int,
     user_ids: list[int],
+    link_count: int = 1,
 ) -> None:
     """Open the Broadcast request for a pull request link that a person posted in a Broadcast channel.
 
@@ -122,6 +123,7 @@ def open_broadcast_request_from_link(
         message_ts=message_ts,
         slack_user_id=slack_user_id,
         link=broadcast_links.PullRequestLink(repository=repository, pr_number=pr_number),
+        link_count=link_count,
         user_ids=tuple(user_ids),
     )
     try:
@@ -146,6 +148,7 @@ def queue_open_broadcast_request_from_link(post: broadcast_links.LinkPost) -> No
             repository=post.link.repository,
             pr_number=post.link.pr_number,
             user_ids=list(post.user_ids),
+            link_count=post.link_count,
         )
     except Exception:
         logger.exception("stamphog_broadcast_link_queue_failed", slack_channel_id=post.channel_id)

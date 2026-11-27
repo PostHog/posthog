@@ -11,7 +11,7 @@ from posthog.slack.channel_messages import ChannelMessage, register_channel_mess
 
 
 def handle_channel_message(message: ChannelMessage) -> bool:
-    """Take a post whose first pull request link names a repository that uses this channel for Broadcast.
+    """Take a post whose pull request links name a repository that uses this channel for Broadcast.
 
     Runs inside Slack's event request for every top-level post, so a post without a link stops at the
     pattern, and the channel check is one cached read. The rest runs in a task.
@@ -21,31 +21,35 @@ def handle_channel_message(message: ChannelMessage) -> bool:
         LinkPost,
         broadcast_channel_repositories,
         claim_link_post,
-        first_pull_request_link,
+        pull_request_links,
     )
     from products.stamphog.backend.tasks.broadcast_requests import (  # noqa: PLC0415
         queue_open_broadcast_request_from_link,
     )
 
-    link = first_pull_request_link(message.text)
-    if link is None:
+    links = pull_request_links(message.text)
+    if not links:
         return False
-    if link.repository.lower() not in broadcast_channel_repositories(message.slack_team_id, message.channel_id):
+    repositories = broadcast_channel_repositories(message.slack_team_id, message.channel_id)
+    links = tuple(link for link in links if link.repository.lower() in repositories)
+    if not links:
         return False
     if not claim_link_post(message.slack_team_id, message.channel_id, message.message_ts):
         return True
     user_ids = message.poster_user_ids()
     if user_ids:
-        queue_open_broadcast_request_from_link(
-            LinkPost(
-                slack_team_id=message.slack_team_id,
-                channel_id=message.channel_id,
-                message_ts=message.message_ts,
-                slack_user_id=message.slack_user_id,
-                link=link,
-                user_ids=user_ids,
+        for link in links:
+            queue_open_broadcast_request_from_link(
+                LinkPost(
+                    slack_team_id=message.slack_team_id,
+                    channel_id=message.channel_id,
+                    message_ts=message.message_ts,
+                    slack_user_id=message.slack_user_id,
+                    link=link,
+                    link_count=len(links),
+                    user_ids=user_ids,
+                )
             )
-        )
     return True
 
 

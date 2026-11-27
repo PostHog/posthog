@@ -210,7 +210,7 @@ The note is shown in Slack only, because pull request comments are public.
 A person can also post a pull request link as a new message in the repository's Broadcast channel, for example when the pull request is too big for Stamphog.
 Stamphog starts no review for it.
 The PostHog Slack app posts the request's message, with its "I'll take a look" button, as a reply in the thread of that post, and the reply follows the pull request like any other request's message.
-Only the first link in the post counts, and only a member of the project who could ask with `@posthog stamp` gets an answer.
+Each distinct pull request link counts, up to five per post, and only a member of the project who could ask with `@posthog stamp` gets an answer.
 If the pull request already has an active request, the reply links to that request's message.
 If Stamphog already approved the current commit, the reply says so and nobody is asked.
 The logic is in `backend/logic/broadcast_requests.py`, and the events are `stamphog_broadcast_request_created`, `stamphog_broadcast_card_posted`, `stamphog_broadcast_look_clicked` and `stamphog_broadcast_request_status_changed`.

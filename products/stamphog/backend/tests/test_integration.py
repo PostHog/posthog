@@ -5239,6 +5239,32 @@ def test_a_pull_request_link_answers_in_its_thread_instead_of_a_second_card(
     ).exists() is (expect_reply is None)
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_every_pull_request_link_in_a_post_gets_its_own_answer(team, user, stamphog_chain: StamphogChain) -> None:
+    _link_channel(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 193, _silent_review_pr(193, "sha193a"), _pr_files())
+    recorder.register_pr(REPO, 194, _silent_review_pr(194, "sha194a"), _pr_files())
+    recorder.pr_reviews[(REPO, 194)] = [
+        {
+            "user": {"login": "maintainer", "type": "User"},
+            "author_association": "MEMBER",
+            "state": "APPROVED",
+            "commit_id": "sha194a",
+        }
+    ]
+    first = f"https://github.com/{REPO}/pull/193"
+    text = f"Two for review: <{first}> and <https://github.com/{REPO}/pull/194>, and <{first}> again"
+
+    assert _post_link(text, user_ids=(user.id,))
+
+    (card,) = _link_cards()
+    assert card["thread_ts"] == LINK_TS
+    assert "pull/193" in _rendered(card["blocks"])
+    assert _link_replies() == [f"{REPO}#194: Already approved by maintainer."]
+    assert list(BroadcastRequest.objects.for_team(team.id).values_list("pull_request__pr_number", flat=True)) == [193]
+
+
 @pytest.mark.parametrize(
     "installation_id, expected",
     [
