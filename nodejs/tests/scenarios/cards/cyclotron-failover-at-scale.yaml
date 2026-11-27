@@ -7,7 +7,7 @@ setup:
     teams: 3
 drive:
     for: 60m
-    minOffered: 1
+    minOffered: 0.999
     traffic:
         - name: event_email
         - name: event_webhook

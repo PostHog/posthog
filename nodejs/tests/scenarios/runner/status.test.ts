@@ -1,4 +1,9 @@
+import { readFileSync } from 'fs'
+import path from 'path'
+import { parse } from 'yaml'
+
 import type { AdmissionTargets, DerivedLoad } from '../cards/load-targets'
+import { Card } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { BarResult } from '../judge/bars'
@@ -21,6 +26,10 @@ const HELD: Verdict = {
     drive: { startedAt: Date.UTC(2026, 0, 5, 10, 0, 0), endedAt: Date.UTC(2026, 0, 5, 10, 0, 50) },
     bars: [],
 }
+
+const FAILOVER_AT_SCALE = Card.parse(
+    parse(readFileSync(path.join(__dirname, '..', 'cards', 'cyclotron-failover-at-scale.yaml'), 'utf8'))
+)
 
 const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email claims 1/s, not within 10% of 4/s' }
 
@@ -112,6 +121,15 @@ describe('statusOf', () => {
             { units: { targetUnits: 60, offeredUnits: 53, steps: [] }, invariants: [BROKEN] },
             'invalid',
             'the generator offered 53 of 60 units, under minOffered 0.9',
+        ],
+        [
+            'cyclotron-failover-at-scale short only by the units still in flight at its cutoff',
+            {
+                minOffered: FAILOVER_AT_SCALE.drive.minOffered,
+                units: { targetUnits: 720_000, offeredUnits: 719_996, steps: [] },
+            },
+            'passed',
+            'every invariant held',
         ],
         [
             'a ramp that broke at a step before a later step fell short of minOffered',
