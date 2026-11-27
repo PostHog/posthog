@@ -11,7 +11,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 import structlog
 import posthoganalytics
-from anthropic import BadRequestError
+from anthropic import APIStatusError, BadRequestError
 from pydantic import BaseModel, Field, model_validator
 from redis.exceptions import RedisError
 from temporalio import activity
@@ -350,6 +350,36 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
         logger.exception("Failed to capture signal_blocked_by_safety_filter event", team_id=input.team_id)
 
 
+def _is_gateway_payment_refusal(error: Exception) -> bool:
+    # The gateway marks its own refusals, such as a deactivated organization, with X-PostHog-Denial. A 402
+    # without that header is the provider refusing the gateway's account, which affects every team, so it
+    # must still reach error tracking.
+    return (
+        isinstance(error, APIStatusError)
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
+
+
+async def _organization_deactivated(team_id: int | None) -> bool:
+    if team_id is None:
+        return False
+    return await Team.objects.filter(pk=team_id, organization__is_active=False).aexists()
+
+
+async def _drop_refused_signal(input: SafetyFilterInput, reason: str) -> SafetyFilterOutput:
+    # Refused work is dropped, not retried: the buffer requeues failed signals without limit.
+    if input.signal_id and input.team_id is not None:
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=input.team_id,
+            signal_id=input.signal_id,
+            billing_exempt=system_source_exempt(input.source_product),
+        )
+    metrics.increment_dropped(stage="safety_filter", reason=reason)
+    logger.info("signals_safety_filter.admission_refused", team_id=input.team_id, reason=reason)
+    return SafetyFilterOutput(safe=False, threat_type="admission_refused", explanation=reason)
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -358,6 +388,9 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
     if input.signal_id and input.team_id is not None:
         if await database_sync_to_async(finalized_signal_ids)(team_id=input.team_id, signal_ids=[input.signal_id]):
             return SafetyFilterOutput(safe=False, threat_type="", explanation="Signal already processed")
+    # The gateway refuses every call for a deactivated organization, so skip the call it would refuse.
+    if await _organization_deactivated(input.team_id):
+        return await _drop_refused_signal(input, "organization_deactivated")
     try:
         result = await safety_filter(
             input.team_id,
@@ -368,18 +401,15 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
             signal_id=input.signal_id,
         )
     except (QuotaLimitExceeded, TrialRefused) as error:
-        # Refused work is dropped, not retried: the buffer requeues failed signals without limit.
-        reason = error.reason if isinstance(error, TrialRefused) else "quota_limited"
-        if input.signal_id and input.team_id is not None:
-            await database_sync_to_async(complete_signal_pipeline)(
-                team_id=input.team_id,
-                signal_id=input.signal_id,
-                billing_exempt=system_source_exempt(input.source_product),
-            )
-        metrics.increment_dropped(stage="safety_filter", reason=reason)
-        logger.info("signals_safety_filter.admission_refused", team_id=input.team_id, reason=reason)
-        return SafetyFilterOutput(safe=False, threat_type="admission_refused", explanation=reason)
+        return await _drop_refused_signal(input, error.reason if isinstance(error, TrialRefused) else "quota_limited")
     except Exception as error:
+        if _is_gateway_payment_refusal(error):
+            return await _drop_refused_signal(input, "gateway_payment_required")
+        # An organization deactivated during the call gets a refusal whose shape depends on the deciding
+        # model: the System One path drops the gateway's headers and can wrap the error. Check the
+        # organization itself so every path drops the signal.
+        if await _organization_deactivated(input.team_id):
+            return await _drop_refused_signal(input, "organization_deactivated")
         if isinstance(error, BadRequestError) and "specified api usage limits" in str(error).lower():
             logger.warning("signals_safety_filter.provider_usage_limited", team_id=input.team_id)
             raise ApplicationError(

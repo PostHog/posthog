@@ -161,6 +161,7 @@ rules:
                               |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardV2Board
                               |DashboardWidget
                               |TeamHomeTabDashboardConfig
                               |DataColorTheme
@@ -230,6 +231,7 @@ rules:
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
+                              |ExperimentScoreSuiteDefault
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
@@ -725,6 +727,7 @@ rules:
                         |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardV2Board
                         |DashboardWidget
                         |TeamHomeTabDashboardConfig
                         |DataColorTheme
@@ -794,6 +797,7 @@ rules:
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
+                        |ExperimentScoreSuiteDefault
                         |ExportedAsset
                         |ExportedRecording
                         |ExternalDataJob
@@ -1274,6 +1278,7 @@ rules:
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventsHealthDaily
+                        |ExperimentScoreSuiteDefault
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1502,7 +1507,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              BillingAlertConfiguration
+                              AgentTranscriptSubmission
+                              |BillingAlertConfiguration
                               |BillingAlertEvaluationClaim
                               |BillingAlertEvent
                               |CIMDVerificationToken
@@ -1590,7 +1596,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        BillingAlertConfiguration
+                        AgentTranscriptSubmission
+                        |BillingAlertConfiguration
                         |BillingAlertEvaluationClaim
                         |BillingAlertEvent
                         |CIMDVerificationToken

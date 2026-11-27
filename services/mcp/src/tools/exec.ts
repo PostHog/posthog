@@ -29,7 +29,6 @@ import {
     byteLength,
     jsonResponseBody,
     maxResponseBytes,
-    responseTokenBudget,
     type ResponseBodySource,
     toonResponseBody,
 } from '@/lib/response-budget'
@@ -690,8 +689,6 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     },
     'vision-scanners-suggest-tags': () =>
         'Tool "vision-scanners-suggest-tags" was removed. Set a classifier\'s tags yourself with "vision-scanners-update", or let "vision-scanners-draft" propose a full classifier config, tags included.',
-    'llma-tagger-list': () =>
-        'Tool "llma-tagger-list" was removed because taggers are deprecated. Every tagger was switched off or converted into a categorical evaluation. Use "llma-evaluation-list" to list evaluations. Tags that taggers already wrote stay queryable as `$ai_tag` events through "execute-sql".',
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
@@ -2560,7 +2557,7 @@ export function createExecTool(
                     // `formatResponse` drops the pagination fields a client needs to fetch the next page.
                     const nextPageHint = useJson ? null : getNextPageHint(tool.name, result)
                     const fullText = `${outputText}${chartFooter}${nextPageHint ? `\n\n${nextPageHint}` : ''}`
-                    const budget = responseTokenBudget(options.toolResultTokenLimit, input)
+                    const budget = options.toolResultTokenLimit
                     const maxBytes =
                         budget === undefined
                             ? undefined
@@ -2573,10 +2570,7 @@ export function createExecTool(
                         outputText = fullText
                     } else {
                         // The executor's own cap then sees a text that fits, so it never counts this one.
-                        toolResponsesShortenedTotal.inc({
-                            tool: tool.name,
-                            budget: options.toolResultTokenLimit === undefined ? 'default' : 'client',
-                        })
+                        toolResponsesShortenedTotal.inc({ tool: tool.name })
                         // Reserve the chart's bytes before re-serializing the result body. The next-page
                         // hint is dropped because it offsets past the rows the bound cuts.
                         const bodyBudget = maxBytes - byteLength(chartFooter)

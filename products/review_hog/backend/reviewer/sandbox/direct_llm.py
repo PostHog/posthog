@@ -54,14 +54,12 @@ async def run_oneshot_review(
 
     The sandbox-free counterpart of ``run_sandbox_review`` for steps whose prompt carries everything
     inline (chunking, dedup, outcome judging): no repo checkout, no agent loop — one Messages call
-    through the LLM gateway pinned to ``model`` at ``reasoning_effort`` (defaulting to the one-shot
+    through the AI gateway pinned to ``model`` at ``reasoning_effort`` (defaulting to the one-shot
     pins), with the response schema-constrained to ``model_to_validate`` via structured outputs (so
     the bare-JSON failure class the sandbox path retried on cannot occur). Callers that judge on a
-    different model family (the outcome classifier) pass ``model`` explicitly. Bedrock fallback
-    stays off: the Python gateway's Bedrock path forwards only allowlisted params and would strip
-    ``output_config``, losing both the effort pin and the schema constraint. The Go gateway drops
-    Bedrock targets that cannot serve structured outputs itself, so it needs no opt-out. It streams
-    because the Go gateway's public path cuts a buffered response at 290s, which chunking can exceed.
+    different model family (the outcome classifier) pass ``model`` explicitly. The gateway drops
+    Bedrock targets that cannot serve structured outputs, so ``output_config`` always reaches the
+    provider. It streams because the Go gateway's public path cuts a buffered response at 290s, which chunking can exceed.
 
     Raises on failure so the calling Temporal activity retries, mirroring the sandbox contract.
     Anthropic ``APIError``s are re-raised as compact ``ApplicationError``s — a raw ``APIError``

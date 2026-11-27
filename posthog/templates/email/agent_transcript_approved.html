@@ -1,0 +1,6 @@
+{% extends "email/base.html" %}
+{% block heading %}Thanks for sharing your transcript{% endblock %}
+{% block section %}
+    <p>We reviewed the transcript you uploaded for {{ organization_name }} and accepted it. Thanks for sharing it with us.</p>
+    <p>We delete the file you uploaded {{ retention_days }} days after upload.</p>
+{% endblock %}

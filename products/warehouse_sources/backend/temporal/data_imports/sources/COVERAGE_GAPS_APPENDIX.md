@@ -4288,7 +4288,7 @@ Note: Parsed the 2026-07 Marketing Solutions OpenAPI file. Report endpoints are 
 
 ## Cronitor — gaps
 
-Today (7): `groups`, `invocations`, `issues`, `metrics`, `monitors`, `site_errors`, `sites`
+Today (10): `environments`, `groups`, `invocations`, `issues`, `maintenance_windows`, `metrics`, `monitors`, `site_daily_metrics`, `site_errors`, `sites`
 
 Diffed against: <https://cronitor.io/docs/api.md>
 
@@ -4296,9 +4296,9 @@ Diffed against: <https://cronitor.io/docs/api.md>
 - [x] `GET /api/groups` — lookup table resolving the group each synced monitor belongs to; enables per-service rollups (high)
 - [x] `GET /api/site_errors` — RUM JavaScript errors, the analytical event stream for the Sites product (medium)
 - [x] `GET /api/sites` — lookup for RUM sites that site_errors and RUM analytics rows reference (medium)
-- [ ] `RUM analytics query endpoint (aggregate/breakdown/timeseries over sites)` — pageviews, web vitals, and top-pages breakdowns - the headline RUM metrics (medium)
-- [ ] `GET /api/maintenance_windows` — scheduled maintenance periods needed to exclude planned downtime from uptime and alert analysis (medium)
-- [ ] `GET /api/environments` — lookup resolving the environment tag on telemetry, invocations, and monitors (low)
+- [x] `RUM analytics query endpoint (aggregate/breakdown/timeseries over sites)` — pageviews, web vitals, and top-pages breakdowns - the headline RUM metrics (medium)
+- [x] `GET /api/maintenance_windows` — scheduled maintenance periods needed to exclude planned downtime from uptime and alert analysis (medium)
+- [x] `GET /api/environments` — lookup resolving the environment tag on telemetry, invocations, and monitors (low)
 
 Note: Notifications, API keys, and status pages were excluded as configuration. Telemetry API is write-only ingestion. Source is static (endpoint catalog in cronitor/settings.py), no dynamic table discovery.
 
@@ -6983,17 +6983,17 @@ Note: Used the current documentation index and parsed version 2026-06-15 OpenAPI
 
 ## Harness — **thin**
 
-Today (7): `environments`, `executions`, `infrastructures`, `organizations`, `pipelines`, `projects`, `services`
+Today (11): `approval_instances`, `environments`, `execution_annotations`, `execution_notes`, `executions`, `infrastructures`, `organizations`, `pipelines`, `projects`, `services`, `user_groups`
 
 Diffed against: <https://apidocs.harness.io/_bundle/index.yaml>
 
 - [x] `Projects (GET /ng/api/projects)` — resolve project identifiers on synced resources into project names and organizational context (high)
 - [x] `Organizations (GET /ng/api/organizations)` — resolve organization identifiers on synced resources for named organizational reporting (high)
 - [x] `Infrastructures (GET /ng/api/infrastructures)` — explain infrastructure references and deployment targets within synced pipeline definitions and environments (high)
-- [ ] `Approval instances (GET /v1/orgs/{org}/projects/{project}/approvals/execution/{execution-id})` — measure manual approval bottlenecks and identify approval outcomes within pipeline executions (medium)
-- [ ] `Pipeline execution notes (GET /pipeline/api/pipelines/execution/{planExecutionId}/notes)` — connect execution outcomes with operator comments and explanations (medium)
-- [ ] `Pipeline execution annotations (GET /pipeline/api/pipelines/execution/{planExecutionId}/annotations)` — join execution outcomes with structured annotations and deployment context (medium)
-- [ ] `User groups (GET /ng/api/user-groups)` — analyze project team membership and connect approval responsibilities with named groups (medium)
+- [x] `Approval instances (GET /v1/orgs/{org}/projects/{project}/approvals/execution/{execution-id})` — measure manual approval bottlenecks and identify approval outcomes within pipeline executions (medium) Shipped as `approval_instances`, fanned out over `executions`.
+- [x] `Pipeline execution notes (GET /pipeline/api/pipelines/execution/{planExecutionId}/notes)` — connect execution outcomes with operator comments and explanations (medium) Shipped as `execution_notes`, fanned out over `executions`.
+- [x] `Pipeline execution annotations (GET /pipeline/api/pipelines/execution/{planExecutionId}/annotations)` — join execution outcomes with structured annotations and deployment context (medium) Shipped as `execution_annotations`, fanned out over `executions`.
+- [x] `User groups (GET /ng/api/user-groups)` — analyze project team membership and connect approval responsibilities with named groups (medium) Shipped as `user_groups`.
 - [ ] `Module license usage (GET /ng/api/usage/{module})` — compare module consumption across reporting periods and monitor license usage (medium)
 
 Note: Downloaded the official bundled OpenAPI specification and enumerated GET collections and execution sub-resources across its 2,147 paths. The source currently exposes four static tables from one configured project, including POST-based pipeline and execution lists. Approval instances, notes, and annotations need execution fan-out; organization, project, and usage reads require wider scope. Excluded secrets, connectors, input configuration, health checks, and artifact downloads.
@@ -7033,7 +7033,7 @@ Note: Harvey publishes six OpenAPI specs (listed in https://developers.harvey.ai
 
 ## Hatchet — gaps
 
-Today (12): `crons`, `event_keys`, `events`, `logs`, `scheduled_runs`, `task_events`, `task_timings`, `tasks`, `tenant_members`, `workers`, `workflow_runs`, `workflows`
+Today (13): `crons`, `event_keys`, `events`, `logs`, `rate_limits`, `scheduled_runs`, `task_events`, `task_timings`, `tasks`, `tenant_members`, `workers`, `workflow_runs`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-contracts/openapi/openapi.yaml>
 
@@ -7049,7 +7049,7 @@ Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-
 - [x] `tenant members (GET /api/v1/tenants/{tenant}/members)` — membership table for the tenant whose runs are synced (medium)
 - [x] `logs (GET /api/v1/stable/tenants/{tenant}/logs, /tasks/{task}/logs)` — task log lines for failure triage alongside run rows (medium)
 - [ ] `workflow run metrics (GET /api/v1/tenants/{tenant}/workflows/runs/metrics, GET /api/v1/workflows/{workflow}/metrics)` — success/failure counts per workflow without re-aggregating raw runs (low). Skipped: the tenant endpoint returns one status-count object for whatever `createdAfter`/`createdBefore` window is requested, so it has no stable row grain (the counts derive from `workflow_runs`). The per-workflow endpoint returns concurrency group-key counts, not success/failure counts.
-- [ ] `rate limits (GET /api/v1/tenants/{tenant}/rate-limits)` — current vs limit consumption per key - explains queued-but-not-running tasks (low)
+- [x] `rate limits (GET /api/v1/tenants/{tenant}/rate-limits)` — current vs limit consumption per key - explains queued-but-not-running tasks (low)
 
 Note: The connector targets the stable v1 API (/api/v1/stable/tenants/{tenant}/...), but several still-current resources (workflows, workers, crons, scheduled, members, queue-metrics) live only under the older /api/v1/tenants/{tenant}/... prefix in the same spec. Webhooks, API tokens, feature flags, SNS/Slack integrations and alerting email groups were excluded as configuration.
 
@@ -7301,11 +7301,11 @@ Diffed against: <https://github.com/GoHighLevel/highlevel-api-docs/tree/main/app
 - [x] `Users (GET /users/)` — Resolves the assigned user ids on contacts, opportunities and conversations to team members (high) → `users`, built on `GET /users/search` with the agency ID from `GET /locations/{locationId}`, because API v3 has no `GET /users/`
 - [x] `Opportunity lost reasons (GET /opportunities/lost-reason)` — Resolves lost reason ids on the opportunities we sync, for win and loss analysis (high)
 - [x] `Calendar events (GET /calendars/events)` — Appointments and booked events per calendar, the core scheduling fact table next to calendars (high) → `calendar_events`, a fan-out over `calendars` that reads 30-day windows from 2018 to a year ahead
-- [ ] `Location tasks (POST /locations/{locationId}/tasks/search)` — Tasks across the whole location, linked to contacts, for follow-up workload analysis (medium)
+- [x] `Location tasks (POST /locations/{locationId}/tasks/search)` — Tasks across the whole location, linked to contacts, for follow-up workload analysis (medium) → `tasks`, paged with `skip` and `limit` in the POST body
 - [x] `Contact notes (GET /contacts/{contactId}/notes)` — Notes recorded on contacts, a fan-out under contacts (medium)
-- [ ] `Estimates (GET /invoices/estimate/list)` — Estimates alongside the invoices we sync, for quote to invoice funnels (medium)
-- [ ] `Coupons (GET /payments/coupon/list)` — Discount codes and their status, to explain discounts on orders and transactions (medium)
-- [ ] `Product prices (GET /products/{productId}/price)` — Price and recurring plan rows per product, a fan-out under products (medium)
+- [x] `Estimates (GET /invoices/estimate/list)` — Estimates alongside the invoices we sync, for quote to invoice funnels (medium) → `estimates`
+- [x] `Coupons (GET /payments/coupon/list)` — Discount codes and their status, to explain discounts on orders and transactions (medium) → `coupons`
+- [x] `Product prices (GET /products/{productId}/price)` — Price and recurring plan rows per product, a fan-out under products (medium) → `product_prices`, a fan-out over `products`
 - [ ] `Product collections (GET /products/collections)` — Collections that group the products we sync (low)
 - [ ] `Voice AI call logs (GET /voice-ai/dashboard/call-logs)` — AI agent call records with call type and action results, for voice agent performance (low)
 
@@ -10556,17 +10556,17 @@ Note: Parsed every operation in the official OpenAPI 3.1 document, including nes
 
 ## OctopusDeploy — gaps
 
-Today (14): `channels`, `deployments`, `environments`, `events`, `interruptions`, `lifecycles`, `machines`, `project_groups`, `projects`, `releases`, `spaces`, `tasks`, `tenants`, `users`
+Today (17): `channels`, `deployments`, `environments`, `events`, `interruptions`, `lifecycles`, `machines`, `project_groups`, `projects`, `releases`, `runbook_runs`, `runbooks`, `spaces`, `tasks`, `teams`, `tenants`, `users`
 
 Diffed against: <https://demo.octopus.app/api>
 
 - [x] `users (/api/users)` — Lookup that resolves the user ids already carried on events, deployments, tasks and interruptions (high)
-- [ ] `teams + teammembership (/api/teams, /api/teammembership)` — Team definitions and the user→team junction — the only way to aggregate deployment activity by team (high)
+- [x] `teams + teammembership (/api/teams, /api/teammembership)` — Team definitions and the user→team junction — the only way to aggregate deployment activity by team (high). Built teams; teammembership not built: it needs one userId per call, and MemberUserIds on teams already holds the user→team junction.
 - [x] `lifecycles (/api/{space}/lifecycles)` — Lookup resolving the LifecycleId on projects/releases into ordered phases and environments, needed to judge whether a deployment progressed normally (high)
 - [x] `interruptions (/api/{space}/interruptions)` — Manual intervention and approval records with responsible-team and resolution timestamps — the wait time inside deployment lead time (high)
-- [ ] `insights/reports (/api/{space}/insights/reports)` — Octopus's own DORA-style reporting objects (deployment frequency, lead time, failure rate) — the vendor's headline metric (high)
-- [ ] `runbookRuns (/api/{space}/runbookRuns)` — Operational run history that sits alongside deployments; without it half of what Octopus executes is invisible (medium)
-- [ ] `runbooks (/api/{space}/runbooks)` — Lookup resolving the RunbookId on runbook runs and project triggers (medium)
+- [ ] `insights/reports (/api/{space}/insights/reports)` — Octopus's own DORA-style reporting objects (deployment frequency, lead time, failure rate) — the vendor's headline metric (high). Skipped: lists only Enterprise report definitions; the metrics are pre-aggregated per-report /metrics series, not warehouse rows.
+- [x] `runbookRuns (/api/{space}/runbookRuns)` — Operational run history that sits alongside deployments; without it half of what Octopus executes is invisible (medium)
+- [x] `runbooks (/api/{space}/runbooks)` — Lookup resolving the RunbookId on runbook runs and project triggers (medium)
 - [ ] `build-information (/api/{space}/build-information)` — Commits, work items and build URLs attached to packages — the join from a deployment back to source control (medium)
 - [ ] `packages (/api/{space}/packages)` — Package versions consumed by releases, the other half of release-to-artifact traceability (medium)
 - [ ] `artifacts (/api/{space}/artifacts)` — Files produced by deployments/tasks, joinable to the task that generated them (medium)
@@ -11479,17 +11479,17 @@ Re-audited 2026-11-19 against <https://web.archive.org/web/20251120081157/https:
 
 ## Persona — gaps
 
-Today (11): `accounts`, `cases`, `events`, `inquiries`, `inquiry_sessions`, `inquiry_template_versions`, `inquiry_templates`, `reports`, `transactions`, `verifications`, `workflow_runs`
+Today (14): `accounts`, `cases`, `devices`, `events`, `inquiries`, `inquiry_sessions`, `inquiry_template_versions`, `inquiry_templates`, `lists`, `report_history`, `reports`, `transactions`, `verifications`, `workflow_runs`
 
 Diffed against: <https://docs.withpersona.com/2025-12-08/llms.txt>
 
 - [x] `GET /reports (List all Reports)` — watchlist, adverse-media and business reports - a headline Persona output missing entirely next to inquiries (high)
 - [x] `GET /inquiry-sessions` — per-attempt sessions under the inquiries already synced, needed for drop-off analysis (medium)
 - [x] `GET /workflow-runs (List all Workflow Runs)` — automation run history over inquiries and cases already synced (medium)
-- [ ] `GET /devices` — device records used for fraud and repeat-signup analysis (medium)
-- [ ] `GET /accounts/{account-id}/relations` — account-to-account relationship edges for the accounts already synced (medium)
-- [ ] `GET /reports/{report-id}/history (List Report history)` — continuous-monitoring state history per report (low)
-- [ ] `GET /lists (List all Lists)` — blocklist/allowlist definitions referenced by inquiry and verification outcomes (low)
+- [x] `GET /devices` — device records used for fraud and repeat-signup analysis (medium)
+- [ ] `GET /accounts/{account-id}/relations` — account-to-account relationship edges for the accounts already synced (medium) Skipped: requires a customer-defined `filter[key]` relation key, and no endpoint lists account types or their keys.
+- [x] `GET /reports/{report-id}/history (List Report history)` — continuous-monitoring state history per report (low)
+- [x] `GET /lists (List all Lists)` — blocklist/allowlist definitions referenced by inquiry and verification outcomes (low)
 - [ ] `GET /user-audit-logs` — reviewer action log for measuring manual review throughput (low)
 - [x] `GET /inquiry-template-versions` — published and draft versions of each inquiry template already synced (low)
 - [ ] `GET /workflow-versions` — workflow version history; needs `filter[workflow-id]` and Persona has no list-workflows endpoint to enumerate ids (low)
@@ -13792,7 +13792,7 @@ Diffed against: <https://api.smartlead.ai/llms-full.txt>
 - [ ] `Get Lead Message History (GET /api/v1/campaigns/{campaign_id}/leads/{lead_id}/message-history)` — analyze complete conversations, including replies absent from sent email statistics (high); skipped: it needs a request per lead in each campaign on every sync against a 1,000-requests-per-hour plan limit, its documented response shape contradicts the vendor's webhook docs, and `all_leads_activities` already syncs replies and thread replies
 - [x] `Get All Leads Activities (GET /api/v1/campaigns/all-leads-activities)` — analyze engagement events over time rather than the current state of each sent email (high)
 - [x] `Get Warmup Statistics (GET /api/v1/email-accounts/{email_account_id}/warmup-stats)` — measure mailbox reputation, spam placement, and warmup performance (medium)
-- [ ] `Get Campaign Email Accounts (GET /api/v1/campaigns/{campaign_id}/email-accounts)` — join campaigns to rotating sender accounts for mailbox performance analysis (medium)
+- [x] `Get Campaign Email Accounts (GET /api/v1/campaigns/{campaign_id}/email-accounts)` — join campaigns to rotating sender accounts for mailbox performance analysis (medium)
 - [x] `Get Day-wise Overall Stats (GET /api/v1/analytics/day-wise-overall-stats)` — track daily engagement totals and compare outreach performance over time (medium)
 - [ ] `Get Lead Notes (GET /api/v1/crm/leads/notes/{lead_id})` — analyze sales context and follow-up information attached to prospects (medium); skipped: there is no account-wide list, so it needs a request per lead on every sync against a 1,000-requests-per-hour plan limit
 - [ ] `Get Lead Tasks (GET /api/v1/crm/leads/tasks/{lead_id})` — measure follow-up workload and task completion across prospects (medium); skipped: there is no account-wide list, so it needs a request per lead on every sync against a 1,000-requests-per-hour plan limit
@@ -14511,7 +14511,7 @@ Note: Enumerated from the vendor's full single-page reference; GET availability 
 
 ## SurveySparrow — **thin**
 
-Today (12): `channels`, `contact_lists`, `contact_properties`, `contacts`, `questions`, `reputation_reviews`, `responses`, `surveys`, `teams`, `ticket_comments`, `tickets`, `users`
+Today (16): `channels`, `contact_lists`, `contact_properties`, `contacts`, `questions`, `reputation_app_platforms`, `reputation_platforms`, `reputation_reviews`, `responses`, `survey_subjects`, `surveys`, `teams`, `ticket_comments`, `ticket_fields`, `tickets`, `users`
 
 Diffed against: <https://developers.surveysparrow.com/rest-apis>
 
@@ -14522,11 +14522,11 @@ Diffed against: <https://developers.surveysparrow.com/rest-apis>
 - [x] `GET /v3/reputation_reviews` — Online review records from the Reputation Management product - a whole analytical dataset with no coverage (high). Added as `reputation_reviews`. The real path is `GET /v3/reputation/reviews`, which requires `app_platform_id`, so the table fans out over `/v3/reputation/app_platforms`. Full refresh only: a scraped review can arrive after reviews with a later `review_date`.
 - [x] `GET /v3/tickets/{id}/comments` — Ticket conversation history for resolution-time and agent-activity analysis (medium). Added as `ticket_comments` (fan-out over `tickets`), incremental on `created_at` via `created_date.gte`.
 - [x] `GET /v3/contact_properties` — Lookup table defining the custom contact fields whose values appear on synced contacts (medium). Added as `contact_properties` (one unpaginated request).
-- [ ] `GET /v3/ticket_fields` — Lookup table decoding custom ticket field IDs (medium)
+- [x] `GET /v3/ticket_fields` — Lookup table decoding custom ticket field IDs (medium). Added as `ticket_fields`, incremental on `updated_at` via `updated_date.gte`.
 - [x] `GET /v3/teams` — Lookup table for the team IDs on users and tickets (medium). Added as `teams`.
-- [ ] `GET /v3/reports and /v3/reports/question` — Per-question aggregate report dimensions (distributions, averages) without recomputing from responses (medium)
-- [ ] `GET /v3/survey_subjects, /v3/survey_subject_evaluators, /v3/survey_subject_report` — Employee 360 subject/evaluator membership and scores - the entire 360-review dataset (medium)
-- [ ] `GET /v3/reputation_platforms and /v3/reputation_app_platforms` — Lookup tables resolving the platform IDs on reputation reviews (medium)
+- [ ] `GET /v3/reports and /v3/reports/question` — Per-question aggregate report dimensions (distributions, averages) without recomputing from responses (medium). Skipped: `/v3/reports` returns a public report link, and `/v3/reports/question` returns one aggregate per survey and question with an undocumented string schema, not a list of records.
+- [x] `GET /v3/survey_subjects, /v3/survey_subject_evaluators, /v3/survey_subject_report` — Employee 360 subject/evaluator membership and scores - the entire 360-review dataset (medium). Added as `survey_subjects`. The real path is `GET /v3/survey/subjects`, which requires `survey_id`, so the table fans out over `/v3/surveys?survey_type=Employee360`. Not built: `/v3/survey/subject/evaluators` needs a second fan-out level per subject, and `/v3/survey/subject/report` has an undocumented string response.
+- [x] `GET /v3/reputation_platforms and /v3/reputation_app_platforms` — Lookup tables resolving the platform IDs on reputation reviews (medium). Added as `reputation_platforms` (`/v3/reputation/platforms`) and `reputation_app_platforms` (`/v3/reputation/app_platforms`), both full refresh.
 
 Note: Static endpoint list in products/warehouse_sources/sources/surveysparrow/settings.py (5 paths, no dynamic discovery). Full v3 GET-endpoint list enumerated from https://developers.surveysparrow.com/sitemap.xml, whose `get-v-3-\*` slugs map 1:1 to endpoints. The v3 API has ~30 resource categories; PostHog exposes 5.
 

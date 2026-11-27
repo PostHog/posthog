@@ -96,7 +96,6 @@ from products.stamphog.backend.logic.gateway_tokens import (
     GatewayTokenError,
     active_user,
     gateway_root,
-    is_legacy_stamphog_route,
     mint_scoped_token,
     revoke_scoped_token,
 )
@@ -339,11 +338,6 @@ def _hosted_gateway() -> AIGatewayConfig:
     if gateway is None:
         raise RuntimeError(
             "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must both be set; hosted reviews require the ai-gateway"
-        )
-    if is_legacy_stamphog_route(gateway.url):
-        raise RuntimeError(
-            "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
-            "the ai-gateway key belongs with the ai-gateway URL"
         )
     return gateway
 
@@ -962,7 +956,7 @@ def _fast_refusal_summary(run: ReviewRun, outcome: PregateOutcome) -> str | None
     is already REFUSED, so the note must never delay or fail it.
     """
     gateway = resolve_ai_gateway_config()
-    if gateway is None or is_legacy_stamphog_route(gateway.url) or outcome.result is None:
+    if gateway is None or outcome.result is None:
         return None
     try:
         token = _mint_reviewer_scoped_token(gateway, run, _connected_user(run))
@@ -2769,12 +2763,18 @@ _PATH_DENY_GATES = frozenset({"deny-list", "tier"})
 def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
     """True when the changed paths alone refused the PR, so a re-review of the same files refuses again.
 
-    A deny on migrations alone is excluded: it lifts once the `Migration risk` check passes.
+    A deny on migrations alone is excluded: a rerun of the `Migration risk` check at the same head can lift it.
+    A WAIT is excluded too: it waits on a pending check that can lift the deny, and re-reviews once that check reports.
     """
+    if parsed.verdict not in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
+        return False
     gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
     failed = {g.get("gate") for g in gates if not g.get("passed", True)}
-    deny_categories = (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
-    return bool(failed) and failed <= _PATH_DENY_GATES and deny_categories != ["migrations"]
+    return bool(failed) and failed <= _PATH_DENY_GATES and _deny_categories(parsed) != ["migrations"]
+
+
+def _deny_categories(parsed: ReviewerVerdict) -> list:
+    return (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
 
 
 def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:
@@ -2787,12 +2787,22 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     The engine's ``review_body`` is the rich version (reasoning plus the gate table) and the
     ``reasoning``/``showstoppers`` pair is the fallback when it rendered nothing. The headline is
     prepended to both, so the outcome is stated whichever one is available.
+
+    A gate refusal is stored as a GATED WAIT, so the headline follows the engine's verdict: a refusal
+    must not read as a wait.
     """
+    gate_refused = parsed.gate_blocked and parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
+    if gate_refused:
+        verdict = ReviewVerdict.REFUSED
     headline = _VERDICT_HEADLINES.get(verdict, f"**Stamphog review: {verdict}**")
     if _only_a_human_can_approve(parsed):
         headline = _VERDICT_HEADLINES[ReviewVerdict.REFUSED]
         if relabel_label:
             headline += f"\n\nAdding the `{relabel_label}` label gives the same result unless the changed files change."
+    elif relabel_label and gate_refused and _deny_categories(parsed) == ["migrations"]:
+        headline += (
+            f"\n\nAdd the `{relabel_label}` label to request another review once the `Migration risk` check passes."
+        )
     elif relabel_label:
         headline += f"\n\nAdd the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)

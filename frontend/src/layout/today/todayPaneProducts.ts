@@ -42,8 +42,12 @@ export function paneProductsFor(pages: FileSystemImport[], specs: TodayPaneProdu
 }
 
 /** Whether the Products pane shows this product for these flags, so a pane never lists a page the Products pane hides. */
-export function isPaneProductShown(product: TodayPaneProduct, featureFlags: FeatureFlagsSet): boolean {
-    return isFileSystemImportShown(product.item, featureFlags)
+export function isPaneProductShown(
+    product: TodayPaneProduct,
+    featureFlags: FeatureFlagsSet,
+    isOrganizationAdmin = false
+): boolean {
+    return isFileSystemImportShown(product.item, featureFlags, isOrganizationAdmin)
 }
 
 /** The product that owns this page. The longest matching path wins, so a nested product beats its parent. */

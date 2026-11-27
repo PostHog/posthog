@@ -203,6 +203,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/startups',
     '/coupons',
     '/legal',
+    // The transcript request email links here, and an organization an AI agent set up may not have finished onboarding.
+    '/agent-transcript',
 ]
 
 // The server refused the project this address names and served the user's own one.
