@@ -327,6 +327,9 @@ export interface sidePanelNotificationsLogicActions {
     markGroupChildrenLoaded: (groupKey: string) => {
         groupKey: string
     }
+    mergeInAppNotifications: (notifications: InAppNotification[]) => {
+        notifications: InAppNotification[]
+    }
     navigateToNotification: (notification: InAppNotification) => {
         notification: InAppNotification
     }
@@ -335,9 +338,6 @@ export interface sidePanelNotificationsLogicActions {
     }
     notificationReceived: (notification: InAppNotification) => {
         notification: InAppNotification
-    }
-    prependInAppNotifications: (notifications: InAppNotification[]) => {
-        notifications: InAppNotification[]
     }
     refreshInAppUnreadCount: () => {
         value: true
@@ -478,7 +478,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             notifications,
             hasMore,
         }),
-        prependInAppNotifications: (notifications: InAppNotification[]) => ({ notifications }),
+        mergeInAppNotifications: (notifications: InAppNotification[]) => ({ notifications }),
         setInAppUnreadCount: (count: number) => ({ count }),
         notificationReceived: (notification: InAppNotification) => ({ notification }),
         markAsRead: (id: string) => ({ id }),
@@ -540,10 +540,12 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     const newItems = notifications.filter((n) => !existingIds.has(n.id))
                     return [...state, ...newItems]
                 },
-                prependInAppNotifications: (state, { notifications }) => {
+                mergeInAppNotifications: (state, { notifications }) => {
                     const existingIds = new Set(state.map((n) => n.id))
                     const newItems = notifications.filter((n) => !existingIds.has(n.id))
-                    return newItems.length ? [...newItems, ...state] : state
+                    return newItems.length
+                        ? [...newItems, ...state].sort((a, b) => dayjs(b.created_at).diff(a.created_at))
+                        : state
                 },
                 notificationReceived: (state, { notification }) => [notification, ...state],
                 removeNotifications: (state, { ids }) => {
@@ -834,17 +836,19 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 actions.initialLoadDone()
             },
             loadMissedNotifications: async () => {
+                const loadedIds = new Set(values.inAppNotifications.map((n) => n.id))
                 try {
                     const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
                         limit: NOTIFICATION_PAGE_SIZE,
                     })
                     const results = resp.results as InAppNotification[]
-                    const loadedIds = new Set(values.inAppNotifications.map((n) => n.id))
-                    // A page that shares no id with the loaded list may end before it, so merging would leave a gap
+                    // A page that shares no id with the list as it was before the request may end before it, so merging would leave a gap
                     if (results.some((n) => loadedIds.has(n.id))) {
-                        actions.prependInAppNotifications(results)
+                        actions.mergeInAppNotifications(results)
                     } else {
+                        const deliveredMeanwhile = values.inAppNotifications.filter((n) => !loadedIds.has(n.id))
                         actions.setInAppNotifications(results, !!resp.next)
+                        actions.mergeInAppNotifications(deliveredMeanwhile)
                     }
                 } catch {
                     // Swallow

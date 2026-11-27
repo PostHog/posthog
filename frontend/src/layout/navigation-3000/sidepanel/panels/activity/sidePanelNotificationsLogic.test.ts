@@ -340,7 +340,7 @@ describe('sidePanelNotificationsLogic.resume', () => {
         ['visible', false],
         ['hidden', true],
     ])(
-        'adds a notification created while the tab was hidden to the loaded pages (mounted %s)',
+        'adds a notification created while the tab was hidden under one the stream delivers meanwhile (mounted %s)',
         async (_, mountHidden) => {
             const loaded = makeNotifications('old', 31)
             serverNotifications = loaded
@@ -350,11 +350,14 @@ describe('sidePanelNotificationsLogic.resume', () => {
             await expectLogic(logic, () => logic.actions.loadMoreNotifications()).toFinishAllListeners()
 
             setHidden(true)
-            const missed = makeNotification({ id: 'missed' })
+            const missed = makeNotification({ id: 'missed', created_at: '2026-05-07T13:00:00Z' })
+            const live = makeNotification({ id: 'live', created_at: '2026-05-07T14:00:00Z' })
             serverNotifications = [missed, ...loaded]
             setHidden(false)
+            deliver(live)
+            serverNotifications = [live, ...serverNotifications]
             await expectLogic(logic).toFinishAllListeners()
-            const expected = { ids: ['missed', ...loaded.map((n) => n.id)], unread: 32 }
+            const expected = { ids: ['live', 'missed', ...loaded.map((n) => n.id)], unread: 33 }
             expect({ ids: loadedIds(), unread: logic.values.inAppUnreadCount }).toEqual(expected)
             expect(logic.values.mainListOffset).toBe(31)
 
@@ -363,7 +366,7 @@ describe('sidePanelNotificationsLogic.resume', () => {
         }
     )
 
-    it('replaces the list when more than a page arrived while the tab was hidden', async () => {
+    it('replaces the list when more than a page arrived while hidden, and keeps what the stream delivers meanwhile', async () => {
         serverNotifications = makeNotifications('old', 1)
         logic.mount()
         await expectLogic(logic, () => logic.actions.loadInitialNotifications()).toFinishAllListeners()
@@ -371,9 +374,11 @@ describe('sidePanelNotificationsLogic.resume', () => {
         setHidden(true)
         serverNotifications = [...makeNotifications('new', 31), ...serverNotifications]
         setHidden(false)
+        deliver(serverNotifications[0])
+        deliver(makeNotification({ id: 'live', created_at: '2026-05-07T14:00:00Z' }))
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(loadedIds()).toEqual(serverNotifications.slice(0, 30).map((n) => n.id))
+        expect(loadedIds()).toEqual(['live', ...serverNotifications.slice(0, 30).map((n) => n.id)])
         expect(logic.values.mainListOffset).toBe(30)
         expect(logic.values.hasMoreNotifications).toBe(true)
     })
