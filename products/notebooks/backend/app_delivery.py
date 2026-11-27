@@ -198,15 +198,47 @@ def pinned_sql_result(release: NotebookAppRelease, node_id: str, run_id: str | N
     return {**schema, "first_page": rows}
 
 
-def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
+def displayed_native_sql_cells(release: NotebookAppRelease) -> dict[str, dict[str, Any]]:
     cells = extract_cells(build_markdown_notebook_content(release.markdown))
     build_dependency_edges(cells)
-    allowed = native_app_output_ids(cells)
-    sql_cells = {
+    visible = {
+        block["node_id"]
+        for block in release.layout["blocks"]
+        if block["kind"] == "cell" and block.get("display") != "source"
+    }
+    allowed = native_app_output_ids(cells) & visible
+    return {
         cell.node_id: _parse_markdown_component_props(cell.source)
         for cell in iter_markdown_blocks(release.markdown, max_prose_blocks=0)
-        if cell.tag_name == "SQLV2" and cell.node_id in allowed
+        if cell.tag_name == "SQLV2" and cell.node_id and cell.node_id in allowed
     }
+
+
+def can_share_chart_rows(props: dict[str, Any]) -> bool:
+    if props.get("outputTab") == "results":
+        return True
+    viz = props.get("vizQuery") or {}
+    if not isinstance(viz, dict):
+        return False
+    chart = viz.get("chartSettings") or {}
+    if not isinstance(chart, dict) or chart.get("seriesBreakdownColumn") or chart.get("resultCustomizations"):
+        return False
+    return viz.get("display") in (
+        None,
+        "Auto",
+        "ActionsTable",
+        "BoldNumber",
+        "ActionsLineGraph",
+        "ActionsAreaGraph",
+        "ActionsBar",
+        "ActionsUnstackedBar",
+        "ActionsStackedBar",
+        "ScatterPlot",
+    )
+
+
+def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
+    sql_cells = displayed_native_sql_cells(release)
     tabs = {tab["id"]: {"title": tab["title"], "blocks": []} for tab in release.layout["tabs"]}
     for block in release.layout["blocks"]:
         tab = tabs.get(block["tab_id"])
@@ -220,6 +252,14 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
         node_id = block.get("node_id")
         props = sql_cells.get(node_id)
         if not props:
+            continue
+        if not can_share_chart_rows(props):
+            tab["blocks"].append(
+                {
+                    "title": block.get("title"),
+                    "text": "Publish this chart as a table or single number to share its values.",
+                }
+            )
             continue
         result = pinned_sql_result(release, node_id, props.get("runId"))
         if result is None:
