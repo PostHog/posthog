@@ -986,6 +986,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         from products.notebooks.backend.facade.app_refresh import configure, refresh_status
 
         notebook = self._published_app(request)
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            raise PermissionDenied("Sign in with a browser session to configure an app schedule.")
         serializer = NotebookAppScheduleSettingsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         if not self._has_query_access() or not isinstance(request.user, User):

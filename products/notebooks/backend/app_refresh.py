@@ -18,9 +18,8 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.workload import Workload
 from posthog.exceptions import Conflict
-from posthog.models import User
+from posthog.models import Team, User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
@@ -36,6 +35,7 @@ from products.notebooks.backend.app_viewer import resolve_viewer_queries
 from products.notebooks.backend.facade.contracts import AppRefreshedOutput, AppRefreshHistory, AppRefreshStatus
 from products.notebooks.backend.models import Notebook, NotebookAppRefreshRun, NotebookAppSchedule
 from products.notebooks.backend.presentation.app_serializers import notebook_app_builder_enabled
+from products.notebooks.backend.sql_v2_direct import apply_page_bounds
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -43,6 +43,9 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.security.backend.facade.api import access_refused
+from products.security.backend.facade.contracts import SubjectInput
+from products.security.backend.facade.enums import Surface
 
 logger = structlog.get_logger(__name__)
 MAX_QUERIES = 20
@@ -50,11 +53,17 @@ MAX_ROWS = 1000
 MAX_BYTES = 2 * 1024 * 1024
 RUN_TIMEOUT = timedelta(minutes=15)
 HISTORY_SIZE = 20
+MAX_SCHEDULES_PER_TEAM = 50
 
 
 def current_plans(notebook: Notebook, revision: int, checked_node_ids: list[str] | None = None):
     release = read_release(notebook.team_id, notebook.pk)
-    if release is None or release.revision != revision:
+    if (
+        release is None
+        or release.revision != revision
+        or notebook.app_revision != revision
+        or release.published_at is None
+    ):
         raise Conflict("A new release needs a new refresh schedule.")
     plans = resolve_viewer_queries(release, {})
     if checked_node_ids:
@@ -81,8 +90,14 @@ def check_query_access(notebook: Notebook, user: User, action: Action) -> None:
         ),
         (Resource(type=ResourceType.QUERY, project_id=notebook.team_id), Action.VIEW),
     )
-    if not user.is_active or any(
-        not authorization.check(resource=resource, subject=subject, action=level) for resource, level in resources
+    if (
+        not user.is_active
+        or access_refused(
+            SubjectInput(email=user.email, user_uuid=str(user.uuid)), Surface.APP, call_site="notebook_app_refresh"
+        )
+        or any(
+            not authorization.check(resource=resource, subject=subject, action=level) for resource, level in resources
+        )
     ):
         raise PermissionDenied()
 
@@ -111,6 +126,10 @@ def configure(
         checks = sorted(checked_node_ids or [])
         current_plans(locked, revision, checks)
         reserve_check_capacity(locked, user, checks)
+        Team.objects.select_for_update().only("pk").get(pk=team_id)
+        active = NotebookAppSchedule.objects.for_team(team_id).filter(enabled=True)
+        if active.exclude(notebook=locked).count() >= MAX_SCHEDULES_PER_TEAM:
+            raise ValidationError(f"A project can have up to {MAX_SCHEDULES_PER_TEAM} active app schedules.")
         schedule, created = (
             NotebookAppSchedule.objects.for_team(locked.team_id)
             .select_for_update()
@@ -146,7 +165,9 @@ def configure(
         schedule.revision = revision
         schedule.interval_minutes = interval
         schedule.freshness_minutes = freshness
-        schedule.configured_at = schedule.next_due_at = now
+        schedule.configured_at = now
+        if not created:
+            schedule.next_due_at = max(schedule.next_due_at, now + timedelta(minutes=interval))
         schedule.stale_at = (schedule.last_success_at or now) + timedelta(minutes=freshness)
         schedule.enabled = True
         schedule.stale_notified = False
@@ -178,6 +199,8 @@ def refresh_status(team_id: int, notebook_id: UUID, reader_id: int | None = None
         .filter(schedule=schedule, due_at__gte=schedule.configured_at)
         .order_by("-due_at")
     )
+    if reader_id is not None:
+        runs = runs.filter(owner_id=schedule.owner_id)
     threshold = (schedule.last_success_at or schedule.configured_at) + timedelta(minutes=schedule.freshness_minutes)
     return AppRefreshStatus(
         published_revision=published_revision,
@@ -219,13 +242,13 @@ def read_outputs(team_id: int, notebook_id: UUID, user_id: int, revision: int) -
         return {}
     notebook, user = schedule.notebook, User.objects.get(pk=user_id)
     check_query_access(notebook, user, Action.VIEW)
-    access = query_access_for_user(notebook, user)
+    database = query_catalog(notebook, user)
     visible: dict[str, AppRefreshedOutput] = {}
     for plan in current_plans(notebook, revision):
         cached = schedule.outputs.get(plan.node_id)
         if not cached:
             continue
-        executor = query_executor(plan.query, notebook, user, access)
+        executor = query_executor(plan.query, notebook, user, database)
         try:
             sql, context = executor.generate_clickhouse_sql()
         except ExposedHogQLError:
@@ -239,20 +262,27 @@ def read_outputs(team_id: int, notebook_id: UUID, user_id: int, revision: int) -
     return visible
 
 
-def query_access_for_user(notebook: Notebook, user: User) -> UserAccessControl:
+def query_catalog(notebook: Notebook, user: User) -> Database:
     database = Database.create_for(team=notebook.team, user=user, build_postgres_foreign_keys=False)
     access = database.user_access_control
     if access is None or access.user.pk != user.pk:
         raise PermissionDenied()
-    return access
+    return database
 
 
-def query_executor(query: str, notebook: Notebook, user: User, access: UserAccessControl) -> HogQLQueryExecutor:
+def query_executor(query: str, notebook: Notebook, user: User, database: Database) -> HogQLQueryExecutor:
     return HogQLQueryExecutor(
-        query=query,
+        query=apply_page_bounds(query, MAX_ROWS + 1, 0),
         team=notebook.team,
         user=user,
-        user_access_control=access,
+        context=HogQLContext(
+            database=database,
+            team_id=notebook.team_id,
+            team=notebook.team,
+            user=user,
+            user_access_control=database.user_access_control,
+        ),
+        user_access_control=database.user_access_control,
         workload=Workload.OFFLINE,
         limit_context=LimitContext.QUERY,
         query_type="notebook_app_refresh",
@@ -279,31 +309,30 @@ def refresh_outputs(schedule: NotebookAppSchedule) -> dict[str, Any]:
     plans = current_plans(notebook, schedule.revision, schedule.checked_node_ids)
     if not plans:
         return outputs
-    access = query_access_for_user(notebook, owner)
+    database = query_catalog(notebook, owner)
     for plan in plans:
-        executor = query_executor(plan.query, notebook, owner, access)
-        executor.generate_clickhouse_sql()
+        executor = query_executor(plan.query, notebook, owner, database)
+        sql, context = executor.generate_clickhouse_sql()
         if executor.direct_sql is not None or executor.clickhouse_sql is None:
             raise ValidationError("Scheduled refresh supports native SQL outputs.")
-        result = executor.execute()
+        scope = result_scope(sql, context)
+        result = query_executor(plan.query, notebook, owner, database).execute()
         if result.error:
             raise ValidationError("A SQL output failed.")
         payload = result.model_dump(mode="json", include={"columns", "results", "types", "hasMore"})
         if len(payload["results"]) > MAX_ROWS:
             payload["results"] = payload["results"][:MAX_ROWS]
             payload["hasMore"] = True
-        if executor.clickhouse_sql is None or executor.clickhouse_context is None:
-            raise ValidationError("Could not validate the refreshed result.")
         outputs[plan.node_id] = {
             "result": payload,
-            "scope": result_scope(executor.clickhouse_sql, executor.clickhouse_context),
+            "scope": scope,
         }
         if len(json.dumps(outputs, ensure_ascii=False, allow_nan=False).encode()) > MAX_BYTES:
             raise ValidationError("The refreshed results exceed the snapshot size limit.")
     return outputs
 
 
-def notify_owner(schedule: NotebookAppSchedule, title: str, key: str) -> None:
+def notify_owner(schedule: NotebookAppSchedule, title: str, key: str, *, owner_id: int | None = None) -> None:
     create_notification(
         NotificationData(
             notification_type=NotificationType.NOTEBOOK_APP_REFRESH,
@@ -311,7 +340,7 @@ def notify_owner(schedule: NotebookAppSchedule, title: str, key: str) -> None:
             body="Open the published notebook app to review its refresh history.",
             team_id=schedule.team_id,
             target_type=TargetType.USER,
-            target_id=str(schedule.owner_id),
+            target_id=str(owner_id or schedule.owner_id),
             source_type=SourceType.NOTEBOOK,
             source_id=str(schedule.notebook_id),
             resource_type="notebook",
@@ -338,6 +367,7 @@ def publish_sql_before_checks(run: NotebookAppRefreshRun, outputs: dict[str, Any
             .select_for_update()
             .filter(
                 pk=run.schedule_id,
+                owner_id=run.owner_id,
                 enabled=True,
                 revision=run.revision,
                 configured_at__lte=run.due_at,
@@ -371,7 +401,12 @@ def finish_run(
         if not schedule:
             return
         runs = NotebookAppRefreshRun.objects.for_team(run.team_id).filter(schedule=schedule)
-        if not schedule.enabled or schedule.revision != run.revision or run.due_at < schedule.configured_at:
+        if (
+            not schedule.enabled
+            or schedule.owner_id != run.owner_id
+            or schedule.revision != run.revision
+            or run.due_at < schedule.configured_at
+        ):
             outputs, detail = None, "The schedule changed before this run finished."
         state = NotebookAppRefreshRun.Status
         updated = runs.filter(pk=run.pk, status=state.RUNNING).update(
@@ -396,12 +431,24 @@ def finish_run(
                 schedule.enabled = False
                 schedule.save(update_fields=["enabled"])
             if previous != state.FAILED:
-                transaction.on_commit(
-                    lambda: notify_owner(schedule, "Notebook app refresh failed", f"notebook:refresh:{run.pk}")
-                )
+                runs.filter(pk=run.pk).update(failure_notification_pending=True)
+                transaction.on_commit(lambda: deliver_failure(run.team_id, run.pk))
         runs.exclude(pk__in=runs.order_by("-due_at").values("pk")[:HISTORY_SIZE]).exclude(
             status__in=[state.RUNNING, state.QUEUED]
-        ).delete()
+        ).exclude(failure_notification_pending=True).delete()
+
+
+def deliver_failure(team_id: int, run_id: UUID) -> None:
+    pending = NotebookAppRefreshRun.objects.for_team(team_id).filter(pk=run_id, failure_notification_pending=True)
+    run = pending.select_related("schedule__notebook").first()
+    if run is None or run.owner_id is None:
+        return
+    try:
+        notify_owner(run.schedule, "Notebook app refresh failed", f"notebook:refresh:{run.pk}", owner_id=run.owner_id)
+    except Exception:
+        logger.exception("notebook_app_refresh_notification_failed", run_id=str(run.pk))
+        return
+    pending.update(failure_notification_pending=False)
 
 
 def run_slot(team_id: int, run_id: UUID) -> None:
@@ -414,7 +461,7 @@ def run_slot(team_id: int, run_id: UUID) -> None:
     if run is None:
         return
     try:
-        if not run.schedule.enabled or run.due_at < run.schedule.configured_at:
+        if not run.schedule.enabled or run.owner_id != run.schedule.owner_id or run.due_at < run.schedule.configured_at:
             finish_run(run, None, "This schedule was changed.")
             return
         outputs = refresh_outputs(run.schedule)

@@ -184,7 +184,7 @@ function scheduleState(status: NotebookAppRefreshStatusApi, active: boolean, has
     if (!active) {
         return 'Off'
     }
-    if (status.stale == null) {
+    if (status.stale == null && !status.last_success_at) {
         return 'Scheduled'
     }
     if (status.stale) {
@@ -200,7 +200,9 @@ function ScheduleSummary({
     status,
     active,
     hasChecks,
+    publishedFallback,
 }: {
+    publishedFallback: boolean
     status: NotebookAppRefreshStatusApi
     active: boolean
     hasChecks: boolean
@@ -210,7 +212,7 @@ function ScheduleSummary({
             <strong>{hasChecks ? 'Scheduled refresh and runtime checks' : 'Scheduled refresh'}</strong>
             <span className="ml-2">
                 <LemonTag type={active && status.stale ? 'warning' : 'default'}>
-                    {scheduleState(status, active, hasChecks)}
+                    {active && publishedFallback ? 'Published results' : scheduleState(status, active, hasChecks)}
                 </LemonTag>
             </span>
         </summary>
@@ -242,7 +244,9 @@ export function RefreshDetails({
     onSave,
     busy,
     onReload,
+    publishedFallback = false,
 }: {
+    publishedFallback?: boolean
     status: NotebookAppRefreshStatusApi
     busy: boolean
     onReload: () => void
@@ -252,7 +256,12 @@ export function RefreshDetails({
     const active = status.enabled && status.revision === status.published_revision
     return (
         <details className="border rounded p-3 mb-3">
-            <ScheduleSummary status={status} active={active} hasChecks={hasChecks} />
+            <ScheduleSummary
+                status={status}
+                active={active}
+                hasChecks={hasChecks}
+                publishedFallback={publishedFallback}
+            />
             <div className="flex flex-col gap-3 mt-3">
                 <p className="m-0">
                     Freshness applies to native SQL outputs that use the published inputs. Python, connected SQL,
@@ -281,7 +290,7 @@ export function RefreshDetails({
                     </LemonBanner>
                 )}
                 <ScheduleTimes status={status} active={active} onReload={onReload} />
-                {status.stale != null && (
+                {(status.stale != null || status.history.length > 0) && (
                     <>
                         <strong>Refresh history</strong>
                         <RefreshHistory status={status} />
@@ -307,7 +316,15 @@ export function NotebookAppRefreshPanel({
     const [status, setStatus] = useState<NotebookAppRefreshStatusApi | null>(null)
     const [reload, setReload] = useState(0)
     const [busy, setBusy] = useState(false)
-    const [error, setError] = useState(false)
+    const [failure, setFailure] = useState<
+        { kind: 'read' } | { kind: 'write'; settings: NotebookAppScheduleSettingsApi }
+    >()
+    const [visibleSnapshotAt, setVisibleSnapshotAt] = useState<string>()
+    useEffect(() => {
+        setVisibleSnapshotAt(undefined)
+        setFailure(undefined)
+        onOutputs?.({})
+    }, [project, shortId, revision, onOutputs])
     useEffect(() => {
         const controller = new AbortController()
         const options = { signal: controller.signal }
@@ -317,18 +334,27 @@ export function NotebookAppRefreshPanel({
                 return
             }
             setStatus(next)
-            setError(false)
+            setFailure(undefined)
             if (onOutputs && next.revision === revision) {
                 const result = await notebooksAppRefreshOutputsRetrieve(project, shortId, options)
                 if (!controller.signal.aborted && result.revision === revision) {
                     onOutputs(result.outputs)
+                    const latest = next.history.find((run) => run.status === 'succeeded' && run.revision === revision)
+                    setVisibleSnapshotAt(
+                        latest && latest.output_count > 0 && Object.keys(result.outputs).length === latest.output_count
+                            ? (next.last_success_at ?? undefined)
+                            : undefined
+                    )
                 }
             }
         }
-        void load().catch(() => {
+        void load().catch((failure: { status?: number }) => {
             if (!controller.signal.aborted) {
-                setError(true)
-                onOutputs?.({})
+                if (failure?.status === 401 || failure?.status === 403 || failure?.status === 404) {
+                    setVisibleSnapshotAt(undefined)
+                    onOutputs?.({})
+                }
+                setFailure({ kind: 'read' })
             }
         })
         return () => controller.abort()
@@ -337,20 +363,23 @@ export function NotebookAppRefreshPanel({
         setBusy(true)
         try {
             setStatus(await notebooksAppRefreshScheduleCreate(project, shortId, settings))
-            setError(false)
+            setFailure(undefined)
         } catch {
-            setError(true)
+            setFailure({ kind: 'write', settings })
         } finally {
             setBusy(false)
         }
     }
     return (
         <>
-            {error && (
+            {failure && (
                 <LemonBanner
                     type="warning"
                     className="mb-3"
-                    action={{ children: 'Retry', onClick: () => setReload(reload + 1) }}
+                    action={{
+                        children: 'Retry',
+                        onClick: () => (failure.kind === 'write' ? void save(failure.settings) : setReload(reload + 1)),
+                    }}
                 >
                     Could not update scheduled refresh. Check your access and the published release.
                 </LemonBanner>
@@ -358,7 +387,8 @@ export function NotebookAppRefreshPanel({
             {status && (editable || status.revision !== undefined) && (
                 <RefreshDetails
                     key={status.published_revision}
-                    status={status}
+                    status={!editable && onOutputs ? { ...status, last_success_at: visibleSnapshotAt ?? null } : status}
+                    publishedFallback={!!onOutputs && !editable && !!status.last_success_at && !visibleSnapshotAt}
                     busy={busy}
                     onReload={() => setReload(reload + 1)}
                     onSave={editable ? save : undefined}

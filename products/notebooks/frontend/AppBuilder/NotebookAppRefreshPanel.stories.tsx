@@ -77,7 +77,7 @@ export const Reader: StoryObj<typeof RefreshDetails> = {
 export const LimitedHistory: StoryObj<typeof RefreshDetails> = {
     render: () => (
         <RefreshDetails
-            status={{ ...initial, history: [], stale: null, last_success_at: null }}
+            status={{ ...initial, history: [], stale: undefined, last_success_at: undefined }}
             busy={false}
             onReload={() => {}}
         />
