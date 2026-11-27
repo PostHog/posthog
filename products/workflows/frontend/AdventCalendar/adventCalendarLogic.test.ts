@@ -336,7 +336,7 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
     })
 
-    it('sends no door opens or answers while a staff user previews another day', async () => {
+    it('sends no door opens or answers while a staff user previews another day, and keeps the live doors shut', async () => {
         const api = calendarApi()
         useMocks(api.mocks)
         preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
@@ -352,6 +352,12 @@ describe('adventCalendarLogic', () => {
 
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
         expect({ opens: api.opens, answers: api.answers }).toEqual({ opens: [], answers: [] })
+
+        router.actions.push('/workflows/advent')
+        expect(doorOf(logic, 'door-1')?.status).toBe('ready')
+        logic.actions.activateDoor('door-1')
+
+        await waitFor(() => expect(api.opens).toMatchObject([{ day: 1 }]))
     })
 
     it.each([
