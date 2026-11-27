@@ -38,6 +38,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
     available_features: [],
+    organization_active: true,
     drop_events_older_than_seconds: null,
     extra_settings: null,
     ...overrides,

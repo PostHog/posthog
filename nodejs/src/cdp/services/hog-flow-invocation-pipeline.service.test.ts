@@ -6,6 +6,7 @@ import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
+import { OrganizationAdmission } from './organization-admission'
 
 jest.mock('../../common/services/keyed-rate-limiter.service', () => ({
     KeyedRateLimiterService: jest.fn().mockImplementation(() => ({
@@ -97,6 +98,7 @@ describe('HogFlowInvocationPipeline', () => {
             quotaLimiting,
             redis: {} as any,
             valkeyShadow: { writer: {} as any, reader: {} as any },
+            organizationAdmission: new OrganizationAdmission('off', { getTeams: jest.fn() }),
         })
 
         rateLimitGroupedMock = (pipeline as any).hogRateLimiter.rateLimitGrouped as jest.Mock

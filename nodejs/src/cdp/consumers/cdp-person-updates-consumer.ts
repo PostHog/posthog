@@ -32,6 +32,7 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
             topic: KAFKA_PERSON,
         })
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFunctionManager: this.hogFunctionManager,
             hogInputsService: this.hogInputsService,
             hogWatcher: this.hogWatcher,

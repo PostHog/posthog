@@ -55,6 +55,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
             topic: 'cdp_data_warehouse_source_table',
         })
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFunctionManager: this.hogFunctionManager,
             hogInputsService: this.hogInputsService,
             hogWatcher: this.hogWatcher,
@@ -67,6 +68,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
             valkeyShadow: this.valkeyShadow,
         })
         this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFlowManager: this.hogFlowManager,
             hogFlowExecutor: this.hogFlowExecutor,
             hogWatcher: this.hogWatcher,

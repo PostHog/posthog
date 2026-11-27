@@ -8,6 +8,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import {
@@ -291,6 +292,53 @@ describe('CdpEventsConsumer', () => {
                     })
                 }
             })
+
+            it.each<[string, boolean | null, number, number]>([
+                ['off', false, 3, 0],
+                ['shadow', false, 3, 2],
+                ['enforce', false, 0, 2],
+                ['enforce', null, 3, 0],
+            ])(
+                'in %s mode, for an organization with is_active %s, creates %s invocations',
+                async (mode, isActive, invocationCount, counted) => {
+                    const hogFlow = await _insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder()
+                            .withTeamId(team.id)
+                            .withStatus('active')
+                            .withSimpleWorkflow()
+                            .build()
+                    )
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'UPDATE posthog_organization SET is_active = $1 WHERE id = $2',
+                        [isActive, team.organization_id],
+                        'setOrganizationActive'
+                    )
+                    const deactivatedWorkCount = async (): Promise<number> => {
+                        const values = (
+                            await register.getSingleMetric('cdp_deactivated_organization_work_total')?.get()
+                        )?.values
+                        return (values ?? [])
+                            .filter((v) => v.labels.stage?.toString().endsWith('_trigger') && v.labels.mode === mode)
+                            .reduce((sum, v) => sum + v.value, 0)
+                    }
+                    const countBefore = await deactivatedWorkCount()
+                    const jobQueue = createMockJobQueue()
+                    const consumer = new CdpEventsConsumer(
+                        { ...hub, CDP_DEACTIVATED_ORGANIZATIONS_MODE: mode },
+                        createCdpConsumerDeps(hub),
+                        { hogQueue: jobQueue, hogflowQueue: jobQueue }
+                    )
+
+                    const { invocations } = await consumer.processBatch([globals])
+
+                    expect(invocations.map((x) => x.functionId).sort()).toEqual(
+                        invocationCount ? [fnFetchNoFilters.id, fnPrinterPageviewFilters.id, hogFlow.id].sort() : []
+                    )
+                    expect((await deactivatedWorkCount()) - countBefore).toEqual(counted)
+                }
+            )
 
             it("should filter out functions that don't match the filter", async () => {
                 globals.event.properties.$current_url = 'https://nomatch.com'

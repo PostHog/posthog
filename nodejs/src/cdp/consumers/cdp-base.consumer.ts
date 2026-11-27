@@ -36,6 +36,7 @@ import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
 import { WorkflowsActivationReporter } from '../services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
+import { OrganizationAdmission, parseDeactivatedOrganizationsMode } from '../services/organization-admission'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 import { CdpUsageReporterService } from '../services/usage/cdp-usage-reporter.service'
 import { HogFunctionType, HogFunctionTypeType } from '../types'
@@ -44,7 +45,7 @@ export type TeamWork = { team: Team; hogFunctions: HogFunctionType[]; hogFlows: 
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
-    Pick<CdpConfig, 'CDP_OVERFLOW_QUEUE_ENABLED'>
+    Pick<CdpConfig, 'CDP_OVERFLOW_QUEUE_ENABLED' | 'CDP_DEACTIVATED_ORGANIZATIONS_MODE'>
 
 export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
     geoipService: GeoIPService
@@ -87,6 +88,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     pluginDestinationExecutorService: LegacyPluginExecutorService
     recipientPreferencesService: RecipientPreferencesService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
+    organizationAdmission: OrganizationAdmission
 
     protected outputs: CdpOutputs
     protected abstract name: string
@@ -125,6 +127,10 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.hogMasker = new HogMaskerService(services.redis, services.valkeyShadow.writer)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
+        this.organizationAdmission = new OrganizationAdmission(
+            parseDeactivatedOrganizationsMode(config.CDP_DEACTIVATED_ORGANIZATIONS_MODE),
+            deps.teamManager
+        )
     }
 
     public get service(): PluginServerService {

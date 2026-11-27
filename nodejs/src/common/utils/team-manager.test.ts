@@ -82,6 +82,7 @@ describe('TeamManager()', () => {
                   "logs_settings": null,
                   "minimal_flag_called_events": false,
                   "name": "TEST PROJECT",
+                  "organization_active": null,
                   "organization_id": "<REPLACED-UUID-1>",
                   "person_display_name_properties": [],
                   "person_processing_opt_out": null,
