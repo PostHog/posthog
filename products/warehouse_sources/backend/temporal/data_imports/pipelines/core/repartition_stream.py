@@ -71,6 +71,15 @@ class UnsupportedSourceTableError(Exception):
     """The live table uses a Delta feature that a file-by-file copy would get wrong."""
 
 
+class UnboundedStringStatsError(UnsupportedSourceTableError):
+    """A string column holds bytes that no valid UTF-8 string up to `STRING_STATS_MAX_BYTES` sorts
+    above, so no Add-action max can cover them.
+
+    A file with no max on a column is skipped by delta-rs's pyarrow reader for every filter on it.
+    The rewrite would gather other rows into that file and hide them from reads, so it stops instead.
+    """
+
+
 @frozen
 class StreamBudget:
     """Byte limits for one rewrite. Every in-memory term of the rewrite is bounded by one of these."""
@@ -362,14 +371,27 @@ def _truncate_utf8(value: str, max_bytes: int) -> str:
     return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
-def _string_upper_bound(value: str) -> str | None:
+def _utf8_prefix(raw: bytes) -> tuple[str, bool]:
+    """The longest prefix of `raw` that is valid UTF-8, and whether that prefix is all of `raw`.
+
+    Arrow does not check UTF-8 when it reads IPC or Parquet, so a string column can hold any bytes,
+    for example from a ClickHouse `String`.
+    """
+    try:
+        return raw.decode("utf-8"), True
+    except UnicodeDecodeError as error:
+        return raw[: error.start].decode("utf-8"), False
+
+
+def _string_upper_bound(value: str, *, complete: bool = True) -> str | None:
     """The smallest string up to `STRING_STATS_MAX_BYTES` that is not less than `value`.
 
-    A truncated prefix sorts below the value, so its last character is raised by one. None when no
-    character can be raised, which leaves the column without a max.
+    A truncated prefix sorts below the value, so its last character is raised by one. With
+    `complete=False`, `value` is only the valid UTF-8 prefix of a longer value, so it is raised too.
+    None when no character can be raised.
     """
     prefix = _truncate_utf8(value, STRING_STATS_MAX_BYTES)
-    if prefix == value:
+    if complete and prefix == value:
         return value
     chars = list(prefix)
     while chars:
@@ -381,6 +403,45 @@ def _string_upper_bound(value: str) -> str | None:
             if len(candidate.encode("utf-8")) <= STRING_STATS_MAX_BYTES:
                 return candidate
     return None
+
+
+def _smallest_char_above_byte(byte: int) -> str | None:
+    """The smallest character whose UTF-8 encoding sorts above every byte string that starts with
+    `byte`. None from 0xF5, because no UTF-8 lead byte is that high."""
+    lead = max(byte + 1, 0xC2)
+    if lead > 0xF4:
+        return None
+    if lead <= 0xDF:
+        encoded = bytes([lead, 0x80])
+    elif lead == 0xE0:
+        encoded = b"\xe0\xa0\x80"
+    elif lead <= 0xEF:
+        encoded = bytes([lead, 0x80, 0x80])
+    elif lead == 0xF0:
+        encoded = b"\xf0\x90\x80\x80"
+    else:
+        encoded = bytes([lead, 0x80, 0x80, 0x80])
+    return encoded.decode("utf-8")
+
+
+def _invalid_string_upper_bound(raw: bytes, prefix: str) -> str | None:
+    """A string up to `STRING_STATS_MAX_BYTES` that is not less than `raw`, which is not valid UTF-8
+    and starts with the valid `prefix`.
+
+    The raised prefix comes first. When the prefix cannot be raised, for example because it is
+    empty, the prefix is followed by a character above the first invalid byte, or else by U+10FFFF
+    when its bytes still sort at or above the rest of `raw`. None when neither covers `raw`.
+    """
+    raised = _string_upper_bound(prefix, complete=False)
+    if raised is not None:
+        return raised
+    encoded = prefix.encode("utf-8")
+    above = _smallest_char_above_byte(raw[len(encoded)])
+    if above is None and "\U0010ffff".encode("utf-8") >= raw[len(encoded) :]:
+        above = "\U0010ffff"
+    if above is None or len(encoded) + len(above.encode("utf-8")) > STRING_STATS_MAX_BYTES:
+        return None
+    return prefix + above
 
 
 @frozen
@@ -429,14 +490,25 @@ class _ColumnStats:
             column = pc.filter(column, pc.is_finite(column))
             if len(column) == 0:
                 return
+        if self.kind == "string":
+            # Compared as bytes, the order min_max uses for strings too, because a value that is not
+            # valid UTF-8 cannot decode. Its valid prefix is still a lower bound.
+            column = column.cast(pa.large_binary() if pa.types.is_large_string(column.type) else pa.binary())
         result = pc.min_max(column)
         low, high = result["min"].as_py(), result["max"].as_py()
         if low is None or high is None:
             return
         if self.kind == "string":
-            low = _truncate_utf8(low, STRING_STATS_MAX_BYTES)
-            # With no short upper bound the exact value is kept, as delta-rs does.
-            high = _string_upper_bound(high) or high
+            low_text, _ = _utf8_prefix(low)
+            low = _truncate_utf8(low_text, STRING_STATS_MAX_BYTES)
+            high_text, complete = _utf8_prefix(high)
+            if complete:
+                # With no short upper bound the exact value is kept, as delta-rs does.
+                high = _string_upper_bound(high_text) or high_text
+            else:
+                high = _invalid_string_upper_bound(high, high_text)
+            if high is None:
+                raise UnboundedStringStatsError("a string column holds a value with no valid UTF-8 upper bound")
         self.minimum = low if self.minimum is None or low < self.minimum else self.minimum
         self.maximum = high if self.maximum is None or high > self.maximum else self.maximum
 

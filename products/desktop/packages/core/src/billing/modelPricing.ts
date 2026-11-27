@@ -8,9 +8,9 @@ import {
 
 /**
  * Rates and rendered strings both come from the generated catalog, which takes
- * them from products/tasks/backend/model_catalog.py, which pins them against
- * services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py.
- * That chain is what makes a price on a chip the price the user is charged.
+ * them from products/tasks/backend/model_catalog.py. Nothing checks those rates
+ * against PostHog/ai-gateway's price table, so a gateway price change needs a
+ * catalog update or the chip price drifts from the billed price.
  */
 
 export type ModelListPrice = ModelCost;

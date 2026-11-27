@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
 import { RetentionReturnTable } from './RetentionReturnTable'
 
 const meta: Meta<typeof RetentionReturnTable> = {
@@ -67,6 +70,16 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 export const Default: Story = {}
+export const DefaultQuill: Story = {
+    decorators: [
+        (Story) => (
+            <QuillSurfaceContext.Provider value={true}>
+                <Story />
+            </QuillSurfaceContext.Provider>
+        ),
+    ],
+    parameters: { featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV] },
+}
 export const AllUsers: Story = { args: { onlyNewUsers: false } }
 export const Narrow: Story = {
     decorators: [

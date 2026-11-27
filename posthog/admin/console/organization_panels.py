@@ -9,7 +9,6 @@ import structlog
 
 from posthog.admin.console.organization_tools import DeactivationReasonForm, deactivate_organizations
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, Tone
-from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
 from posthog.models.organization import Organization
 
@@ -47,7 +46,6 @@ class OrganizationOverviewPanel(Panel):
             status = Fact(label="Status", value="Active", tone=Tone.SUCCESS)
         facts = [
             status,
-            Fact(label="Members", value=str(obj.members.count())),
             Fact(label="Created", value=obj.created_at.strftime("%b %-d, %Y")),
         ]
         if obj.is_pending_deletion:
@@ -73,30 +71,6 @@ class OrganizationOverviewPanel(Panel):
                 undo_hint="To undo, reactivate the organization on its Django admin page.",
             )
         ]
-
-
-@console.register_panel
-class OrganizationTeamsPanel(Panel):
-    record = "organization"
-    key = "teams"
-    title = "Teams"
-    owner = None
-    order = 20
-
-    def facts(self, obj: Model) -> list[Fact]:
-        assert isinstance(obj, Organization)
-        team_record = RECORD_TYPES["team"]
-        teams = list(obj.teams.order_by("id").only("id", "name")[: MAX_FACTS_PER_PANEL + 1])
-        if not teams:
-            return [Fact(label="Teams", value="This organization has no teams.")]
-        shown = teams if len(teams) <= MAX_FACTS_PER_PANEL else teams[: MAX_FACTS_PER_PANEL - 1]
-        facts = [
-            Fact(label=team.name, value=f"Team {team.pk}", mono=True, href=team_record.url(team)) for team in shown
-        ]
-        if len(shown) < len(teams):
-            hidden = obj.teams.count() - len(shown)
-            facts.append(Fact(label="More", value=f"{hidden} more teams. Look up the organization name to see all."))
-        return facts
 
 
 class QuotaLimits:

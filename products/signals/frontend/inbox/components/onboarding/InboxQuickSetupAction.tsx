@@ -16,7 +16,7 @@ export function InboxQuickSetupAction(): JSX.Element {
     const { connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
     const {
         hasGithubIntegration,
-        isGithubOptionalSetup,
+        quickSetupSkipsGithub,
         quickActivationPending,
         saving,
         error,
@@ -40,7 +40,7 @@ export function InboxQuickSetupAction(): JSX.Element {
 
     return (
         <div className="flex w-full flex-col items-start gap-3">
-            {hasGithubIntegration || isGithubOptionalSetup ? (
+            {hasGithubIntegration || quickSetupSkipsGithub ? (
                 <LemonButton
                     type="primary"
                     status="alt"

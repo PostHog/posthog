@@ -112,6 +112,10 @@ CONNECT_TIMEOUT_DETAIL = (
     "The database did not answer on the host and port given. Check the host and port on the destination, "
     "and allow PostHog's IP addresses through your firewall."
 )
+CONNECTION_CLOSED_DETAIL = (
+    "The database closed the connection before PostHog could connect. Check that the server is up, "
+    "and allow PostHog's IP addresses through your firewall."
+)
 PERMISSIONS_DETAIL = (
     "The Postgres user lacks permissions. Grant it USAGE and CREATE on the schema, and SELECT, "
     "INSERT, UPDATE and DELETE on its tables, then run the sync again."
@@ -149,6 +153,18 @@ def connect_configuration_error_detail(err: BaseException) -> str | None:
     for pattern, detail in _CONNECT_CONFIGURATION_ERRORS:
         if pattern.search(last_attempt):
             return detail
+    return None
+
+
+def connect_retry_detail(err: BaseException) -> str | None:
+    """What to show the customer, in place of the client's own message, when retries of a
+    transient connect failure run out, or None to keep that message."""
+    if isinstance(err, psycopg.errors.ConnectionTimeout):
+        return CONNECT_TIMEOUT_DETAIL
+    if isinstance(err, psycopg.OperationalError):
+        last_attempt = str(err).split(_MULTIPLE_ATTEMPTS_LINE, 1)[0]
+        if "server closed the connection unexpectedly" in last_attempt:
+            return CONNECTION_CLOSED_DETAIL
     return None
 
 
@@ -313,10 +329,11 @@ class PostgresDestinationWriter:
                 # The client's host check refused the address. Its message hides which check failed.
                 if isinstance(err.__cause__, ValueError):
                     raise DestinationConfigurationError(self._ctx.destination_name, str(err)) from err
-                # Still retried, since a timeout can clear on its own. The client's own message
-                # names the host and port and gives no next step.
-                if isinstance(err.__cause__, psycopg.errors.ConnectionTimeout):
-                    raise PostgreSQLConnectionError(CONNECT_TIMEOUT_DETAIL) from err
+                # Still retried, since a timeout or a dropped connection can clear on its own. The
+                # client's own message names the host and port and gives no next step.
+                retry_detail = connect_retry_detail(err.__cause__) if err.__cause__ else None
+                if retry_detail is not None:
+                    raise PostgreSQLConnectionError(retry_detail) from err
                 detail = connect_configuration_error_detail(err.__cause__) if err.__cause__ else None
                 if detail is not None:
                     raise DestinationConfigurationError(self._ctx.destination_name, detail) from err

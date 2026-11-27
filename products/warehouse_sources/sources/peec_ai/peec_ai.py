@@ -1,12 +1,23 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import Any
 
+from requests import Request, Response
+
 from products.warehouse_sources.sources.peec_ai._config import PeecAISourceConfig
-from products.warehouse_sources.sources.peec_ai.settings import AUTH_ERRORS, BASE_URL, ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.peec_ai.settings import (
+    AUTH_ERRORS,
+    BASE_URL,
+    DAILY_PAGE_SIZE,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    PAGE_SIZE,
+)
 from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
     Endpoint,
     EndpointResource,
+    OffsetPaginator,
     PaginatorConfig,
     RESTAPIConfig,
     ResumableSourceManager,
@@ -15,6 +26,7 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_session,
     rest_api_resource,
     schema_for_resource,
+    set_json_param,
 )
 
 
@@ -23,6 +35,57 @@ class PeecAIResumeConfig:
     offset: int
     start_date: str | None = None
     end_date: str | None = None
+    window_date: str | None = None
+
+
+class PeecAIDailyPaginator(OffsetPaginator):
+    """Offset pages inside one-day windows, walked from the first day to the last."""
+
+    def __init__(self, first_day: date, last_day: date, total_path: str | None) -> None:
+        super().__init__(limit=DAILY_PAGE_SIZE, total_path=total_path, param_location="json")
+        self._day = min(first_day, last_day)
+        self._last_day = last_day
+
+    def _apply_window(self, request: Request) -> None:
+        if request.json is None:
+            request.json = {}
+        set_json_param(request.json, "start_date", self._day.isoformat())
+        set_json_param(request.json, "end_date", self._day.isoformat())
+
+    def init_request(self, request: Request) -> None:
+        super().init_request(request)
+        self._apply_window(request)
+
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        super().update_state(response, data)
+        if not self._has_next_page and self._day < self._last_day:
+            self._day += timedelta(days=1)
+            self.offset = 0
+            self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        super().update_request(request)
+        self._apply_window(request)
+
+    def get_resume_state(self) -> dict[str, Any] | None:
+        state = super().get_resume_state()
+        return {**state, "window_date": self._day.isoformat()} if state is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        super().set_resume_state(state)
+        if state.get("window_date"):
+            self._day = date.fromisoformat(state["window_date"])
+
+    def __str__(self) -> str:
+        return f"PeecAIDailyPaginator(day={self._day}, last_day={self._last_day}, offset={self.offset})"
+
+
+def _lift_ids(row: dict[str, Any], lifted_ids: dict[str, tuple[str, str]]) -> dict[str, Any]:
+    lifted = dict(row)
+    for column, (parent, key) in lifted_ids.items():
+        nested = row.get(parent)
+        lifted[column] = nested.get(key) if isinstance(nested, dict) else None
+    return lifted
 
 
 def validate_credentials(config: PeecAISourceConfig, api_version: str) -> tuple[bool, str | None]:
@@ -70,9 +133,13 @@ def peec_ai_source(
 
     start_date: str | None = None
     end_date: str | None = None
-    if endpoint == "chats":
+    if definition.get("date_range", False):
         start_date = config.start_date
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
+        if (
+            endpoint in INCREMENTAL_FIELDS
+            and should_use_incremental_field
+            and db_incremental_field_last_value is not None
+        ):
             watermark = db_incremental_field_last_value
             if isinstance(watermark, datetime):
                 watermark = watermark.date()
@@ -92,7 +159,11 @@ def peec_ai_source(
         endpoint_config["params"] = params
 
     paginator: PaginatorConfig = "single_page"
-    if definition.get("paginated", True):
+    if definition.get("daily", False) and start_date is not None and end_date is not None:
+        paginator = PeecAIDailyPaginator(
+            date.fromisoformat(start_date), date.fromisoformat(end_date), definition["total_path"]
+        )
+    elif definition.get("paginated", True):
         paginator = {
             "type": "offset",
             "limit": PAGE_SIZE,
@@ -101,6 +172,9 @@ def peec_ai_source(
         }
 
     resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
+    lifted_ids = definition.get("lifted_ids")
+    if lifted_ids:
+        resource_config["data_map"] = partial(_lift_ids, lifted_ids=lifted_ids)
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"{BASE_URL}/{api_version}/",
@@ -114,7 +188,12 @@ def peec_ai_source(
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state is not None:
             resumable_source_manager.save_state(
-                PeecAIResumeConfig(offset=int(state["offset"]), start_date=start_date, end_date=end_date)
+                PeecAIResumeConfig(
+                    offset=int(state["offset"]),
+                    start_date=start_date,
+                    end_date=end_date,
+                    window_date=state.get("window_date"),
+                )
             )
 
     resource = rest_api_resource(
@@ -123,12 +202,14 @@ def peec_ai_source(
         job_id,
         None,
         resume_hook=save_checkpoint,
-        initial_paginator_state={"offset": resume.offset} if resume is not None else None,
+        initial_paginator_state=(
+            {"offset": resume.offset, "window_date": resume.window_date} if resume is not None else None
+        ),
     )
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
         primary_keys=definition.get("primary_keys", ["id"]),
-        sort_mode="asc" if endpoint == "chats" else None,
+        sort_mode=definition.get("sort_mode"),
         on_complete=resumable_source_manager.clear_state,
     )

@@ -1,13 +1,12 @@
 import { type FilterEdit, applyFilterEdit } from '../../filters/filterEdits'
 import { arrangeInColumns, contentRows, dropIntoGrid, resizeSection, settleGrid } from '../../grid/layout/gridTiles'
 import { bottomOf } from '../../grid/layout/placeTiles'
-import { type PresentationEdit, applyPresentationEdit } from '../../presentation/presentationEdits'
+import { type SizeOf } from '../../panels/core/panelSpec'
 import { linkTabSchema } from '../document/dashboardSchema'
 import {
     type Dashboard,
     GRID,
     type SectionPanel,
-    type SizeOf,
     type Tile,
     type TilePlace,
     type Panel,
@@ -19,6 +18,7 @@ import {
     panelSize,
 } from '../document/dashboardTypes'
 import { allTiles, changeTileEverywhere, changeTilesWhere, findTile } from '../document/tileTree'
+import { type PresentationEdit, applyPresentationEdit } from './presentationEdits'
 
 export type LayoutEdit =
     /** `resized` names the tile a person resized, so a section keeps the height they chose. */
@@ -147,7 +147,7 @@ function bottomPlace(grid: { tiles: Tile[]; cols: number }, w: number, h: number
     return { x: 0, y: bottomOf(grid.tiles.map((other) => other.place)), w: Math.min(w, grid.cols), h }
 }
 
-// A new config can need a bigger tile, such as a stat switched to a line chart.
+// A new config can need a bigger tile, such as a metric switched to a line chart.
 function withConfig(tile: Tile, config: unknown, sizeOf: SizeOf): Tile {
     if (isSection(tile)) {
         return tile

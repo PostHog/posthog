@@ -259,6 +259,114 @@ export const RemovedSnapshot: StoryObj = {
     ],
 }
 
+const HEAD_RUN_ID = '00000000-0000-0000-0000-0000000000cc'
+
+const bob = { id: 501, first_name: 'Bob', email: 'bob@example.com' }
+const alice = { id: 502, first_name: 'Alice', email: 'alice@example.com' }
+
+// A ledger-mode run gates with a commit status, and decisions count across the runs of its pull request.
+const ledgerRun: RunApi = {
+    ...run,
+    gate: 'commit_status',
+    summary: { total: 6, changed: 2, new: 1, removed: 1, unchanged: 2 },
+    head_run: { id: RUN_ID, commit_sha: run.commit_sha, status: 'completed', approved: false },
+    progress: {
+        total: 4,
+        approved: 2,
+        approved_on_earlier_commits: 2,
+        approved_via_mcp: 0,
+        rejected: 1,
+        needs_review: 1,
+        tolerated: 0,
+    },
+    can_finalize: false,
+}
+
+const earlierDecision = {
+    via: 'web' as const,
+    at: '2026-06-09T14:00:00Z',
+    reason: '',
+    run_id: '00000000-0000-0000-0000-0000000000dd',
+    commit_sha: '5e6f7a8b9c0d1e2f',
+    from_earlier_commit: true,
+}
+
+const ledgerSnapshots = {
+    ...snapshots,
+    count: 5,
+    results: [
+        snapshot({
+            ...snapshots.results[0],
+            review_state: 'rejected',
+            decision: {
+                ...earlierDecision,
+                state: 'rejected',
+                by: bob,
+                reason: 'The hover color is too light to read on the dark theme',
+                seq: 3,
+            },
+        }),
+        snapshot({
+            ...snapshots.results[1],
+            review_state: 'approved',
+            decision: { ...earlierDecision, state: 'approved', by: alice, seq: 1 },
+        }),
+        snapshots.results[2],
+        snapshot({
+            ...snapshots.results[3],
+            review_state: 'approved',
+            decision: { ...earlierDecision, state: 'approved', by: alice, seq: 2 },
+        }),
+        snapshot({
+            id: 'snapshot-removed',
+            identifier: 'Components/Legacy--card',
+            result: 'removed',
+            diff_percentage: null,
+            diff_pixel_count: null,
+            baseline_artifact: artifact('base_removed'),
+        }),
+    ],
+}
+
+// The newest run of a pull request carries accepts and a rejection from an earlier commit. The rejection
+// blocks finalize, and someone other than the rejecter can undo it or accept anyway.
+export const LedgerHeadRunWithDecisions: StoryObj = {
+    parameters: {
+        pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}#snapshot=snapshot-changed`,
+        testOptions: { waitForSelector: '[data-attr="visual-review-decision-line"]', snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: ledgerRun,
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(ledgerSnapshots),
+            },
+        }),
+    ],
+}
+
+// An older run of the pull request says where a decision made on it counts.
+export const LedgerOlderRun: StoryObj = {
+    parameters: {
+        pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}#snapshot=snapshot-layout-shift`,
+        testOptions: { waitForSelector: '[data-attr="visual-review-decision-line"]', snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: {
+                    ...ledgerRun,
+                    is_stale: true,
+                    superseded_by_id: HEAD_RUN_ID,
+                    head_run: { id: HEAD_RUN_ID, commit_sha: 'def5678a9b0c1d2e', status: 'completed', approved: false },
+                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(ledgerSnapshots),
+                [`/api/projects/:team_id/visual_review/runs/${HEAD_RUN_ID}/snapshots/`]: snapshotsMock(ledgerSnapshots),
+            },
+        }),
+    ],
+}
+
 const repeatedTolerations = {
     count: 3,
     next: null,

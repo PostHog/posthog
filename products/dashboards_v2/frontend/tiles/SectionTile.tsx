@@ -6,13 +6,14 @@ import { type ReactNode, useCallback, useMemo, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
-import { useDashboard } from '../dashboard/dashboardContext'
+import { useDashboard } from '../dashboard/core/dashboardContext'
 import { GRID, type SectionPanel, type Tile, spanPx } from '../dashboard/document/dashboardTypes'
 import type { OnSectionRows } from '../grid/TileGrid'
-import { showsBorder } from '../presentation/tileAppearance'
+import { TileActions } from './core/TileActions'
+import { showsBorder } from './core/tileAppearance'
+import { TileContextMenu, hasTileMenu } from './core/TileContextMenu'
 import { AddTileMenu } from './menu/AddTileMenu'
-import { TileActions } from './menu/TileActions'
-import { TileContextMenu, hasTileMenu, useSectionActions, useSectionPlacementActions } from './menu/TileContextMenu'
+import { useSectionActions, useSectionPlacementActions } from './menu/tileMenuActions'
 
 export type SectionGridProps = {
     gridId: string

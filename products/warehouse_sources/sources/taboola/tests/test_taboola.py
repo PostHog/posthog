@@ -15,7 +15,12 @@ from products.warehouse_sources.sources.sdk.testing import (
 from products.warehouse_sources.sources.taboola._config import TaboolaSourceConfig
 from products.warehouse_sources.sources.taboola.settings import ENDPOINTS, REPORT_LOOKBACK_DAYS, TABOOLA_ENDPOINTS
 from products.warehouse_sources.sources.taboola.source import TaboolaSource
-from products.warehouse_sources.sources.taboola.taboola import TaboolaResumeConfig, _to_date, validate_credentials
+from products.warehouse_sources.sources.taboola.taboola import (
+    TaboolaResumeConfig,
+    _targeting_rows,
+    _to_date,
+    validate_credentials,
+)
 
 _TOKEN_PATH = "/backstage/oauth/token"
 
@@ -115,6 +120,8 @@ class TestEntityEndpoints:
             ("campaigns", "/backstage/api/1.0/acct/campaigns/"),
             ("allowed_accounts", "/backstage/api/1.0/users/current/allowed-accounts"),
             ("advertisers", "/backstage/api/1.0/acct/advertisers"),
+            ("my_audiences", "/backstage/api/1.0/acct/my_audiences"),
+            ("combined_audiences", "/backstage/api/1.0/acct/combined_audiences/"),
         ],
     )
     def test_requests_account_or_user_scoped_path(self, endpoint, expected_path):
@@ -151,6 +158,103 @@ class TestCampaignItemsFanOut:
         urls = _api_requests(result.requests)
         assert len(urls) == 2
         assert urls[1].path.endswith("/acct/campaigns/22/items/")
+
+
+class TestTargetingRows:
+    @pytest.mark.parametrize(
+        "data, expected",
+        [
+            (
+                {
+                    "collection": [
+                        {"collection": [1900004, 1900024], "type": "INCLUDE"},
+                        {"collection": [1905924], "type": "EXCLUDE"},
+                    ]
+                },
+                [
+                    {"collection": [1900004, 1900024], "type": "INCLUDE", "campaign_id": "7"},
+                    {"collection": [1905924], "type": "EXCLUDE", "campaign_id": "7"},
+                ],
+            ),
+            ({"collection": []}, []),
+            (
+                {"collection": [{"collection": [], "type": "INCLUDE"}, {"collection": [3], "type": None}]},
+                [],
+            ),
+            (
+                {"type": "INCLUDE", "collection": ["1351", "1430"]},
+                [{"type": "INCLUDE", "collection": ["1351", "1430"], "campaign_id": "7"}],
+            ),
+            ({"type": "ALL", "collection": []}, []),
+            ({"collection": None}, []),
+            ({}, []),
+            ([], []),
+        ],
+        ids=[
+            "multi_targeting_include_and_exclude",
+            "multi_targeting_empty",
+            "drops_empty_and_untyped_restrictions",
+            "postal_code_include",
+            "postal_code_default_all",
+            "null_collection",
+            "empty_object",
+            "non_object",
+        ],
+    )
+    def test_flattens_restrictions(self, data, expected):
+        assert _targeting_rows("7", data) == expected
+
+
+class TestCampaignTargetingFanOut:
+    @pytest.mark.parametrize(
+        "endpoint, suffix",
+        [
+            ("campaign_audience_segment_targeting", "targeting/audience_segments"),
+            ("campaign_contextual_targeting", "targeting/contextual_segments"),
+            ("campaign_my_audience_targeting", "targeting/my_audiences"),
+            ("campaign_postal_code_targeting", "targeting/postal_code"),
+        ],
+    )
+    def test_fetches_targeting_per_campaign(self, endpoint, suffix):
+        result = _driver().run(
+            endpoint,
+            _script(
+                [
+                    ScriptedResponse(json={"results": [{"id": "11"}, {"id": "22"}, {"id": "33"}]}),
+                    ScriptedResponse(json={"collection": [{"collection": [5, 6], "type": "INCLUDE"}]}),
+                    ScriptedResponse(json={"collection": []}),
+                    ScriptedResponse(json={"type": "EXCLUDE", "collection": ["1351"]}),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"collection": [5, 6], "type": "INCLUDE", "campaign_id": "11"},
+            {"type": "EXCLUDE", "collection": ["1351"], "campaign_id": "33"},
+        ]
+        assert [request.path for request in _api_requests(result.requests)] == [
+            "/backstage/api/1.0/acct/campaigns/",
+            f"/backstage/api/1.0/acct/campaigns/11/{suffix}",
+            f"/backstage/api/1.0/acct/campaigns/22/{suffix}",
+            f"/backstage/api/1.0/acct/campaigns/33/{suffix}",
+        ]
+        assert [state.next_campaign_index for state in result.saved_states] == [1, 2, 3]
+
+    def test_resumes_from_saved_campaign_index(self):
+        result = _driver().run(
+            "campaign_contextual_targeting",
+            _script(
+                [
+                    ScriptedResponse(json={"results": [{"id": "11"}, {"id": "22"}]}),
+                    ScriptedResponse(json={"collection": [{"collection": [9], "type": "EXCLUDE"}]}),
+                ]
+            ),
+            resume_state=TaboolaResumeConfig(next_campaign_index=1),
+        )
+
+        assert result.rows == [{"collection": [9], "type": "EXCLUDE", "campaign_id": "22"}]
+        assert _api_requests(result.requests)[-1].path.endswith("/acct/campaigns/22/targeting/contextual_segments")
 
 
 class TestReportWindows:
@@ -204,6 +308,16 @@ class TestReportWindows:
                 "campaign_summary_by_country",
                 "campaign-summary/dimensions/country_breakdown",
                 {"country": "FR", "country_name": "France", "clicks": 3},
+            ),
+            (
+                "campaign_summary_by_region",
+                "campaign-summary/dimensions/region_breakdown",
+                {"region": "Bavaria", "country": "DE", "clicks": 4},
+            ),
+            (
+                "campaign_summary_by_dma",
+                "campaign-summary/dimensions/dma_breakdown",
+                {"dma": "New York", "country": "US", "spent": 2.5},
             ),
         ],
     )

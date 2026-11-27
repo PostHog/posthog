@@ -857,6 +857,12 @@ def _fetch_fields_for_nodes(
                 if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
                     raise
                 continue
+            # A 200 body that is not a list of subresponses (e.g. one top-level error object) would
+            # otherwise be iterated key by key; classify it like any other Meta error instead.
+            if not isinstance(sub_responses, list) or not all(
+                sub_response is None or isinstance(sub_response, dict) for sub_response in sub_responses
+            ):
+                _raise_meta_api_error(response)
 
             parsed_sub_responses: list[tuple[dict | None, typing.Any, dict | None]] = []
             for sub_response in sub_responses:

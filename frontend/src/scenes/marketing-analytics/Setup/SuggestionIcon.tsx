@@ -8,7 +8,7 @@ import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/f
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
-const SEVERITY_LABEL: Record<Suggestion['severity'], string> = {
+export const SEVERITY_LABEL: Record<Suggestion['severity'], string> = {
     error: 'Blocking — a metric is unavailable or wrong until this is fixed',
     warning: 'Worth fixing — some data is missing or misattributed',
     info: 'Optional improvement',

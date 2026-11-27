@@ -7972,6 +7972,10 @@
                 {
                     "param": "repos",
                     "key": "repos"
+                },
+                {
+                    "param": "is_default",
+                    "key": "is_default"
                 }
             ],
             "injectBody": {},
@@ -10787,6 +10791,18 @@
                 {
                     "param": "review_on_clean_external_review",
                     "key": "review_on_clean_external_review"
+                },
+                {
+                    "param": "broadcast_enabled",
+                    "key": "broadcast_enabled"
+                },
+                {
+                    "param": "broadcast_slack_channel_id",
+                    "key": "broadcast_slack_channel_id"
+                },
+                {
+                    "param": "broadcast_slack_channel_name",
+                    "key": "broadcast_slack_channel_name"
                 }
             ],
             "injectBody": {},
@@ -10977,6 +10993,14 @@
                 {
                     "param": "pr_number",
                     "key": "pr_number"
+                },
+                {
+                    "param": "allow_broadcast",
+                    "key": "allow_broadcast"
+                },
+                {
+                    "param": "note",
+                    "key": "note"
                 }
             ],
             "injectBody": {},
@@ -45402,6 +45426,59 @@
             "validators": []
         }
     },
+    "scout-send-message": {
+        "name": "scout-send-message",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/scout/runs/{run_id}/send_message/",
+            "pathParams": ["run_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "route",
+                    "key": "route"
+                },
+                {
+                    "param": "report_id",
+                    "key": "report_id"
+                },
+                {
+                    "param": "title",
+                    "key": "title"
+                },
+                {
+                    "param": "body",
+                    "key": "body"
+                },
+                {
+                    "param": "dedupe_key",
+                    "key": "dedupe_key"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "scout-trial-archive": {
         "name": "scout-trial-archive",
         "kind": "http",
@@ -55564,6 +55641,10 @@
                 {
                     "param": "snapshots",
                     "key": "snapshots"
+                },
+                {
+                    "param": "expected_seq",
+                    "key": "expected_seq"
                 }
             ],
             "injectBody": {},
@@ -55580,7 +55661,52 @@
             "textInclude": []
         },
         "input": {
-            "aliases": {},
+            "aliases": {
+                "id": ["run_id"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
+    "visual-review-runs-clear-create": {
+        "name": "visual-review-runs-clear-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/visual_review/runs/{id}/clear/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "identifiers",
+                    "key": "identifiers"
+                },
+                {
+                    "param": "expected_seq",
+                    "key": "expected_seq"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["run_id"]
+            },
             "casts": {},
             "validators": []
         }
@@ -55882,6 +56008,49 @@
             "validators": []
         }
     },
+    "visual-review-runs-reject-create": {
+        "name": "visual-review-runs-reject-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/visual_review/runs/{id}/reject/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "snapshots",
+                    "key": "snapshots"
+                },
+                {
+                    "param": "expected_seq",
+                    "key": "expected_seq"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["run_id"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
     "visual-review-runs-retrieve": {
         "name": "visual-review-runs-retrieve",
         "kind": "http",
@@ -56007,6 +56176,11 @@
                 {
                     "param": "quarantined_only",
                     "key": "quarantined_only",
+                    "csv": false
+                },
+                {
+                    "param": "review_state",
+                    "key": "review_state",
                     "csv": false
                 },
                 {

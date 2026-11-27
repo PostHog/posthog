@@ -9,6 +9,9 @@ class RuddrEndpointConfig:
     path: str
     # Ruddr object IDs are globally unique within a workspace, so `id` is a safe primary key.
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # The rows carry no member reference, so the endpoint is read once per member with `memberId`
+    # and each row gets the member's id as `member_id`.
+    member_fanout: bool = False
 
 
 # Ruddr workspace API list endpoints. Endpoints missing from INCREMENTAL_FIELDS are full refresh only.
@@ -34,21 +37,28 @@ RUDDR_ENDPOINTS: dict[str, RuddrEndpointConfig] = {
     "payments": RuddrEndpointConfig(name="payments", path="/payments"),
     "timesheets": RuddrEndpointConfig(name="timesheets", path="/timesheets"),
     "practices": RuddrEndpointConfig(name="practices", path="/practices"),
+    "project_revenue_recognition_entries": RuddrEndpointConfig(
+        name="project_revenue_recognition_entries", path="/project-revenue-recognition-entries"
+    ),
+    "credit_notes": RuddrEndpointConfig(name="credit_notes", path="/credit-notes"),
+    "companies": RuddrEndpointConfig(name="companies", path="/companies"),
+    "cost_periods": RuddrEndpointConfig(name="cost_periods", path="/cost-periods", member_fanout=True),
 }
 
 ENDPOINTS = tuple(RUDDR_ENDPOINTS.keys())
 
 # `allocations` also filters on `modifiedAt`, but the field is null on allocations derived from time
 # entries and holidays, so a `modifiedAt` filter would never return new derived rows.
+_MODIFIED_AT = IncrementalField(
+    label="modifiedAt",
+    type=IncrementalFieldType.DateTime,
+    field="modifiedAt",
+    field_type=IncrementalFieldType.DateTime,
+)
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    "invoices": [
-        IncrementalField(
-            label="modifiedAt",
-            type=IncrementalFieldType.DateTime,
-            field="modifiedAt",
-            field_type=IncrementalFieldType.DateTime,
-        )
-    ],
+    "invoices": [_MODIFIED_AT],
+    "credit_notes": [_MODIFIED_AT],
 }
 
 # Server-side filter for each incremental field. `OnAfter` is inclusive (`>=`), so a row that shares

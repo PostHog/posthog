@@ -3,7 +3,8 @@ import type { DrivenStep, StepWindow } from '../generator/generator'
 import type { TruthRecord } from '../provider-edge'
 import { type BarEvidence, type BarResult, type CpuPoint, judgeBars } from './bars'
 import type { Convergence, InvariantResult, JournalEntry } from './judge'
-import { type MetricSample, SCRAPE_GAP_MS } from './measurements'
+import type { MetricSample } from './measurements'
+import { SCRAPE_GAP_MS } from './pickups'
 import { Broke, LiveRamp, Ramp, RampEvidence, RampStop, StepRates, rampOf, stepRatesOf, watchRamp } from './ramp'
 
 const T = Date.UTC(2026, 0, 5, 10, 0, 0)

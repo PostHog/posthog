@@ -95,7 +95,7 @@ Prefer one shared render site over many. A notice about relative date ranges pla
 
 ### 5. A removal date
 
-The exemplar is missing this, and it is the reason the repo still carries `WebAnalyticsFiltersV2MigrationBanner.tsx` (added January 2026, untouched since) and `SamplingDeprecationNotice.tsx`. Nobody deletes these.
+The exemplar is missing this, and it is the reason the repo still carries `SamplingDeprecationNotice.tsx`. Nobody deletes these.
 
 Put the date in a comment above the component, and repeat it in the flag's description in PostHog so it is visible to whoever audits flags later:
 

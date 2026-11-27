@@ -10,10 +10,14 @@ import {
     LemonSelect,
     LemonSkeleton,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { SourceSetupPanel } from '../dashboard/SourceSetupPanel'
+import { QuillSearchPerformanceTab } from './QuillSearchPerformanceTab'
 import { SearchBreakdown, SearchChannel, SearchMetrics } from './searchPerformance'
 import { SearchPerformanceDetail } from './SearchPerformanceDetail'
 import { searchPerformanceLogic } from './searchPerformanceLogic'
@@ -25,6 +29,18 @@ const CLICK_HINTS: Record<SearchBreakdown, string> = {
     search_term: 'Click a term to explore its organic landing pages.',
     page: 'Click a page to explore its organic queries.',
 }
+
+const BREAKDOWN_OPTIONS: { value: SearchBreakdown; label: string }[] = [
+    { value: 'keyword', label: 'Keywords and queries' },
+    { value: 'search_term', label: 'Search terms' },
+    { value: 'page', label: 'Landing pages' },
+]
+
+const CHANNEL_OPTIONS: { value: SearchChannel; label: string }[] = [
+    { value: 'all', label: 'Paid and organic' },
+    { value: 'paid', label: 'Paid search' },
+    { value: 'organic', label: 'Organic search' },
+]
 
 export function SearchPerformanceTab({
     showSourceSuggestions = true,
@@ -61,6 +77,7 @@ export function SearchPerformanceTab({
         setWrapText,
         enableSearchTermTables,
     } = useActions(searchPerformanceLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const loading = !sourcesError && !dataWarehouseSources
     const sourceIssues = sourceNotices.filter(({ kind }) => kind !== 'info')
     const sourceInfoNotices = sourceNotices.filter(({ kind }) => kind === 'info')
@@ -73,6 +90,122 @@ export function SearchPerformanceTab({
     const isDefaultView = breakdown === 'keyword' && channel === 'all'
     const showSearchCard =
         allSearchSources.length > 0 && (hasReadySourceInAnyBreakdown || sourceIssues.length === 0 || !isDefaultView)
+    const searchPlaceholder =
+        breakdown === 'page'
+            ? 'Filter pages'
+            : breakdown === 'search_term'
+              ? 'Filter terms'
+              : 'Filter keywords and queries'
+    const emptyMessage = hasActiveFilters
+        ? 'No search data matches your filters. Try clearing them to see more results.'
+        : 'No search data for this period. Try a wider date range or check your source sync status.'
+    const footnote = (
+        <>
+            {CLICK_HINTS[breakdown]} Top 100 results by clicks, grouped by platform, match type and currency.{' '}
+            {breakdown === 'keyword' && 'Paid rows show targeted keywords; organic rows show actual Google queries. '}
+            {breakdown === 'search_term' &&
+                'Paid rows combine the search terms from Search and Performance Max campaigns. Google Ads can omit low-volume search terms. '}
+            Reported conversions use the ad platform's attribution. Google Search Console does not report spend or
+            conversions, and can omit queries. Organic positions are weighted by impressions. Hover over a change to see
+            its comparison value.
+        </>
+    )
+    const sourceSetupPanel =
+        sourceIssues.length > 0 ? (
+            <SourceSetupPanel
+                state="waiting"
+                compact
+                title={
+                    breakdown === 'search_term'
+                        ? "Some search term tables aren't ready"
+                        : "Some search tables aren't ready"
+                }
+                description={
+                    sourceIssues.some(({ kind }) => kind === 'attention')
+                        ? 'Check the sources below to see all your search data.'
+                        : 'More search data will appear when the first sync finishes.'
+                }
+                showIllustration={false}
+                expansionKey="search-performance"
+                connections={sourceIssues.map(
+                    ({ sourceId, sourceType, name, message, kind, enableSchemaIds, enableButtonLabel }) => ({
+                        id: sourceId,
+                        name,
+                        sourceType,
+                        status: kind === 'attention' ? 'Needs attention' : 'Syncing',
+                        detail: message,
+                        action: todayRailNav ? (
+                            <div className="flex flex-wrap gap-2">
+                                {enableSchemaIds.length > 0 && (
+                                    <Button
+                                        variant="primary"
+                                        onClick={() => enableSearchTermTables(sourceId, enableSchemaIds)}
+                                        loading={enablingSourceIds.includes(sourceId)}
+                                        data-attr="marketing-search-enable-search-term-tables"
+                                    >
+                                        {enableButtonLabel}
+                                    </Button>
+                                )}
+                                <Button
+                                    variant="outline"
+                                    nativeButton={false}
+                                    render={
+                                        // The setup panel's accordion underlines every link inside it.
+                                        <LinkPrimitive
+                                            to={urls.dataWarehouseSource(`managed-${sourceId}`)}
+                                            className="no-underline!"
+                                        />
+                                    }
+                                    data-attr="marketing-search-manage-source"
+                                >
+                                    Manage source
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className="flex flex-wrap gap-2">
+                                {enableSchemaIds.length > 0 && (
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => enableSearchTermTables(sourceId, enableSchemaIds)}
+                                        loading={enablingSourceIds.includes(sourceId)}
+                                        data-attr="marketing-search-enable-search-term-tables"
+                                    >
+                                        {enableButtonLabel}
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={urls.dataWarehouseSource(`managed-${sourceId}`)}
+                                    data-attr="marketing-search-manage-source"
+                                >
+                                    Manage source
+                                </LemonButton>
+                            </div>
+                        ),
+                    })
+                )}
+            />
+        ) : null
+
+    if (todayRailNav) {
+        return (
+            <QuillSearchPerformanceTab
+                loading={loading}
+                showSourceSuggestions={showSourceSuggestions}
+                sourceSetupPanel={sourceSetupPanel}
+                sourceInfoNotices={sourceInfoNotices}
+                showSearchCard={showSearchCard}
+                breakdownOptions={BREAKDOWN_OPTIONS}
+                channelOptions={CHANNEL_OPTIONS}
+                searchPlaceholder={searchPlaceholder}
+                notReadyMessage={notReadyMessage}
+                emptyMessage={emptyMessage}
+                footnote={footnote}
+            />
+        )
+    }
 
     return (
         <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
@@ -88,64 +221,7 @@ export function SearchPerformanceTab({
             ) : (
                 <>
                     {showSourceSuggestions && !hasActiveFilters && <SearchSourceSuggestions />}
-                    {sourceIssues.length > 0 && (
-                        <SourceSetupPanel
-                            state="waiting"
-                            compact
-                            title={
-                                breakdown === 'search_term'
-                                    ? "Some search term tables aren't ready"
-                                    : "Some search tables aren't ready"
-                            }
-                            description={
-                                sourceIssues.some(({ kind }) => kind === 'attention')
-                                    ? 'Check the sources below to see all your search data.'
-                                    : 'More search data will appear when the first sync finishes.'
-                            }
-                            showIllustration={false}
-                            expansionKey="search-performance"
-                            connections={sourceIssues.map(
-                                ({
-                                    sourceId,
-                                    sourceType,
-                                    name,
-                                    message,
-                                    kind,
-                                    enableSchemaIds,
-                                    enableButtonLabel,
-                                }) => ({
-                                    id: sourceId,
-                                    name,
-                                    sourceType,
-                                    status: kind === 'attention' ? 'Needs attention' : 'Syncing',
-                                    detail: message,
-                                    action: (
-                                        <div className="flex flex-wrap gap-2">
-                                            {enableSchemaIds.length > 0 && (
-                                                <LemonButton
-                                                    type="primary"
-                                                    size="small"
-                                                    onClick={() => enableSearchTermTables(sourceId, enableSchemaIds)}
-                                                    loading={enablingSourceIds.includes(sourceId)}
-                                                    data-attr="marketing-search-enable-search-term-tables"
-                                                >
-                                                    {enableButtonLabel}
-                                                </LemonButton>
-                                            )}
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                to={urls.dataWarehouseSource(`managed-${sourceId}`)}
-                                                data-attr="marketing-search-manage-source"
-                                            >
-                                                Manage source
-                                            </LemonButton>
-                                        </div>
-                                    ),
-                                })
-                            )}
-                        />
-                    )}
+                    {sourceSetupPanel}
                     {sourceInfoNotices.map(({ sourceId, name, message }) => (
                         <LemonBanner
                             key={sourceId}
@@ -172,13 +248,7 @@ export function SearchPerformanceTab({
                                         type="search"
                                         size="small"
                                         className="w-56"
-                                        placeholder={
-                                            breakdown === 'page'
-                                                ? 'Filter pages'
-                                                : breakdown === 'search_term'
-                                                  ? 'Filter terms'
-                                                  : 'Filter keywords and queries'
-                                        }
+                                        placeholder={searchPlaceholder}
                                         value={search}
                                         onChange={setSearch}
                                         data-attr="marketing-search-keyword-filter"
@@ -188,22 +258,14 @@ export function SearchPerformanceTab({
                                     size="small"
                                     value={breakdown}
                                     onChange={setBreakdown}
-                                    options={[
-                                        { value: 'keyword', label: 'Keywords and queries' },
-                                        { value: 'search_term', label: 'Search terms' },
-                                        { value: 'page', label: 'Landing pages' },
-                                    ]}
+                                    options={BREAKDOWN_OPTIONS}
                                     data-attr="marketing-search-breakdown"
                                 />
                                 <LemonSelect<SearchChannel>
                                     size="small"
                                     value={channel}
                                     onChange={setChannel}
-                                    options={[
-                                        { value: 'all', label: 'Paid and organic' },
-                                        { value: 'paid', label: 'Paid search' },
-                                        { value: 'organic', label: 'Organic search' },
-                                    ]}
+                                    options={CHANNEL_OPTIONS}
                                 />
                                 {readySources.length > 0 && (
                                     <>
@@ -262,11 +324,7 @@ export function SearchPerformanceTab({
                                         embedded
                                         emptyState={
                                             <div className="flex flex-col items-center gap-2 py-4">
-                                                <span>
-                                                    {hasActiveFilters
-                                                        ? 'No search data matches your filters. Try clearing them to see more results.'
-                                                        : 'No search data for this period. Try a wider date range or check your source sync status.'}
-                                                </span>
+                                                <span>{emptyMessage}</span>
                                                 {hasActiveFilters && (
                                                     <LemonButton type="secondary" size="small" onClick={clearFilters}>
                                                         Clear filters
@@ -279,19 +337,7 @@ export function SearchPerformanceTab({
                             )}
                         </div>
                     )}
-                    {readySources.length > 0 && (
-                        <p className="text-secondary text-xs mb-0">
-                            {CLICK_HINTS[breakdown]} Top 100 results by clicks, grouped by platform, match type and
-                            currency.{' '}
-                            {breakdown === 'keyword' &&
-                                'Paid rows show targeted keywords; organic rows show actual Google queries. '}
-                            {breakdown === 'search_term' &&
-                                'Paid rows combine the search terms from Search and Performance Max campaigns. Google Ads can omit low-volume search terms. '}
-                            Reported conversions use the ad platform's attribution. Google Search Console does not
-                            report spend or conversions, and can omit queries. Organic positions are weighted by
-                            impressions. Hover over a change to see its comparison value.
-                        </p>
-                    )}
+                    {readySources.length > 0 && <p className="text-secondary text-xs mb-0">{footnote}</p>}
                 </>
             )}
             <SearchPerformanceDetail />

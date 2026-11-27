@@ -5,12 +5,11 @@ from django.contrib import messages
 from django.db import IntegrityError, transaction
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
-from django.urls import reverse
 
 from posthog.admin.console.panels import Fact, Operation, Panel, Tone
 from posthog.admin.console.registry import console
+from posthog.admin.console.remote_config_tool import RemoteConfigCacheTool
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.organization import OrganizationMembership
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -26,27 +25,7 @@ class TeamOverviewPanel(Panel):
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
-        owner = (
-            OrganizationMembership.objects.filter(
-                organization_id=obj.organization_id, level=OrganizationMembership.Level.OWNER
-            )
-            .select_related("user")
-            .order_by("joined_at")
-            .first()
-        )
         return [
-            Fact(
-                label="Owner", value=owner.user.email, href=reverse("admin_console_user", kwargs={"pk": owner.user_id})
-            )
-            if owner
-            else Fact(label="Owner", value="No owner"),
-            Fact(label="Members", value=str(obj.organization.members.count())),
-            Fact(
-                label="Project",
-                value=str(obj.project_id),
-                mono=True,
-                href=reverse("admin_console_project", kwargs={"pk": obj.project_id}),
-            ),
             Fact(label="Created", value=obj.created_at.strftime("%b %-d, %Y")),
             Fact(label="Timezone", value=obj.timezone),
             Fact(
@@ -67,13 +46,12 @@ class RemoteConfigPanel(Panel):
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
-        tool_url = reverse("admin_console_tool", kwargs={"tool_key": "remote-config-cache"})
         return [
             Fact(
                 label="Cache", value="SDKs read the team's config from this cache. It rebuilds when the config changes."
             ),
             Fact(label="Cache key", value=RemoteConfig.get_hypercache().get_cache_key(obj.api_token), mono=True),
-            Fact(label="Cached config", value="View the JSON", href=f"{tool_url}?team={obj.pk}"),
+            Fact(label="Cached config", value="View the JSON", href=RemoteConfigCacheTool.url_for(obj)),
         ]
 
     def operations(self, obj: Model) -> list[Operation]:

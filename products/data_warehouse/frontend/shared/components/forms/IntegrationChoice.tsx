@@ -14,6 +14,7 @@ import { integrationsLogic, OAUTH_INTEGRATION_ID_PARAM } from 'lib/integrations/
 import { describeOAuthCallbackError, INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -42,6 +43,16 @@ export function authorizedIntegrationId(
     // Any kind's callback can land on this URL, and holding another provider's connection here
     // would only surface later as a failed schema discovery.
     return integrations?.some((integration) => integration.id === id && integration.kind === kind) ? id : null
+}
+
+// Setup-modal kinds create their connection in the picker's own modal, so they always get the picker.
+export function hasNoConnectionToPick(integrations: IntegrationType[] | null, kind: string, value: unknown): boolean {
+    return (
+        integrations !== null &&
+        !value &&
+        !getIntegrationSetup(kind) &&
+        !integrations.some((existing) => existing.kind === kind)
+    )
 }
 
 export function sourceOAuthRedirectUrl(sourceKind: string, pathname: string, search: string): string {
@@ -81,13 +92,16 @@ export function SourceIntegrationChoice({
     const sourceKind = sourceConfig.name.toLowerCase()
     const kind = integration ?? sourceKind
 
-    // Members can't start an OAuth connect (see IntegrationChoice), and the only hint is a tooltip
-    // on a disabled menu item. With no existing connection to pick, they have no way forward.
-    const blockedFromConnecting =
-        !!integrationManagementRestriction &&
-        !integrationsLoading &&
-        !getIntegrationSetup(kind) &&
-        !integrations?.some((existing) => existing.kind === kind)
+    const noConnectionToPick = hasNoConnectionToPick(integrationsLoading ? null : integrations, kind, value)
+
+    // Members can't start an OAuth connect (see IntegrationChoice). With no existing connection to
+    // pick, they have no way forward.
+    const blockedFromConnecting = !!integrationManagementRestriction && noConnectionToPick
+
+    // The shared picker's "Choose ... connection" menu reads as if a connection must already exist, and
+    // its "Manage integrations" item leads away from the wizard. With nothing to pick, offer the connect.
+    // GitHub keeps the picker: its approved-install banner already carries the connect button.
+    const connectsDirectly = noConnectionToPick && kind !== 'github'
 
     // A failed authorization sends the user back here, where the connect button is. The callback
     // carries the reason in the URL rather than a toast, which would be gone before they retry.
@@ -144,14 +158,32 @@ export function SourceIntegrationChoice({
                     }}
                 />
             )}
-            <IntegrationChoice
-                {...props}
-                value={value}
-                onChange={onChange}
-                integration={kind}
-                redirectUrl={redirectUrl}
-                beforeRedirect={saveFormStateBeforeRedirect}
-            />
+            {connectsDirectly ? (
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        to={api.integrations.authorizeUrl({ kind, next: redirectUrl })}
+                        disableClientSideRouting
+                        onClick={() => {
+                            reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
+                            saveFormStateBeforeRedirect()
+                        }}
+                        disabledReason={integrationManagementRestriction ?? undefined}
+                        data-attr="source-integration-connect"
+                    >
+                        Connect to {getIntegrationNameFromKind(kind)}
+                    </LemonButton>
+                </div>
+            ) : (
+                <IntegrationChoice
+                    {...props}
+                    value={value}
+                    onChange={onChange}
+                    integration={kind}
+                    redirectUrl={redirectUrl}
+                    beforeRedirect={saveFormStateBeforeRedirect}
+                />
+            )}
         </div>
     )
 }

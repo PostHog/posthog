@@ -1,4 +1,10 @@
+import { readFileSync } from 'fs'
+import path from 'path'
+import { parse } from 'yaml'
+import { z } from 'zod'
+
 import type { AdmissionTargets, DerivedLoad } from '../cards/load-targets'
+import { Card, Profile, stepsOf } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { BarResult } from '../judge/bars'
@@ -21,6 +27,21 @@ const HELD: Verdict = {
     drive: { startedAt: Date.UTC(2026, 0, 5, 10, 0, 0), endedAt: Date.UTC(2026, 0, 5, 10, 0, 50) },
     bars: [],
 }
+
+const yamlOf = (...file: string[]): unknown => parse(readFileSync(path.join(__dirname, '..', ...file), 'utf8'))
+const FAILOVER_AT_SCALE = Card.parse(yamlOf('cards', 'cyclotron-failover-at-scale.yaml'))
+const { traffic } = Profile.parse(yamlOf('profiles', `${FAILOVER_AT_SCALE.profile}.yaml`))
+const unitsPerSecond = FAILOVER_AT_SCALE.drive.traffic.reduce(
+    (sum, { name }) => sum + z.object({ ratePerSecond: z.number() }).parse(traffic[name]).ratePerSecond,
+    0
+)
+const failoverSteps = stepsOf(FAILOVER_AT_SCALE.drive)
+const FAILOVER_TARGET = failoverSteps.reduce(
+    (sum, { scale, fromMs, toMs }) => sum + (unitsPerSecond * scale * (toMs - fromMs)) / 1000,
+    0
+)
+const IN_FLIGHT_AT_CUTOFF = Math.ceil(unitsPerSecond * failoverSteps.at(-1)!.scale)
+const FAILOVER_SHORT_BY_ONE_PERCENT = Math.floor(FAILOVER_TARGET * 0.99)
 
 const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email claims 1/s, not within 10% of 4/s' }
 
@@ -114,6 +135,24 @@ describe('statusOf', () => {
             { units: { targetUnits: 60, offeredUnits: 53, steps: [] }, invariants: [BROKEN] },
             'invalid',
             'the generator offered 53 of 60 units, under minOffered 0.9',
+        ],
+        [
+            'cyclotron-failover-at-scale short only by the units it sent in the last second before its cutoff',
+            {
+                minOffered: FAILOVER_AT_SCALE.drive.minOffered,
+                units: { targetUnits: FAILOVER_TARGET, offeredUnits: FAILOVER_TARGET - IN_FLIGHT_AT_CUTOFF, steps: [] },
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'cyclotron-failover-at-scale short by 1% of its units, more than were in flight at its cutoff',
+            {
+                minOffered: FAILOVER_AT_SCALE.drive.minOffered,
+                units: { targetUnits: FAILOVER_TARGET, offeredUnits: FAILOVER_SHORT_BY_ONE_PERCENT, steps: [] },
+            },
+            'invalid',
+            `the generator offered ${FAILOVER_SHORT_BY_ONE_PERCENT} of ${FAILOVER_TARGET} units, under minOffered 0.999`,
         ],
         [
             'a ramp that broke at a step before a later step fell short of minOffered',
@@ -554,6 +593,37 @@ describe('statusOf', () => {
             },
             'failed',
             'the ramp ran to its last step, but lost 2 of 360 deliveries (0.56%): 2 in the 2x step; sent 1 duplicate of 357 deliveries (0.28%): 1 in the 1x step',
+        ],
+        [
+            'a ramp that ran to its ceiling with a confirmed duplicate while SES feedback was still in flight',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                invariants: [
+                    { name: 'duplicate_sends', passed: false, observed: 1, unitIds: ['run-3'], crossedBy: 'run-3' },
+                    { ...UNJUDGED, unjudged: IN_FLIGHT },
+                ],
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 1,
+                    reason: 'every step held up to the 1x ceiling',
+                    rates: [
+                        {
+                            index: 0,
+                            scale: 1,
+                            expected: 120,
+                            lost: 0,
+                            lossRate: 0,
+                            sent: 120,
+                            duplicates: 1,
+                            duplicateRate: 1 / 120,
+                            refused: 0,
+                            refusedRate: 0,
+                        },
+                    ],
+                },
+            },
+            'failed',
+            `the ramp ran to its last step, but sent 1 duplicate of 120 deliveries (0.83%): 1 in the 1x step; no_loss was not judged: ${IN_FLIGHT}`,
         ],
         [
             'a ramp that ran to its ceiling with duplicates the janitor resets allow',

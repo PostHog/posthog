@@ -3,7 +3,7 @@ import { get, omit, set } from 'lodash'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import type { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
+import { type CyclotronJobInvocation, type CyclotronJobQueueKind, queueToStore } from '../../types'
 import type { EncryptedFields } from '../../utils/encryption-utils'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 
@@ -121,7 +121,7 @@ export function encodeJob(invocation: CyclotronJobInvocation): CyclotronV2JobIni
         id: invocation.id,
         teamId: invocation.teamId,
         functionId: invocation.functionId,
-        queueName: invocation.queue,
+        queueName: queueToStore(invocation),
         priority: invocation.queuePriority,
         scheduled: invocation.queueScheduledAt?.toJSDate() ?? new Date(),
         parentRunId: invocation.parentRunId ?? null,

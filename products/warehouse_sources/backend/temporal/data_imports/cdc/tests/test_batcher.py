@@ -235,19 +235,26 @@ class TestChangeEventBatcher:
         table = batcher.flush()["users"]
         assert TOAST_OMITTED_COLUMN not in table.column_names
 
-    def test_should_flush_toast_omitted_event_threshold(self):
-        batcher = ChangeEventBatcher(max_toast_omitted_events=2)
-        batcher.add(_make_event(op="U", columns={"id": 1}, omitted_columns=frozenset({"big"})))
+    @parameterized.expand(
+        [
+            ("toast_omitted_update", "U", frozenset({"big"})),
+            ("delete", "D", frozenset()),
+        ]
+    )
+    def test_should_flush_filled_event_threshold(self, _name, op, omitted_columns):
+        batcher = ChangeEventBatcher(max_filled_events=2)
+        batcher.add(_make_event(op=op, columns={"id": 1}, omitted_columns=omitted_columns))
         batcher.add(_make_event(op="U", columns={"id": 2}))
+        batcher.add(_make_event(op="I", columns={"id": 5}))
         assert batcher.should_flush is False
 
-        batcher.add(_make_event(op="U", table="orders", columns={"id": 3}, omitted_columns=frozenset({"big"})))
+        batcher.add(_make_event(op=op, table="orders", columns={"id": 3}, omitted_columns=omitted_columns))
         assert batcher.should_flush is True
 
         batcher.discard("orders")  # type: ignore[unreachable]
         assert batcher.should_flush is False
 
-        batcher.add(_make_event(op="U", columns={"id": 4}, omitted_columns=frozenset({"big"})))
+        batcher.add(_make_event(op=op, columns={"id": 4}, omitted_columns=omitted_columns))
         assert batcher.should_flush is True
         batcher.flush()
         assert batcher.should_flush is False

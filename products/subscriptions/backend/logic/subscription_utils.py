@@ -4,11 +4,13 @@ from typing import Union
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 from celery import chain
 from prometheus_client import Histogram
 
 from posthog.dataclasses import frozen
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.ph_client import feature_enabled_or_false
 from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
 
@@ -180,3 +182,15 @@ def shared_insight_image(sharing_configuration: SharingConfiguration) -> SharedI
     return SharedInsightImage(
         title=insights[0].name or insights[0].derived_name, image_url=image_url, alt_text=alt_text
     )
+
+
+def organization_flag_enabled(key: str, organization_id: object, distinct_id: str) -> bool:
+    org_id = str(organization_id)
+    with posthoganalytics.new_context(capture_exceptions=False):
+        posthoganalytics.tag("$update_person_last_seen_at", False)
+        return feature_enabled_or_false(
+            key,
+            distinct_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+        )

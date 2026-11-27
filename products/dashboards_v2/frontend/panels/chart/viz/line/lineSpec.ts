@@ -1,14 +1,8 @@
-import { z } from 'zod'
+import { NO_OPTIONS, type NoOptions, type VizSpec } from '../../vizTypes'
 
-import type { VizSpec } from '../../vizTypes'
-
-export const lineOptionsSchema = z.strictObject({})
-
-export type LineOptions = z.infer<typeof lineOptionsSchema>
-
-export const lineSpec: VizSpec<LineOptions> = {
+export const lineSpec: VizSpec<NoOptions> = {
     type: 'line',
     label: 'Line chart',
     size: { w: 12, h: 16, minW: 4, minH: 8, stackedRows: { min: 10, max: 16 } },
-    optionsSchema: lineOptionsSchema,
+    optionsSchema: NO_OPTIONS,
 }

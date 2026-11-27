@@ -17,6 +17,7 @@ import {
     type CrossTeamOp,
     type DeploymentPolicy,
     type IntegrationOp,
+    KIND_CLAIM_OPS,
     type KindAllowlist,
     SINGLE_REF_OPS,
     isCrossTeamOp,
@@ -168,6 +169,7 @@ function parseOwner(value: unknown): Owner {
  *
  * A token has exactly one owner, or none when every op is cross-team. It never mixes the two.
  * A token with an op that always acts on one ref (`SINGLE_REF_OPS`) must carry `refs`.
+ * A token with an op that acts on a whole kind (`KIND_CLAIM_OPS`) must carry `kinds`.
  */
 export function parseIntegrationClaims(payload: JWTPayload, nowSeconds: number): IntegrationClaims {
     for (const name of Object.keys(payload)) {
@@ -226,6 +228,9 @@ export function parseIntegrationClaims(payload: JWTPayload, nowSeconds: number):
     const refs = payload['refs'] === undefined ? null : stringList('refs', payload['refs'], REF_PATTERN)
     if (refs === null && ops.some((op) => (SINGLE_REF_OPS as readonly IntegrationOp[]).includes(op))) {
         throw invalid('refs is required for an op that acts on one ref')
+    }
+    if (kinds === null && ops.some((op) => (KIND_CLAIM_OPS as readonly IntegrationOp[]).includes(op))) {
+        throw invalid('kinds is required for an op that acts on a whole kind')
     }
 
     let userId: number | null = null

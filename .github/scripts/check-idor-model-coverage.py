@@ -160,6 +160,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DigestRun",
         "RoutingRun",
         "RoutingRunOwner",
+        "BroadcastRequest",
+        "BroadcastRequestDelivery",
+        "BroadcastRequestParticipant",
         # --- Accessed via parent FK (no direct team-scoped lookup needed) ---
         "AlertSubscription",
         "Approval",
