@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popov
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { dateMapping } from 'lib/utils/dateFilters'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -21,6 +22,7 @@ import {
     MAX_ACQUISITION_PERIOD_DAYS,
     marketingRetentionLogic,
 } from '../../logic/marketingRetentionLogic'
+import { QuillRetentionTab } from './QuillRetentionTab'
 
 const RETENTION_DATE_OPTIONS = dateMapping.filter(({ values }) =>
     ['-7d', '-14d', '-30d', '-90d'].includes(values[0] ?? '')
@@ -47,6 +49,28 @@ export function RetentionTab(): JSX.Element {
     } = useActions(marketingRetentionLogic)
     const { dateFilter } = useValues(marketingAnalyticsLogic)
     const { setDates } = useActions(marketingAnalyticsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const breakdownOptions = Object.values(MarketingAnalyticsAttributionBreakdown).map((level) => ({
+        value: level,
+        label: BREAKDOWN_LABELS[level],
+    }))
+    const excludeUnattributedTooltip = `People whose first session has no ${BREAKDOWN_LABELS[
+        breakdownBy
+    ].toLowerCase()} are left out of the table entirely.`
+    const selectMaxAcquisitionPeriod = (): void => setDates(`-${MAX_ACQUISITION_PERIOD_DAYS}d`, null)
+
+    if (todayRailNav) {
+        return (
+            <QuillRetentionTab
+                breakdownOptions={breakdownOptions}
+                dateOptions={RETENTION_DATE_OPTIONS}
+                excludeUnattributedTooltip={excludeUnattributedTooltip}
+                onUseMaxAcquisitionPeriod={selectMaxAcquisitionPeriod}
+            />
+        )
+    }
+
     const optionsContent = (
         <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
             <div>
@@ -85,9 +109,7 @@ export function RetentionTab(): JSX.Element {
                 checked={excludeUnattributed}
                 onChange={setExcludeUnattributed}
                 label="Exclude unattributed traffic"
-                tooltip={`People whose first session has no ${BREAKDOWN_LABELS[
-                    breakdownBy
-                ].toLowerCase()} are left out of the table entirely.`}
+                tooltip={excludeUnattributedTooltip}
                 data-attr="marketing-retention-exclude-unattributed"
             />
         </div>
@@ -107,10 +129,7 @@ export function RetentionTab(): JSX.Element {
                                     size="small"
                                     value={breakdownBy}
                                     onChange={(value) => value && setBreakdownBy(value)}
-                                    options={Object.values(MarketingAnalyticsAttributionBreakdown).map((level) => ({
-                                        value: level,
-                                        label: BREAKDOWN_LABELS[level],
-                                    }))}
+                                    options={breakdownOptions}
                                 />
                             </div>
                         </div>
@@ -148,7 +167,7 @@ export function RetentionTab(): JSX.Element {
                             type="warning"
                             action={{
                                 children: `Use the last ${MAX_ACQUISITION_PERIOD_DAYS} days`,
-                                onClick: () => setDates(`-${MAX_ACQUISITION_PERIOD_DAYS}d`, null),
+                                onClick: selectMaxAcquisitionPeriod,
                             }}
                         >
                             Retention follows people acquired in a period of up to {MAX_ACQUISITION_PERIOD_DAYS} days.
