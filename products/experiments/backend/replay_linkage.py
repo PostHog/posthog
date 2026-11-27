@@ -157,8 +157,7 @@ def validate_experiment_exposure_access(
         raise UserAccessControlError("experiment", "viewer", resource_id=str(experiment_id))
     if not isinstance(user, User):
         return True
-    experiments = Experiment.objects.on_exact_team(team.id).deleted_is_false()
-    experiment = experiments.filter(id=experiment_id).first()
+    experiment = Experiment.objects.on_exact_team(team.id).deleted_is_false().filter(id=experiment_id).first()
     if experiment is None:
         return True
     if not UserAccessControl(user=user, team=team).check_access_level_for_object(experiment, required_level="viewer"):
@@ -299,8 +298,12 @@ def targetable_experiments(team: Team, *, experiment_ids: Sequence[int]) -> list
     """
     if not experiment_ids:
         return []
-    team_experiments = Experiment.objects.on_exact_team(team.id).deleted_is_false()
-    experiments = team_experiments.filter(id__in=experiment_ids).select_related("feature_flag")
+    experiments = (
+        Experiment.objects.on_exact_team(team.id)
+        .deleted_is_false()
+        .filter(id__in=experiment_ids)
+        .select_related("feature_flag")
+    )
     targetable = []
     for experiment in experiments:
         flag = getattr(experiment, "feature_flag", None)
@@ -343,8 +346,7 @@ def _validated_scope(
     require_launched: bool,
 ) -> _ValidatedScope:
     try:
-        experiments = Experiment.objects.on_exact_team(team.id).deleted_is_false()
-        experiment = experiments.get(id=experiment_id)
+        experiment = Experiment.objects.on_exact_team(team.id).deleted_is_false().get(id=experiment_id)
     except Experiment.DoesNotExist:
         raise ValidationError(f"Experiment {experiment_id} doesn't exist in this environment.")
 

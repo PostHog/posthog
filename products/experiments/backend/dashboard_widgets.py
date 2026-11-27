@@ -61,8 +61,12 @@ def has_accessible_experiments(team: Team, access: UserAccessControl | None) -> 
 def accessible_experiment(team: Team, access: UserAccessControl | None, experiment_id: int) -> Experiment | None:
     # Honor object-level experiment access controls, matching the REST endpoint. A user denied
     # access to a specific experiment must not see it (or its results) through the widget.
-    experiments = Experiment.objects.on_exact_team(team.id).deleted_is_false()
-    queryset = experiments.filter(id=experiment_id).select_related("feature_flag")
+    queryset = (
+        Experiment.objects.on_exact_team(team.id)
+        .deleted_is_false()
+        .filter(id=experiment_id)
+        .select_related("feature_flag")
+    )
     return _visible_to(access, queryset).first()
 
 

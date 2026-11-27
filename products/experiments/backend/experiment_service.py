@@ -5020,8 +5020,9 @@ class ExperimentService:
 
         with transaction.atomic():
             # Serialize supersession with each backfill's status check and result write.
-            experiments = Experiment.objects.on_exact_team(self.team.id).including_deleted()
-            experiments.select_for_update(no_key=True).filter(id=experiment.id).exists()
+            Experiment.objects.on_exact_team(self.team.id).including_deleted().select_for_update(no_key=True).filter(
+                id=experiment.id
+            ).exists()
             # A failed backfill can still start again on a Temporal retry. The active or new backfill replaces it, so
             # a retry must not run beside it or recompute the days again.
             ExperimentTimeseriesRecalculation.objects.filter(

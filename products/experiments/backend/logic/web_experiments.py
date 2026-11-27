@@ -32,8 +32,9 @@ def list_page(*, project_id: int, page: PageRequest) -> Page[WebExperiment]:
 
 
 def get(*, project_id: int, web_experiment_id: int) -> WebExperiment | None:
-    web_experiments = WebExperiment.objects.in_project(project_id).including_deleted()
-    return _with_relations(web_experiments.filter(pk=web_experiment_id)).first()
+    return _with_relations(
+        WebExperiment.objects.in_project(project_id).including_deleted().filter(pk=web_experiment_id)
+    ).first()
 
 
 def list_for_toolbar(*, team_id: int) -> list[WebExperiment]:

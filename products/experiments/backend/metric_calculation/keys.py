@@ -36,10 +36,16 @@ def _experiments_with_settings(
     left out."""
     if not team_id_by_experiment_id:
         return []
-    # The read spans teams by design. `on_exact_teams` and the team check on each row keep every id to the
-    # team that the caller named for it.
-    listed_teams = Experiment.objects.on_exact_teams(set(team_id_by_experiment_id.values())).including_deleted()
-    rows = listed_teams.filter(id__in=team_id_by_experiment_id).select_related("team", "feature_flag")
+    # The read spans teams by design. `on_exact_teams` (a `team_id__in` filter) and the team check on each row keep
+    # every id to the team that the caller named for it, but the IDOR rule only recognizes a single-team filter.
+    rows = (
+        Experiment.objects.on_exact_teams(  # nosemgrep: idor-lookup-without-team
+            set(team_id_by_experiment_id.values())
+        )
+        .including_deleted()
+        .filter(id__in=team_id_by_experiment_id)
+        .select_related("team", "feature_flag")
+    )
     if prefetch_saved_metrics:
         rows = rows.prefetch_related(
             Prefetch(

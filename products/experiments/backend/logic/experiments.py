@@ -131,9 +131,8 @@ def get_handle(*, team: Team, experiment_id: int) -> Experiment | None:
 
 
 def _one_in_project(team: Team, experiment_id: int, *, include_deleted: bool) -> QuerySet[Experiment]:
-    experiments = Experiment.objects.in_project(team.project_id)
-    experiments = experiments.including_deleted() if include_deleted else experiments.live()
-    return experiments.filter(pk=experiment_id)
+    experiments = Experiment.objects.in_project(team.project_id).filter(pk=experiment_id)
+    return experiments.including_deleted() if include_deleted else experiments.live()
 
 
 def get_update_target(*, team: Team, experiment_id: int, include_deleted: bool) -> Experiment | None:
@@ -254,8 +253,7 @@ def list_refs(*, team: Team, filters: ExperimentListFilters) -> QuerySet[Experim
 
 
 def _live_among(team: Team, experiment_ids: Collection[int]) -> QuerySet[Experiment]:
-    experiments = Experiment.objects.in_project(team.project_id).live()
-    return experiments.filter(pk__in=list(experiment_ids))
+    return Experiment.objects.in_project(team.project_id).live().filter(pk__in=list(experiment_ids))
 
 
 def refs_among(*, team: Team, experiment_ids: Collection[int]) -> QuerySet[Experiment]:

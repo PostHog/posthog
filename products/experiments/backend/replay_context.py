@@ -69,8 +69,13 @@ def launched_experiment_ids(team_id: int, experiment_ids: Collection[int]) -> se
 
 
 def _live_experiment(team: Team, experiment_id: int) -> Experiment | None:
-    experiments = Experiment.objects.on_exact_team(team.id).deleted_is_false()
-    return experiments.filter(id=experiment_id).select_related("feature_flag").first()
+    return (
+        Experiment.objects.on_exact_team(team.id)
+        .deleted_is_false()
+        .filter(id=experiment_id)
+        .select_related("feature_flag")
+        .first()
+    )
 
 
 def session_attribution(linkage: ExperimentExposureLinkage, distinct_id: str) -> SessionAttribution | None:

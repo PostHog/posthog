@@ -204,8 +204,9 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self._rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = None
 
         try:
-            experiments = Experiment.objects.on_exact_team(self.team.id).including_deleted()
-            self.experiment = experiments.get(id=self.query.experiment_id)
+            self.experiment = (
+                Experiment.objects.on_exact_team(self.team.id).including_deleted().get(id=self.query.experiment_id)
+            )
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self._rule = rule_for_query(self.experiment)

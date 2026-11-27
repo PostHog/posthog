@@ -16,8 +16,13 @@ __all__ = [
 def experiment_uses_legacy_metrics(*, team: Team, experiment_id: int) -> bool:
     """Whether the project's experiment with the id has a metric in a legacy format, inline or through a shared
     metric. False when the project has no experiment with the id."""
-    experiments = Experiment.objects.in_project(team.project_id).including_deleted()
-    experiment = experiments.filter(pk=experiment_id).only("id", "metrics", "metrics_secondary").first()
+    experiment = (
+        Experiment.objects.in_project(team.project_id)
+        .including_deleted()
+        .filter(pk=experiment_id)
+        .only("id", "metrics", "metrics_secondary")
+        .first()
+    )
     return experiment is not None and experiment_has_legacy_metrics(experiment)
 
 
