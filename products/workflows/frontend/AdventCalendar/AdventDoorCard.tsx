@@ -33,6 +33,7 @@ export interface AdventDoorCardProps {
     stage: { width: number; height: number }
     isOpen: boolean
     isPinned: boolean
+    isClosing?: boolean
     onPin: (doorId: string) => void
     onAnswer: (doorId: string, optionId: string) => void
     onTipClick: (day: number) => void
@@ -97,6 +98,7 @@ export function AdventDoorCard({
     stage,
     isOpen,
     isPinned,
+    isClosing,
     onPin,
     onAnswer,
     onTipClick,
@@ -113,6 +115,9 @@ export function AdventDoorCard({
             style={style}
             data-attr="advent-door-card"
             data-open={isOpen}
+            role={isPinned ? 'dialog' : undefined}
+            aria-labelledby={isPinned ? `advent-door-card-title-${door.day}` : undefined}
+            {...(isClosing ? { inert: '' } : {})}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >
@@ -123,13 +128,16 @@ export function AdventDoorCard({
                     zoom={face.zoom}
                     tint={face.tint}
                     style={faceShift}
+                    tabIndex={isPinned ? -1 : undefined}
                     onClick={() => onPin(door.id)}
                 />
                 <div className="AdventCard__fade flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="text-[11px] text-secondary" translate="no">
                         {adventWeekday(door.day)}
                     </span>
-                    <span className="text-sm font-semibold leading-tight">{title}</span>
+                    <span id={`advent-door-card-title-${door.day}`} className="text-sm font-semibold leading-tight">
+                        {title}
+                    </span>
                     {detail && (
                         <span
                             className={cn(

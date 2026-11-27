@@ -1,4 +1,5 @@
 import { act, fireEvent, render, RenderResult } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -82,14 +83,15 @@ describe('AdventFlowStage', () => {
         expect(door(day)?.querySelectorAll('svg')).toHaveLength(0)
     })
 
-    it('slides the card out over a closed door on hover, not over an open one, and pins it on a click until Escape', () => {
+    it('slides the card out over a closed door on hover, not over an open one, and pins it as a dialog named by its title on a click until Escape', () => {
         seed([1, 2], { 2: 'tim' })
         renderStage({ width: 1200, height: 830 })
 
         act(() => fireEvent.mouseEnter(door(4) as HTMLElement))
         const face = card()?.querySelector<HTMLElement>('.AdventCard__door')
-        expect([card()?.textContent, face?.querySelector('svg')]).toEqual([
+        expect([card()?.textContent, face?.querySelector('svg'), card()?.getAttribute('role')]).toEqual([
             expect.stringContaining('Opens December 4.'),
+            null,
             null,
         ])
         act(() => fireEvent.mouseLeave(door(4) as HTMLElement))
@@ -98,7 +100,12 @@ describe('AdventFlowStage', () => {
         expect(card()).toBeNull()
 
         act(() => fireEvent.click(door(2) as HTMLElement))
-        expect(card()?.querySelector('[data-attr="advent-door-card-close"]')).not.toBeNull()
+        const name = document.getElementById(card()?.getAttribute('aria-labelledby') ?? '')?.textContent
+        expect([
+            card()?.querySelector('[data-attr="advent-door-card-close"]'),
+            card()?.getAttribute('role'),
+            name,
+        ]).toEqual([expect.anything(), 'dialog', 'Tim Glaser'])
         act(() => fireEvent.keyDown(window, { key: 'Escape' }))
         waitForTheCardToClose()
         expect(card()).toBeNull()
@@ -124,68 +131,99 @@ describe('AdventFlowStage', () => {
     it.each([
         ['Close', 2, '[data-attr="advent-door-card-close"]'],
         ['the tip link', 1, '[data-attr="advent-tip-link"]'],
-    ])('moves focus into a pinned card and back to its door when Escape closes it from %s', (_, day, focused) => {
-        seed([1, 2], { 2: 'tim' })
-        renderStage({ width: 375, height: 700 })
+    ])(
+        'moves focus into a pinned card, makes the closing card inert, and moves focus back to its door when Escape closes it from %s',
+        (_, day, focused) => {
+            seed([1, 2], { 2: 'tim' })
+            renderStage({ width: 375, height: 700 })
 
-        act(() => (door(day) as HTMLElement).focus())
-        act(() => fireEvent.click(door(day) as HTMLElement))
-        const focusInCard = document.activeElement?.getAttribute('data-attr')
-        act(() => (document.querySelector(focused) as HTMLElement).focus())
-        act(() => fireEvent.keyDown(window, { key: 'Escape' }))
-        waitForTheCardToClose()
+            act(() => (door(day) as HTMLElement).focus())
+            act(() => fireEvent.click(door(day) as HTMLElement))
+            const focusInCard = document.activeElement?.getAttribute('data-attr')
+            act(() => (document.querySelector(focused) as HTMLElement).focus())
+            act(() => fireEvent.keyDown(window, { key: 'Escape' }))
+            const isClosingCardInert = card()?.hasAttribute('inert')
+            waitForTheCardToClose()
 
-        expect([focusInCard, document.activeElement === door(day)]).toEqual(['advent-door-card-close', true])
-    })
+            expect([focusInCard, isClosingCardInert, document.activeElement === door(day)]).toEqual([
+                'advent-door-card-close',
+                true,
+                true,
+            ])
+        }
+    )
 
-    type CardSetup = 'pinned' | 'overflowing' | 'answered' | 'hovered'
-    const CLOSE = '[data-attr="advent-door-card-close"]'
-    const FACE = '.AdventCard__face'
-    const LINK = '[data-attr="advent-tip-link"]'
-    const BODY = '.AdventCard__body'
-    const LAST_ANSWER = '[data-attr="advent-door-answer"]:last-of-type'
+    type CardSetup = 'pinned' | 'overflowing' | 'unfocusable overflow' | 'answered' | 'hovered'
+    type Key = 'Tab' | 'Shift+Tab' | 'Escape' | 'Enter' | 'pointer down'
+    const CONTROLS: Record<string, string> = {
+        Close: '[data-attr="advent-door-card-close"]',
+        'the face': '.AdventCard__face',
+        'the link': '[data-attr="advent-tip-link"]',
+        'the body': '.AdventCard__body',
+        'the first answer': '[data-attr="advent-door-answer"]',
+        'the last answer': '[data-attr="advent-door-answer"]:last-of-type',
+    }
+    const [CLOSE, FACE, LINK, BODY, FIRST_ANSWER, LAST_ANSWER] = Object.keys(CONTROLS)
 
     it.each<
-        [
-            string,
-            'Tab' | 'Shift+Tab' | 'Escape',
-            string,
-            number | 'start',
-            boolean,
-            boolean,
-            number,
-            number[],
-            CardSetup,
-        ]
+        [string, Key, string | number, string | number, 'pinned' | 'hover' | 'closed', number, number[], CardSetup]
     >([
-        ['day 1 with a link', 'Tab', LINK, 2, true, false, 1, [1, 2], 'pinned'],
-        ['day 1 with a link', 'Tab', CLOSE, 'start', false, true, 1, [1, 2], 'pinned'],
-        ['day 1 with a link', 'Shift+Tab', FACE, 1, true, false, 1, [1, 2], 'pinned'],
-        ['day 1 with a link', 'Escape', LINK, 1, false, false, 1, [1, 2], 'pinned'],
-        ['day 1 with a link and a body that overflows', 'Tab', LINK, 2, true, false, 1, [1, 2], 'overflowing'],
-        ['day 2 without a link', 'Tab', CLOSE, 3, true, false, 2, [1, 2], 'pinned'],
-        ['day 2 without a link', 'Shift+Tab', FACE, 2, true, false, 2, [1, 2], 'pinned'],
-        ['day 2 without a link', 'Escape', CLOSE, 2, false, false, 2, [1, 2], 'pinned'],
-        ['day 2 with a body that overflows', 'Tab', CLOSE, 'start', false, true, 2, [1, 2], 'overflowing'],
-        ['day 2 with a body that overflows', 'Tab', BODY, 3, true, false, 2, [1, 2], 'overflowing'],
-        ['day 2 with a body that overflows', 'Shift+Tab', FACE, 2, true, false, 2, [1, 2], 'overflowing'],
-        ['day 2 with a body that overflows', 'Escape', BODY, 2, false, false, 2, [1, 2], 'overflowing'],
-        ['day 24', 'Tab', LINK, 24, false, false, 24, [1, 2, 24], 'pinned'],
-        ['day 24', 'Shift+Tab', FACE, 24, true, false, 24, [1, 2, 24], 'pinned'],
-        ['a poll before an answer', 'Tab', LAST_ANSWER, 3, true, false, 2, [1], 'pinned'],
-        ['a poll before an answer', 'Tab', CLOSE, 'start', false, true, 2, [1], 'pinned'],
-        ['a poll before an answer', 'Shift+Tab', FACE, 2, true, false, 2, [1], 'pinned'],
-        ['a poll after a keyboard answer', 'Tab', CLOSE, 3, true, false, 2, [1], 'answered'],
-        ['a poll after a keyboard answer', 'Shift+Tab', FACE, 2, true, false, 2, [1], 'answered'],
-        ['a hover-only card', 'Tab', FACE, 'start', false, true, 4, [1, 2], 'hovered'],
-        ['a hover-only card', 'Shift+Tab', FACE, 'start', false, true, 4, [1, 2], 'hovered'],
-        ['a hover-only card', 'Escape', FACE, 4, false, false, 4, [1, 2], 'hovered'],
+        ['day 1 with a link', 'Tab', CLOSE, LINK, 'pinned', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Tab', LINK, CLOSE, 'pinned', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Shift+Tab', LINK, CLOSE, 'pinned', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Shift+Tab', CLOSE, LINK, 'pinned', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Escape', LINK, 1, 'closed', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Enter', CLOSE, 1, 'closed', 1, [1, 2], 'pinned'],
+        ['day 1 with a link and a body that overflows', 'Tab', LINK, CLOSE, 'pinned', 1, [1, 2], 'overflowing'],
+        ['day 2 without a link', 'Tab', CLOSE, CLOSE, 'pinned', 2, [1, 2], 'pinned'],
+        ['day 2 without a link', 'Shift+Tab', CLOSE, CLOSE, 'pinned', 2, [1, 2], 'pinned'],
+        ['day 2 without a link', 'Escape', CLOSE, 2, 'closed', 2, [1, 2], 'pinned'],
+        ['day 2 with a body that overflows', 'Tab', CLOSE, BODY, 'pinned', 2, [1, 2], 'overflowing'],
+        ['day 2 with a body that overflows', 'Tab', BODY, CLOSE, 'pinned', 2, [1, 2], 'overflowing'],
+        ['day 2 with a body that overflows', 'Shift+Tab', CLOSE, BODY, 'pinned', 2, [1, 2], 'overflowing'],
+        ['day 2 with a body that overflows', 'Escape', BODY, 2, 'closed', 2, [1, 2], 'overflowing'],
+        [
+            'day 2 with a body that overflows and takes no focus',
+            'Tab',
+            CLOSE,
+            CLOSE,
+            'pinned',
+            2,
+            [1, 2],
+            'unfocusable overflow',
+        ],
+        [
+            'day 2 with a body that overflows and takes no focus',
+            'Shift+Tab',
+            CLOSE,
+            CLOSE,
+            'pinned',
+            2,
+            [1, 2],
+            'unfocusable overflow',
+        ],
+        ['day 24', 'Tab', LINK, CLOSE, 'pinned', 24, [1, 2, 24], 'pinned'],
+        ['day 24', 'Shift+Tab', CLOSE, LINK, 'pinned', 24, [1, 2, 24], 'pinned'],
+        ['a poll before an answer', 'Tab', CLOSE, FIRST_ANSWER, 'pinned', 2, [1], 'pinned'],
+        ['a poll before an answer', 'Tab', LAST_ANSWER, CLOSE, 'pinned', 2, [1], 'pinned'],
+        ['a poll before an answer', 'Shift+Tab', CLOSE, LAST_ANSWER, 'pinned', 2, [1], 'pinned'],
+        ['a poll before an answer', 'Escape', LAST_ANSWER, 2, 'closed', 2, [1], 'pinned'],
+        ['a poll after a keyboard answer', 'Tab', CLOSE, CLOSE, 'pinned', 2, [1], 'answered'],
+        ['a poll after a keyboard answer', 'Shift+Tab', CLOSE, CLOSE, 'pinned', 2, [1], 'answered'],
+        ['a hover-only card', 'Tab', 24, CLOSE, 'pinned', 4, [1, 2], 'hovered'],
+        ['a hover-only card', 'pointer down', FACE, FACE, 'hover', 4, [1, 2], 'hovered'],
+        ['a hover-only card', 'Escape', FACE, 4, 'closed', 4, [1, 2], 'hovered'],
     ])(
-        'on %s, %s from %s moves focus to %s, handled by the stage: %s, card open: %s',
-        async (_, key, from, focusTarget, isPrevented, staysOpen, day, opened, setup) => {
+        'on %s, %s from %s moves focus to %s and leaves the card %s',
+        async (_, key, from, focusTarget, cardState, day, opened, setup) => {
             jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
+            const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
             seed(opened, opened.includes(2) ? { 2: 'tim' } : {})
             renderStage({ width: 1200, height: 830 })
+            const target = (selector: string | number): HTMLElement | null =>
+                typeof selector === 'number'
+                    ? door(selector)
+                    : (card()?.querySelector<HTMLElement>(CONTROLS[selector]) ?? null)
 
             if (setup === 'hovered') {
                 act(() => fireEvent.mouseEnter(door(day) as HTMLElement))
@@ -193,31 +231,38 @@ describe('AdventFlowStage', () => {
                 act(() => fireEvent.click(door(day) as HTMLElement))
             }
             if (setup === 'answered') {
-                const option = card()?.querySelector<HTMLElement>('[data-attr="advent-door-answer"]') as HTMLElement
+                const option = target(FIRST_ANSWER) as HTMLElement
                 act(() => option.focus())
                 act(() => fireEvent.click(option))
                 await act(async () => {
                     await jest.advanceTimersByTimeAsync(700)
                 })
             }
-            const body = card()?.querySelector<HTMLElement>(BODY) as HTMLElement
-            if (setup === 'overflowing') {
+            const body = target(BODY) as HTMLElement
+            if (setup === 'overflowing' || setup === 'unfocusable overflow') {
                 Object.defineProperties(body, { scrollHeight: { value: 400 }, clientHeight: { value: 120 } })
-                body.tabIndex = -1
             }
-            const start = card()?.querySelector<HTMLElement>(from) as HTMLElement
+            if (setup === 'overflowing') {
+                body.tabIndex = body.querySelector('button, a[href]') ? -1 : 0
+            }
+            const start = target(from) as HTMLElement
             act(() => start.focus())
-            let wasPrevented = false
-            act(() => {
-                wasPrevented = !fireEvent.keyDown(start, {
-                    key: key === 'Escape' ? key : 'Tab',
-                    shiftKey: key === 'Shift+Tab',
+            if (key === 'pointer down') {
+                act(() => {
+                    fireEvent.keyDown(window, { key: 'Tab' })
+                    fireEvent.pointerDown(start)
+                    start.blur()
+                    start.focus()
                 })
-            })
+            } else if (key === 'Tab' || key === 'Shift+Tab') {
+                await user.tab({ shift: key === 'Shift+Tab' })
+            } else {
+                await user.keyboard(`{${key}}`)
+            }
             waitForTheCardToClose()
 
-            const focused = focusTarget === 'start' ? start : door(focusTarget)
-            expect([document.activeElement === focused, wasPrevented, !!card()]).toEqual([true, isPrevented, staysOpen])
+            const state = !card() ? 'closed' : target(CLOSE) ? 'pinned' : 'hover'
+            expect([document.activeElement === target(focusTarget), state]).toEqual([true, cardState])
         }
     )
 

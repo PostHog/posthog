@@ -92,7 +92,8 @@ const nodeOfDoor = (layout: AdventFlowLayout, doorId: string | null): AdventFlow
 
 export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis }: AdventFlowStageProps): JSX.Element {
     const { graph, today, selectedDoorId, revealingDoor, pollShares } = useValues(adventCalendarLogic)
-    const { activateDoor, answerDoor, clearSelection, finishReveal, clickTip } = useActions(adventCalendarLogic)
+    const { activateDoor, pinDoor, answerDoor, clearSelection, finishReveal, clickTip } =
+        useActions(adventCalendarLogic)
     const { ref, stage } = useAdventStageSize()
     const orientation = adventFlowOrientation(stage)
     const layout = useMemo(() => adventFlowLayout(graph, pollShares, orientation), [graph, pollShares, orientation])
@@ -115,7 +116,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         clearHover()
     }, [clearSelection, clearHover])
     useAdventEscape(!!revealingDoor, finishReveal, dismiss)
-    useAdventCardFocus(ref, card.isPinned, cardNode, dismiss)
+    const guards = useAdventCardFocus(ref, card.isPinned, cardNode, pinDoor)
     const hover = useAdventFlowHover(card)
 
     const onTrackClick = (event: MouseEvent): void => {
@@ -173,6 +174,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
                             </div>
                         </div>
                     </div>
+                    {card.isPinned && <span tabIndex={0} aria-hidden onFocus={guards.onFocusStart} />}
                     {cardNode && face && (
                         <AdventDoorCard
                             key={cardNode.id}
@@ -182,6 +184,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
                             stage={stage}
                             isOpen={card.isOpen}
                             isPinned={card.isPinned}
+                            isClosing={card.isClosing}
                             onPin={activateDoor}
                             onAnswer={answerDoor}
                             onTipClick={clickTip}
@@ -190,6 +193,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
                             onMouseLeave={card.onLeaveDoor}
                         />
                     )}
+                    {card.isPinned && <span tabIndex={0} aria-hidden onFocus={guards.onFocusEnd} />}
                 </>
             )}
         </div>

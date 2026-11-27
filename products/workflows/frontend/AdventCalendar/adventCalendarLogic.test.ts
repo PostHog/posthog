@@ -363,10 +363,11 @@ describe('adventCalendarLogic', () => {
         ],
     }
 
-    it.each<[string, object, 'answer' | 'read']>([
+    it.each<[string, object, 'answer' | 'read' | 'remount']>([
         ['an answer save, without the answer', { ...DAY_TWO_ANSWERED, answer: null }, 'answer'],
         ['an answer save, with the answer at older shares', OLDER_DAY_TWO, 'answer'],
         ['a newer results read, with the answer at older shares', OLDER_DAY_TWO, 'read'],
+        ['the calendar opened again, with the answer at older shares', OLDER_DAY_TWO, 'remount'],
     ])(
         'keeps the newer shares when the results the calendar loaded first arrive after %s',
         async (_, lateQuestion, overtakenBy) => {
@@ -381,12 +382,17 @@ describe('adventCalendarLogic', () => {
             logic.mount()
             await waitFor(() => expect(api.reads).toEqual([1]))
             useMocks(calendarApi().mocks)
-            if (overtakenBy === 'answer') {
+            if (overtakenBy === 'remount') {
+                logic.unmount()
+                window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
+                logic = adventCalendarLogic()
+                logic.mount()
+            } else if (overtakenBy === 'read') {
+                logic.actions.loadPollResults()
+            } else {
                 logic.actions.activateDoor('door-1')
                 logic.actions.finishReveal()
                 logic.actions.answerDoor('door-2', 'tim')
-            } else {
-                logic.actions.loadPollResults()
             }
             await waitFor(() => expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } }))
             release()
@@ -395,6 +401,27 @@ describe('adventCalendarLogic', () => {
             expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
         }
     )
+
+    it('drops the results a read started before the calendar was opened again, when the new read fails', async () => {
+        let release = (): void => {}
+        const api = calendarApi({}, resultsOf(OLDER_DAY_TWO), new Promise((done) => (release = done)))
+        useMocks(api.mocks)
+        logic.unmount()
+        logic.mount()
+        await waitFor(() => expect(api.reads).toEqual([1]))
+        const failing = calendarApi({ results: 500 })
+        useMocks(failing.mocks)
+        logic.unmount()
+        logic.mount()
+        await waitFor(() => expect(failing.reads).toEqual([1]))
+        signIn({ uuid: UUID, is_staff: false })
+        logic.actions.openDoor(UUID, 1, null, true)
+        logic.actions.openDoor(UUID, 2, 'tim', true)
+        release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.pollShares).toEqual({})
+    })
 
     it.each(['before', 'after'])(
         'shows the shares of both answers when the server reply to the first is held %s it saves the answer',
