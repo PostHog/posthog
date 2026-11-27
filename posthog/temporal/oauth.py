@@ -39,9 +39,6 @@ SIGNALS_APP_CLIENT_ID_US = "jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE"
 SIGNALS_APP_CLIENT_ID_EU = "nqZsiFEbu1fCWDK3r8QtSGwKmmANxVIgfZmTXywk"
 SIGNALS_APP_CLIENT_ID_DEV = "xMT3Nejjbi4lUdhJLkzmCVJKFsx0JsHXdU0pIjl8"
 
-# The LLM gateway authorizes by application id, so these must stay equal to
-# POSTHOG_CODE_DEV_APP_ID / POSTHOG_AI_DEV_APP_ID / SIGNALS_DEV_APP_ID in
-# llm_gateway/products/config.py.
 ARRAY_APP_ID_DEV = "019ebb47-c750-0000-e1ea-723a6ff112d3"
 POSTHOG_AI_APP_ID_DEV = "019edb1a-cce4-0000-1f6d-682061862da9"
 SIGNALS_APP_ID_DEV = "019fb2ee-9d54-0000-61d9-faf825230d44"

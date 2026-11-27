@@ -57,27 +57,44 @@ class TestFormatIncrementalValue:
 
 class TestPipelinerSourceTransport:
     @pytest.mark.parametrize(
-        "endpoint, entity",
+        "endpoint, entity, incremental",
         [
-            ("accounts", "Accounts"),
-            ("oppty_product_relations", "OpptyProductRelations"),
-            ("sales_unit_client_relations", "SalesUnitClientRelations"),
-            ("currency_exchange_rates_lists", "CurrencyExchangeRatesLists"),
+            ("accounts", "Accounts", False),
+            ("oppty_product_relations", "OpptyProductRelations", False),
+            ("sales_unit_client_relations", "SalesUnitClientRelations", False),
+            ("currency_exchange_rates_lists", "CurrencyExchangeRatesLists", False),
+            ("account_types", "AccountTypes", True),
+            ("appointment_types", "AppointmentTypes", True),
+            ("contact_account_account_role_relations", "ContactAccountAccountRoleRelations", True),
+            ("contact_account_relations", "ContactAccountRelations", True),
+            ("contact_types", "ContactTypes", True),
+            ("lead_types", "LeadTypes", True),
+            ("opportunity_types", "OpportunityTypes", True),
+            ("quote_processes", "QuoteProcesses", True),
+            ("quote_types", "QuoteTypes", True),
+            ("quotes", "Quotes", True),
+            ("task_types", "TaskTypes", True),
         ],
     )
-    def test_paginates_with_after_cursor_until_last_page(self, endpoint: str, entity: str) -> None:
+    def test_paginates_with_after_cursor_until_last_page(self, endpoint: str, entity: str, incremental: bool) -> None:
+        watermark = "2026-02-15 12:00:00" if incremental else None
         result = _driver().run(
             endpoint,
             [
                 _response([{"id": "1"}, {"id": "2"}], end_cursor="cur1", has_next_page=True),
                 _response([{"id": "3"}], end_cursor="cur2", has_next_page=False),
             ],
+            incremental_field="modified" if incremental else None,
+            db_incremental_field_last_value=watermark,
         )
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["1", "2", "3"]
         assert result.params("after") == [None, "cur1"]
         assert result.params("first") == [str(PAGE_SIZE), str(PAGE_SIZE)]
+        assert result.params("order-by") == ["modified" if incremental else "created"] * 2
+        assert result.params("filter[modified]") == [watermark] * 2
+        assert result.params("filter-op[modified]") == ["gte" if incremental else None] * 2
         assert result.paths == [f"/api/v100/rest/spaces/space-1/entities/{entity}"] * 2
         # The last page still has an end cursor. The has_next_page flag ends the walk.
         assert len(result.requests) == 2

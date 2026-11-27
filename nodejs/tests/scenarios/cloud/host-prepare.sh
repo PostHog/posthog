@@ -10,6 +10,7 @@ export XDG_CACHE_HOME=$root/cache
 log=$root/prepare.log
 exec >"$log" 2>&1
 trap 'aws s3 cp --only-show-errors "$log" "$prefix/host/prepare.log" || true' EXIT
+rm -f "$root/writer/url"
 
 source "$repo/nodejs/tests/scenarios/cloud/host-input-checksums.sh"
 alerts=$(manifest_input_checksums "$input" 'alerts/')
@@ -30,3 +31,8 @@ export CYCLOTRON_NODE_DATABASE_URL="${url}?uselibpqcompat=true&${tls}"
 
 sqlx migrate run -D "${url}?${tls}" --source "$repo/rust/cyclotron-node-migrations/"
 SCENARIO_RUN_MANIFEST="$input/manifest.json" pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/main.ts seed-backlog --profile "$input/runner-profile.yaml"
+
+mkdir -p "$root/writer"
+chmod 700 "$root/writer"
+(umask 077 && printf '%s\n' "$CYCLOTRON_NODE_DATABASE_URL" >"$root/writer/url.next")
+mv -f "$root/writer/url.next" "$root/writer/url"

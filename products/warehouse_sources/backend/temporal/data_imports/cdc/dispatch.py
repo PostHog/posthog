@@ -109,6 +109,10 @@ def _gate_applies(schema: ExternalDataSchema) -> bool:
     Never for a snapshot, a reset, a sync someone asked for, or a table whose last run did not complete.
     Those keep the behavior from before the gate, including a retry on every tick.
 
+    A halted table is the exception to the status rule. Its marker owns the status and absorbs every
+    load result, so the status says nothing about its last load. A load that failed still runs on the
+    next tick, because it left no listing proof.
+
     An ad-hoc run paused the schedule, and only its completed job unpauses it, so standing it down
     would leave the schedule paused for good.
     """
@@ -118,7 +122,7 @@ def _gate_applies(schema: ExternalDataSchema) -> bool:
     config = schema.sync_type_config or {}
     return (
         serves_buffered_lane(schema)
-        and schema.status == schema.Status.COMPLETED
+        and (schema.status == schema.Status.COMPLETED or schema.cdc_halted)
         and not schema.reset_pipeline
         and not schema.manual_run_requested
         and not schema.manual_sync_pending
