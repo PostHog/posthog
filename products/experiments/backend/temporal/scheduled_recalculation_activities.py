@@ -107,7 +107,7 @@ async def discover_scheduled_recalculation_candidates() -> ScheduledRecalculatio
 @database_sync_to_async_pool
 def _check_experiment_exposures_sync(experiment_id: int, hour: int) -> bool:
     close_old_connections()
-    experiment = Experiment.objects.filter(id=experiment_id, deleted=False).first()
+    experiment = Experiment.objects.deleted_is_false().filter(id=experiment_id).first()
     if experiment is None:
         return False
     try:
@@ -146,7 +146,8 @@ def _start_scheduled_recalculation_sync(
     # Re-check RUNNING, not just deleted: discovery ran before the exposure query, and an
     # experiment stopped in between should not get a scheduled run.
     experiment = (
-        Experiment.objects.filter(id=experiment_id, deleted=False, status=Experiment.Status.RUNNING)
+        Experiment.objects.deleted_is_false()
+        .filter(id=experiment_id, status=Experiment.Status.RUNNING)
         .select_related("team")
         .first()
     )

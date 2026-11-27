@@ -736,7 +736,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
     with team_scope(state.team_id, canonical=True):
         try:
-            experiment = Experiment.objects.get(id=experiment_id, deleted=False)
+            experiment = Experiment.objects.deleted_is_false().get(id=experiment_id)
         except Experiment.DoesNotExist:
             return _fail(
                 recalculation_id,
@@ -1063,7 +1063,7 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
         ).exists():
             return
 
-        experiment = Experiment.objects.filter(id=failure.experiment_id, deleted=False).first()
+        experiment = Experiment.objects.deleted_is_false().filter(id=failure.experiment_id).first()
         calculation_config = (
             get_metric_calculation_config(experiment, failure.metric_uuid, key_version=failure.calculation_key_version)
             if experiment
