@@ -77,3 +77,24 @@ def test_trace_dumps_declared_fields_in_camel_case_and_every_field_is_required_i
         "hasError",
         "children",
     }
+
+
+def _all_subclasses(cls: type[contracts.Contract]) -> list[type[contracts.Contract]]:
+    subclasses: list[type[contracts.Contract]] = []
+    for direct in cls.__subclasses__():
+        subclasses.extend([direct, *_all_subclasses(direct)])
+    return subclasses
+
+
+def test_no_contract_field_or_alias_starts_with_a_dollar() -> None:
+    offenders = []
+    for cls in _all_subclasses(contracts.Contract):
+        fields = {**cls.model_fields, **cls.model_computed_fields}
+        for field_name, field in fields.items():
+            aliases = [getattr(field, attr, None) for attr in ("alias", "serialization_alias", "validation_alias")]
+            if any(isinstance(alias, str) and alias.startswith("$") for alias in aliases):
+                offenders.append(f"{cls.__name__}.{field_name}")
+
+    assert offenders == [], (
+        f"Contract fields never use $ or $ai_ names (products/ai_observability/AGENTS.md): {offenders}"
+    )

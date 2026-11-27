@@ -45,4 +45,6 @@ Paths are relative to `products/ai_observability/`.
 - Each layer you touched has its own tests: behavior without a database, the facade function once, the view for parsing and permissions only.
 - `hogli build:openapi` ran after a serializer or contract change.
 - `hogli product:lint ai_observability` passes. It fails a presentation module that imports `models/`.
+- `hoglint check` passes. Its `aio-` rules fail a backend import or query that breaks the layer table.
+- `frontend/redesign/layerBoundaries.test.ts` passes after a change under `frontend/redesign/`.
 - The answer to each of the six questions is yes.

@@ -124,6 +124,11 @@ temporal_subtree = { type = "string" }
 # A wiring location core runs by a name it reads at run time (a Celery task, a Temporal workflow, a
 # Max tool), a channel no producer reads: the contract-check inputs watch it while it exists.
 runs_by_name = { type = "bool" }
+# The kind of AI observability area a module sits in, as the area table in
+# products/ai_observability/AGENTS.md defines it: layered, shared or old.
+aio_area        = { type = "enum", values = ["layered", "shared", "old"] }
+# An AI observability data access module: the only logic module that reads and writes storage.
+aio_data_access = { type = "bool" }
 
 # Owners of a finding come from `owners`; cycles and compare's new pairs are between packages.
 [roles]
@@ -304,6 +309,31 @@ set   = { source_vendor = "{vendor}" }
 [[assign]]
 match = "products/warehouse_sources/sources/conftest.py"
 set   = { source_vendor = "conftest" }
+
+# AI observability areas. Everything under the product backend is old unless a later block names it.
+[[assign]]
+match = ["products/ai_observability/backend/**", "posthog/hogql_queries/ai/**", "posthog/temporal/ai_observability/**"]
+set   = { aio_area = "old" }
+
+[[assign]]
+match    = [
+  "products/ai_observability/backend/presentation/**", "products/ai_observability/backend/facade/**",
+  "products/ai_observability/backend/logic/**", "products/ai_observability/backend/temporal/**",
+]
+set      = { aio_area = "layered" }
+override = true
+
+[[assign]]
+match    = [
+  "products/ai_observability/backend/models/**", "products/ai_observability/backend/migrations/**",
+  "products/ai_observability/backend/routes.py", "products/ai_observability/backend/tests/**",
+]
+set      = { aio_area = "shared" }
+override = true
+
+[[assign]]
+match = ["products/ai_observability/backend/logic/**/*_queries.py", "products/ai_observability/backend/logic/**/*_store.py"]
+set   = { aio_data_access = true }
 
 # ClickHouse migrations are frozen history, but no Django migrations: they keep the prod context.
 [[assign]]
@@ -859,6 +889,93 @@ contexts   = { exclude = [] }
 from       = "src.registry == 'webhook_consumers'"
 endpoint   = "surface"
 deny       = "dst.zone == 'backend' and dst.zone != 'facade'"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+# ── AI observability layers ────────────────────────────────────
+# The team rules in products/ai_observability/AGENTS.md, for the AI observability product only.
+
+[rules.aio-no-temporal-workflow-imports]
+primitive  = "edge"
+doc        = "AI observability's layered code (presentation, facade, logic, temporal) never imports the workflow modules in posthog/temporal/ai_observability/."
+why        = "New code does not depend on the old workflow modules. A helper both sides need lives in product logic, so the old modules can be deleted without touching new code. See .agents/skills/working-on-ai-observability/references/old-code.md."
+ways       = [
+  { safety = "care", text = "Move the helper into backend/logic/<concept>/. Import it from there in the new code and in the workflow module." },
+  { safety = "person", text = "If the import must stay, stop and tell the person." },
+]
+example    = { finding = "from posthog.temporal.ai_observability.run_evaluation import build_prompt  # in backend/logic/", fixed = "from products.ai_observability.backend.logic.evaluations.prompts import build_prompt" }
+kinds      = ["import"]
+contexts   = { exclude = ["test", "type_only"] }
+from       = "src.aio_area == 'layered'"
+deny       = "dst.path startswith 'posthog/temporal/ai_observability/'"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+[rules.aio-logic-no-drf]
+primitive  = "edge"
+doc        = "AI observability's backend/logic/ never imports DRF."
+why        = "Logic serves HTTP, Temporal, MCP and PostHog AI alike. Request parsing, serializers and HTTP errors belong to presentation. See products/ai_observability/AGENTS.md."
+ways       = [
+  { safety = "care", text = "Raise a product error from logic. Map it to an HTTP response in the view." },
+  { safety = "care", text = "Move the parsing or the serializer to backend/presentation/. Pass typed values into logic." },
+]
+example    = { finding = "from rest_framework.exceptions import ValidationError  # in backend/logic/", fixed = "raise TraceNotFound(trace_id)  # the view maps it to a 404" }
+kinds      = ["import"]
+contexts   = { exclude = ["test", "type_only"] }
+from       = "src.aio_area == 'layered' and src.zone == 'logic'"
+deny       = "dst.external == 'rest_framework'"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+[rules.aio-old-code-through-logic]
+primitive  = "edge"
+doc        = "AI observability's presentation, facade data modules (api*.py, contracts.py, enums.py) and temporal/ do not import old AI observability code: backend/api/, the other modules directly under backend/, posthog/hogql_queries/ai/. Logic may, through a bridge module. The facade's other modules are not checked. Presentation imports of old product modules are presentation-uses-facade's; imports of posthog/temporal/ai_observability/ are aio-no-temporal-workflow-imports'."
+why        = "New code reaches old code in one place, a bridge module under backend/logic/<concept>/, so the old code can be replaced without touching the rest. See .agents/skills/working-on-ai-observability/references/old-code.md."
+ways       = [
+  { safety = "care", text = "Move the piece into backend/logic/ when it is small, and import it from there in both places." },
+  { safety = "care", text = "Otherwise, use it through one bridge module under backend/logic/<concept>/, and call the bridge." },
+  { safety = "person", text = "If the import must stay, stop and tell the person." },
+]
+example    = { finding = "from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner  # in backend/facade/api.py", fixed = "from products.ai_observability.backend.logic.traces.trace_queries import load_trace" }
+kinds      = ["import"]
+contexts   = { exclude = ["test", "type_only"] }
+from       = "src.aio_area == 'layered' and src.zone in ['presentation', 'wiring', 'data-api', 'contracts']"
+deny       = "dst.aio_area == 'old' and not (dst.path startswith 'posthog/temporal/ai_observability/') and not (src.zone == 'presentation' and dst.tier == 'product')"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+[rules.aio-behavior-no-orm-io]
+primitive  = "edge"
+doc        = "An AI observability behavior module (backend/logic/ outside *_queries.py and *_store.py) does no ORM I/O: no query, write or row lock through a model's manager, and no save of a value a query returned. Building a model in memory, reading its fields and using it as a type stay allowed. Not seen: a save, a delete or a lazy relation on an object the module received as a parameter, and a model passed to a helper such as get_object_or_404."
+why        = "Behavior takes loaded data and returns data, so it is tested without a database. Reads and writes live in the concept's data access module. See products/ai_observability/AGENTS.md."
+ways       = [
+  { safety = "care", text = "Move the query or the write into the concept's *_queries.py. Pass what it loads into the behavior, and return what the behavior decides." },
+  { safety = "person", text = "If the module is a data access module under another name, stop and tell the person." },
+]
+example    = { finding = "TraceReview.objects.filter(team_id=team_id).count()  # in backend/logic/traces/review.py", fixed = "count_reviews(team_id)  # in backend/logic/traces/review_queries.py" }
+kinds      = ["reference"]
+from       = "src.aio_area == 'layered' and src.zone == 'logic' and src.aio_data_access != true and src.testcode != true"
+select     = "dst.kind == 'model' and edge.shape != none"
+deny       = "edge.shape in ['write', 'lock', 'prefetch', 'subquery', 'scalar-chain', 'instance-single', 'instance-many'] or edge.flow_shape startswith 'write' or edge.flow_shape == 'lock' or edge.instance_write != none"
+contexts   = { exclude = ["test", "migration"] }
+requires   = ["django.uses"]
+identity   = "module-symbol"
+counted    = true
+growth_key = ["dst.symbol", "edge.label", "src.package"]
+
+[rules.aio-behavior-no-io-calls]
+primitive  = "edge"
+doc        = "An AI observability behavior module (backend/logic/ outside *_queries.py and *_store.py) imports no storage entry point: HogQL execution, the ClickHouse client, the Django cache, Django's connections or transactions."
+why        = "Behavior takes loaded data and returns data, so it is tested without a database. Queries and transactions live in the concept's data access module. See products/ai_observability/AGENTS.md."
+ways       = [
+  { safety = "care", text = "Move the query or the transaction into the concept's *_queries.py. Pass what it loads into the behavior." },
+  { safety = "person", text = "If the module is a data access module under another name, stop and tell the person." },
+]
+example    = { finding = "from posthog.hogql.query import execute_hogql_query  # in backend/logic/traces/clusters.py", fixed = "from products.ai_observability.backend.logic.traces.cluster_queries import load_clusters" }
+kinds      = ["import"]
+contexts   = { exclude = ["test", "type_only"] }
+from       = "src.aio_area == 'layered' and src.zone == 'logic' and src.aio_data_access != true and src.testcode != true"
+deny       = "dst.module in ['django.db.transaction', 'django.core.cache', 'posthog.clickhouse.client', 'posthog.clickhouse.client.execute', 'posthog.hogql.query'] or dst.symbol in ['django.db.transaction', 'django.db.connection', 'django.db.connections', 'django.core.cache.cache', 'django.core.cache.caches', 'posthog.hogql.query.execute_hogql_query', 'posthog.clickhouse.client.sync_execute', 'posthog.clickhouse.client.execute.sync_execute']"
 identity   = "module-pair"
 growth_key = ["dst.module", "src.package"]
 
