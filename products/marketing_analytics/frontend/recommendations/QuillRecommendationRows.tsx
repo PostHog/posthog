@@ -100,7 +100,9 @@ export function QuillRecommendationRows({
                                                     onClick={() => onToggle(row.key, row.rule)}
                                                     data-attr="marketing-recommendations-view-instructions"
                                                 >
-                                                    {isExpanded ? 'Hide instructions' : 'View instructions'}
+                                                    <span>
+                                                        {isExpanded ? 'Hide instructions' : 'View instructions'}
+                                                    </span>
                                                     {isExpanded ? <IconChevronDown /> : <IconChevronRight />}
                                                 </Button>
                                             )}

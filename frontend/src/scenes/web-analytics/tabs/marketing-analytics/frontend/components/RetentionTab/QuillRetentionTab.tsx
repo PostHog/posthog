@@ -20,6 +20,7 @@ import {
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { closesIntoLemonPopover } from 'lib/components/QuillSurface/closesIntoLemonPopover'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
@@ -98,7 +99,16 @@ export function QuillRetentionTab({
                                 allowCustomComparison={false}
                             />
                             <ReloadAll iconOnly />
-                            <Popover open={optionsOpen} onOpenChange={(open) => setOptionsOpen(open)}>
+                            <Popover
+                                open={optionsOpen}
+                                onOpenChange={(open, details) => {
+                                    if (closesIntoLemonPopover(open, details)) {
+                                        details.cancel()
+                                    } else {
+                                        setOptionsOpen(open)
+                                    }
+                                }}
+                            >
                                 <PopoverTrigger
                                     render={<Button variant="outline" data-attr="marketing-retention-options" />}
                                 >

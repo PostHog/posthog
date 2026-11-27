@@ -252,7 +252,7 @@ export function QuillConversionGoalRecommendations({
                         onClick={onScan}
                         data-attr="marketing-conversion-update-recommendations"
                     >
-                        {isAnalyzing ? 'Scanning…' : state?.latest_run ? 'Scan again' : 'Scan events'}
+                        <span>{isAnalyzing ? 'Scanning…' : state?.latest_run ? 'Scan again' : 'Scan events'}</span>
                         {isAnalyzing && <Spinner />}
                     </Button>
                 </div>

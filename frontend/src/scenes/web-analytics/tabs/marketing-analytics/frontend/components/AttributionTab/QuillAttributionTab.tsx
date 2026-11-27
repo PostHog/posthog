@@ -19,6 +19,7 @@ import {
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { closesIntoLemonPopover } from 'lib/components/QuillSurface/closesIntoLemonPopover'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -121,7 +122,16 @@ export function QuillAttributionTab({
                     right={
                         <div className="flex flex-wrap items-center gap-2">
                             <ReloadAll iconOnly />
-                            <Popover open={optionsOpen} onOpenChange={(open) => setOptionsOpen(open)}>
+                            <Popover
+                                open={optionsOpen}
+                                onOpenChange={(open, details) => {
+                                    if (closesIntoLemonPopover(open, details)) {
+                                        details.cancel()
+                                    } else {
+                                        setOptionsOpen(open)
+                                    }
+                                }}
+                            >
                                 <PopoverTrigger
                                     render={<Button variant="outline" data-attr="marketing-attribution-options" />}
                                 >

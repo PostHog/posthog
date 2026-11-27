@@ -62,7 +62,7 @@ export function QuillSuggestedActions({
                         onClick={() => loadSetupPlan({ refresh: true })}
                     >
                         <IconRefresh />
-                        {setupPlan ? 'Rescan' : 'Scan'}
+                        <span>{setupPlan ? 'Rescan' : 'Scan'}</span>
                     </Button>
                 </div>
             </div>

@@ -137,7 +137,7 @@ export function QuillSourceCatalog({
                 </Button>
                 {onContinue && (
                     <Button variant="primary" onClick={onContinue} data-attr="marketing-onboarding-continue">
-                        {hasSources ? 'Continue to dashboard' : 'Skip for now'}
+                        <span>{hasSources ? 'Continue to dashboard' : 'Skip for now'}</span>
                         <IconArrowRight />
                     </Button>
                 )}
