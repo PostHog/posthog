@@ -10,7 +10,7 @@ describe('framesToCsv', () => {
         ],
     })
 
-    it.each<{ name: string; frames: DataFrame[]; csv: string[] }>([
+    it.each<{ name: string; frames: DataFrame[]; csv: string[]; delimiter?: ',' | '\t' }>([
         {
             name: 'joins series on their time, and leaves a gap where one has no value',
             frames: [series('Pageviews', ['d1', 'd2'], [1, 2]), series('Sign-ups', ['d2', 'd3'], [5, 6])],
@@ -48,11 +48,22 @@ describe('framesToCsv', () => {
             csv: ['paths', '"[""=1+1""]"', '"[""=1+1""]"'],
         },
         {
+            name: 'stops a formula with a line break in it',
+            frames: [{ fields: [{ name: 'path', type: 'string', values: ['=SUM(1,\n1)'] }] }],
+            csv: ['path', `"'=SUM(1,\n1)"`],
+        },
+        {
+            name: 'quotes a tab in pasted text, so it cannot start a cell of its own',
+            frames: [{ fields: [{ name: 'path', type: 'string', values: ['safe\t=1+1'] }] }],
+            delimiter: '\t',
+            csv: ['path', '"safe\t=1+1"'],
+        },
+        {
             name: 'joins a date and a full timestamp for the same instant into one row',
             frames: [series('Pageviews', ['2026-11-01'], [1]), series('Sign-ups', ['2026-11-01T00:00:00.000Z'], [5])],
             csv: ['time,Pageviews,Sign-ups', '2026-11-01,1,5'],
         },
-    ])('$name', ({ frames, csv }) => {
-        expect(framesToCsv(frames).split('\r\n')).toEqual(csv)
+    ])('$name', ({ frames, csv, delimiter }) => {
+        expect(framesToCsv(frames, delimiter).split('\r\n')).toEqual(csv)
     })
 })

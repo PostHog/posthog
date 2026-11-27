@@ -106,13 +106,13 @@ export const DEFAULT_VIZ_TYPES: VizDefinition[] = [
 ]
 
 // The data the chart drew, so it matches the chart whatever runner, time range and filters gave it.
-function csvOf(panel: ContentPanel<ChartConfig>): string | null {
+function csvOf(panel: ContentPanel<ChartConfig>, delimiter?: ',' | '\t'): string | null {
     const frames = shownFramesOf(panel)
     if (!frames || hasNoValues(frames)) {
         lemonToast.warning('This chart has no data to export.')
         return null
     }
-    return framesToCsv(frames)
+    return framesToCsv(frames, delimiter)
 }
 
 function downloadCsv(panel: ContentPanel<ChartConfig>): void {
@@ -123,7 +123,7 @@ function downloadCsv(panel: ContentPanel<ChartConfig>): void {
 }
 
 function copyCsv(panel: ContentPanel<ChartConfig>): void {
-    const csv = csvOf(panel)
+    const csv = csvOf(panel, '\t')
     if (csv !== null) {
         void copyToClipboard(csv, 'chart data')
     }
