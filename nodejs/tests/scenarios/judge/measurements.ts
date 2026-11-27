@@ -496,7 +496,7 @@ type WindowP99 = { value: number | null; clean: boolean; censored?: true; incomp
 
 type SeriesPoint = { offsetS: number; value: number | null; recovered: boolean; censored?: true; incomplete?: true }
 
-type Series = { baseline: number | null; bar: number | null; points: SeriesPoint[] }
+type Series = { baseline: number | null; bar: number | null; points: SeriesPoint[]; valve: Phase }
 
 const recentBaselineOf = (baseline: Phase): Phase | undefined =>
     seconds(baseline.to - baseline.from) < MIN_BASELINE_SECONDS
@@ -513,18 +513,25 @@ function windowsOf(phase: Phase): Phase[] {
 
 function seriesOver(
     { drive, timeline }: Pick<MeasureEvidence, 'drive' | 'timeline'>,
-    p99: (window: Phase, final: boolean) => WindowP99
+    p99: (window: Phase, final: boolean, baseline: boolean) => WindowP99,
+    { wholeMinutes = false } = {}
 ): Series | undefined {
     const { baseline, valve } = phasesOf(drive, timeline)
     const recent = recentBaselineOf(baseline)
     if (valve === undefined || recent === undefined) {
         return undefined
     }
-    const reference = p99(recent, false)
+    const reference = p99(recent, false, true)
     const usable = reference.value !== null && reference.clean && !reference.censored
     const bar = usable ? RECOVERY_BAR_MULTIPLE * reference.value! : null
-    const points = windowsOf(valve).map((window): SeriesPoint => {
-        const { value, clean, censored, incomplete } = p99(window, window.to === valve.to)
+    const judged = wholeMinutes
+        ? {
+              from: valve.from,
+              to: valve.from + Math.floor((valve.to - valve.from) / SERIES_WINDOW_MS) * SERIES_WINDOW_MS,
+          }
+        : valve
+    const points = windowsOf(judged).map((window): SeriesPoint => {
+        const { value, clean, censored, incomplete } = p99(window, window.to === valve.to, false)
         return {
             offsetS: seconds(window.from - valve.from),
             value,
@@ -533,7 +540,7 @@ function seriesOver(
             ...(incomplete ? { incomplete } : {}),
         }
     })
-    return { baseline: usable ? reference.value : null, bar, points }
+    return { baseline: usable ? reference.value : null, bar, points, valve }
 }
 
 const valueOf = (value: number | null, censored?: true): Value =>
@@ -551,7 +558,10 @@ const pointsOf = ({ baseline, bar, points }: Series, prefix = ''): Measured[] =>
     ),
 ]
 
-function recoveryOf({ bar, points }: Series): Measured {
+function recoveryOf({ bar, points }: Series, unknown?: string): Measured {
+    if (unknown !== undefined) {
+        return { value: null, censored: true, unmeasured: unknown }
+    }
     const lastUnrecovered = points.findLastIndex(({ recovered }) => !recovered)
     return bar === null || lastUnrecovered === points.length - 1
         ? { value: null, censored: true }
@@ -559,23 +569,33 @@ function recoveryOf({ bar, points }: Series): Measured {
 }
 
 function writeLatencySeries({ writer, drive, timeline }: MeasureEvidence): Series | undefined {
-    return seriesOver({ drive, timeline }, (window) => {
-        const probed = writer.filter(({ at }) => within(window, at))
-        const committed = probed
-            .filter(({ ok }) => ok)
-            .map(({ latencyMs }) => latencyMs)
-            .sort((a, b) => a - b)
-        // A silence that a minute boundary splits counts whole in both minutes, so take the probes either side.
-        const previous = writer.findLast(({ at }) => at < window.from)?.at ?? window.from
-        const next = writer.find(({ at }) => at >= window.to)?.at ?? window.to
-        const bounds = [previous, ...probed.map(({ at }) => at), next]
-        const silent = bounds.some((at, i) => i > 0 && at - bounds[i - 1] > WRITER_PROBE_GAP_MS)
-        return {
-            value: committed.length === 0 ? null : nearestRank(committed, 0.99),
-            clean: !silent && probed.every(({ ok }) => ok),
-            ...(silent ? { incomplete: true as const } : {}),
-        }
-    })
+    const ends = writer.map(committedAt).sort((a, b) => a - b)
+    return seriesOver(
+        { drive, timeline },
+        (window, _final, baseline) => {
+            // A probe counts in the minute it ended; the baseline takes only probes that start and end in it.
+            const ended = writer.filter(
+                (sample) => within(window, committedAt(sample)) && (!baseline || within(window, sample.at))
+            )
+            const committed = ended
+                .filter(({ ok }) => ok)
+                .map(({ latencyMs }) => latencyMs)
+                .sort((a, b) => a - b)
+            const failed = ended.some(({ ok }) => !ok)
+            // A silence that a minute boundary splits counts whole in both minutes, so take the probes either side.
+            const previous = ends.findLast((at) => at < window.from) ?? window.from
+            const next = ends.find((at) => at >= window.to) ?? window.to
+            const inside = baseline ? ended.map(committedAt) : ends.filter((at) => within(window, at))
+            const bounds = [previous, ...inside.sort((a, b) => a - b), next]
+            const silent = bounds.some((at, i) => i > 0 && at - bounds[i - 1] > WRITER_PROBE_GAP_MS)
+            return {
+                value: committed.length === 0 ? null : nearestRank(committed, 0.99),
+                clean: !silent && !failed,
+                ...(silent ? { incomplete: true as const } : {}),
+            }
+        },
+        { wholeMinutes: true }
+    )
 }
 
 function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, Series][] {
@@ -694,7 +714,28 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         unit: 's',
         measure: (evidence) => {
             const series = writeLatencySeries(evidence)
-            return series ? [recoveryOf(series)] : []
+            if (series === undefined) {
+                return []
+            }
+            const { from, to } = series.valve
+            const settled = from + Math.floor((to - from) / SERIES_WINDOW_MS) * SERIES_WINDOW_MS
+            const inFlight = evidence.writer.some((sample) => sample.at < to && committedAt(sample) >= to)
+            // Recovery reads only whole minutes, so a write after the last of them may only confirm it.
+            const unsettled = evidence.writer.some((sample) => {
+                const end = committedAt(sample)
+                const late = !sample.ok || (series.bar !== null && sample.latencyMs > series.bar)
+                return settled < to && ((end >= settled && end < to && late) || (sample.at < settled && end >= settled))
+            })
+            return [
+                recoveryOf(
+                    series,
+                    inFlight
+                        ? 'a write probe was in flight at the valve end'
+                        : unsettled
+                          ? 'a write after the last whole minute of the valve failed or passed the bar'
+                          : undefined
+                ),
+            ]
         },
     },
     {
@@ -709,7 +750,14 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         unit: 's',
         // A scrape interval that crosses a minute boundary cannot say which side its pickups fell on, so no minute can
         // prove it recovered. The readout reads the per-minute p99s instead.
-        measure: (evidence) => pickupSeries(evidence).map(([key]) => ({ key, value: null, censored: true as const })),
+        measure: (evidence) =>
+            pickupSeries(evidence).map(([key]) => ({
+                key,
+                value: null,
+                censored: true as const,
+                unmeasured:
+                    'a scrape interval that crosses a minute boundary cannot say which side its pickups fell on',
+            })),
     },
     {
         name: 'baseline_claims_per_second',
