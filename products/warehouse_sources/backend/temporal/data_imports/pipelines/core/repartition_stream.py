@@ -429,14 +429,16 @@ def _invalid_string_upper_bound(raw: bytes, prefix: str) -> str | None:
     and starts with the valid `prefix`.
 
     The raised prefix comes first. When the prefix cannot be raised, for example because it is
-    empty, the prefix is followed by a character above the first invalid byte. None only when that
-    byte is 0xF5 or higher too.
+    empty, the prefix is followed by a character above the first invalid byte, or else by U+10FFFF
+    when its bytes still sort at or above the rest of `raw`. None when neither covers `raw`.
     """
     raised = _string_upper_bound(prefix, complete=False)
     if raised is not None:
         return raised
     encoded = prefix.encode("utf-8")
     above = _smallest_char_above_byte(raw[len(encoded)])
+    if above is None and "\U0010ffff".encode("utf-8") >= raw[len(encoded) :]:
+        above = "\U0010ffff"
     if above is None or len(encoded) + len(above.encode("utf-8")) > STRING_STATS_MAX_BYTES:
         return None
     return prefix + above
