@@ -373,6 +373,26 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
     })
 
+    it("drops preview progress once a live open takes in another tab's pick", async () => {
+        useMocks(calendarApi().mocks)
+        signIn({ is_staff: true })
+        router.actions.push('/workflows/advent', { day: '4' })
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        logic.actions.answerDoor('door-2', 'james')
+        logic.actions.finishReveal()
+        logic.actions.activateDoor('door-3-upper')
+        logic.actions.finishReveal()
+        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
+        router.actions.push('/workflows/advent')
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        router.actions.push('/workflows/advent', { day: '4' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(doorOf(logic, 'door-3-lower')?.status).toBe('ready')
+    })
+
     it.each([
         ['a staff user', 'locked', true],
         ['anyone else', 'ready', false],
