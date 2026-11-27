@@ -271,12 +271,15 @@ LIMIT 1000000`
                         personFilter = hogql`\nAND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`
                     }
 
+                    // MCP analytics events usually set $session_id to the MCP conversation, not the browser
+                    // session, so they match on person and time like other server-side events. An MCP event
+                    // that carries the recording's id is already in sessionEventsQuery, so it is excluded here.
                     const relatedEventsQuery = (hogql`
 SELECT ${RELATED_EVENT_COLUMNS}
 FROM events
 WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
 AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
-AND (empty ($session_id) OR isNull($session_id))
+AND (empty ($session_id) OR isNull($session_id) OR (startsWith(event, '$mcp_') AND $session_id != ${props.sessionRecordingId}))
 AND properties.$lib != 'web'` +
                         (personFilter ?? '') +
                         hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString

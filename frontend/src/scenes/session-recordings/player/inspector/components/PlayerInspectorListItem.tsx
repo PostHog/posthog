@@ -16,6 +16,7 @@ import {
     IconLeave,
     IconLive,
     IconLogomark,
+    IconMCP,
     IconRedux,
     IconTarget,
     IconTerminal,
@@ -139,6 +140,10 @@ export function eventToIcon(event: string | undefined | null) {
             return IconLeave
         case '$autocapture':
             return IconBolt
+    }
+
+    if (event?.startsWith('$mcp_')) {
+        return IconMCP
     }
 
     if (event && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[event]) {
