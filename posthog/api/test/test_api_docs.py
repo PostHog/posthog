@@ -262,6 +262,25 @@ class TestAPIDocsSchema(APIBaseTest):
         assert schema_response.headers.get("Content-Type") == "application/vnd.oai.openapi; charset=utf-8"
         assert int(str(schema_response.headers.get("Content-Length"))) > 0
 
+        # A method-level extend_schema(extensions=...) replaces the class-level one, which silently drops x-swagger-tag.
+        operations = {
+            (method, route): operation
+            for route, methods in schema_response.data["paths"].items()
+            for method, operation in methods.items()
+        }
+        for (method, route), operation in operations.items():
+            if "/hog_flows/" in route:
+                assert "workflows" in operation["tags"], (method, route)
+            if "messaging" in operation["x-product"]:
+                assert "subscriptions" not in operation["tags"], (method, route)
+        for method, route in [
+            ("get", "/api/projects/{project_id}/hog_flows/"),
+            ("post", "/api/projects/{project_id}/hog_flows/{id}/publish/"),
+            ("get", "/api/projects/{project_id}/hog_flows/{id}/schedules/"),
+            ("post", "/api/projects/{project_id}/hog_flows/{id}/batch_jobs/{batch_job_id}/cancel/"),
+        ]:
+            assert operations[(method, route)]["tags"] == ["workflows", "broadcasts"]
+
     def test_llm_prompt_schema_includes_search_and_prompt_name_path_param(self) -> None:
         self.client.logout()
 
