@@ -665,8 +665,9 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             },
         })
 
-    const useFakeClock = (): void => {
+    const useFakeClock = (startAt?: number): void => {
         jest.useFakeTimers({
+            now: startAt,
             doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'hrtime', 'performance'],
         })
         const timeout = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
@@ -732,8 +733,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
         it('leaves the send whose call never reached SES for the next worker, which sends it once', async () => {
             const [id] = await enqueue(transactionalSend(null))
+            useFakeClock(Date.now() - 20 * CONSUMER_STOP_DEADLINE_MS)
             const clockStarted = Date.now()
-            useFakeClock()
             let callStarted = false
             let credentialsArrive!: () => void
             const worker = await startWorker(
@@ -751,16 +752,12 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             }, clockStarted + 1_000)
 
             const afterStop = await stopWhileItWaits(worker, id)
-            const stoppedAt = Date.now()
+            const dueNow = await db.query(`SELECT scheduled <= NOW() AS due FROM cyclotron_jobs WHERE id = $1`, [id])
 
-            expect({ status: afterStop.status, dueByTheStop: afterStop.scheduled.getTime() <= stoppedAt }).toEqual({
-                status: 'available',
-                dueByTheStop: true,
-            })
+            expect({ status: afterStop.status, due: dueNow.rows[0].due }).toEqual({ status: 'available', due: true })
             expect(delivered()).toEqual([])
             credentialsArrive()
             backToRealClock()
-            await db.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [id])
             await startWorker(null)
             expect(await ended(id)).toBe('completed')
             expect(delivered()).toEqual([[]])

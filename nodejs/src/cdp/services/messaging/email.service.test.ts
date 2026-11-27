@@ -4,6 +4,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
+import { Socket, createServer } from 'node:net'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import { v5 as uuidv5 } from 'uuid'
@@ -86,6 +87,7 @@ import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
+import { SesTransport } from './ses-transport'
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
     const metric = await register.getSingleMetric(name)!.get()
@@ -241,6 +243,33 @@ const emailSeriesCountedFor = async (result: CyclotronJobInvocationResult): Prom
             .filter(([, delta]) => delta !== 0)
     )
 }
+type StalledSesCall = { transport: SesTransport; reachedTheSesCall: Promise<void>; close: () => Promise<void> }
+
+const sesThatNeverFinishesTheTlsHandshake = async (): Promise<{
+    endpoint: string
+    connected: Promise<void>
+    close: () => Promise<void>
+}> => {
+    const sockets: Socket[] = []
+    let connected!: () => void
+    const firstConnection = new Promise<void>((resolve) => (connected = resolve))
+    const server = createServer((socket) => {
+        sockets.push(socket)
+        socket.on('error', () => undefined)
+        connected()
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as { port: number }
+    return {
+        endpoint: `https://127.0.0.1:${port}`,
+        connected: firstConnection,
+        close: async () => {
+            sockets.forEach((socket) => socket.destroy())
+            await new Promise((resolve) => server.close(resolve))
+        },
+    }
+}
+
 const oneRetryAfter = (delayMs: number): any => {
     const token = (retries: number): { getRetryCount: () => number; getRetryDelay: () => number } => ({
         getRetryCount: () => retries,
@@ -2827,42 +2856,84 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
-                it('charges it and the workflow limit once, and sends once, after more worker stops cut off its send before it reached SES than a load may retry', async () => {
-                    send([])
-                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
-                    const sendCutOffByAStop = async (
-                        cutOff: CyclotronJobInvocationHogFunction
-                    ): Promise<Awaited<ReturnType<EmailService['executeSendEmail']>>> => {
-                        const stopping = sender({ teamDailyCap: 2 })
-                        let callStarted!: () => void
-                        const reachedTheSesCall = new Promise<void>((resolve) => (callStarted = resolve))
-                        stopping.sesTransport = sesTransportFor(ses, {
-                            credentials: () => {
-                                callStarted()
-                                return new Promise(() => undefined)
-                            },
+                const stalledTlsHandshake = async (): Promise<StalledSesCall> => {
+                    const handshake = await sesThatNeverFinishesTheTlsHandshake()
+                    return {
+                        transport: sesTransportFor(handshake, { maxAttempts: 1 }),
+                        reachedTheSesCall: handshake.connected,
+                        close: handshake.close,
+                    }
+                }
+
+                it.each([
+                    [
+                        'without files while the SES client waits for its credentials',
+                        (): StoredFile[] => [],
+                        (): Promise<StalledSesCall> => {
+                            let callStarted!: () => void
+                            const reachedTheSesCall = new Promise<void>((resolve) => (callStarted = resolve))
+                            const transport = sesTransportFor(ses, {
+                                credentials: () => {
+                                    callStarted()
+                                    return new Promise(() => undefined)
+                                },
+                            })
+                            return Promise.resolve({ transport, reachedTheSesCall, close: () => Promise.resolve() })
+                        },
+                    ],
+                    [
+                        'without files while its TLS handshake with SES has not finished',
+                        (): StoredFile[] => [],
+                        stalledTlsHandshake,
+                    ],
+                    [
+                        'with a file its deadline would still wait for while its TLS handshake with SES has not finished',
+                        (): StoredFile[] => [pdf],
+                        stalledTlsHandshake,
+                    ],
+                ])(
+                    'charges it and the workflow limit once, and sends once, after more worker stops cut off its send %s than a load may retry',
+                    async (_name, attached, stalledSesCall) => {
+                        send(attached())
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                        const sendCutOffByAStop = async (
+                            cutOff: CyclotronJobInvocationHogFunction
+                        ): Promise<Awaited<ReturnType<EmailService['executeSendEmail']>>> => {
+                            const stopping = sender({ teamDailyCap: 2, attachmentSendDeadlineMs: 60_000 })
+                            const stalled = await stalledSesCall()
+                            stopping.sesTransport = stalled.transport
+                            const sending = stopping.executeSendEmail(cutOff)
+                            await Promise.race([stalled.reachedTheSesCall, sending])
+                            stopping.stopSending()
+                            const result = await sending
+                            await stalled.close()
+                            return result
+                        }
+
+                        const cutOff: boolean[] = []
+                        let next = invocation
+                        for (let stop = 0; stop < 11; stop++) {
+                            const result = await sendCutOffByAStop(next)
+                            cutOff.push(!result.finished && deliveredTo(ses, recipient).length === 0)
+                            if (result.finished) {
+                                break
+                            }
+                            next = result.invocation
+                        }
+                        const sendingService = sender({ teamDailyCap: 2 })
+                        const sent = await sendingService.executeSendEmail(next)
+
+                        expect(cutOff).toEqual(Array(11).fill(true))
+                        expect({ finished: sent.finished, error: sent.error }).toEqual({
+                            finished: true,
+                            error: undefined,
                         })
-                        const sending = stopping.executeSendEmail(cutOff)
-                        await Promise.race([reachedTheSesCall, sending])
-                        stopping.stopSending()
-                        return await sending
+                        expect(deliveredTo(ses, recipient).map((email) => email.attachments.length)).toEqual([
+                            attached().length,
+                        ])
+                        expect(await sendsLeftInTheTeamBudget(sendingService)).toBe(1)
                     }
-
-                    const cutOff: boolean[] = []
-                    let next = invocation
-                    for (let stop = 0; stop < 11; stop++) {
-                        const result = await sendCutOffByAStop(next)
-                        cutOff.push(!result.finished && deliveredTo(ses, recipient).length === 0)
-                        next = result.invocation
-                    }
-                    const sendingService = sender({ teamDailyCap: 2 })
-                    const sent = await sendingService.executeSendEmail(next)
-
-                    expect(cutOff).toEqual(Array(11).fill(true))
-                    expect({ finished: sent.finished, error: sent.error }).toEqual({ finished: true, error: undefined })
-                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
-                    expect(await sendsLeftInTheTeamBudget(sendingService)).toBe(1)
-                })
+                )
 
                 it('sends nothing when the ownership check answers that the job is lost after it failed on each of its retries', async () => {
                     const emailService = sender()
@@ -3189,12 +3260,21 @@ describe('EmailService', () => {
                     },
                     1,
                 ],
+                [
+                    'the TLS handshake with SES has not finished',
+                    async (emailService: EmailService) => {
+                        const handshake = await sesThatNeverFinishesTheTlsHandshake()
+                        emailService.sesTransport = sesTransportFor(handshake, { maxAttempts: 1 })
+                        return handshake.close
+                    },
+                    1,
+                ],
             ])(
                 'when %s past the deadline, retries the send later and delivers it with its files once',
                 async (_name, fault, sesCallsCutOffByTheDeadline) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     const ownTransport = emailService.sesTransport
-                    fault(emailService)
+                    const closeTheStalledSes = await Promise.resolve(fault(emailService))
                     const sesCallsWithFilesFailed = (): Promise<number> =>
                         metricTotal(
                             'cdp_ses_send_duration_ms',
@@ -3218,6 +3298,7 @@ describe('EmailService', () => {
                         sesCallsCutOff: sesCallsCutOffByTheDeadline,
                     })
 
+                    await closeTheStalledSes?.()
                     bucket.answer = 'pass'
                     ses.failWith(null)
                     emailService.sesTransport = ownTransport

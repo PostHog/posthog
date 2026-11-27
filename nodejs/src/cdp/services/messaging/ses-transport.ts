@@ -1,4 +1,7 @@
 import { SESv2Client, SESv2ClientConfig, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { subscribe } from 'node:diagnostics_channel'
+import type { ClientRequest } from 'node:http'
 import { Counter, Histogram } from 'prom-client'
 
 import { LoadedAttachment, settleBeforeAbortEvenWhileCredentialsStall } from './attachment-store'
@@ -114,27 +117,41 @@ const SYSCALLS_BEFORE_THE_REQUEST_IS_WRITTEN = ['connect', 'getaddrinfo']
 const neverReachedSes = (error: unknown): boolean =>
     isOneOf(SYSCALLS_BEFORE_THE_REQUEST_IS_WRITTEN, (error as { syscall?: string } | undefined)?.syscall)
 
+type Attempt = { requestStarted: boolean; requestWritten: boolean; sesNeverTookIt: boolean }
+
+const attemptOnTheWire = new AsyncLocalStorage<Attempt>()
+
+subscribe('http.client.request.created', (message) => {
+    const attempt = attemptOnTheWire.getStore()
+    if (attempt) {
+        attempt.requestStarted = true
+        ;(message as { request: ClientRequest }).request.once('finish', () => {
+            attempt.requestWritten = true
+        })
+    }
+})
+
+const sesMayHaveAccepted = (attempt: Attempt): boolean =>
+    !attempt.sesNeverTookIt && !(attempt.requestStarted && !attempt.requestWritten)
+
 function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
-    let attemptsSesMayHaveAccepted = 0
+    const attempts: Attempt[] = []
     command.middlewareStack.add(
         (next) => async (args) => {
-            attemptsSesMayHaveAccepted++
+            const attempt: Attempt = { requestStarted: false, requestWritten: false, sesNeverTookIt: false }
+            attempts.push(attempt)
             try {
-                const httpAnswer = await next(args)
-                if (sesReadAndRefused(httpAnswer.response)) {
-                    attemptsSesMayHaveAccepted--
-                }
+                const httpAnswer = await attemptOnTheWire.run(attempt, () => next(args))
+                attempt.sesNeverTookIt = sesReadAndRefused(httpAnswer.response)
                 return httpAnswer
             } catch (error: unknown) {
-                if (neverReachedSes(error)) {
-                    attemptsSesMayHaveAccepted--
-                }
+                attempt.sesNeverTookIt = neverReachedSes(error)
                 throw error
             }
         },
         { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
     )
-    return () => attemptsSesMayHaveAccepted > 0
+    return () => attempts.some(sesMayHaveAccepted)
 }
 
 function withAttachments(email: SesEmail, files: LoadedAttachment[]): SesEmail {
