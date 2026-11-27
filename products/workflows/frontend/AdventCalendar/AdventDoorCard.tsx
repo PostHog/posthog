@@ -128,6 +128,23 @@ function AdventCardText({ door, withRaffle }: { door: AdventDoor; withRaffle: bo
     )
 }
 
+function AdventCardBody({
+    door,
+    shares,
+    onAnswer,
+    onTipClick,
+}: Pick<AdventDoorCardProps, 'door' | 'shares' | 'onAnswer' | 'onTipClick'>): JSX.Element {
+    return (
+        <div className="AdventCard__fade AdventCard__body">
+            <AdventDoorAnswer door={door} shares={shares} onAnswer={onAnswer} />
+            {door.day === ADVENT_LAST_DAY && <AdventRaffleDetails />}
+            {door.status === 'open' && (
+                <AdventTipCard tip={ADVENT_TIPS[door.day]} onLinkClick={() => onTipClick(door.day)} />
+            )}
+        </div>
+    )
+}
+
 export function AdventDoorCard({
     door,
     shares,
@@ -142,8 +159,7 @@ export function AdventDoorCard({
     onMouseEnter,
     onMouseLeave,
 }: AdventDoorCardProps): JSX.Element {
-    const isPresent = door.day === ADVENT_LAST_DAY
-    const detailsBesideFace = isPresent && door.status !== 'open'
+    const detailsBesideFace = door.day === ADVENT_LAST_DAY && door.status !== 'open'
     const { style, faceShift, isLeftward, facesDown } = cardLayout(door, face, stage, isOpen)
 
     return (
@@ -185,13 +201,7 @@ export function AdventDoorCard({
             </div>
 
             {!detailsBesideFace && (
-                <div className="AdventCard__fade AdventCard__body">
-                    <AdventDoorAnswer door={door} shares={shares} onAnswer={onAnswer} />
-                    {isPresent && <AdventRaffleDetails />}
-                    {door.status === 'open' && (
-                        <AdventTipCard tip={ADVENT_TIPS[door.day]} onLinkClick={() => onTipClick(door.day)} />
-                    )}
-                </div>
+                <AdventCardBody door={door} shares={shares} onAnswer={onAnswer} onTipClick={onTipClick} />
             )}
         </div>
     )
