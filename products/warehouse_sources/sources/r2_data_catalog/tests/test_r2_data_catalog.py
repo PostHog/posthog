@@ -539,12 +539,22 @@ def test_catalog_uri_override_replaces_the_default_catalog() -> None:
     ]
 
 
-def test_get_schemas_lists_tables_across_namespace_pages() -> None:
+@pytest.mark.parametrize(
+    ("names", "lists_namespaces"),
+    [
+        (None, True),
+        # Named tables load directly, so a table past the discovery cap is still found.
+        (["analytics.events", "analytics.missing"], True),
+        (["analytics.events"], False),
+    ],
+)
+def test_get_schemas_lists_tables_across_namespace_pages(names: list[str] | None, lists_namespaces: bool) -> None:
     config = R2DataCatalogSourceConfig(account_id="acct123", bucket_name="lake", api_token="cf-token")
 
-    with scripted_network(FakeR2()):
-        schemas = R2DataCatalogSource().get_schemas(config, team_id=1, with_counts=True)
+    with scripted_network(FakeR2()) as network:
+        schemas = R2DataCatalogSource().get_schemas(config, team_id=1, with_counts=True, names=names)
 
+    assert any(r.path.endswith("/namespaces") for r in network.requests_log) is lists_namespaces
     assert len(schemas) == 1
     schema = schemas[0]
     assert schema.name == "analytics.events"

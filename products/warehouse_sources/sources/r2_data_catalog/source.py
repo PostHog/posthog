@@ -181,11 +181,19 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
     ) -> list[SourceSchema]:
         client = self._client(config)
         try:
-            identifiers = client.list_all_tables()
-            if names is not None:
-                wanted = set(names)
-                identifiers = [identifier for identifier in identifiers if identifier.display_name in wanted]
-            return [self._schema(client.load_table(identifier), with_counts) for identifier in identifiers]
+            if names is None:
+                return [
+                    self._schema(client.load_table(identifier), with_counts) for identifier in client.list_all_tables()
+                ]
+            # Named tables load directly, so a table past the discovery cap is still found.
+            schemas: list[SourceSchema] = []
+            for name in dict.fromkeys(names):
+                try:
+                    schemas.append(self._schema(resolve_table(client, name), with_counts))
+                except R2DataCatalogError as error:
+                    if not str(error).startswith(TABLE_NOT_FOUND_MESSAGE):
+                        raise
+            return schemas
         finally:
             client.close()
 
