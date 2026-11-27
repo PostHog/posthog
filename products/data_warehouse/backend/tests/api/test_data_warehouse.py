@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus
 
 _MW = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
 
@@ -175,27 +176,40 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         in_period = datetime(2023, 8, 15, tzinfo=UTC)
-        for team, rows_synced, billable, created_at in [
-            (self.team, 150, True, in_period),
-            (self.team, 70, False, in_period),
-            (self.team, 40, True, datetime(2023, 7, 31, tzinfo=UTC)),
-            (self.team, 30, True, datetime(2023, 9, 1, tzinfo=UTC)),
-            (other_team, 500, True, in_period),
+        for team, rows_synced, job_status, finished_at, destination_ids, billable in [
+            (self.team, 150, ExternalDataJobStatus.COMPLETED, in_period, [], True),
+            # Bills once per destination.
+            (self.team, 20, ExternalDataJobStatus.COMPLETED, in_period, ["one", "two"], True),
+            # Created before the period, so only its finish puts it inside.
+            (self.team, 5, ExternalDataJobStatus.COMPLETED, datetime(2023, 8, 1, 0, 30, tzinfo=UTC), [], True),
+            (self.team, 80, ExternalDataJobStatus.COMPLETED, in_period, [], False),
+            (self.team, 70, ExternalDataJobStatus.FAILED, in_period, [], True),
+            (self.team, 60, ExternalDataJobStatus.RUNNING, None, [], True),
+            (self.team, 40, ExternalDataJobStatus.COMPLETED, datetime(2023, 7, 31, tzinfo=UTC), [], True),
+            (self.team, 30, ExternalDataJobStatus.COMPLETED, datetime(2023, 9, 1, tzinfo=UTC), [], True),
+            (other_team, 500, ExternalDataJobStatus.COMPLETED, in_period, [], True),
         ]:
             source = ExternalDataSource.objects.create(
                 source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=team, source_type="Stripe"
             )
             schema = ExternalDataSchema.objects.create(name="test", team=team, source=source)
             job = ExternalDataJob.objects.create(
-                pipeline_id=source.pk, schema=schema, team=team, rows_synced=rows_synced, billable=billable
+                pipeline_id=source.pk,
+                schema=schema,
+                team=team,
+                rows_synced=rows_synced,
+                billable=billable,
+                status=job_status,
+                finished_at=finished_at,
+                destination_ids=destination_ids,
             )
-            ExternalDataJob.objects.filter(pk=job.pk).update(created_at=created_at)
+            ExternalDataJob.objects.filter(pk=job.pk).update(created_at=datetime(2023, 7, 31, 23, 0, tzinfo=UTC))
 
         response = self.client.get(endpoint)
         data = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["total_rows"], 150)
+        self.assertEqual(data["total_rows"], 195)
         self.assertNotIn("tracked_billing_rows", data)
         self.assertNotIn("pending_billing_rows", data)
 

@@ -76,6 +76,7 @@ from products.data_warehouse.backend.presentation.pipeline_stats import (
     RunningActivityQuerySerializer,
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
+from products.warehouse_sources.backend.facade.billing import get_rows_synced_for_team
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import (
@@ -500,7 +501,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # part of the cached payload: a value cached for a broadly-permissioned caller would leak
         # source ids and row counts to a teammate whose access is narrower. Everything else in the
         # payload is team-wide and permission-independent, so only that part is cached.
-        cache_key = _pipeline_stats_cache_key("total_rows_stats", self.team_id)
+        # The version part retires payloads cached before the total became project-scoped, which
+        # still carry the organization's usage.
+        cache_key = _pipeline_stats_cache_key("total_rows_stats", self.team_id, "v2")
         cached = cache.get(cache_key)
         if cached is not None:
             payload = dict(cached)
@@ -528,18 +531,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 billing_interval = billing_period.get("interval", "month")
                 billing_available = True
 
-                # Billing's usage summary counts the whole organization, so the team's own jobs
-                # give the total. Any project member can read this endpoint, and org-wide usage
-                # belongs on the billing page.
-                rows_synced = (
-                    ExternalDataJob.objects.filter(
-                        team_id=self.team_id,
-                        created_at__gte=billing_period_start,
-                        created_at__lt=billing_period_end,
-                        billable=True,
-                    ).aggregate(total=Sum("rows_synced"))["total"]
-                    or 0
-                )
+                # Billing's usage summary counts the whole organization. Any project member can
+                # read this endpoint, and org-wide usage belongs on the billing page.
+                rows_synced = get_rows_synced_for_team(self.team_id, billing_period_start, billing_period_end)
 
                 data_modeling_jobs = DataModelingJob.objects.filter(
                     team_id=self.team_id,
