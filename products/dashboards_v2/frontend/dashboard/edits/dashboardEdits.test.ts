@@ -1,7 +1,7 @@
 import { dropIntoGrid, stackTiles } from '../../grid/layout/gridTiles'
 import { type SizeOf, type PanelSize } from '../../panels/core/panelSpec'
 import { type Dashboard, type Tile, gridTabs, isSection } from '../document/dashboardTypes'
-import { findTile } from '../document/tileTree'
+import { allTiles, findTile } from '../document/tileTree'
 import { applyEdit, settleDashboard, withFolds, withoutTiles } from './dashboardEdits'
 
 const SIZES: Record<string, PanelSize> = {
@@ -251,6 +251,27 @@ describe('dashboardEdits', () => {
         expect([findTile(edited, 'a'), findTile(edited, copy.id)].map((tile) => tile?.panel)).toEqual([
             { type: 'markdown', config: { text: 'new' }, ref: 'panel1' },
             { type: 'markdown', config: { text: 'new' }, ref: 'panel1' },
+        ])
+    })
+
+    it('puts an independent copy under a duplicated tile, and moves what was below it down', () => {
+        const board = dashboard([
+            section('s', 0, 0, 24, [text('a', 0, 0, 8, 8), text('below', 0, 8, 8, 4), text('beside', 8, 8, 8, 4)]),
+        ])
+        const shared = applyEdit(board, { edit: 'addToGrid', id: 'a', grid: 'second' }, sizeOf)
+        const duplicated = applyEdit(shared, { edit: 'duplicateTile', id: 'a' }, sizeOf)
+        const copy = allTiles(duplicated).find((tile) => !allTiles(shared).some((old) => old.id === tile.id))!
+        const edited = applyEdit(duplicated, { edit: 'setPanelConfig', id: copy.id, config: { text: 'new' } }, sizeOf)
+
+        expect(places(gridTabs(edited)[0].tiles, 'first').slice(1)).toEqual([
+            'a@s: 0,0,8,8',
+            'below@s: 0,16,8,4',
+            'beside@s: 8,0,8,4',
+            `${copy.id}@s: 0,8,8,8`,
+        ])
+        expect([findTile(edited, 'a'), findTile(edited, copy.id)].map((tile) => tile?.panel)).toEqual([
+            { type: 'markdown', config: { text: 'a' }, ref: 'panel1' },
+            { type: 'markdown', config: { text: 'new' } },
         ])
     })
 
