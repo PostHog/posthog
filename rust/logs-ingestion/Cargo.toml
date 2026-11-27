@@ -27,6 +27,7 @@ itoa = { workspace = true }
 ingestion-framework = { path = "../ingestion-framework" }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 redis = { workspace = true }

@@ -6,6 +6,7 @@ use crate::js::{JsObject, JsValue};
 use crate::pipeline::LogsIngestionConsumerConfig;
 use crate::transformations::{LogsTransformerConfig, LOG_ENTRIES_OUTPUT};
 
+use super::consumer_telemetry::ConsumerTelemetry;
 use super::node_env::{
     determine_node_env, get_bool, get_number, get_string, kafka_topic, override_with_env,
     rdkafka_from_env, Env, NodeEnv,
@@ -102,6 +103,7 @@ pub struct ConsumerLoopConfig {
     pub batch_timeout: Duration,
     pub max_background_tasks: usize,
     pub background_task_timeout: Duration,
+    pub telemetry: ConsumerTelemetry,
 }
 
 #[derive(Debug, Clone)]
@@ -542,6 +544,11 @@ impl ServiceConfig {
                     &node,
                     "CONSUMER_BACKGROUND_TASK_TIMEOUT_MS",
                 )? as u64),
+                telemetry: ConsumerTelemetry::new(
+                    &input_topic,
+                    &group_id,
+                    &super::kafka_outputs::hostname(),
+                ),
             },
             database_reader_url,
             database_writer_url,
