@@ -30,14 +30,8 @@ import {
     surroundingLabelText,
 } from './SurroundingLabels'
 
-/** The pie's legend config: {@link ChartLegendConfig} plus a pie-only `'surrounding'` position. */
 export interface PieChartLegendConfig extends Omit<ChartLegendConfig, 'position'> {
-    /** Where the legend sits. `'surrounding'` drops the legend box and labels each slice beside
-     *  the pie instead, in a column on the slice's side, joined to the slice by a leader line, so
-     *  a small slice is as easy to name as a large one. The pie shrinks to leave room for the
-     *  columns, and the on-slice labels give way to them: the slice's value line moves into its
-     *  surrounding label. Clicking a label isolates or toggles its slice as a legend row does.
-     *  Default 'bottom'. */
+    /** `'surrounding'` (pie only) labels each slice beside the pie, with a leader line, in place of the legend box. */
     position?: ChartLegendConfig['position'] | 'surrounding'
 }
 
@@ -80,8 +74,7 @@ export interface PieChartConfig<Meta = unknown> {
         enabled?: boolean
     }
     /** Built-in legend, one row per slice. Hidden by default; toggling a row off removes the
-     *  slice and the rest rescale to the full circle. Same semantics as the other charts, plus a
-     *  pie-only `position: 'surrounding'`. */
+     *  slice and the rest rescale to the full circle. Same semantics as the other charts. */
     legend?: PieChartLegendConfig
 }
 
@@ -199,9 +192,7 @@ function PieChartInner<Meta = unknown>({
             if (!surrounding) {
                 return layout
             }
-            // The slice values the labels show only exist once the slices are laid out, so size the
-            // label columns off a first pass, then shrink the pie to fit beside them and turn it so
-            // the labels sit close to their slices.
+            // Label widths depend on slice values, which exist only after a first layout pass.
             const labelWidths = layout.slices.map((slice) =>
                 measureSurroundingLabel(
                     surroundingLabelText(slice, { valueFormatter, showValue: showValueOnSlice, valueDisplay })
@@ -309,8 +300,6 @@ function PieChartInner<Meta = unknown>({
     )
 }
 
-/** The surrounding labels stand in for the legend box, so it stays hidden while the hidden-slice
- *  state and click handling keep working for the labels. */
 function toChartLegendConfig(
     legend: PieChartLegendConfig | undefined,
     surrounding: boolean

@@ -201,7 +201,6 @@ export const DISPLAY_OPTIONS = [
             { value: 'bottom', label: 'Bottom' },
             { value: 'left', label: 'Left' },
             { value: 'right', label: 'Right' },
-            // Pie and donut only: see `legendPositionChoices`.
             { value: 'surrounding', label: 'Surrounding' },
         ],
     },
@@ -462,8 +461,6 @@ export interface DisplayOptionTab {
     count: number
 }
 
-/** The legend positions a chart offers. `surrounding` labels each slice beside a pie or donut, with a
- *  line pointing to it, so other charts leave it out. */
 export function legendPositionChoices(isPie: boolean): ChartOptionChoice<DisplayOptionValue<'legendPosition'>>[] {
     const choices = DISPLAY_OPTIONS.find((option) => option.name === 'legendPosition')?.options ?? []
     return choices.filter((choice) => isPie || choice.value !== 'surrounding') as ChartOptionChoice<

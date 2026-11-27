@@ -27,8 +27,7 @@ export interface ComputePieLayoutOptions<Meta = unknown> {
     /** Outer-radius scale factor — pulls the outer edge in to leave room for hover pop-out
      *  and labels. Defaults to 0.92. */
     radiusPadding?: number
-    /** Pixels kept free on each side of the pie, between it and the plot's left and right edges,
-     *  for labels that sit outside the slices. Defaults to 0. */
+    /** Pixels kept free between the pie and each side of the plot, for outside labels. Defaults to 0. */
     horizontalInset?: number
     /** Radians, clockwise from 12 o'clock, where the first slice starts. Defaults to 0. */
     startAngle?: number

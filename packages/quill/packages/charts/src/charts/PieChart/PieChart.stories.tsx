@@ -19,8 +19,6 @@ const ONE_BIG_TWO_TINY: Series[] = [
     { key: 'small-2', label: 'Social', color: '', data: [60] },
 ]
 
-// A long tail of thin slices next to a few large ones, the case on-slice labels and a side legend
-// both handle badly.
 const SIGNUP_SOURCES: Series[] = [
     ['organic', 'Organic search', 4820],
     ['direct', 'Direct', 3110],

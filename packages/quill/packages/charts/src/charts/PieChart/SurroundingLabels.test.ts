@@ -15,7 +15,6 @@ function place(values: number[], plot = PLOT): ReturnType<typeof layoutSurroundi
 
 describe('layoutSurroundingLabels', () => {
     it('labels each slice in the column on its side of the pie, joined by a leader from the rim', () => {
-        // Slice 0 covers 12 to 6 o'clock clockwise (the right half), slice 1 the left half.
         const layout = computePieLayout({ series: seriesOf([50, 50]), dimensions: PLOT, horizontalInset: 200 })
         const placed = layoutSurroundingLabels({
             layout,
@@ -29,7 +28,6 @@ describe('layoutSurroundingLabels', () => {
         ])
         const right = placed.find((p) => p.side === 'right')!
         expect(right.x).toBeCloseTo(layout.cx + layout.outerRadius + SURROUNDING_LEADER_SPACE)
-        // The leader ends at the label's row and starts at the slice's rim.
         expect(right.points[2][1]).toBe(right.y)
         expect(Math.hypot(right.points[0][0] - layout.cx, right.points[0][1] - layout.cy)).toBeGreaterThan(
             layout.outerRadius
@@ -37,7 +35,6 @@ describe('layoutSurroundingLabels', () => {
     })
 
     it('spreads crowded labels apart without leaving the plot', () => {
-        // One large slice, then twelve thin ones bunched together on the left near 12 o'clock.
         const placed = place([400, ...Array(12).fill(3)])
 
         for (const side of ['left', 'right'] as const) {
@@ -54,7 +51,6 @@ describe('layoutSurroundingLabels', () => {
     })
 
     it('leaves the smallest slices unlabeled when a side has more slices than rows', () => {
-        // 100px fits 5 rows of 18px. The right half holds one 50% slice; the left half holds the rest.
         const plot = { ...PLOT, plotHeight: 100 }
         const values = [500, 100, 90, 80, 70, 60, 50, 40, 10]
         const placed = place(values, plot)
@@ -65,19 +61,25 @@ describe('layoutSurroundingLabels', () => {
     })
 
     it.each([
-        ['keeps 12 o\'clock when no label has to move', [50, 50], false],
-        ['turns a run of thin slices away from 12 o\'clock', [400, ...Array(12).fill(3)], true],
+        ["keeps 12 o'clock when no label has to move", [50, 50], false],
+        ["turns a run of thin slices away from 12 o'clock", [400, ...Array(12).fill(3)], true],
     ])('%s', (_name, values, rotated) => {
         const layoutAt = (startAngle: number): ReturnType<typeof computePieLayout> =>
-            computePieLayout({ series: seriesOf(values as number[]), dimensions: PLOT, horizontalInset: 200, startAngle })
+            computePieLayout({
+                series: seriesOf(values as number[]),
+                dimensions: PLOT,
+                horizontalInset: 200,
+                startAngle,
+            })
         const startAngle = pickSurroundingStartAngle(layoutAt, PLOT)
         expect(startAngle !== 0).toBe(rotated)
 
         const moved = (angle: number): number =>
-            layoutSurroundingLabels({ layout: layoutAt(angle), dimensions: PLOT, textFor: () => ({ name: '' }) }).reduce(
-                (sum, label) => sum + Math.abs(label.y - label.idealY),
-                0
-            )
+            layoutSurroundingLabels({
+                layout: layoutAt(angle),
+                dimensions: PLOT,
+                textFor: () => ({ name: '' }),
+            }).reduce((sum, label) => sum + Math.abs(label.y - label.idealY), 0)
         expect(moved(startAngle)).toBeLessThanOrEqual(moved(0))
     })
 })

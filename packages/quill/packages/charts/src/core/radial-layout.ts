@@ -79,8 +79,7 @@ export function sliceAt<Meta>(
         if (end - start >= 2 * Math.PI) {
             return i
         }
-        // A rotated pie's angles can run past 2π or below 0, so compare in [0, 2π). A slice whose
-        // normalized end comes before its start crosses 12 o'clock: [start, 2π) ∪ [0, end).
+        // A rotated pie's angles leave [0, 2π). After normalizing, end < start means the slice crosses 12 o'clock.
         const sNorm = normalizeAngle(start)
         const eNorm = normalizeAngle(end)
         if (sNorm < eNorm ? a >= sNorm && a < eNorm : a >= sNorm || a < eNorm) {

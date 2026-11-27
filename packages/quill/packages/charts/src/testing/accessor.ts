@@ -83,7 +83,6 @@ interface PieSliceLabelSummary {
 
 interface PieSurroundingLabelSummary {
     name: string
-    /** The value line, or null when values are off. */
     value: string | null
     side: 'left' | 'right'
 }
@@ -139,8 +138,7 @@ export interface ChartAccessor<Meta = unknown> {
     pie: {
         /** On-slice labels, in slice order. */
         sliceLabels(): PieSliceLabelSummary[]
-        /** Labels beside the pie under `legend.position: 'surrounding'`, left column then right,
-         *  each top to bottom. */
+        /** Labels beside the pie under `legend.position: 'surrounding'`. */
         surroundingLabels(): PieSurroundingLabelSummary[]
     }
     gauge: {
@@ -372,16 +370,16 @@ export function getChart<Meta = unknown>(
                     })
                 ),
             surroundingLabels: () =>
-                Array.from(
-                    wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-surrounding-label"]')
-                ).map((el) => {
-                    const [name, value] = Array.from(el.querySelectorAll(':scope > span'))
-                    return {
-                        name: name?.textContent ?? '',
-                        value: value?.textContent ?? null,
-                        side: el.dataset.side === 'left' ? 'left' : 'right',
+                Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-surrounding-label"]')).map(
+                    (el) => {
+                        const [name, value] = Array.from(el.querySelectorAll(':scope > span'))
+                        return {
+                            name: name?.textContent ?? '',
+                            value: value?.textContent ?? null,
+                            side: el.dataset.side === 'left' ? 'left' : 'right',
+                        }
                     }
-                }),
+                ),
         },
         gauge: {
             text: () => {

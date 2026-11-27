@@ -40,8 +40,7 @@ export const SqlPieGraph = ({
     const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
     const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
-    // Surrounding labels replace the legend box: the box stays hidden and the pie draws the labels,
-    // sharing the same hidden-slice state so the total still tracks the slices drawn.
+    // The pie draws surrounding labels itself, so the legend box stays hidden.
     const surrounding = !!legendConfig.show && chartSettings.legendPosition === 'surrounding'
     const { visibleSeries, legendProps } = useChartLegend(
         series,

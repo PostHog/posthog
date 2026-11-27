@@ -358,7 +358,6 @@ export const getShowLegend = (query: InsightQueryNode, partCount?: number): bool
 // serialize an inline string-literal union and emits a broken type; consumers narrow as needed.
 export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
-        // A pie switched to another display keeps its saved `surrounding`, which only pies draw.
         const position = query.trendsFilter?.legendPosition
         const display = query.trendsFilter?.display
         const saved =
