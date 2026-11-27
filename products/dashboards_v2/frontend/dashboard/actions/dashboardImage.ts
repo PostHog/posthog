@@ -1,4 +1,4 @@
-import { captureElementAsImage } from 'lib/utils/copyImageToClipboard'
+import { canCopyImageToClipboard, captureElementAsImage } from 'lib/utils/copyImageToClipboard'
 import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
 
@@ -46,25 +46,60 @@ export async function downloadDashboardImage(root: HTMLElement, title: string, f
     downloadFile(new File([blob], `${slugify(title) || 'dashboard'}.${format}`, { type: blob.type }))
 }
 
-export function downloadImageAction(
-    label: string,
-    dataAttr: string,
-    downloadingImage: boolean,
+/**
+ * Call it straight from the click, before any await. Safari refuses a clipboard write that starts later, so the
+ * clipboard gets the pending image. Browsers take only PNG on the clipboard.
+ */
+export async function copyDashboardImage(root: HTMLElement): Promise<void> {
+    const image = waitUntilReady(root).then(() => captureElementAsImage(root, LEFT_OUT))
+    // The write never reads the promise when it throws first, and an unread rejection would be reported as unhandled.
+    image.catch(() => {})
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': image })])
+}
+
+/** `download-image` with a format submenu, then `copy-image` on a browser that can put an image on the clipboard. */
+export function imageActions({
+    downloadLabel,
+    copyLabel,
+    dataAttrPrefix,
+    busy: makingImage,
+    download,
+    copy,
+}: {
+    downloadLabel: string
+    copyLabel: string
+    dataAttrPrefix: string
+    busy: boolean
     download: (format: ImageFormat) => void
-): MenuAction {
-    const busy = downloadingImage ? 'Making the image' : null
-    return {
-        key: 'download-image',
-        label,
-        dataAttr,
-        group: 'view',
-        disabledReason: busy,
-        submenu: IMAGE_FORMATS.filter(({ format }) => canWriteImage(format)).map(({ format, label }) => ({
-            key: format,
-            label,
-            dataAttr: `${dataAttr}-${format}`,
+    copy: () => void
+}): MenuAction[] {
+    const busy = makingImage ? 'Making the image' : null
+    const dataAttr = `${dataAttrPrefix}-download-image`
+    const actions: MenuAction[] = [
+        {
+            key: 'download-image',
+            label: downloadLabel,
+            dataAttr,
+            group: 'view',
             disabledReason: busy,
-            onSelect: () => download(format),
-        })),
+            submenu: IMAGE_FORMATS.filter(({ format }) => canWriteImage(format)).map(({ format, label }) => ({
+                key: format,
+                label,
+                dataAttr: `${dataAttr}-${format}`,
+                disabledReason: busy,
+                onSelect: () => download(format),
+            })),
+        },
+    ]
+    if (canCopyImageToClipboard()) {
+        actions.push({
+            key: 'copy-image',
+            label: copyLabel,
+            dataAttr: `${dataAttrPrefix}-copy-image`,
+            group: 'view',
+            disabledReason: busy,
+            onSelect: copy,
+        })
     }
+    return actions
 }
