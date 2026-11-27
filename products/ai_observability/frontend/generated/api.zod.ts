@@ -15,11 +15,13 @@ import * as zod from 'zod'
  * range and the test account switch of the list the keys came from. The check ignores the list's other
  * filters.
  */
+export const aiObservabilityErrorsFirstSeenCreateBodyKeysItemMax = 65536
+
 export const aiObservabilityErrorsFirstSeenCreateBodyKeysMax = 100
 
 export const AiObservabilityErrorsFirstSeenCreateBody = /* @__PURE__ */ zod.object({
     keys: zod
-        .array(zod.string())
+        .array(zod.string().max(aiObservabilityErrorsFirstSeenCreateBodyKeysItemMax))
         .min(1)
         .max(aiObservabilityErrorsFirstSeenCreateBodyKeysMax)
         .describe('Up to 100 error keys, as the errors list hands them out.'),
@@ -697,11 +699,13 @@ export const AiObservabilitySessionsPreviewsCreateBody = /* @__PURE__ */ zod.obj
  * in the body because a page of them does not fit in a query string. Send the filters of the list the keys came
  * from.
  */
+export const aiObservabilityToolsTraceSharesCreateBodyKeysItemMax = 65536
+
 export const aiObservabilityToolsTraceSharesCreateBodyKeysMax = 100
 
 export const AiObservabilityToolsTraceSharesCreateBody = /* @__PURE__ */ zod.object({
     keys: zod
-        .array(zod.string())
+        .array(zod.string().max(aiObservabilityToolsTraceSharesCreateBodyKeysItemMax))
         .min(1)
         .max(aiObservabilityToolsTraceSharesCreateBodyKeysMax)
         .describe('Up to 100 tool keys, as the tools list hands them out.'),
