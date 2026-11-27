@@ -1,5 +1,4 @@
 import uuid
-import logging
 import datetime as dt
 from dataclasses import dataclass
 
@@ -7,17 +6,19 @@ import pytest
 
 from asgiref.sync import sync_to_async
 from prometheus_client import REGISTRY
+from pydantic import BaseModel
 from temporalio import activity, workflow
 from temporalio.client import Client
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import ExecuteActivityInput, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team, organization_admission
 from posthog.models.organization_admission import Admission, OrganizationAdmission
 from posthog.temporal.common.interceptor import is_task_queue_supported
+from posthog.temporal.common.organization_admission import OrganizationAdmissionInterceptor, _tenant_of
 from posthog.temporal.common.worker import interceptor_classes
 from posthog.test.waiting import wait_until
 
-OUTCOMES = ("admitted", "would_skip", "unresolved", "error")
+OUTCOMES = ("admitted", "would_skip", "unresolved", "unavailable", "error")
 
 
 class FakeClock:
@@ -56,13 +57,6 @@ class AdmissionProbeWorkflow:
         ]
 
 
-@pytest.fixture(autouse=True)
-def fresh_admission(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.INFO, logger="temporalio.activity")
-    caplog.set_level(logging.INFO, logger="temporalio.workflow")
-    monkeypatch.setattr(organization_admission, "ORGANIZATION_ADMISSION", OrganizationAdmission())
-
-
 def _checks(task_queue: str, activity_type: str) -> dict[str, float]:
     counts = {
         outcome: REGISTRY.get_sample_value(
@@ -99,6 +93,21 @@ async def _team_in_organization(is_active: bool | None) -> Team:
     return await sync_to_async(Team.objects.create)(organization=organization, name="Admission probe team")
 
 
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+    clock = FakeClock()
+    monkeypatch.setattr(organization_admission, "ORGANIZATION_ADMISSION", OrganizationAdmission(clock=clock))
+    return clock
+
+
+def _refreshes(outcome: str) -> float:
+    return REGISTRY.get_sample_value("temporal_organization_admission_refreshes_total", {"outcome": outcome}) or 0.0
+
+
+async def _load_snapshot() -> None:
+    await sync_to_async(organization_admission.ORGANIZATION_ADMISSION.refresh_if_stale)()
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
@@ -112,10 +121,11 @@ async def _team_in_organization(is_active: bool | None) -> Team:
     ],
 )
 async def test_shadow_counts_each_activity_and_leaves_its_result(
-    temporal_client: Client, settings, is_active: bool | None, by_organization: bool, expected: str
+    temporal_client: Client, settings, clock: FakeClock, is_active: bool | None, by_organization: bool, expected: str
 ) -> None:
     settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = "shadow"
     team = await _team_in_organization(is_active)
+    await _load_snapshot()
     inputs = (
         ProbeInput(value="x", organization_id=str(team.organization_id))
         if by_organization
@@ -131,55 +141,105 @@ async def test_shadow_counts_each_activity_and_leaves_its_result(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_shadow_counts_against_the_cached_set_while_it_refreshes(
-    temporal_client: Client, settings, monkeypatch: pytest.MonkeyPatch
+async def test_shadow_on_a_cold_worker_counts_unavailable_and_loads_in_the_background(
+    temporal_client: Client, settings, clock: FakeClock
 ) -> None:
     settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = "shadow"
-    clock = FakeClock()
-    admission = OrganizationAdmission(clock=clock)
-    monkeypatch.setattr(organization_admission, "ORGANIZATION_ADMISSION", admission)
-    team = await _team_in_organization(is_active=True)
+    team = await _team_in_organization(is_active=False)
     inputs = ProbeInput(value="x", team_id=team.id)
 
-    _, before_deactivation, _ = await _run_probe(temporal_client, inputs)
+    result, cold, _ = await _run_probe(temporal_client, inputs)
+    await sync_to_async(wait_until)(organization_admission.ORGANIZATION_ADMISSION.has_snapshot)
+    _, loaded, _ = await _run_probe(temporal_client, inputs)
+
+    assert result == ["ran x", "ran x"]
+    assert cold == {"unavailable": 1}
+    assert loaded == {"would_skip": 1}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_shadow_counts_against_the_cached_set_while_it_refreshes(
+    temporal_client: Client, settings, clock: FakeClock
+) -> None:
+    settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = "shadow"
+    team = await _team_in_organization(is_active=True)
+    await _load_snapshot()
+    inputs = ProbeInput(value="x", team_id=team.id)
+
     await sync_to_async(Organization.objects.filter(id=team.organization_id).update)(is_active=False)
     clock.now += 30
     _, while_refreshing, _ = await _run_probe(temporal_client, inputs)
 
-    assert before_deactivation == {"admitted": 1}
     assert while_refreshing == {"admitted": 1}
+    admission = organization_admission.ORGANIZATION_ADMISSION
     await sync_to_async(wait_until)(lambda: admission.check_cached(team_id=team.id) == Admission.DEACTIVATED)
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("team_id", [None, 0])
-async def test_shadow_counts_a_tenant_that_does_not_resolve(temporal_client: Client, settings, team_id) -> None:
+@pytest.mark.parametrize("tenant", [{"team_id": None}, {"team_id": 0}, {"organization_id": "not-a-uuid"}])
+async def test_shadow_counts_a_tenant_that_does_not_resolve(
+    temporal_client: Client, settings, clock: FakeClock, tenant: dict
+) -> None:
     settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = "shadow"
 
-    result, tenant_checks, _ = await _run_probe(temporal_client, ProbeInput(value="x", team_id=team_id))
+    result, tenant_checks, _ = await _run_probe(temporal_client, ProbeInput(value="x", **tenant))
 
     assert result == ["ran x", "ran x"]
     assert tenant_checks == {"unresolved": 1}
 
 
 @pytest.mark.asyncio
-async def test_shadow_runs_the_activity_when_the_lookup_fails(temporal_client: Client, settings) -> None:
+async def test_shadow_runs_the_activity_when_the_lookup_fails(
+    temporal_client: Client, settings, clock: FakeClock
+) -> None:
     settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = "shadow"
+    failed_before = _refreshes("failed")
 
     result, tenant_checks, _ = await _run_probe(temporal_client, ProbeInput(value="x", team_id=42))
 
     assert result == ["ran x", "ran x"]
-    assert tenant_checks == {"error": 1}
+    assert tenant_checks == {"unavailable": 1}
+    await sync_to_async(wait_until)(lambda: _refreshes("failed") == failed_before + 1)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["off", "enforce"])
-async def test_off_reads_nothing_and_counts_nothing(temporal_client: Client, settings, mode: str) -> None:
-    settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = mode
+async def test_off_reads_nothing_and_counts_nothing(temporal_client: Client, settings, clock: FakeClock) -> None:
+    settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = "off"
 
     result, tenant_checks, bare_checks = await _run_probe(temporal_client, ProbeInput(value="x", team_id=42))
 
     assert result == ["ran x", "ran x"]
     assert tenant_checks == {}
     assert bare_checks == {}
+    assert not organization_admission.ORGANIZATION_ADMISSION.has_snapshot()
+
+
+@pytest.mark.parametrize("mode", ["enforce", "Shadow", ""])
+def test_worker_refuses_an_unknown_mode(settings, mode: str) -> None:
+    settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = mode
+
+    with pytest.raises(ValueError):
+        OrganizationAdmissionInterceptor()
+
+
+class PydanticProbeInput(BaseModel):
+    value: str
+    team_id: int | None = None
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        ([ProbeInput(value="x", team_id=7)], (7, None)),
+        ([PydanticProbeInput(value="x", team_id=7)], (7, None)),
+        ([ProbeInput(value="x", organization_id="org")], (None, "org")),
+        ([PydanticProbeInput(value="x", team_id=7), "extra"], (None, None)),
+        (["x"], (None, None)),
+    ],
+)
+def test_tenant_is_read_from_a_single_dataclass_or_pydantic_input(args: list, expected: tuple) -> None:
+    input = ExecuteActivityInput(fn=tenant_probe_activity, args=args, executor=None, headers={})
+
+    assert _tenant_of(input) == expected

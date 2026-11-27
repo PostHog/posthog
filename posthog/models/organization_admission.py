@@ -10,7 +10,6 @@ from django.db import DatabaseError
 
 from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
-from posthog.models.team.team import Team
 
 REFRESH_INTERVAL_SECONDS = 30.0
 
@@ -93,14 +92,9 @@ class OrganizationAdmission:
 
 
 def _load_deactivated(database: str) -> tuple[frozenset[uuid.UUID], frozenset[int]]:
-    organization_ids = frozenset(
-        Organization.objects.using(database).filter(is_active=False).values_list("id", flat=True)
-    )
-    if not organization_ids:
-        return organization_ids, frozenset()
-    team_ids = frozenset(
-        Team.objects.using(database).filter(organization_id__in=organization_ids).values_list("id", flat=True)
-    )
+    rows = list(Organization.objects.using(database).filter(is_active=False).values_list("id", "team__id"))
+    organization_ids = frozenset(organization_id for organization_id, _ in rows)
+    team_ids = frozenset(team_id for _, team_id in rows if team_id is not None)
     return organization_ids, team_ids
 
 

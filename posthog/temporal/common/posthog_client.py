@@ -47,7 +47,6 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
         "AIFeaturesCloudOnly",
         "SandboxRateLimitedError",
         "SandboxControlPlaneUnavailableError",
-        "OrganizationDeactivated",
     }
 )
 

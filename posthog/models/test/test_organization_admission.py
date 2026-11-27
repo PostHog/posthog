@@ -69,7 +69,7 @@ def test_tenant_outside_the_deactivated_set(tenant: dict, expected: Admission) -
 
 
 @pytest.mark.django_db
-def test_deactivation_takes_effect_at_the_next_refresh(django_assert_num_queries) -> None:
+def test_deactivation_takes_effect_at_the_next_refresh() -> None:
     team = _team_in_organization(is_active=True)
     clock = FakeClock()
     admission = OrganizationAdmission(clock=clock)
@@ -77,7 +77,7 @@ def test_deactivation_takes_effect_at_the_next_refresh(django_assert_num_queries
 
     Organization.objects.filter(id=team.organization_id).update(is_active=False)
     clock.now += 29
-    with django_assert_num_queries(0):
+    with connections["default"].execute_wrapper(PrimaryFault(failures=100)):
         assert admission.check(team_id=team.id) == Admission.ADMITTED
         assert admission.check(team_id=987_654_321) == Admission.ADMITTED
 
@@ -95,18 +95,17 @@ def test_reads_the_replica_when_the_primary_fails() -> None:
 
 
 @pytest.mark.django_db
-def test_raises_when_primary_and_replica_fail_and_waits_before_retrying(django_assert_num_queries) -> None:
+def test_raises_when_primary_and_replica_fail_and_waits_before_retrying() -> None:
     team = _team_in_organization(is_active=False)
     clock = FakeClock()
     admission = OrganizationAdmission(clock=clock, replica="default")
 
-    with connections["default"].execute_wrapper(PrimaryFault(failures=2)):
+    with connections["default"].execute_wrapper(PrimaryFault(failures=100)):
         with pytest.raises(OperationalError):
             admission.check(team_id=team.id)
-
-    clock.now += 29
-    with django_assert_num_queries(0), pytest.raises(AdmissionSnapshotMissing):
-        admission.check(team_id=team.id)
+        clock.now += 29
+        with pytest.raises(AdmissionSnapshotMissing):
+            admission.check(team_id=team.id)
 
     clock.now += 1
     assert admission.check(team_id=team.id) == Admission.DEACTIVATED
