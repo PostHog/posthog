@@ -12,6 +12,7 @@ from products.access_control.backend.facade.api import (
 )
 from products.mcp_analytics.backend.facade.contracts import WrappedSnapshot
 from products.mcp_analytics.backend.models import MCPAnalyticsWrapped
+from products.mcp_analytics.backend.wrapped.cards import SCHEMA_VERSION
 
 # A wrap is a moment, not a report. It shows for this long after the job fills it, then the pop-up and the
 # header button go away on their own until someone runs the job again.
@@ -52,6 +53,7 @@ def get_fresh_wrapped(team: Team, user: User | None) -> WrappedSnapshot | None:
             MCPAnalyticsWrapped.objects.filter(
                 team_id=data_team_id,
                 status=MCPAnalyticsWrapped.Status.READY,
+                schema_version=SCHEMA_VERSION,
                 generated_at__gte=timezone.now() - DISPLAY_WINDOW,
             )
             .order_by("-generated_at")

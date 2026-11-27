@@ -146,6 +146,12 @@ def test_apps_card(_name: str, harnesses: dict[str, int], labels: list[str] | No
             None,
         ),
         (
+            "unmatched_models_outnumber_the_leader",
+            {"Anthropic": 450, "OpenAI": 50, "Unknown": 500},
+            {"Claude Sonnet": 50, "Other": 450, "Unknown": 500},
+            [],
+        ),
+        (
             "enough_known_models",
             {"Anthropic": 450, "OpenAI": 50, "Unknown": 500},
             {"Claude Sonnet": 300, "Claude Opus": 150, "GPT-6": 50, "Unknown": 500},
@@ -161,9 +167,10 @@ def test_labs_and_models_cards(
     if family_labels is None:
         assert cards.labs is None and cards.models is None
     else:
-        assert cards.labs is not None and cards.models is not None
+        assert cards.labs is not None
         assert [(share.name, share.share) for share in cards.labs.shares] == [("Anthropic", 0.9), ("OpenAI", 0.1)]
-        assert [share.name for share in cards.models.shares] == family_labels
+        model_names = [share.name for share in cards.models.shares] if cards.models else []
+        assert model_names == family_labels
 
 
 def test_rush_hour_needs_enough_calls_and_finds_the_busiest_slot() -> None:

@@ -17,6 +17,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_WRAPPED_FEATURE_FLAG
 from products.mcp_analytics.backend.models import MCPAnalyticsWrapped
+from products.mcp_analytics.backend.wrapped.cards import SCHEMA_VERSION
 
 CARDS: dict[str, Any] = {
     "intro": {"tracked_since": "2026-07", "server_count": 1},
@@ -43,13 +44,13 @@ class TestWrappedAPI(APIBaseTest):
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
 
-    def _store(self, status: MCPAnalyticsWrapped.Status, days_ago: int) -> None:
+    def _store(self, status: MCPAnalyticsWrapped.Status, days_ago: int, schema_version: int = SCHEMA_VERSION) -> None:
         with team_scope(self.team.id):
             MCPAnalyticsWrapped.objects.create(
                 team=self.team,
                 year=2026,
                 status=status,
-                schema_version=1,
+                schema_version=schema_version,
                 payload=CARDS if status == MCPAnalyticsWrapped.Status.READY else {},
                 generated_at=timezone.now() - timedelta(days=days_ago),
             )
@@ -81,13 +82,16 @@ class TestWrappedAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("older_than_the_window", MCPAnalyticsWrapped.Status.READY, 15),
-            ("ineligible", MCPAnalyticsWrapped.Status.INELIGIBLE, 1),
-            ("failed", MCPAnalyticsWrapped.Status.FAILED, 1),
+            ("older_than_the_window", MCPAnalyticsWrapped.Status.READY, 15, SCHEMA_VERSION),
+            ("ineligible", MCPAnalyticsWrapped.Status.INELIGIBLE, 1, SCHEMA_VERSION),
+            ("failed", MCPAnalyticsWrapped.Status.FAILED, 1, SCHEMA_VERSION),
+            ("an_older_card_shape", MCPAnalyticsWrapped.Status.READY, 1, SCHEMA_VERSION - 1),
         ]
     )
-    def test_no_wrap_to_show(self, _name: str, status: MCPAnalyticsWrapped.Status, days_ago: int) -> None:
-        self._store(status, days_ago=days_ago)
+    def test_no_wrap_to_show(
+        self, _name: str, status: MCPAnalyticsWrapped.Status, days_ago: int, schema_version: int
+    ) -> None:
+        self._store(status, days_ago=days_ago, schema_version=schema_version)
 
         response = self._get()
 

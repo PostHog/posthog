@@ -14,7 +14,9 @@ from products.mcp_analytics.backend.facade.enums import Archetype
 from products.mcp_analytics.backend.wrapped.model_families import OTHER_FAMILY, UNKNOWN_FAMILY
 from products.mcp_analytics.backend.wrapped.queries import DimensionRow, MonthCalls, WrappedAggregates
 
-SCHEMA_VERSION = 2
+# Bump when the stored card shape changes. Reads skip rows of any other version, so an old row never reaches
+# a frontend that expects the new shape.
+SCHEMA_VERSION = 3
 
 # A project needs this many months with real traffic. One month leaves the monthly cards nothing to compare,
 # and the first month is often a test install.
@@ -305,7 +307,11 @@ def _models_card(aggregates: WrappedAggregates) -> SharesCard | None:
     known = [row for row in aggregates.model_families if row.key not in (UNKNOWN_FAMILY, OTHER_FAMILY)]
     if not known:
         return None
-    return SharesCard(shares=_top_shares(known, TOP_MODEL_FAMILIES, with_model))
+    shares = _top_shares(known, TOP_MODEL_FAMILIES, with_model)
+    # When unmatched models outnumber the leader, the leader isn't the top model, so there is no headline to tell.
+    if shares[-1].name == OTHER_SHARE_LABEL and shares[-1].share >= shares[0].share:
+        return None
+    return SharesCard(shares=shares)
 
 
 def _rush_hour_card(week_hours: Sequence[DimensionRow], total_calls: int, timezone: str) -> RushHourCard | None:
