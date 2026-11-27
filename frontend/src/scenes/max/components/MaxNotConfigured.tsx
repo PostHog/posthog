@@ -9,7 +9,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
  * The agent runs on Anthropic and conversation titles come from OpenAI, so a chat fails at call time
  * unless ANTHROPIC_API_KEY and OPENAI_API_KEY are both set. This screen tells the user how to set them.
  */
-export function MaxNotConfigured(): JSX.Element {
+export function MaxNotConfigured({ needsOpenAiKey = true }: { needsOpenAiKey?: boolean }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center text-center grow gap-4 px-4 py-8 max-w-prose mx-auto">
             <div className="flex p-2 select-none opacity-60">
@@ -21,12 +21,20 @@ export function MaxNotConfigured(): JSX.Element {
                     PostHog AI isn't set up yet
                 </h2>
                 <p className="text-sm text-tertiary text-pretty mb-0">
-                    PostHog AI runs on your own LLM provider keys. Set <code>ANTHROPIC_API_KEY</code> and{' '}
-                    <code>OPENAI_API_KEY</code> for this instance and restart PostHog to start chatting.
+                    PostHog AI runs on your own LLM provider keys. Set <code>ANTHROPIC_API_KEY</code>
+                    {needsOpenAiKey && (
+                        <>
+                            {' '}
+                            and <code>OPENAI_API_KEY</code>
+                        </>
+                    )}{' '}
+                    for this instance and restart PostHog to start chatting.
                 </p>
             </div>
             <CodeSnippet language={Language.Bash} className="w-full text-left">
-                {'ANTHROPIC_API_KEY=sk-ant-...\nOPENAI_API_KEY=sk-...'}
+                {needsOpenAiKey
+                    ? 'ANTHROPIC_API_KEY=sk-ant-...\nOPENAI_API_KEY=sk-...'
+                    : 'ANTHROPIC_API_KEY=sk-ant-...'}
             </CodeSnippet>
             <p className="text-sm text-tertiary text-pretty mb-0">
                 On a hobby deploy, add the keys to your <code>.env</code> file and run <code>./bin/upgrade-hobby</code>,

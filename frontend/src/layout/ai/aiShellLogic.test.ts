@@ -7,7 +7,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import { aiShellLogic } from './aiShellLogic'
+import { MAX_MISSING_KEYS_REASON, TASK_RUNNER_MISSING_KEY_REASON, aiShellLogic } from './aiShellLogic'
 
 describe('aiShellLogic', () => {
     let logic: ReturnType<typeof aiShellLogic.build>
@@ -73,6 +73,73 @@ describe('aiShellLogic', () => {
             preflightLogic.actions.loadPreflightSuccess(preflight as any)
 
             await expectLogic(logic).toMatchValues({ isTaskRunnerAvailable: expected })
+        })
+    })
+
+    describe('isAiAvailable selector', () => {
+        const anthropicOnly = { cloud: false, is_debug: false, anthropic_available: true, openai_available: false }
+        const openaiOnly = { cloud: false, is_debug: false, anthropic_available: false, openai_available: true }
+        const bothKeys = { cloud: false, is_debug: false, anthropic_available: true, openai_available: true }
+
+        it.each([
+            {
+                scenario: 'Anthropic-only on the new view',
+                preflight: anthropicOnly,
+                flagOn: true,
+                view: 'new',
+                expected: true,
+            },
+            {
+                scenario: 'Anthropic-only on the legacy view',
+                preflight: anthropicOnly,
+                flagOn: true,
+                view: 'legacy',
+                expected: false,
+            },
+            {
+                scenario: 'Anthropic-only with the flag off and view new stored',
+                preflight: anthropicOnly,
+                flagOn: false,
+                view: 'new',
+                expected: false,
+            },
+            {
+                scenario: 'both keys on the legacy view',
+                preflight: bothKeys,
+                flagOn: true,
+                view: 'legacy',
+                expected: true,
+            },
+            {
+                scenario: 'OpenAI-only on the new view',
+                preflight: openaiOnly,
+                flagOn: true,
+                view: 'new',
+                expected: false,
+            },
+            { scenario: 'cloud without keys', preflight: { cloud: true }, flagOn: true, view: 'new', expected: true },
+            { scenario: 'a not-yet-loaded preflight', preflight: null, flagOn: true, view: 'new', expected: true },
+        ] as const)('is $expected for $scenario', async ({ preflight, flagOn, view, expected }) => {
+            featureFlagLogic.actions.setFeatureFlags(
+                flagOn ? [FEATURE_FLAGS.PHAI_SANDBOX_MODE] : [],
+                flagOn ? { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true } : {}
+            )
+            logic.actions.setPhaiViewMode(view)
+            preflightLogic.actions.loadPreflightSuccess(preflight as any)
+
+            await expectLogic(logic).toMatchValues({ isAiAvailable: expected })
+        })
+
+        it.each([
+            { view: 'new', expected: TASK_RUNNER_MISSING_KEY_REASON },
+            { view: 'legacy', expected: MAX_MISSING_KEYS_REASON },
+        ] as const)('names the keys the $view view needs in aiMissingKeysReason', async ({ view, expected }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_SANDBOX_MODE], {
+                [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+            })
+            logic.actions.setPhaiViewMode(view)
+
+            await expectLogic(logic).toMatchValues({ aiMissingKeysReason: expected })
         })
     })
 
