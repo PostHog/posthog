@@ -1,6 +1,7 @@
 from email.utils import make_msgid
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F
 from django.db.models.functions import Greatest
@@ -15,7 +16,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user
 from posthog.models.comment import Comment
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import content_type_for
 
@@ -493,7 +493,7 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # would leave the reply looking sent in the agent UI, with no record of why nothing went out.
 
     config = ticket.email_config
-    inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or (config.domain if config else None)
+    inbound_domain = settings.CONVERSATIONS_EMAIL_INBOUND_DOMAIN or (config.domain if config else None)
     message_id = make_msgid(domain=inbound_domain) if inbound_domain else make_msgid()
 
     # One outbox row per reply comment; get_or_create keeps the signal idempotent.

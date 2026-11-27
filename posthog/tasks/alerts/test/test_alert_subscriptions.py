@@ -2,11 +2,12 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from posthog.schema import ChartDisplayType, EventsNode, TrendsFilter, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import User
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.alerts.utils import send_notifications_for_breaches, send_notifications_for_disabled
 
@@ -19,8 +20,7 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True))
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
         query_dict = TrendsQuery(
@@ -82,8 +82,7 @@ class TestGetSubscribedUsersEmails(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True))
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
         query_dict = TrendsQuery(
@@ -152,8 +151,7 @@ class TestAlertEmailNotifications(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True))
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
         query_dict = TrendsQuery(

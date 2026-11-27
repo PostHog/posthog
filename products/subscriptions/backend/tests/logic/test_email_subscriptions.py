@@ -5,8 +5,9 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from posthog.email import EmailDeliveryError
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
@@ -35,8 +36,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
 
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True))
 
         self.asset = ExportedAsset.objects.create(
             team=self.team,
@@ -242,8 +242,7 @@ class TestEmailSubscriptionDeliveryDetection(APIBaseTest):
             content_location="s3://bucket/test.png",
         )
         self.subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
-        set_instance_setting("EMAIL_HOST", "localhost")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="localhost", EMAIL_ENABLED=True))
 
     def test_raises_when_permanent_smtp_failure_is_swallowed(self) -> None:
         with patch(

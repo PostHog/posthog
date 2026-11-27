@@ -241,14 +241,14 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(get_instance_setting(key), after)
 
     def test_updating_email_settings(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(SITE_URL="http://localhost:8000", CELERY_TASK_ALWAYS_EAGER=True):
-            response = self.client.patch(
-                f"/api/instance_settings/EMAIL_DEFAULT_FROM",
-                {"value": "hellohello@posthog.com"},
-            )
+        with self.settings(
+            EMAIL_HOST="localhost",
+            EMAIL_DEFAULT_FROM="hellohello@posthog.com",
+            SITE_URL="http://localhost:8000",
+            CELERY_TASK_ALWAYS_EAGER=True,
+        ):
+            response = self.client.patch(f"/api/instance_settings/EMAIL_HOST_PASSWORD", {"value": "hunter2"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["value"], "hellohello@posthog.com")
 
         self.assertEqual(mail.outbox[0].from_email, "hellohello@posthog.com")
         self.assertEqual(mail.outbox[0].subject, "This is a test email of your PostHog instance")
@@ -342,7 +342,7 @@ class TestInstanceSettings(APIBaseTest):
         [
             ("bool", "AUTO_START_ASYNC_MIGRATIONS", False, True),
             ("int", "GROWTH_ICP_REENRICH_DAILY_CAP", 500, 600),
-            ("string", "GITHUB_APP_SLUG", "", "posthog-app"),
+            ("string", "CLICKHOUSE_KILL_SWITCH", "off", "light"),
         ]
     )
     def test_update_setting_writes_activity_log(
@@ -464,7 +464,7 @@ class TestInstanceSettings(APIBaseTest):
         [
             ("bool", "AUTO_START_ASYNC_MIGRATIONS", True),
             ("int", "GROWTH_ICP_REENRICH_DAILY_CAP", 500),
-            ("string", "GITHUB_APP_SLUG", "posthog-app"),
+            ("string", "CLICKHOUSE_KILL_SWITCH", "off"),
         ]
     )
     def test_no_op_update_does_not_log(self, _name: str, key: str, value: object):

@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
 
+from django.conf import settings
 from django.contrib.postgres.aggregates import BoolOr
 from django.db.models import Max
 from django.db.models.functions import Lower
@@ -22,7 +23,6 @@ import requests
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.instance_setting import get_instance_setting
 
 from products.conversations.backend.mailgun import delete_domain, get_domain, list_domains
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, MailgunDomainRegistration
@@ -123,7 +123,7 @@ def _abandoned_setup_domains(cutoff: datetime, domain: str | None = None) -> set
 
 def _scan_orphans(mailgun_domains: list[dict[str, Any]], now: datetime, adopted: dict[str, str]) -> OrphanScan:
     protected: set[str] = set()
-    inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
+    inbound_domain = settings.CONVERSATIONS_EMAIL_INBOUND_DOMAIN
     if inbound_domain:
         protected.add(inbound_domain.lower())
 

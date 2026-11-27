@@ -7,6 +7,7 @@ from email.utils import formataddr, make_msgid
 from enum import StrEnum
 from hashlib import sha256
 
+from django.conf import settings
 from django.core import exceptions, mail
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
@@ -26,7 +27,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, is_smtp_email_service_available
 from posthog.helpers.email_utils import email_domain
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -574,7 +574,7 @@ class EmailStatusView(APIView):
             _expire_customer_email_setups(team=team, owner=user)
             configs = configs.filter(owner=user)
         configs = configs.select_related("setup").order_by("created_at")
-        inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
+        inbound_domain = settings.CONVERSATIONS_EMAIL_INBOUND_DOMAIN
 
         return Response({"configs": [_config_to_dict(c, inbound_domain) for c in configs]})
 
@@ -629,7 +629,7 @@ class EmailConnectView(APIView):
         domain = email_domain(from_email)
         if domain is None:
             return Response({"error": "Enter a valid email address, like hello@example.com."}, status=400)
-        inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
+        inbound_domain = settings.CONVERSATIONS_EMAIL_INBOUND_DOMAIN
         if not inbound_domain:
             return Response(
                 {"error": "Email inbound domain not configured. Set CONVERSATIONS_EMAIL_INBOUND_DOMAIN."},
@@ -882,7 +882,7 @@ class EmailSendTestView(APIView):
         if not config.domain_verified:
             return Response({"error": "Domain not yet verified. Please verify DNS records first."}, status=400)
 
-        inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or config.domain
+        inbound_domain = settings.CONVERSATIONS_EMAIL_INBOUND_DOMAIN or config.domain
         message_id = make_msgid(domain=inbound_domain)
         from_addr = formataddr((config.from_name, config.from_email))
 

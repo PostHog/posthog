@@ -92,6 +92,18 @@ GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
 # Used with GITHUB_APP_CLIENT_ID to exchange an authorization code for a user access token,
 # which is separate from the private key used for App-as-App JWT signing.
 GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
+GITHUB_APP_SLUG = get_from_env("GITHUB_APP_SLUG", "")
+
+SLACK_APP_CLIENT_ID = get_from_env("SLACK_APP_CLIENT_ID", "")
+SUPPORT_SLACK_APP_CLIENT_ID = get_from_env("SUPPORT_SLACK_APP_CLIENT_ID", "")
+
+SUPPORT_TEAMS_APP_ID = get_from_env("SUPPORT_TEAMS_APP_ID", "")
+# Set only for a SingleTenant Azure Bot; leave empty for MultiTenant.
+SUPPORT_TEAMS_APP_TENANT_ID = get_from_env("SUPPORT_TEAMS_APP_TENANT_ID", "")
+# Teams Store catalog id, not the bot's Azure AD id; needed for Graph installedApps.
+SUPPORT_TEAMS_CATALOG_APP_ID = get_from_env("SUPPORT_TEAMS_CATALOG_APP_ID", "")
+
+CONVERSATIONS_EMAIL_INBOUND_DOMAIN = get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", "")
 
 # Stamphog runs as its own dedicated GitHub App (separate identity from the core
 # GITHUB_APP_* above), so it carries its own App id, JWT-signing private key, and

@@ -32,13 +32,10 @@ def matches_app_bot(user: dict[str, Any] | None, app_login: str | None) -> bool:
 
     Guards the marker-based idempotency scans: on a public repo anyone can paste a marker, and a
     spoofed match suppresses a publish or gets a stranger's comment PATCHed. `type == "Bot"` blocks
-    human spoofers; when the `GITHUB_APP_SLUG` instance setting is set (the app's `<slug>[bot]` login),
+    human spoofers; when the `GITHUB_APP_SLUG` setting is set (the app's `<slug>[bot]` login),
     markers pasted by OTHER installed bots are rejected too. Unset, it fails closed in production,
     because any installed bot would pass. Local development and tests fall back to the type check:
     the app's own login isn't derivable from an installation token without extra API calls.
-
-    Async callers resolve `app_login` once through `database_sync_to_async` and pass it in, because
-    reading the instance setting can query the database, which Django refuses on an event loop.
     """
     author = user or {}
     if author.get("type") != "Bot":

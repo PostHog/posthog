@@ -188,13 +188,13 @@ class TestIntegrationModel(BaseTest):
             _ = loaded.access_token
 
     def test_slack_integration_config(self):
-        set_instance_setting("SLACK_APP_CLIENT_ID", None)
+        self.enterContext(override_settings(SLACK_APP_CLIENT_ID=None))
         set_instance_setting("SLACK_APP_CLIENT_SECRET", None)
         set_instance_setting("SLACK_APP_SIGNING_SECRET", None)
 
         assert not SlackIntegration.slack_config() == {}
 
-        set_instance_setting("SLACK_APP_CLIENT_ID", "client-id")
+        self.enterContext(override_settings(SLACK_APP_CLIENT_ID="client-id"))
         set_instance_setting("SLACK_APP_CLIENT_SECRET", "client-secret")
         set_instance_setting("SLACK_APP_SIGNING_SECRET", "not-so-secret")
 

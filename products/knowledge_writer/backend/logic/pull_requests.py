@@ -7,6 +7,8 @@ from typing import Literal
 from urllib.parse import quote, urlparse
 from uuid import UUID
 
+from django.conf import settings
+
 import requests
 import structlog
 
@@ -14,7 +16,6 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
@@ -210,12 +211,12 @@ def source_github(team_id: int, source: SourceChange, docs_repository: str) -> G
 
 
 def github_app_login() -> str | None:
-    slug = get_instance_setting("GITHUB_APP_SLUG")
+    slug = settings.GITHUB_APP_SLUG
     return f"{slug}[bot]".lower() if slug else None
 
 
 def writer_commit_identity() -> CommitIdentity | None:
-    slug = get_instance_setting("GITHUB_APP_SLUG")
+    slug = settings.GITHUB_APP_SLUG
     if not slug:
         return None
     return CommitIdentity(name=f"{slug}[bot]", email=f"{slug}[bot]@users.noreply.github.com")

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.test import override_settings
 from django.utils import timezone
 
 import pytest_asyncio
@@ -27,7 +28,6 @@ from posthog.hogql.errors import QueryError
 from posthog.email import EmailDeliveryError
 from posthog.errors import CHQueryErrorS3Error
 from posthog.models import OrganizationMembership
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
@@ -279,6 +279,7 @@ async def subscriptions_worker(temporal_client: Client):
         yield  # allow the test to run while the worker is active
 
 
+@override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True)
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("products.subscriptions.backend.logic.get_metric_meter")
@@ -310,9 +311,6 @@ async def test_subscription_delivery_scheduling(
         asset_obj.save(update_fields=["content_location"])
 
     mock_exporter.export_asset_direct = fake_export
-
-    await sync_to_async(set_instance_setting)("EMAIL_HOST", "fake_host")
-    await sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
 
     with time_machine.travel("2022-02-02T08:30:00.000Z", tick=False):
         subscriptions = [

@@ -1,4 +1,4 @@
-from posthog.models.instance_setting import get_instance_setting
+from django.conf import settings
 
 
 def posthog_app_login() -> str | None:
@@ -7,5 +7,5 @@ def posthog_app_login() -> str | None:
     ReviewHog posts as this App, so it is also the only author whose markers and comments ReviewHog trusts.
     Compare logins in lowercase, because GitHub treats them as case-insensitive.
     """
-    slug = get_instance_setting("GITHUB_APP_SLUG")
+    slug = settings.GITHUB_APP_SLUG
     return f"{slug}[bot]".lower() if slug else None

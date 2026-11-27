@@ -5,13 +5,14 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import dateutil.parser
 from parameterized import parameterized
 
 from posthog.schema import AlertCalculationInterval, AlertState
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.tasks.alerts.metrics_investigation import MAX_SUMMARY_LENGTH
@@ -80,8 +81,7 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
     def setUp(self) -> None:
         super().setUp()
         keep_team_alerts_on_insight(self.team)
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True))
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
         # metrics1 is not truncated between tests, so a per-test metric name keeps tests isolated.
         self.metric_name = f"queue.depth.{self._testMethodName}"

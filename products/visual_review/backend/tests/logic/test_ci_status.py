@@ -10,10 +10,10 @@ from unittest.mock import MagicMock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import override_settings
 from django.utils import timezone
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
-from posthog.models.instance_setting import override_instance_config
 
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api
@@ -1402,7 +1402,7 @@ class TestLedgerRecheck:
 
     @pytest.fixture(autouse=True)
     def app_slug(self):
-        with override_instance_config("GITHUB_APP_SLUG", "posthog-app"):
+        with override_settings(GITHUB_APP_SLUG="posthog-app"):
             yield
 
     @pytest.fixture

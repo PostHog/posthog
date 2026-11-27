@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import OperationalError
+from django.test import override_settings
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -435,10 +436,8 @@ class TestTeamsOAuthEndpoints(APIBaseTest):
         self.team.conversations_enabled = True
         self.team.save()
 
-    @patch("products.conversations.backend.api.teams_oauth.get_instance_settings")
-    def test_authorize_returns_oauth_url(self, mock_settings):
-        mock_settings.return_value = {"SUPPORT_TEAMS_APP_ID": "app-id-123"}
-
+    @override_settings(SUPPORT_TEAMS_APP_ID="app-id-123")
+    def test_authorize_returns_oauth_url(self):
         response = self.client.get("/api/conversations/v1/teams/authorize")
 
         assert response.status_code == 200
@@ -451,10 +450,8 @@ class TestTeamsOAuthEndpoints(APIBaseTest):
         assert qs["client_id"] == ["app-id-123"]
         assert "offline_access" in qs.get("scope", [""])[0]
 
-    @patch("products.conversations.backend.api.teams_oauth.get_instance_settings")
-    def test_authorize_not_configured_returns_503(self, mock_settings):
-        mock_settings.return_value = {"SUPPORT_TEAMS_APP_ID": ""}
-
+    @override_settings(SUPPORT_TEAMS_APP_ID="")
+    def test_authorize_not_configured_returns_503(self):
         response = self.client.get("/api/conversations/v1/teams/authorize")
 
         assert response.status_code == 503

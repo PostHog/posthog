@@ -2,12 +2,11 @@ import json
 
 from posthog.test.base import BaseTest
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
@@ -78,7 +77,7 @@ class TestPullRequestOwnerResolver(BaseTest):
         )
 
     def _resolve(self, author_login: str, head_branch: str = _HEAD_BRANCH) -> PullRequestOwner:
-        with override_instance_config("GITHUB_APP_SLUG", "posthog-app"):
+        with override_settings(GITHUB_APP_SLUG="posthog-app"):
             return PullRequestOwnerResolver.resolve(
                 self.team.id, repository="PostHog/posthog", author_login=author_login, head_branch=head_branch
             )

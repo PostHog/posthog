@@ -14,7 +14,6 @@ from posthog.api.oauth.views import login_required_with_pending_connection
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.helpers.sso import IDP_SIGNUP_CONTINUATION_SESSION_KEY, IDP_SSO_BACKENDS
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
 from posthog.utils import add_user_app_context, feature_flag_bootstrap, full_stage_user_app_context, render_template
@@ -132,7 +131,7 @@ def region_host_from_current_instance(cookie_value: str | None) -> str | None:
 def app_region_redirect(request: HttpRequest) -> HttpResponseRedirect | None:
     """For `app.posthog.com` page loads, send the browser to the region the user is
     actually logged into (per the `ph_current_instance` cookie), preserving the path and
-    query. Falls back to the `REDIRECT_APP_TO_US` instance setting when there's no region
+    query. Falls back to the `REDIRECT_APP_TO_US` setting when there's no region
     cookie. Returns None when no redirect applies so callers render normally.
 
     This has to run before the `login_required` auth gate: `app.posthog.com` is the US
@@ -144,7 +143,7 @@ def app_region_redirect(request: HttpRequest) -> HttpResponseRedirect | None:
         return None
 
     target_host = region_host_from_current_instance(request.COOKIES.get("ph_current_instance"))
-    if target_host is None and get_instance_setting("REDIRECT_APP_TO_US"):
+    if target_host is None and settings.REDIRECT_APP_TO_US:
         target_host = "us.posthog.com"
     if target_host is None:
         return None

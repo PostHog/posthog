@@ -4,7 +4,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import httpx
 from parameterized import parameterized
@@ -807,7 +807,7 @@ class TestResolveInstallationOauthContext(BaseTest):
         )
 
         with (
-            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
             override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
         ):
             ctx = resolve_installation_oauth_context(installation)
@@ -921,7 +921,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
         installation = self._installation()
 
         with (
-            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
             override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
             self.assertRaises(OAuthTokenExchangeError),
         ):
@@ -952,7 +952,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
         )
 
         with (
-            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
             override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
         ):
             if operation == "exchange":
@@ -981,7 +981,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
         installation = self._installation()
 
         with (
-            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
             override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
             self.assertRaises(TokenRefreshError),
         ):

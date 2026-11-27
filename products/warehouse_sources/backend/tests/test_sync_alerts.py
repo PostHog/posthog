@@ -9,13 +9,13 @@ from unittest.mock import patch
 
 from django.core import mail
 from django.core.management import call_command
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -760,7 +760,7 @@ class TestWarehouseAlerts(APIBaseTest):
             record_outcomes(self.team.id, list(evaluation.outcomes), self.cutoff)
         (delivery,) = evaluation.deliveries
 
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         with self.settings(EMAIL_ENABLED=True):
             sent = platform_testing.deliver(delivery)
 

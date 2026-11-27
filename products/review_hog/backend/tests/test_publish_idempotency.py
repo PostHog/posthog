@@ -14,7 +14,6 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.models.instance_setting import override_instance_config
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.review_cadence import ReviewCadence
@@ -75,11 +74,11 @@ def test_review_already_posted_detects_our_own_markered_review() -> None:
     )
     assert _review_posted(marker, [{"body": f"no user field: {marker}"}]) is False
     # With the app's bot login configured, another installed bot's pasted marker must not match either.
-    with override_instance_config("GITHUB_APP_SLUG", "posthog"):
+    with override_settings(GITHUB_APP_SLUG="posthog"):
         assert _review_posted(marker, [{"body": marker, **bot}]) is True
         assert _review_posted(marker, [{"body": marker, "user": {"login": "rogue[bot]", "type": "Bot"}}]) is False
     # Unconfigured in production, no bot is trusted, because any installed bot could paste the marker.
-    with override_instance_config("GITHUB_APP_SLUG", ""), override_settings(DEBUG=False, TEST=False):
+    with override_settings(GITHUB_APP_SLUG=""), override_settings(DEBUG=False, TEST=False):
         assert _review_posted(marker, [{"body": marker, **bot}]) is False
 
 

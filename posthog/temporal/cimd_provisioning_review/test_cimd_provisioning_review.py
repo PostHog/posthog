@@ -7,7 +7,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,7 +21,6 @@ from posthog.egress.firecrawl import FirecrawlNotConfigured, FirecrawlScrape, Fi
 from posthog.email import WORKFLOWS_TEMPLATE_ID_MAP
 from posthog.llm.system_one import NoulAnswer, RefusalAnswer, SystemOneResult
 from posthog.models import Organization, OrganizationMembership, User
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import (
@@ -240,8 +239,7 @@ class TestSettleReview(APIBaseTest):
 class TestSendPartnerReviewEmail(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True))
 
     def _review(
         self,

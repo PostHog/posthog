@@ -73,7 +73,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
-from posthog.models.instance_setting import override_instance_config, set_instance_setting
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
@@ -2165,7 +2165,7 @@ class TestPasswordResetAPI(APIBaseTest):
     @time_machine.travel("2021-10-05T12:00:00", tick=False)
     @patch("posthoganalytics.capture")
     def test_anonymous_user_can_request_password_reset(self, mock_capture):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
@@ -2202,7 +2202,7 @@ class TestPasswordResetAPI(APIBaseTest):
         )
 
     def test_password_reset_is_case_insensitive(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         assert self.CONFIG_EMAIL is not None
 
         # User registered as "user1@posthog.com", request reset with different casing
@@ -2215,7 +2215,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
     def test_password_reset_reaches_the_account_login_would_authenticate(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         abandoned = User.objects.create_and_join(self.organization, "casey@posthog.com", None)
         in_use = User.objects.create_and_join(self.organization, "casey-alt@posthog.com", self.CONFIG_PASSWORD)
         # `create_user` normalizes the address to lowercase, so write the variation in directly — the
@@ -2234,7 +2234,7 @@ class TestPasswordResetAPI(APIBaseTest):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
         """
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
         UserSocialAuth.objects.create(
             user=self.user,
@@ -2278,7 +2278,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
 
     def test_success_response_even_on_invalid_email(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
@@ -2302,7 +2302,7 @@ class TestPasswordResetAPI(APIBaseTest):
         )
 
     def test_cant_reset_more_than_six_times(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
         for i in range(7):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
@@ -2321,7 +2321,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 6)
 
     def test_is_rate_limited_on_email_not_ip(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
 
         for email in ["email@posthog.com", "other-email@posthog.com"]:
             for i in range(7):
@@ -2462,7 +2462,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertFalse(self.user.check_password("123"))
 
     def test_service_account_cant_request_or_complete_a_password_reset(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
@@ -3622,7 +3622,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
 
         # test SMTP email notification
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
@@ -3634,7 +3634,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
 
         # test SMTP email notification
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
@@ -3649,7 +3649,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         ua2, ip2 = "BrowserB/100.0 (Macintosh; Intel Mac OS X)", "2.2.2.2"
 
         # test SMTP email notification
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
@@ -3663,7 +3663,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
         ua2, ip2 = "BrowserB/100.0 (Macintosh; Intel Mac OS X)", "2.2.2.2"
 
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # First login from device 1 — notification sent
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
@@ -3684,7 +3684,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         Backend = type("Backend", (), {"name": "google-oauth2"})
         ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
 
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # Attacker-forged cookie without a valid signature should not suppress the notification
             social_login_notification(
@@ -3701,7 +3701,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
 
         # test SMTP email notification
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # simulating signup with post_login signal
             req_signup = rf.get("/", HTTP_USER_AGENT=ua1, REMOTE_ADDR=ip1)
@@ -3755,7 +3755,7 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
         assert has_valid_known_device_cookie(req, self.user)
 
     def test_known_cookie_suppresses_notification(self):
-        set_instance_setting("EMAIL_HOST", "localhost")
+        self.enterContext(override_settings(EMAIL_HOST="localhost"))
         new_device_subject = "A new device logged into your account"
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # First login - sets cookie and sends new-device notification

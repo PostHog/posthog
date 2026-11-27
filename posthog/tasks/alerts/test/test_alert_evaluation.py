@@ -4,10 +4,11 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.test.alert_check_helpers import keep_team_alerts_on_insight, run_alert_check
 
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
@@ -22,8 +23,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         super().setUp()
         keep_team_alerts_on_insight(self.team)
 
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
+        self.enterContext(override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True))
 
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 

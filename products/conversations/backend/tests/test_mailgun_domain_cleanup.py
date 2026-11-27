@@ -5,12 +5,11 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 import requests
 from parameterized import parameterized
-
-from posthog.models.instance_setting import override_instance_config
 
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, MailgunDomainRegistration
 from products.conversations.backend.services.mailgun_domain_cleanup import cleanup_mailgun_domains
@@ -56,7 +55,7 @@ class TestMailgunDomainCleanup(BaseTest):
     ) -> list[str]:
         by_name = {item["name"]: item for item in listed} if current is None else current
         with (
-            override_instance_config("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", inbound_domain),
+            override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN=inbound_domain),
             patch(f"{SERVICE}.list_domains", return_value=listed),
             patch(f"{SERVICE}.get_domain", side_effect=lambda name: by_name.get(name)),
             patch(f"{SERVICE}.delete_domain") as delete_domain,
@@ -174,7 +173,7 @@ class TestMailgunDomainCleanup(BaseTest):
         throttled = requests.HTTPError(response=MagicMock(status_code=429))
 
         with (
-            override_instance_config("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", ""),
+            override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN=""),
             patch(f"{SERVICE}.list_domains", return_value=[_mailgun_domain(d, "unverified") for d in domains]),
             patch(f"{SERVICE}.get_domain", side_effect=throttled) as get_domain,
             patch(f"{SERVICE}.delete_domain") as delete_domain,

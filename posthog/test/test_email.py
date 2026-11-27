@@ -41,7 +41,6 @@ from posthog.email import (
     sanitize_email_properties,
 )
 from posthog.models import Organization, Person, Team, User
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord, get_email_hash, get_email_hashes
 from posthog.models.user import UserType
 from posthog.service_accounts.emails import generated_service_account_email
@@ -118,18 +117,18 @@ class TestEmail(BaseTest):
         )  # This user should not get the emails
 
     def test_cant_send_emails_if_not_properly_configured(self) -> None:
-        with override_instance_config("EMAIL_HOST", None):
+        with override_settings(EMAIL_HOST=None):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
             self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
-        with override_instance_config("EMAIL_ENABLED", False):
+        with override_settings(EMAIL_ENABLED=False):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
             self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
         with (
-            override_instance_config("EMAIL_HOST", None),
+            override_settings(EMAIL_HOST=None),
             self.settings(
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="http://us.posthog.com", DEBUG=False
             ),
@@ -138,7 +137,7 @@ class TestEmail(BaseTest):
                 EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
 
     def test_cant_send_same_campaign_twice(self) -> None:
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             sent_at = timezone.now()
 
             record, _ = MessagingRecord.objects.get_or_create(raw_email="test0@posthog.com", campaign_key="campaign_1")
@@ -164,7 +163,7 @@ class TestEmail(BaseTest):
             self.assertEqual(record.sent_at, sent_at)
 
     def test_applies_default_utm_tags(self) -> None:
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             template = "async_migration_error"
             message = EmailMessage(campaign_key="test_campaign", subject="Subject", template_name=template)
 
@@ -179,7 +178,7 @@ class TestEmail(BaseTest):
         labels = {"outcome": "sent", "transport": "smtp"}
         before = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
 
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             message = EmailMessage(
                 campaign_key="metric_test_campaign", subject="Subject", template_name="async_migration_error"
             )
@@ -192,7 +191,7 @@ class TestEmail(BaseTest):
 
     @patch("posthog.email.ph_background_capture", side_effect=RuntimeError("capture down"))
     def test_smtp_send_goes_out_when_the_capture_client_cannot_start(self, _capture: MagicMock) -> None:
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             message = EmailMessage(
                 campaign_key="capture_down", subject="Subject", template_name="async_migration_error"
             )
@@ -215,7 +214,7 @@ class TestEmail(BaseTest):
         service_account.email = generated_service_account_email(service_account.uuid)
         service_account.save()
 
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             message = EmailMessage(
                 campaign_key="service_account_skip", subject="Subject", template_name="async_migration_error"
             )
@@ -237,7 +236,7 @@ class TestEmail(BaseTest):
         client = posthoganalytics.Client("example-key", send=False, before_send=record_event)
         client.super_properties = {"region": "US"}
         with (
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             self.settings(CLOUD_DEPLOYMENT="EU"),
             patch("posthog.ph_client.get_client", return_value=client),
             patch.dict("posthog.ph_client._background_clients", clear=True),
@@ -290,7 +289,7 @@ class TestEmail(BaseTest):
         before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
 
         with (
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             patch("django.core.mail.backends.locmem.EmailBackend.send_messages", side_effect=exc),
         ):
             kwargs: dict[str, Any] = {
@@ -316,7 +315,7 @@ class TestEmail(BaseTest):
         # accepted by the relay — otherwise the task's autoretry re-sends the whole batch and
         # duplicates the already-delivered emails. Each delivery commits its own `sent_at`.
         with (
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             patch(
                 "django.core.mail.backends.locmem.EmailBackend.send_messages",
                 side_effect=[1, smtplib.SMTPServerDisconnected("dropped mid-batch")],
@@ -352,8 +351,8 @@ class TestEmail(BaseTest):
         # TimeoutError retry branch can never fire — so the backend must get a bounded timeout.
         mock_backend_cls = MagicMock()
         with (
-            override_instance_config("EMAIL_HOST", "localhost"),
-            override_instance_config("EMAIL_TIMEOUT", 17),
+            override_settings(EMAIL_HOST="localhost"),
+            override_settings(EMAIL_TIMEOUT=17),
             patch("posthog.email.import_string", return_value=mock_backend_cls),
             self.settings(EMAIL_BACKEND="some.smtp.Backend"),
         ):
@@ -549,7 +548,7 @@ class TestEmail(BaseTest):
             mock_post.return_value = MagicMock(status_code=status_code, text="error", json=MagicMock(return_value=body))
 
         with (
-            override_instance_config("EMAIL_HOST", ""),
+            override_settings(EMAIL_HOST=""),
             self.settings(
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
                 POSTHOG_HOST="https://us.posthog.com",
@@ -642,7 +641,7 @@ class TestEmail(BaseTest):
                 "django.core.mail.backends.locmem.EmailBackend.open",
                 side_effect=TimeoutError("relay down") if condition == "relay_down" else None,
             ),
-            override_instance_config("EMAIL_HOST", email_host),
+            override_settings(EMAIL_HOST=email_host),
             self.settings(
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test" if has_key else "", POSTHOG_HOST="https://us.posthog.com"
             ),
@@ -710,7 +709,7 @@ class TestEmail(BaseTest):
             original_save(record, *args, **kwargs)
 
         with (
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
         ):
             message = EmailMessage(campaign_key="lost_commit", subject="Subject", template_name="async_migration_error")
@@ -726,7 +725,7 @@ class TestEmail(BaseTest):
     @patch("posthog.email.requests.post", side_effect=requests.exceptions.InvalidHeader("Bearer phs_secret_value"))
     def test_a_network_error_from_workflows_never_carries_the_api_key(self, _post: MagicMock) -> None:
         with (
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             self.settings(
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_secret_value", POSTHOG_HOST="https://us.posthog.com"
             ),
@@ -755,7 +754,7 @@ class TestEmail(BaseTest):
             original_save(record, *args, **kwargs)
 
         with (
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             self.settings(
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
                 POSTHOG_HOST="https://us.posthog.com",
@@ -801,7 +800,7 @@ class TestEmail(BaseTest):
             patch("posthog.email.MessagingRecord.objects.get_or_create", side_effect=record_error)
             if record_error
             else contextlib.nullcontext(),
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             self.settings(
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
                 POSTHOG_HOST="https://us.posthog.com",
@@ -828,7 +827,7 @@ class TestEmail(BaseTest):
         self, _post: MagicMock, mock_apply_async: MagicMock
     ) -> None:
         with (
-            override_instance_config("EMAIL_HOST", "localhost"),
+            override_settings(EMAIL_HOST="localhost"),
             self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
         ):
             message = EmailMessage(
@@ -877,7 +876,7 @@ class TestEmail(BaseTest):
         try:
             with (
                 patch("posthog.email.current_task", _send_email),
-                override_instance_config("EMAIL_HOST", "localhost"),
+                override_settings(EMAIL_HOST="localhost"),
                 self.settings(
                     POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
                     POSTHOG_HOST="https://us.posthog.com",
@@ -1075,7 +1074,7 @@ class TestEmail(BaseTest):
 
     def test_email_message_sanitizes_properties(self) -> None:
         # Test that EmailMessage constructor properly sanitizes template_context
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             template_context = {
                 "name": 'User"><img src=x onerror=alert(1)>',
                 "project_name": '<script>alert("XSS")</script>',
@@ -1103,7 +1102,7 @@ class TestEmail(BaseTest):
 
     def test_add_recipient_sanitizes_name(self) -> None:
         # Test that add_recipient properly sanitizes the name parameter
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_settings(EMAIL_HOST="localhost"):
             message = EmailMessage(campaign_key="test_campaign", subject="Test subject", template_name="2fa_enabled")
 
             # Add recipient with a malicious name containing HTML/JavaScript

@@ -11,7 +11,6 @@ from django.test import override_settings
 
 from celery.exceptions import Retry
 
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.ownership.github_files import OwnershipUnavailable
@@ -1904,7 +1903,7 @@ def test_routing_without_a_posthog_app_installation_fails_before_any_write(
     _setup(routing_chain, team, user, posthog_app=missing != "installation")
     routing_chain.cut_model.answer = _CUT_BETA
 
-    with override_instance_config("GITHUB_APP_SLUG", "" if missing == "app_slug" else POSTHOG_APP_SLUG):
+    with override_settings(GITHUB_APP_SLUG="" if missing == "app_slug" else POSTHOG_APP_SLUG):
         with pytest.raises(Retry) as retry:
             _run_event_task(MagicMock())
 

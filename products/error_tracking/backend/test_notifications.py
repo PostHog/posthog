@@ -4,12 +4,11 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.models import User
-from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.email import send_error_tracking_issue_assigned
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
@@ -134,14 +133,9 @@ class TestAssignerExcludingResolver(SimpleTestCase):
         assert result == expected
 
 
+@override_settings(EMAIL_HOST="fake_host", EMAIL_ENABLED=True)
 @patch("posthog.tasks.email.EmailMessage")
 class TestSendIssueAssignedEmail(_AssignmentTestBase):
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
-
     def setUp(self):
         super().setUp()
         self.assigner.first_name = "Alice"

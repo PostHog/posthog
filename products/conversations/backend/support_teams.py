@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 
@@ -20,7 +21,7 @@ import requests
 import structlog
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.instance_setting import get_instance_settings
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -117,13 +118,11 @@ def is_teams_graph_message_seen(team_id: int, channel_id: str, message_id: str) 
 
 
 def get_teams_instance_settings() -> dict:
-    return get_instance_settings(
-        [
-            "SUPPORT_TEAMS_APP_ID",
-            "SUPPORT_TEAMS_APP_SECRET",
-            "SUPPORT_TEAMS_APP_TENANT_ID",
-        ]
-    )
+    return {
+        "SUPPORT_TEAMS_APP_ID": settings.SUPPORT_TEAMS_APP_ID,
+        "SUPPORT_TEAMS_APP_SECRET": get_instance_setting("SUPPORT_TEAMS_APP_SECRET"),
+        "SUPPORT_TEAMS_APP_TENANT_ID": settings.SUPPORT_TEAMS_APP_TENANT_ID,
+    }
 
 
 def get_botframework_issuers() -> frozenset[str]:
@@ -263,9 +262,9 @@ def get_bot_framework_token(force_refresh: bool = False) -> str:
         if cached:
             return cached
 
-    settings = get_teams_instance_settings()
-    app_id = str(settings.get("SUPPORT_TEAMS_APP_ID") or "")
-    app_secret = str(settings.get("SUPPORT_TEAMS_APP_SECRET") or "")
+    teams_settings = get_teams_instance_settings()
+    app_id = str(teams_settings.get("SUPPORT_TEAMS_APP_ID") or "")
+    app_secret = str(teams_settings.get("SUPPORT_TEAMS_APP_SECRET") or "")
 
     if not app_id or not app_secret:
         raise ValueError("Teams bot credentials not configured")
@@ -310,9 +309,9 @@ def refresh_graph_token(config: TeamConversationsTeamsConfig) -> str:
     if not config.teams_graph_refresh_token:
         raise ValueError("No Graph API refresh token stored")
 
-    settings = get_teams_instance_settings()
-    app_id = str(settings.get("SUPPORT_TEAMS_APP_ID") or "")
-    app_secret = str(settings.get("SUPPORT_TEAMS_APP_SECRET") or "")
+    teams_settings = get_teams_instance_settings()
+    app_id = str(teams_settings.get("SUPPORT_TEAMS_APP_ID") or "")
+    app_secret = str(teams_settings.get("SUPPORT_TEAMS_APP_SECRET") or "")
 
     if not app_id or not app_secret:
         raise ValueError("Teams bot credentials not configured")

@@ -16,7 +16,6 @@ from celery.exceptions import Retry
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import (
@@ -142,7 +141,7 @@ def _run_task(
     # server-attested identity check can resolve <slug>[bot]; pass "" to exercise the fail-closed path.
     with (
         team_scope(team_id),
-        override_instance_config("GITHUB_APP_SLUG", app_slug),
+        override_settings(GITHUB_APP_SLUG=app_slug),
         patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()),
         patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as mock_execute,
         patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as mock_client,
@@ -1236,7 +1235,7 @@ def _run_inbox_task(
     find_result = _linked_run_dto(team_id) if linked == "match" else linked
     with (
         team_scope(team_id),
-        override_instance_config("GITHUB_APP_SLUG", app_slug),
+        override_settings(GITHUB_APP_SLUG=app_slug),
         patch(_RESOLVER_SLOT, resolver),
         patch(_FIND_RUN, return_value=find_result),
         patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()),

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import transaction
 
 import requests
@@ -10,7 +11,6 @@ from rest_framework.views import APIView
 
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.instance_setting import get_instance_settings
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import TeamsAdminGraphThrottle
@@ -150,8 +150,7 @@ class TeamsInstallAppView(APIView):
             return Response({"error": "team_id must be a valid UUID"}, status=400)
         teams_team_id = str(serializer.validated_data["team_id"])
 
-        settings_payload = get_instance_settings(["SUPPORT_TEAMS_CATALOG_APP_ID"])
-        catalog_app_id = str(settings_payload.get("SUPPORT_TEAMS_CATALOG_APP_ID") or "").strip()
+        catalog_app_id = settings.SUPPORT_TEAMS_CATALOG_APP_ID.strip()
         if not catalog_app_id:
             return Response({"error": "catalog_not_configured"}, status=503)
 

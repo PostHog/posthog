@@ -17,10 +17,10 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
+from django.test import override_settings
 from django.utils import timezone
 
 from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import GitHubIntegrationError, Integration
 from posthog.storage import object_storage
 
@@ -451,7 +451,7 @@ def writer_env(team, user):
         team=team, kind="github", integration_id="31337", config={"account": {"name": "PostHog"}}
     )
     with (
-        override_instance_config("GITHUB_APP_SLUG", "posthog-app"),
+        override_settings(GITHUB_APP_SLUG="posthog-app"),
         patch.dict(
             os.environ,
             {

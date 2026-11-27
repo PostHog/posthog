@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, SimpleTestCase
+from django.test import Client, SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -63,11 +63,8 @@ class TestEmailConnectDomainCaseInsensitivity(BaseTest):
         self.client.force_login(self.user)
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_connect_lowercases_domain(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_connect_lowercases_domain(self, _mock_mailgun: MagicMock):
         response = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "Support@Example.COM", "from_name": "Support"},
@@ -80,13 +77,8 @@ class TestEmailConnectDomainCaseInsensitivity(BaseTest):
         assert config.domain == "example.com"
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_connect_rejects_duplicate_domain_different_casing_cross_org(
-        self, _mock_setting: MagicMock, _mock_mailgun: MagicMock
-    ):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_connect_rejects_duplicate_domain_different_casing_cross_org(self, _mock_mailgun: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -160,11 +152,8 @@ class TestEmailChannelPermissions(BaseTest):
         assert response.status_code == 403
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_admin_can_connect_email(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_admin_can_connect_email(self, _mock_mailgun: MagicMock):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -211,12 +200,9 @@ class TestEmailChannelPermissions(BaseTest):
         assert [config["owner_id"] for config in response.json()["configs"]] == [self.user.id]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     def test_member_can_connect_and_disconnect_own_customer_channel_without_mailgun(
-        self, _mock_setting: MagicMock, mock_mailgun_add_domain: MagicMock
+        self, mock_mailgun_add_domain: MagicMock
     ) -> None:
         connect_response = self.client.post(
             "/api/conversations/v1/email/connect",
@@ -553,16 +539,12 @@ class TestEmailChannelPermissions(BaseTest):
             ("confirmation_expired", EmailChannelConnectionStatus.CONFIRMATION_EXPIRED, False),
         ]
     )
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     def test_connect_releases_expired_customer_email_reservation(
         self,
         _name: str,
         connection_status: str,
         create_setup: bool,
-        _mock_setting: MagicMock,
     ) -> None:
         other_organization = Organization.objects.create(name="Other organization")
         other_team = Team.objects.create(organization=other_organization)
@@ -611,11 +593,8 @@ class TestEmailChannelPermissions(BaseTest):
         "products.conversations.backend.api.email_settings.MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER",
         1,
     )
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_member_cannot_exhaust_team_quota_with_pending_channels(self, _mock_setting: MagicMock) -> None:
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_member_cannot_exhaust_team_quota_with_pending_channels(self) -> None:
         EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -643,11 +622,8 @@ class TestEmailChannelPermissions(BaseTest):
         assert EmailChannel.objects.filter(team=self.team).count() == 1
 
     @patch("products.conversations.backend.api.email_settings.MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM", 1)
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_expired_customer_channels_do_not_count_toward_team_limit(self, _mock_setting: MagicMock) -> None:
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_expired_customer_channels_do_not_count_toward_team_limit(self) -> None:
         EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -674,13 +650,8 @@ class TestEmailChannelPermissions(BaseTest):
         assert EmailChannel.objects.filter(team=self.team).count() == 2
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_member_cannot_connect_customer_channel_for_another_owner(
-        self, _mock_setting: MagicMock, mock_mailgun_add_domain: MagicMock
-    ) -> None:
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_member_cannot_connect_customer_channel_for_another_owner(self, mock_mailgun_add_domain: MagicMock) -> None:
         other_owner = User.objects.create(email="other-owner@example.com")
         OrganizationMembership.objects.create(
             organization=self.organization,
@@ -766,11 +737,8 @@ class TestEmailMultiConfig(BaseTest):
         self.client.force_login(self.user)
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_connect_multiple_emails(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_connect_multiple_emails(self, mock_mailgun: MagicMock):
         r1 = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -789,11 +757,8 @@ class TestEmailMultiConfig(BaseTest):
         assert configs.count() == 2
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_support_channel_rejects_shared_provider_domain(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_support_channel_rejects_shared_provider_domain(self, mock_mailgun: MagicMock):
         response = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@gmail.com", "from_name": "Support"},
@@ -813,16 +778,12 @@ class TestEmailMultiConfig(BaseTest):
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     def test_same_domain_reuses_registration_unless_mailgun_dropped_it(
         self,
         _name: str,
         mailgun_domain: dict | None,
         should_register_again: bool,
-        _mock_setting: MagicMock,
         mock_add_domain: MagicMock,
         mock_get_domain: MagicMock,
     ):
@@ -854,12 +815,9 @@ class TestEmailMultiConfig(BaseTest):
 
     @patch("products.conversations.backend.api.email_settings.mailgun_get_domain", return_value=None)
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     def test_same_domain_fails_when_registering_the_dropped_domain_again_fails(
-        self, _mock_setting: MagicMock, mock_add_domain: MagicMock, _mock_get_domain: MagicMock
+        self, mock_add_domain: MagicMock, _mock_get_domain: MagicMock
     ):
         mock_add_domain.return_value = {"sending_dns_records": [{"record_type": "TXT", "value": "old"}]}
         self.client.post(
@@ -881,11 +839,8 @@ class TestEmailMultiConfig(BaseTest):
         ]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_reject_duplicate_from_email(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_reject_duplicate_from_email(self, _mock_mailgun: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -899,11 +854,8 @@ class TestEmailMultiConfig(BaseTest):
         assert r2.status_code == 409
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_same_org_different_team_domain_allowed(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_same_org_different_team_domain_allowed(self, mock_mailgun: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -925,11 +877,8 @@ class TestEmailMultiConfig(BaseTest):
         mock_mailgun.assert_not_called()
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_cross_org_domain_rejected(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_cross_org_domain_rejected(self, _mock_mailgun: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -954,13 +903,8 @@ class TestEmailMultiConfig(BaseTest):
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_disconnect_one_keeps_email_enabled(
-        self, _mock_setting: MagicMock, _mock_delete: MagicMock, _mock_add: MagicMock
-    ):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_disconnect_one_keeps_email_enabled(self, _mock_delete: MagicMock, _mock_add: MagicMock):
         r1 = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -988,13 +932,8 @@ class TestEmailMultiConfig(BaseTest):
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_disconnect_last_disables_email(
-        self, _mock_setting: MagicMock, _mock_delete: MagicMock, _mock_add: MagicMock
-    ):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_disconnect_last_disables_email(self, _mock_delete: MagicMock, _mock_add: MagicMock):
         r1 = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -1014,13 +953,8 @@ class TestEmailMultiConfig(BaseTest):
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_disconnect_keeps_domain_if_sibling_exists(
-        self, _mock_setting: MagicMock, mock_delete: MagicMock, _mock_add: MagicMock
-    ):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_disconnect_keeps_domain_if_sibling_exists(self, mock_delete: MagicMock, _mock_add: MagicMock):
         r1 = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -1053,13 +987,9 @@ class TestEmailMultiConfig(BaseTest):
         ),
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     def test_connect_rejects_domain_claimed_by_another_mailgun_account(
         self,
-        _mock_setting: MagicMock,
         mock_mailgun_delete: MagicMock,
         _mock_mailgun_add: MagicMock,
         _mock_get_domain: MagicMock,
@@ -1104,17 +1034,13 @@ class TestEmailMultiConfig(BaseTest):
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     def test_connect_reclaims_stranded_mailgun_domain(
         self,
         _name,
         mailgun_state,
         reverified_state,
         expected_status,
-        _mock_setting: MagicMock,
         mock_add: MagicMock,
         mock_get_domain: MagicMock,
         mock_delete: MagicMock,
@@ -1149,13 +1075,9 @@ class TestEmailMultiConfig(BaseTest):
         "products.conversations.backend.api.email_settings.mailgun_add_domain",
         side_effect=MailgunDomainConflict("Domain example.com already exists"),
     )
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     def test_connect_conflict_stands_when_reclaim_lookup_fails(
         self,
-        _mock_setting: MagicMock,
         _mock_mailgun_add: MagicMock,
         _mock_get_domain: MagicMock,
     ):
@@ -1170,11 +1092,8 @@ class TestEmailMultiConfig(BaseTest):
         assert EmailChannel.objects.filter(team=self.team).count() == 0
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_status_returns_all_configs(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_status_returns_all_configs(self, _mock_mailgun: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -1194,11 +1113,8 @@ class TestEmailMultiConfig(BaseTest):
         assert emails == {"support@example.com", "billing@example.com"}
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_connect_customer_communication_channel(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock) -> None:
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_connect_customer_communication_channel(self, _mock_mailgun: MagicMock) -> None:
         response = self.client.post(
             "/api/conversations/v1/email/connect",
             {
@@ -1221,13 +1137,8 @@ class TestEmailMultiConfig(BaseTest):
         assert (self.team.conversations_settings or {}).get("email_enabled") is not True
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_customer_channel_allows_shared_email_domain_across_organizations(
-        self, _mock_setting: MagicMock, mock_mailgun: MagicMock
-    ) -> None:
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_customer_channel_allows_shared_email_domain_across_organizations(self, mock_mailgun: MagicMock) -> None:
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org)
         other_owner = User.objects.create(email="other@gmail.com")
@@ -1262,13 +1173,8 @@ class TestEmailMultiConfig(BaseTest):
         mock_mailgun.assert_not_called()
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_customer_channel_rejects_owner_outside_organization(
-        self, _mock_setting: MagicMock, mock_mailgun: MagicMock
-    ) -> None:
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_customer_channel_rejects_owner_outside_organization(self, mock_mailgun: MagicMock) -> None:
         response = self.client.post(
             "/api/conversations/v1/email/connect",
             {
@@ -1286,13 +1192,8 @@ class TestEmailMultiConfig(BaseTest):
         mock_mailgun.assert_not_called()
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_customer_channel_does_not_use_support_sending_domain(
-        self, _mock_setting: MagicMock, mock_mailgun: MagicMock
-    ) -> None:
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_customer_channel_does_not_use_support_sending_domain(self, mock_mailgun: MagicMock) -> None:
         EmailChannel.objects.create(
             team=self.team,
             inbound_token="support-token",
@@ -1321,11 +1222,8 @@ class TestEmailMultiConfig(BaseTest):
         assert customer_channel.dns_records == {}
         mock_mailgun.assert_not_called()
 
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_status_filters_channels_by_kind(self, _mock_setting: MagicMock) -> None:
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_status_filters_channels_by_kind(self) -> None:
         EmailChannel.objects.create(
             team=self.team,
             inbound_token="support-token",
@@ -1353,13 +1251,8 @@ class TestEmailMultiConfig(BaseTest):
         assert customer_response.json()["configs"][0]["owner_id"] == self.user.id
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_support_channel_limit_does_not_block_customer_channels(
-        self, _mock_setting: MagicMock, mock_mailgun: MagicMock
-    ) -> None:
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_support_channel_limit_does_not_block_customer_channels(self, mock_mailgun: MagicMock) -> None:
         from products.conversations.backend.models.team_conversations_email_config import MAX_EMAIL_CONFIGS_PER_TEAM
 
         for index in range(MAX_EMAIL_CONFIGS_PER_TEAM):
@@ -1388,11 +1281,8 @@ class TestEmailMultiConfig(BaseTest):
 
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_config_limit_enforced(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock, mock_delete: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_config_limit_enforced(self, _mock_mailgun: MagicMock, mock_delete: MagicMock):
         from products.conversations.backend.models.team_conversations_email_config import MAX_EMAIL_CONFIGS_PER_TEAM
 
         for i in range(MAX_EMAIL_CONFIGS_PER_TEAM):
@@ -1418,13 +1308,9 @@ class TestEmailMultiConfig(BaseTest):
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     def test_config_limit_releases_reclaimed_domain(
         self,
-        _mock_setting: MagicMock,
         mock_add: MagicMock,
         mock_get_domain: MagicMock,
         mock_delete: MagicMock,
@@ -1462,11 +1348,8 @@ class TestEmailMultiConfig(BaseTest):
         assert mock_delete.call_args_list == [call("overflow.com"), call("overflow.com")]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_idor_disconnect_other_teams_config(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_idor_disconnect_other_teams_config(self, _mock_mailgun: MagicMock):
         r1 = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@team1.com", "from_name": "Team1"},
@@ -1490,13 +1373,8 @@ class TestEmailMultiConfig(BaseTest):
         "products.conversations.backend.api.email_settings.mailgun_verify_domain",
         return_value={"state": "active", "sending_dns_records": []},
     )
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_verify_domain_updates_all_siblings(
-        self, _mock_setting: MagicMock, _mock_verify: MagicMock, _mock_add: MagicMock
-    ):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_verify_domain_updates_all_siblings(self, _mock_verify: MagicMock, _mock_add: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
@@ -1541,13 +1419,8 @@ class TestEmailMultiConfig(BaseTest):
         "products.conversations.backend.api.email_settings.mailgun_verify_domain",
         return_value={"state": "active", "sending_dns_records": []},
     )
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_idor_verify_other_teams_config(
-        self, _mock_setting: MagicMock, _mock_verify: MagicMock, _mock_add: MagicMock
-    ):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_idor_verify_other_teams_config(self, _mock_verify: MagicMock, _mock_add: MagicMock):
         r1 = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@team1.com", "from_name": "Team1"},
@@ -3597,12 +3470,9 @@ class TestEmailSendTestView(BaseTest):
     def _post(self) -> dict:
         return {"config_id": str(self.config.id)}
 
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     @patch("products.conversations.backend.api.email_settings.send_mime")
-    def test_success(self, mock_send_mime: MagicMock, _mock_setting: MagicMock):
+    def test_success(self, mock_send_mime: MagicMock):
         mock_send_mime.return_value = "<mg-id@example.com>"
 
         response = self.client.post(
@@ -3622,10 +3492,7 @@ class TestEmailSendTestView(BaseTest):
             ("permanent_error", "MailgunPermanentError", "bad recipient", 502),
         ]
     )
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     @patch("products.conversations.backend.api.email_settings.send_mime")
     def test_mailgun_error_maps_to_status(
         self,
@@ -3634,7 +3501,6 @@ class TestEmailSendTestView(BaseTest):
         exc_arg: str,
         expected_status: int,
         mock_send_mime: MagicMock,
-        _mock_setting: MagicMock,
     ):
         import products.conversations.backend.mailgun as mailgun_mod
 
@@ -3646,12 +3512,9 @@ class TestEmailSendTestView(BaseTest):
 
         assert response.status_code == expected_status
 
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
     @patch("products.conversations.backend.api.email_settings.send_mime")
-    def test_domain_not_registered_flips_verified(self, mock_send_mime: MagicMock, _mock_setting: MagicMock):
+    def test_domain_not_registered_flips_verified(self, mock_send_mime: MagicMock):
         from products.conversations.backend.mailgun import MailgunDomainNotRegistered
 
         mock_send_mime.side_effect = MailgunDomainNotRegistered("gone")
@@ -3690,11 +3553,8 @@ class TestEmailDefaultChannel(BaseTest):
         )
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_first_connected_channel_becomes_default(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_INBOUND_DOMAIN="mg.posthog.com")
+    def test_first_connected_channel_becomes_default(self, _mock_mailgun: MagicMock):
         r1 = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
