@@ -18,6 +18,7 @@ import {
     refreshLogRecordGlobalsRecord,
     resolveLogTransformationInputs,
 } from './hog-log-exec'
+import { logTransformationFilterMatches } from './log-transformation-filter'
 
 // Iterative with a visited set: no depth cap (a secret below any cap would escape
 // redaction entirely) and safe against cyclic values.
@@ -49,7 +50,7 @@ function collectStringLeaves(root: unknown, out: string[]): void {
 export const transformationRecordsCounter = new Counter({
     name: 'logs_ingestion_transformations_records_total',
     help: 'Per-record log transformation outcomes',
-    labelNames: ['result'], // succeeded | failed | dropped | budget_skipped | watcher_disabled
+    labelNames: ['result'], // succeeded | failed | dropped | filtered | budget_skipped | watcher_disabled
 })
 
 export const transformationVmDurationHistogram = new Histogram({
@@ -106,6 +107,7 @@ interface FunctionAggregates {
     succeeded: number
     failed: number
     dropped: number
+    filtered: number
     budgetSkipped: number
     totalDurationMs: number
     errorLogs: LogEntry[]
@@ -304,6 +306,12 @@ export class LogsTransformerService {
         for (const fn of functions) {
             const agg = this.getAggregates(ctx.aggregates, fn.id)
 
+            if (!logTransformationFilterMatches(fn.filters, record)) {
+                agg.filtered++
+                transformationRecordsCounter.inc({ result: 'filtered' })
+                continue
+            }
+
             if (recordDirty) {
                 refreshLogRecordGlobalsRecord(globals.record, record)
                 recordDirty = false
@@ -490,7 +498,15 @@ export class LogsTransformerService {
     private getAggregates(aggregates: Map<string, FunctionAggregates>, functionId: string): FunctionAggregates {
         let agg = aggregates.get(functionId)
         if (!agg) {
-            agg = { succeeded: 0, failed: 0, dropped: 0, budgetSkipped: 0, totalDurationMs: 0, errorLogs: [] }
+            agg = {
+                succeeded: 0,
+                failed: 0,
+                dropped: 0,
+                filtered: 0,
+                budgetSkipped: 0,
+                totalDurationMs: 0,
+                errorLogs: [],
+            }
             aggregates.set(functionId, agg)
         }
         return agg
@@ -534,6 +550,18 @@ export class LogsTransformerService {
                         metric_kind: 'other',
                         metric_name: 'dropped',
                         count: agg.dropped,
+                    },
+                    'hog_function'
+                )
+            }
+            if (agg.filtered > 0) {
+                this.monitoring.queueAppMetric(
+                    {
+                        team_id: teamId,
+                        app_source_id: functionId,
+                        metric_kind: 'other',
+                        metric_name: 'filtered',
+                        count: agg.filtered,
                     },
                     'hog_function'
                 )

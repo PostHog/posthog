@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
+
+from posthog.schema import PropertyGroupFilter
+
 # Keep aligned with `MAX_FILTER_GROUP_DEPTH` / `MAX_FILTER_GROUP_NODES` in
 # `nodejs/src/logs/sampling/filter-group-match.ts` and
 # `compile-rules.ts`. Both depth and breadth are bounded so an adversarially
@@ -116,3 +120,23 @@ def filter_group_has_empty_group(node: Any) -> bool:
     if len(values) == 0:
         return True
     return any(filter_group_has_empty_group(child) for child in values)
+
+
+def filter_group_error(filter_group: Any) -> str | None:
+    """Shape and size validation for a filter_group evaluated per record by the ingestion worker.
+
+    Returns a message describing the problem, or None when the group is valid.
+    """
+    try:
+        PropertyGroupFilter.model_validate(filter_group)
+    except PydanticValidationError as e:
+        return f"Invalid filter_group shape: {e.errors()[0]['msg']}"
+    if filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
+        return f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."
+    if filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
+        return f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves)."
+    if filter_group_leaf_value_count(filter_group) > MAX_FILTER_GROUP_LEAF_VALUES:
+        return f"filter_group has too many filter values (max {MAX_FILTER_GROUP_LEAF_VALUES} across all filters)."
+    if filter_group_has_oversized_value(filter_group):
+        return f"filter_group contains a value longer than {MAX_FILTER_GROUP_VALUE_LENGTH} characters."
+    return None

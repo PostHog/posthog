@@ -23,6 +23,7 @@ from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
+from posthog.models.property.filter_group_validation import filter_group_error, filter_group_has_leaf
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -1418,6 +1419,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
+    filter_group = serializers.JSONField(required=False, allow_null=True)
     bytecode_error = serializers.CharField(required=False)
     bytecode_contract = serializers.CharField(required=False)
 
@@ -1456,9 +1458,21 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             ]
             if disallowed:
                 raise serializers.ValidationError(
-                    f"Filters are not supported for log transformations (got: {', '.join(disallowed)}). "
-                    "Use conditions in the Hog code instead."
+                    f"Event filters are not supported for log transformations (got: {', '.join(disallowed)}). "
+                    "Use filter_group to match log records instead."
                 )
+            filter_group = data.get("filter_group")
+            if not filter_group_has_leaf(filter_group):
+                return {}
+            error = filter_group_error(filter_group)
+            if error:
+                raise serializers.ValidationError({"filter_group": error})
+            # Event filter fields don't apply to log records; ingestion matches filter_group directly.
+            return {"filter_group": filter_group}
+
+        if data.get("filter_group"):
+            raise serializers.ValidationError({"filter_group": "Only log transformations support filter_group."})
+        data.pop("filter_group", None)
 
         if data.get("source") == "events":
             # Don't allow events or actions for person-updates

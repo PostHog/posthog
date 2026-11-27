@@ -40,6 +40,7 @@ from posthog.event_usage import get_request_analytics_properties, report_user_ac
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
+from posthog.models.property.filter_group_validation import filter_group_has_leaf
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -77,7 +78,6 @@ from products.logs.backend.logs_query_runner import (
 )
 from products.logs.backend.pattern_diff import run_patterns_diff
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
-from products.logs.backend.presentation.filter_group_validation import filter_group_has_leaf
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.context_api import (
     LogsContextRequestSerializer,

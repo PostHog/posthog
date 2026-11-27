@@ -152,6 +152,49 @@ describe('LogsTransformerService', () => {
         )
     })
 
+    it.each([
+        [
+            'matching records only',
+            {
+                type: 'AND',
+                values: [{ type: 'AND', values: [{ key: 'service.name', operator: 'exact', value: 'auth-api' }] }],
+            },
+            ['[REDACTED]', 'jane@example.com'],
+            { succeeded: 1, filtered: 1 },
+        ],
+        [
+            'no records for an invalid group',
+            { type: 'AND', values: 'bad' },
+            ['jane@example.com', 'jane@example.com'],
+            {
+                filtered: 2,
+            },
+        ],
+        [
+            'every record for an empty group',
+            { type: 'AND', values: [{ type: 'AND', values: [] }] },
+            ['[REDACTED]', '[REDACTED]'],
+            { succeeded: 2 },
+        ],
+    ])('filter_group transforms %s', async (_name, filterGroup, expectedBodies, expectedMetrics) => {
+        setFunctions([
+            await createFunction(
+                `
+                let rec := record
+                rec.body := replaceAll(rec.body, 'jane@example.com', '[REDACTED]')
+                return rec
+            `,
+                { filters: { filter_group: filterGroup } }
+            ),
+        ])
+        const records = [createRecord({ service_name: 'auth-api' }), createRecord({ service_name: 'billing' })]
+
+        await service.transformRecords(TEAM_ID, records)
+
+        expect(records.map((r) => r.body)).toEqual(expectedBodies.map((b) => `user ${b} logged in`))
+        expect(Object.fromEntries(queuedMetrics().map((m) => [m.metric_name, m.count]))).toEqual(expectedMetrics)
+    })
+
     it('chains transformations in order, each seeing the previous mutation', async () => {
         setFunctions([
             await createFunction(`

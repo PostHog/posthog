@@ -61,6 +61,8 @@ export interface HogFunctionFilters {
     data_warehouse?: HogFunctionFilterDataWarehouse[]
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
+    /** Log transformations only: matched against each log record in place of bytecode. */
+    filter_group?: Record<string, any>
     bytecode?: HogBytecode
     /** Set by Django when compilation failed. The bytecode is null beside it, unless the save kept the last working one. */
     bytecode_error?: string

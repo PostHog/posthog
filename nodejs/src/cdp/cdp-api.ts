@@ -13,6 +13,7 @@ import {
     executeLogTransformation,
     resolveLogTransformationInputs,
 } from '~/logs/transformations/hog-log-exec'
+import { logTransformationFilterMatches } from '~/logs/transformations/log-transformation-filter'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import {
@@ -1010,6 +1011,22 @@ export class CdpApi {
                     event_name: typeof mock.event_name === 'string' ? mock.event_name : null,
                     attributes: toStringMap(mock.attributes),
                     bytes_uncompressed: null,
+                }
+
+                if (!logTransformationFilterMatches(compoundConfiguration.filters, record)) {
+                    return res.json({
+                        result: buildLogRecordGlobals(record, triggerGlobals.project, {}).record,
+                        status: 'skipped',
+                        errors: [],
+                        logs: [
+                            {
+                                level: 'info',
+                                timestamp: DateTime.now(),
+                                message: 'Record not matching filters was passed through unchanged.',
+                            },
+                        ],
+                        request_origins: [...requestOrigins].sort(),
+                    })
                 }
 
                 const hogGlobals = buildLogRecordGlobals(record, triggerGlobals.project, {})

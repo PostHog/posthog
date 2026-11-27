@@ -4425,6 +4425,17 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert HogFunction.objects.get(id=function_id).batch_export_id is None
 
 
+_LOG_FILTER_GROUP = {
+    "type": "AND",
+    "values": [
+        {
+            "type": "AND",
+            "values": [{"key": "service.name", "operator": "exact", "value": "api", "type": "log_resource_attribute"}],
+        }
+    ],
+}
+
+
 class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
@@ -4477,6 +4488,54 @@ class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             data={"name": "Renamed while flag off"},
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand(
+        [
+            (
+                "filter_group_stored",
+                {"filter_group": _LOG_FILTER_GROUP},
+                status.HTTP_201_CREATED,
+                _LOG_FILTER_GROUP,
+            ),
+            (
+                "empty_filter_group_clears_filters",
+                {"filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]}},
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            ("empty", {}, status.HTTP_201_CREATED, None),
+            (
+                "event_filters_rejected",
+                {"events": [{"id": "$pageview", "type": "events", "order": 0}]},
+                status.HTTP_400_BAD_REQUEST,
+                None,
+            ),
+            (
+                "malformed_filter_group_rejected",
+                {"filter_group": {"type": "AND", "values": [{"key": "service.name", "value": "api"}]}},
+                status.HTTP_400_BAD_REQUEST,
+                None,
+            ),
+        ]
+    )
+    def test_log_transformation_filters(self, _name, filters, expected_status, expected_filter_group):
+        response = self._create_log_transformation(filters=filters)
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            assert response.json()["filters"].get("filter_group") == expected_filter_group
+
+    def test_filter_group_rejected_for_event_transformations(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Event transformation",
+                "type": "transformation",
+                "hog": "return event",
+                "enabled": False,
+                "filters": {"filter_group": _LOG_FILTER_GROUP},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     def test_execution_order_is_scoped_per_type(self):
         event_response = self.client.post(
@@ -4560,16 +4619,6 @@ class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    @parameterized.expand(
-        [
-            ("with_event_filter", {"events": [{"id": "$pageview", "type": "events", "order": 0}]}, 400),
-            ("empty", {}, 201),
-        ]
-    )
-    def test_filters_rejected_unless_empty(self, _name, filters, expected_status):
-        response = self._create_log_transformation(filters=filters)
-        assert response.status_code == expected_status, response.json()
 
     @parameterized.expand(
         [
