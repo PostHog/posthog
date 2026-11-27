@@ -23,6 +23,7 @@ from posthog.models import User
 
 from products.notebooks.backend.app_releases import read_release
 from products.notebooks.backend.app_viewer import draft_app_release, viewer_variables
+from products.notebooks.backend.facade.contracts import AppRelease
 from products.notebooks.backend.kernel_runtime import (
     APP_VIEWER_KERNEL_PREFIX,
     APP_VIEWER_MAX_OUTPUT_BYTES,
@@ -31,6 +32,7 @@ from products.notebooks.backend.kernel_runtime import (
 )
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.sandbox.kernel.envelope import DATAFRAME_TYPE_CHECKS
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds, apply_raw_page_bounds
 from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
 from products.notebooks.backend.sql_v2_state import NotebookCellState, build_dependency_edges, extract_cells
@@ -49,13 +51,13 @@ MAX_ROWS = 500
 MAX_CELLS = 20
 
 
-def _cell_chain(cells: list[NotebookCellState], target: str) -> list[NotebookCellState]:
+def source_cell_chain(cells: list[NotebookCellState], targets: set[str]) -> list[NotebookCellState]:
     by_id = {cell.node_id: cell for cell in cells}
-    if target not in by_id:
+    if not targets or not targets.issubset(by_id):
         raise ValidationError("This cell has no runnable source.")
     build_dependency_edges(cells)
     graph: dict[str, list[str]] = {}
-    pending = [target]
+    pending = list(targets)
     while pending:
         node_id = pending.pop()
         if node_id not in graph:
@@ -69,7 +71,7 @@ def _cell_chain(cells: list[NotebookCellState], target: str) -> list[NotebookCel
         raise ValidationError("These cells have a circular dependency.") from error
 
 
-def _bounded_json(value: Any) -> str:
+def bounded_frame_json(value: Any) -> str:
     try:
         encoded = json.dumps(value, ensure_ascii=False, default=str, allow_nan=False)
     except ValueError as error:
@@ -98,20 +100,13 @@ def _execute_python(kernel: KernelRuntimeSession, code: str, deadline: float) ->
     if result.status != "ok":
         raise ValidationError((result.stderr or result.error_name or "The calculation failed.")[-3000:])
     text = (result.stdout or "") + str((result.result or {}).get("text/plain", ""))
-    _bounded_json(text)
+    bounded_frame_json(text)
     return text
 
 
-def run_app_cell(
-    team_id: int,
-    notebook_id: UUID,
-    user: User,
-    revision: int,
-    node_id: str,
-    inputs: dict[str, NotebookVariableValue],
-    *,
-    draft_layout: dict[str, Any] | None = None,
-) -> dict[str, JsonValue]:
+def app_release_for_output(
+    team_id: int, notebook_id: UUID, revision: int, node_id: str, draft_layout: dict[str, Any] | None
+) -> AppRelease:
     release = (
         draft_app_release(team_id, notebook_id, revision, draft_layout)
         if draft_layout is not None
@@ -128,22 +123,53 @@ def run_app_cell(
         for block in release.layout["blocks"]
     ):
         raise ValidationError("Choose an output in the published app.")
-    variables = viewer_variables(release, inputs)
-    chain = _cell_chain(extract_cells(build_markdown_notebook_content(release.markdown)), node_id)
+    return release
+
+
+def run_app_cell(
+    team_id: int,
+    notebook_id: UUID,
+    user: User,
+    revision: int,
+    node_id: str,
+    inputs: dict[str, NotebookVariableValue],
+    *,
+    draft_layout: dict[str, Any] | None = None,
+) -> dict[str, JsonValue]:
+    release = app_release_for_output(team_id, notebook_id, revision, node_id, draft_layout)
+    notebook = Notebook.objects.select_related("team").get(team_id=team_id, pk=notebook_id)
+    cells = extract_cells(build_markdown_notebook_content(release.markdown))
+    targets = {node_id}
+    results = run_source_cells(
+        notebook, user, viewer_variables(release, inputs), source_cell_chain(cells, targets), targets
+    )
+    return results[node_id]
+
+
+def run_source_cells(
+    notebook: Notebook,
+    user: User,
+    variables: list[NotebookVariable],
+    chain: list[NotebookCellState],
+    targets: set[str],
+    *,
+    include_types: bool = False,
+) -> dict[str, dict[str, JsonValue]]:
     if any(cell.cell_type not in ("python", "sql") for cell in chain):
         raise ValidationError("This calculation requires an unsupported source. Use Python or a HogQL select query.")
     if any(cell.send_raw_query and not cell.connection_id for cell in chain):
         raise ValidationError("Choose a direct connection for native SQL.")
     if any(cell.connection_id and cell.depends_on for cell in chain):
         raise ValidationError("A connected query cannot read a dataframe from another cell.")
-    notebook = Notebook.objects.select_related("team").get(team_id=team_id, pk=notebook_id)
     local_frames: set[str] = set()
     kernel_cells: set[str] = set()
-    materialize = {node_id}
+    materialize = set(targets)
+    upstream: set[str] = set()
     for cell in chain:
         if cell.cell_type == "python" or local_frames.intersection(cell.depends_on):
             kernel_cells.add(cell.node_id)
             materialize.update(cell.depends_on)
+            upstream.update(cell.depends_on)
         if cell.node_id in kernel_cells or cell.connection_id:
             local_frames.add(cell.node_id)
     hogql_definitions: dict[str, str | None] = {}
@@ -166,13 +192,20 @@ def run_app_cell(
                 f"import json, pandas as pd\nglobals().update(json.loads({json.dumps(python_variable_bindings(variables))!r}))",
                 deadline,
             )
-        result: dict[str, JsonValue] = {}
+        results: dict[str, dict[str, JsonValue]] = {}
         for cell in chain:
             try:
                 _remaining_seconds(deadline)
                 if cell.node_id in kernel_cells:
                     assert kernel is not None
-                    result = _run_kernel_cell(cell, variables, kernel, deadline, cell.node_id == node_id)
+                    results[cell.node_id] = _run_kernel_cell(
+                        cell,
+                        variables,
+                        kernel,
+                        deadline,
+                        cell.node_id not in upstream,
+                        include_types and cell.node_id in targets,
+                    )
                     continue
                 if cell.send_raw_query:
                     query = _external_query(cell, notebook, user, variables)
@@ -184,10 +217,19 @@ def run_app_cell(
                     query = apply_page_bounds(resolve_sql_v2_references(code, hogql_definitions), MAX_ROWS + 1, 0)
                     if not cell.connection_id:
                         hogql_definitions[cell.dataframe_name] = code
-                result = _run_sql_cell(cell, query, notebook, user, kernel, deadline, cell.node_id == node_id)
+                results[cell.node_id] = _run_sql_cell(
+                    cell,
+                    query,
+                    notebook,
+                    user,
+                    kernel,
+                    deadline,
+                    cell.node_id not in upstream,
+                    include_types and cell.node_id in targets,
+                )
             except (NotebookVariableError, SQLV2ReferenceError) as error:
                 raise ValidationError(str(error)) from error
-        return result
+        return results
 
 
 def _python_cell_code(code: str) -> tuple[str, bool]:
@@ -209,6 +251,7 @@ def _run_kernel_cell(
     kernel: KernelRuntimeSession,
     deadline: float,
     final: bool,
+    include_types: bool,
 ) -> dict[str, JsonValue]:
     name = cell.dataframe_name
     if cell.cell_type == "python":
@@ -232,7 +275,7 @@ def _run_kernel_cell(
             f"_app_result = _app_relation.limit({MAX_ROWS + 1}).df()",
             deadline,
         )
-    frame = _kernel_frame(kernel, "_app_result", deadline)
+    frame = _kernel_frame(kernel, "_app_result", deadline, include_types)
     if frame is None:
         return {"text": text}
     if name and not final:
@@ -252,6 +295,7 @@ def _run_sql_cell(
     kernel: KernelRuntimeSession | None,
     deadline: float,
     final: bool,
+    include_types: bool,
 ) -> dict[str, JsonValue]:
     response = execute_hogql_query(
         query=query,
@@ -267,7 +311,10 @@ def _run_sql_cell(
     if len(response.results) > MAX_ROWS:
         raise ValidationError("This calculation reads more than 500 rows. Aggregate the source data or add a limit.")
     frame = {"columns": response.columns or [], "rows": response.results}
-    payload = _bounded_json(frame)
+    if include_types:
+        types = dict(response.types or [])
+        frame["types"] = [types.get(name, "unknown") for name in response.columns or []]
+    payload = bounded_frame_json(frame)
     if kernel is not None and cell.dataframe_name and not final:
         name = cell.dataframe_name
         _execute_python(
@@ -278,10 +325,18 @@ def _run_sql_cell(
     return json.loads(payload)
 
 
-def _kernel_frame(kernel: KernelRuntimeSession, name: str, deadline: float) -> dict[str, JsonValue] | None:
+def _kernel_frame(
+    kernel: KernelRuntimeSession, name: str, deadline: float, include_types: bool
+) -> dict[str, JsonValue] | None:
     data = _execute_python(
         kernel,
-        f"print(json.dumps(notebook_dataframe_page(globals()[{name!r}], limit={MAX_ROWS})))",
+        (
+            f"_app_page = notebook_dataframe_page(globals()[{name!r}], limit={MAX_ROWS})\n"
+            f"if _app_page is not None:\n    _app_page['types'] = [next((name for check, name in {DATAFRAME_TYPE_CHECKS!r} if getattr(pd.api.types, check)(dtype)), 'String') for dtype in globals()[{name!r}].dtypes]\n"
+            "print(json.dumps(_app_page))"
+            if include_types
+            else f"print(json.dumps(notebook_dataframe_page(globals()[{name!r}], limit={MAX_ROWS})))"
+        ),
         deadline,
     )
     page = json.loads(data)
@@ -290,7 +345,13 @@ def _kernel_frame(kernel: KernelRuntimeSession, name: str, deadline: float) -> d
     if page["row_count"] > MAX_ROWS:
         raise ValidationError("This calculation returns more than 500 rows. Aggregate the result or add a limit.")
     columns = page["columns"]
-    return {"columns": columns, "rows": [[row.get(col) for col in columns] for row in page["rows"]]}
+    result: dict[str, JsonValue] = {
+        "columns": columns,
+        "rows": [[row.get(col) for col in columns] for row in page["rows"]],
+    }
+    if include_types:
+        result["types"] = page["types"]
+    return result
 
 
 def _external_query(cell: NotebookCellState, notebook: Notebook, user: User, variables: list[NotebookVariable]) -> str:

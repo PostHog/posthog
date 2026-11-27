@@ -22,6 +22,7 @@ export function ViewerComputeCell({
     const { privateCells } = useValues(notebookAppViewerLogic(viewer))
     const { runPrivateCell } = useActions(notebookAppViewerLogic(viewer))
     const { result, loading, error } = privateCells[cell.id] ?? {}
+    const kind = cell.tagName === 'PythonV2' ? 'python' : cell.props.connectionId ? 'connected_sql' : 'dataframe_sql'
     const python = cell.tagName === 'PythonV2'
     return (
         <div>
@@ -29,7 +30,7 @@ export function ViewerComputeCell({
                 <LemonButton
                     type="secondary"
                     size="small"
-                    onClick={() => runPrivateCell(cell.id, python ? 'python' : 'connected_sql')}
+                    onClick={() => runPrivateCell(cell.id, kind)}
                     loading={loading}
                 >
                     {python ? 'Run Python for me' : 'Run query for me'}
@@ -37,7 +38,7 @@ export function ViewerComputeCell({
                 <span className="text-secondary">
                     {result && !objectsEqual(variables, result.inputs)
                         ? 'Inputs changed. Run again to update this result.'
-                        : python
+                        : kind !== 'connected_sql'
                           ? 'Runs in a private sandbox with your current inputs.'
                           : 'Uses your access to the connected data source.'}
                 </span>

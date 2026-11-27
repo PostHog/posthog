@@ -141,6 +141,7 @@ describe('published viewer refreshes', () => {
             pending.get(firstDone)!.finish()
             await waitFor(() => expect(pending.size).toBe(5))
             expect(first.values.results).toBeNull()
+            expect(first.values.nativeOutputIds).toEqual(plans.map((plan) => plan.node_id))
             const firstRunning = Array.from(pending.keys()).slice(1)
             second.actions.refresh(true)
             await waitFor(() => expect(pending.size).toBe(9))
@@ -160,6 +161,7 @@ describe('published viewer refreshes', () => {
                 request.finish()
             }
             await waitFor(() => expect(Object.keys(second.values.results?.outputs ?? {})).toHaveLength(6))
+            expect(second.values.nativeOutputIds).toEqual(Object.keys(second.values.results?.outputs ?? {}))
             await waitFor(() => expect(pending.size).toBe(15))
         } finally {
             first.unmount()

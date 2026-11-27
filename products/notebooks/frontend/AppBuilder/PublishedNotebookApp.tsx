@@ -48,7 +48,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
     const { shortId, sessionId } = viewer
     const { layout } = release
     const logic = notebookAppViewerLogic(viewer)
-    const { variables, results, publishedResults, refreshFailed: error } = useValues(logic)
+    const { variables, results, nativeOutputIds, publishedResults, refreshFailed: error } = useValues(logic)
     const { changeInput } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
@@ -130,7 +130,12 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                         ) : (
                             saved
                         )
-                        if (cell.tagName === 'PythonV2' || (sql && cell.props.connectionId)) {
+                        if (
+                            cell.tagName === 'PythonV2' ||
+                            (sql &&
+                                (cell.props.connectionId ||
+                                    (nativeOutputIds !== null && !nativeOutputIds.includes(cell.id))))
+                        ) {
                             return (
                                 <ViewerComputeCell
                                     key={cell.id}
