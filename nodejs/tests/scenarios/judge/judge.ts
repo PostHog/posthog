@@ -39,7 +39,7 @@ export type Convergence = {
 }
 
 export const feedbackInFlightReasonOf = (posts: number): string =>
-    `feedback in flight at the final read: the edge was still posting ${posts} SES notification${posts === 1 ? '' : 's'}`
+    `feedback in flight at the final read: the edge was still posting the feedback of ${posts} send${posts === 1 ? '' : 's'}`
 
 export type InvariantResult = {
     name: string

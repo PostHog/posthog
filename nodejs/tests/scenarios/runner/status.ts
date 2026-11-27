@@ -4,7 +4,7 @@ import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import { BarResult, unsourced } from '../judge/bars'
 import { atLeastOnce, bouncedSuppressed, noLoss } from '../judge/invariants'
-import { type Convergence, type InvariantResult, feedbackInFlightReasonOf } from '../judge/judge'
+import { type Convergence, type InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
 import { type Ramp, ratesReasonOf } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
@@ -342,7 +342,6 @@ function unrampedStatusOf({
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),
         ...(convergence.unread === undefined ? [] : [unreadReasonOf(convergence.unread)]),
-        ...(convergence.feedbackInFlight === undefined ? [] : [feedbackInFlightReasonOf(convergence.feedbackInFlight)]),
     ]
     const failures = [
         ...notConvergedOf(convergence),
