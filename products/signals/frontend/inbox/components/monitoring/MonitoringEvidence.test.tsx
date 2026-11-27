@@ -13,19 +13,27 @@ import type { SignalReportCheckApi, SignalReportListApi } from 'products/signals
 import { MONITORING_MOCK_NOW, monitoringChecksForReport, monitoringRows } from '../../__mocks__/monitoringMocks'
 import { MonitoringEvidence } from './MonitoringEvidence'
 
-const mockReportCheckMetricChart = jest.fn(
-    (_props: { timeline: { endsAt: string }; monitoring?: { endsAt: string | null } }) => (
-        <div>Sidebar metric chart</div>
+function MockReportCheckMetricChart({
+    timeline,
+    monitoring,
+}: {
+    timeline: { endsAt: string }
+    monitoring?: { endsAt: string | null }
+}): JSX.Element {
+    return (
+        <div>
+            Sidebar metric chart
+            <span data-attr="timeline-ends-at">{timeline.endsAt}</span>
+            <span data-attr="monitoring-ends-at">{monitoring?.endsAt}</span>
+        </div>
     )
-)
+}
 
 jest.mock('../detail/ReportCheckMetricChart', () => ({
-    ReportCheckMetricChart: (props: { timeline: { endsAt: string }; monitoring?: { endsAt: string | null } }) =>
-        mockReportCheckMetricChart(props),
+    ReportCheckMetricChart: MockReportCheckMetricChart,
 }))
 
 describe('MonitoringEvidence', () => {
-    beforeEach(() => mockReportCheckMetricChart.mockClear())
     afterEach(cleanup)
 
     it('loads the full check and renders the report sidebar chart when the list snapshot has no series', async () => {
@@ -150,8 +158,7 @@ describe('MonitoringEvidence', () => {
         render(<MonitoringEvidence report={report} summary={summary} now={Date.parse(MONITORING_MOCK_NOW)} />)
 
         expect(await screen.findByText('Sidebar metric chart')).toBeInTheDocument()
-        const props = mockReportCheckMetricChart.mock.calls.at(-1)?.[0]
-        expect(props?.timeline.endsAt).toBe(leadEndsAt)
-        expect(props?.monitoring?.endsAt).toBe(leadEndsAt)
+        expect(screen.getByTestId('timeline-ends-at')).toHaveTextContent(leadEndsAt)
+        expect(screen.getByTestId('monitoring-ends-at')).toHaveTextContent(leadEndsAt)
     })
 })
