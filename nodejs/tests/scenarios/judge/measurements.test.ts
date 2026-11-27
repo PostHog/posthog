@@ -212,7 +212,14 @@ describe('measurements', () => {
         [
             'a role that needed the SIGKILL',
             [{ killedAt: at(15_000), exitedAt: at(15_200), signal: 'SIGKILL' }],
-            [{ value: null, censored: true, unmeasured: 'a SIGKILL exit is not measured in this release' }],
+            [
+                {
+                    key: 'sigterm',
+                    value: null,
+                    censored: true,
+                    unmeasured: 'a SIGKILL exit is not measured in this release',
+                },
+            ],
         ],
         [
             'a role that exited on its own as its grace ran out',
@@ -238,6 +245,7 @@ describe('measurements', () => {
             [{ exitedAt: at(7000), signal: 'SIGKILL' }],
             [
                 {
+                    key: 'sigterm',
                     value: null,
                     censored: true,
                     unmeasured: 'a SIGKILL exit is not measured in this release',
@@ -247,7 +255,7 @@ describe('measurements', () => {
         [
             'a role whose exit never arrived',
             [{}],
-            [{ value: null, censored: true, unmeasured: 'cdp-cyclotron-worker-email did not exit' }],
+            [{ key: 'sigterm', value: null, censored: true, unmeasured: 'cdp-cyclotron-worker-email did not exit' }],
         ],
     ])('times how long %s took to exit after the signal', (_story, exits, measured) => {
         expect(measure([{ name: 'role_exit_ms', params: {} }], evidence({ timeline: exits.map(terminated) }))).toEqual(

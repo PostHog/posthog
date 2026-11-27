@@ -187,9 +187,9 @@ export const roleExitMs: MeasurementDefinition = {
         }
         return terminations.map(({ target, exit }) =>
             exit.exitedAt === undefined
-                ? unmeasured(`${target} did not exit`)
+                ? { key: 'sigterm', ...unmeasured(`${target} did not exit`) }
                 : exit.signal === 'SIGKILL'
-                  ? unmeasured('a SIGKILL exit is not measured in this release')
+                  ? { key: 'sigterm', ...unmeasured('a SIGKILL exit is not measured in this release') }
                   : { key: 'sigterm', value: Date.parse(exit.exitedAt) - Date.parse(exit.signalledAt) }
         )
     },
