@@ -624,6 +624,36 @@ describe('cloud controller', () => {
         expect(cloud.stacks.size).toBe(0)
     })
 
+    it('ships the alert files with checksums and includes their contents in the cloud runner fingerprint', async () => {
+        const rules = 'groups: []\n'
+        const labels = 'labels: {}\n'
+        const input = `runs/${GIVEN_RUN_ID}/input`
+        mkdirSync(path.join(dir, 'alerts'))
+        const runWithAlerts = async (rules: string, labels: string): Promise<unknown> => {
+            now = T
+            api.captured.length = 0
+            const { controller } = prepare({ env: { ...api.credentials, SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+            writeFileSync(
+                path.join(dir, 'runner.yaml'),
+                `${RUNNER_PROFILE}\nalerts:\n  rules: alerts/rules.yaml\n  labels: alerts/labels.yaml\n`
+            )
+            writeFileSync(path.join(dir, 'alerts/rules.yaml'), rules)
+            writeFileSync(path.join(dir, 'alerts/labels.yaml'), labels)
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+            return published().runner_profile_hash
+        }
+
+        const original = await runWithAlerts(rules, labels)
+
+        expect(cloud.objects.get(`${input}/alerts/rules.yaml`)).toBe(rules)
+        expect(cloud.objects.get(`${input}/alerts/labels.yaml`)).toBe(labels)
+        expect(parseJSON(cloud.objects.get(`${input}/manifest.json`)!)).toMatchObject({
+            inputs: { 'alerts/rules.yaml': sha256(rules), 'alerts/labels.yaml': sha256(labels) },
+        })
+        expect(await runWithAlerts('groups: []\n\n', labels)).not.toBe(original)
+        expect(await runWithAlerts(rules, 'labels: {}\n\n')).not.toBe(original)
+    })
+
     it.each<[string, (fake: FakeCloud) => void]>([
         ['holds both schedules', () => undefined],
         [

@@ -150,6 +150,9 @@ class ImportStepProgressSerializer(serializers.Serializer):
     items_omitted = serializers.IntegerField(
         help_text="How many more objects there were than `items` holds. In the list of runs, this counts every object."
     )
+    skipped = serializers.BooleanField(
+        help_text="True when the step completed without reading anything, because the key can't read it. `warnings` says why."
+    )
 
 
 class ProviderImportRunSerializer(serializers.Serializer):
