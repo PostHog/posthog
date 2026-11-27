@@ -51,7 +51,6 @@ import { InternalCaptureService } from '~/common/services/internal-capture'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { _fetch, fetch, internalFetch } from '~/common/utils/request'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
@@ -1659,7 +1658,7 @@ describe('runner through seed, drive and judge', () => {
         await run('all', [], 'event_email', { feedback: FeedbackShares.parse({ delivery: 1 }) })
 
         expect(edge.sent.length).toBeGreaterThan(0)
-        await waitForExpect(() => expect(feedbackPosts).toEqual(edge.sent.map(() => 'Delivery')), 5000, 10)
+        expect(feedbackPosts).toEqual(edge.sent.map(() => 'Delivery'))
     }, 30_000)
 
     it('spreads the intake offers over every cdp-api replica the profile starts', async () => {

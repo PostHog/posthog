@@ -37,6 +37,7 @@ describe('judge', () => {
     let duringFinalPage: (() => Promise<unknown>) | undefined
     let polls: number
     let probeAnswers: number
+    let finalMs: number | undefined
     let judge: Judge
     let caDir: string
 
@@ -48,10 +49,12 @@ describe('judge', () => {
         rmSync(caDir, { recursive: true, force: true })
     })
 
-    const judgeOf = (): Judge =>
-        createJudge({
+    const judgeOf = (): Judge => {
+        const source = edgeTruth(edge.url, { finalMs })
+        return createJudge({
             truth: {
-                head: (read) => edgeTruth(edge.url).head(read),
+                head: (read) => source.head(read),
+                feedbackInFlight: () => source.feedbackInFlight?.() ?? 0,
                 after: async (cursor, read) => {
                     if (read?.final) {
                         await duringFinalPage?.()
@@ -84,6 +87,7 @@ describe('judge', () => {
             pollMs: 10,
             now: () => clockMs,
         })
+    }
 
     beforeEach(async () => {
         edgeRecords = new Truth()
@@ -110,6 +114,7 @@ describe('judge', () => {
         duringFinalPage = undefined
         polls = 0
         probeAnswers = Infinity
+        finalMs = undefined
         judge = judgeOf()
         await judge.open(SEED)
     })
@@ -947,6 +952,37 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'no_loss', passed: false, unjudged })
     })
 
+    it("judges no_loss when only this run's SES feedback kept landing through every final read", async () => {
+        judge.record(offered())
+        await deliver(UNIT)
+        await judge.converge(20, NEVER_ABORTED)
+        await deliver('run-b-1')
+        duringFinalPage = () =>
+            Promise.resolve(
+                edgeRecords.append({
+                    kind: 'ses.feedback',
+                    status: 200,
+                    unitId: UNIT,
+                    detail: {
+                        feedback: {
+                            eventType: 'Delivery',
+                            snsMessageId: 'sns-1',
+                            sesMessageId: 'ses-1',
+                            postedAt: new Date(0).toISOString(),
+                            durationMs: 1,
+                        },
+                    },
+                })
+            )
+
+        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+
+        expect({ result, unsettled: judge.evidence().unsettled }).toEqual({
+            result: expect.not.objectContaining({ unjudged: expect.stringContaining('kept accepting') }),
+            unsettled: undefined,
+        })
+    })
+
     const TEAM = 2_100_000_000
     const BACKLOG: Backlog = {
         teams: 1,
@@ -1277,6 +1313,56 @@ describe('judge', () => {
             result: expect.objectContaining({ passed: true }),
             unread: 'the truth read hit a harness limit at record 1 of 2: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
         })
+    })
+
+    it('names the SES notifications still in flight when its final truth read reached its deadline', async () => {
+        const hanging = http.createServer(() => undefined)
+        await new Promise<void>((resolve) => hanging.listen(0, '127.0.0.1', resolve))
+        await edge.close()
+        edge = await startProviderEdge({
+            port: 0,
+            trackingKeys: TRACKING_KEYS,
+            caDir,
+            feedbackUrl: `http://127.0.0.1:${(hanging.address() as AddressInfo).port}/public/m/ses_webhook`,
+        })
+        try {
+            await internalFetch(`${edge.url}/_feedback`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ delivery: 1 }),
+            })
+            finalMs = 0
+            judge = judgeOf()
+            await judge.open(SEED)
+            judge.record(offered())
+            ses.destroy()
+            ses = new SESv2Client({
+                endpoint: edge.url,
+                region: 'us-east-1',
+                credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
+                maxAttempts: 1,
+            })
+            await ses.send(
+                new SendEmailCommand({
+                    FromEmailAddress: 'flows@www.example.com',
+                    Destination: { ToAddresses: [`${UNIT}@${UNIT_EMAIL_DOMAIN}`] },
+                    Content: { Simple: { Subject: { Data: 'Scenario' }, Body: { Text: { Data: 'Scenario' } } } },
+                    ConfigurationSetName: 'scenario-tracking',
+                })
+            )
+            await judge.converge(20, NEVER_ABORTED)
+
+            const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+
+            const reason = 'feedback in flight at the final read: the edge was still posting 1 SES notification'
+            expect({ result, evidence: judge.evidence() }).toMatchObject({
+                result: { name: 'no_loss', passed: false, unjudged: reason },
+                evidence: { feedbackInFlight: 1, unsettled: reason },
+            })
+        } finally {
+            hanging.closeAllConnections()
+            await new Promise<void>((resolve) => hanging.close(() => resolve()))
+        }
     })
 
     describe('reading a large truth', () => {

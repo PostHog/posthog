@@ -771,8 +771,12 @@ export function createRunner(
                     { janitorResets, unobserved: unobservedValvesOf(valves.timeline(), driveWindow) },
                     signal
                 )
-                const { unread } = judge.evidence()
-                const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
+                const { unread, feedbackInFlight } = judge.evidence()
+                const convergence: Convergence = {
+                    ...converged,
+                    ...(unread !== undefined && { unread }),
+                    ...(feedbackInFlight !== undefined && { feedbackInFlight }),
+                }
                 const invariants = judgedInvariantsOf(checked, convergence)
                 counters = card.measure.some(({ name }) => name === counterDrift.name)
                     ? await (opened.counters
