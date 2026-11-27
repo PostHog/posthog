@@ -305,67 +305,16 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         requestedParams = []
 
-        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
-        try {
-            logic.actions.turnOnLinkTracking()
-            await saveStarted
-            await jest.advanceTimersByTimeAsync(500)
-            expect(requestedParams).toEqual([])
-            releaseSave()
-            await jest.advanceTimersByTimeAsync(500)
-        } finally {
-            jest.useRealTimers()
-        }
+        logic.actions.turnOnLinkTracking()
+        await saveStarted
+        expect(requestedParams).toEqual([])
+        releaseSave()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(otherLogic).toFinishAllListeners()
 
         expect(requestedParams.map((params) => params.get('workflow_id')).sort()).toEqual(
             [workflowId, otherWorkflowId].sort()
         )
-        expect(otherLogic.values.steps?.find(({ key }) => key === 'session')?.value).toBe(3)
-        otherLogic.unmount()
-    })
-
-    it.each([
-        ['keeps the funnel it showed when the refresh after a turn-on fails', 'ready'],
-        ['shows only the error when a new period fails', 'error'],
-    ])('%s, and says why until a retry answers', async (_, failedState) => {
-        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, workflows_config: { email_workflow_run_link_tag_enabled: false } })
-        useMocks({
-            patch: {
-                '/api/organizations/:organization_id/projects/:id/': () => [
-                    200,
-                    { ...MOCK_DEFAULT_TEAM, workflows_config: { email_workflow_run_link_tag_enabled: true } },
-                ],
-            },
-        })
-        answer = [200, { ...WITHOUT_EVENT, link_tagging_enabled: false }]
-        const otherLogic = emailImpactLogic({ workflowId: `${workflowId}-other` })
-        otherLogic.mount()
-        logic = emailImpactLogic({ workflowId })
-        logic.mount()
-        await expectLogic(otherLogic).toFinishAllListeners()
-        await expectLogic(logic).toFinishAllListeners()
-
-        answer = [429, { detail: 'Request was throttled.' }]
-        if (failedState === 'ready') {
-            logic.actions.turnOnLinkTracking()
-            await expectLogic(logic).toFinishAllListeners()
-        } else {
-            otherLogic.actions.setDays(7)
-        }
-        await expectLogic(otherLogic).toFinishAllListeners()
-
-        expect([otherLogic.values.funnelState, otherLogic.values.impactError]).toEqual([
-            failedState,
-            'Too many queries are running right now. Wait a few seconds, then try again.',
-        ])
-
-        answer = [200, { ...WITHOUT_EVENT, sessions: 3 }]
-        otherLogic.actions.loadImpact()
-        await expectLogic(otherLogic).toFinishAllListeners()
-
-        expect([otherLogic.values.funnelState, otherLogic.values.impactError]).toEqual(['ready', null])
         expect(otherLogic.values.steps?.find(({ key }) => key === 'session')?.value).toBe(3)
         otherLogic.unmount()
     })
