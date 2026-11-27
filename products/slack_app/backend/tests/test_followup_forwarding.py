@@ -1792,9 +1792,10 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @parameterized.expand(
         [
-            ("owner_stays_on_the_live_run", "U_OWNER", "accepted", True, False),
-            ("joiner_moves_the_thread_to_a_run_without_apps", "U_BOB", "accepted", False, True),
-            ("joiner_is_held_when_the_run_cannot_stop", "U_BOB", "refused", False, False),
+            ("owner_stays_on_the_live_run", "U_OWNER", False, "accepted", True, False),
+            ("joiner_moves_the_thread_to_a_run_without_apps", "U_BOB", False, "accepted", False, True),
+            ("joiner_is_held_when_the_run_cannot_stop", "U_BOB", False, "refused", False, False),
+            ("joiner_after_the_run_finished", "U_BOB", True, None, False, True),
         ]
     )
     @patch("products.tasks.backend.facade.cancellation.cancel_task_run")
@@ -1806,6 +1807,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self,
         _name,
         speaker,
+        run_finished,
         cancel_outcome,
         delivered_live,
         resumed,
@@ -1821,6 +1823,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             "codex_model_access": "own-subscription",
             "codex_subscription_user_id": self.user.id,
         }
+        if run_finished:
+            self.task_run.status = self.TaskRun.Status.COMPLETED
         self.task_run.save()
         mapping = self._create_mapping(mentioning_user="U_OWNER")
         self._own_plan_with_apps_mode("until_join")
@@ -1858,9 +1862,17 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             assert new_run.state["codex_apps_disabled"] is True
         else:
             mock_execute_workflow.assert_not_called()
+        replies = [c.kwargs.get("text", "") for c in mock_slack.client.chat_postMessage.call_args_list]
         if speaker == "U_BOB" and not resumed:
-            replies = [c.kwargs.get("text", "") for c in mock_slack.client.chat_postMessage.call_args_list]
             assert any("couldn't turn off the ChatGPT apps" in text for text in replies)
+        # Only the owner hears that the join turned their apps off. The thread never does.
+        notices = [
+            c.kwargs["user"]
+            for c in mock_slack.client.chat_postEphemeral.call_args_list
+            if "your ChatGPT apps" in c.kwargs.get("text", "")
+        ]
+        assert notices == (["U_OWNER"] if speaker == "U_BOB" else [])
+        assert not any("your ChatGPT apps" in text for text in replies)
 
     def _own_plan_with_apps_mode(self, mode: str) -> None:
         UserIntegration.objects.create(

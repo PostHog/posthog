@@ -1297,6 +1297,7 @@ def forward_posthog_code_followup_activity(
         if mapping.others_joined_at is None:
             mapping.others_joined_at = timezone.now()
             mapping.save(update_fields=["others_joined_at", "updated_at"])
+            _tell_owner_chatgpt_apps_are_off(integration, slack, channel, thread_ts, mapping=mapping, task_run=task_run)
 
     if block_if_ai_processing_not_approved(
         integration=integration,
@@ -1637,6 +1638,40 @@ def _codex_apps_disabled_after_join(integration: Any, mapping: Any, slack_user_i
     )
 
 
+_CHATGPT_APPS_OFF_NOTICE = (
+    "Someone else joined this thread, so your ChatGPT apps are off for the rest of it. "
+    "You can change when this happens in your Slack app settings in PostHog."
+)
+
+
+def _tell_owner_chatgpt_apps_are_off(
+    integration: Any, slack: Any, channel: str, thread_ts: str, *, mapping: Any, task_run: Any
+) -> None:
+    """Tell the plan owner, and nobody else in the thread, that the first join turned their ChatGPT apps off.
+
+    Only under `UNTIL_JOIN`: under `OFF` the thread never had the apps, and under `ALWAYS` it keeps them.
+    Best-effort, because the runs are already safe without the notice.
+    """
+    from products.slack_app.backend.feature_flags import is_slack_app_chatgpt_apps_setting_enabled  # noqa: PLC0415
+
+    owner = mapping.task.created_by
+    if owner is None or (task_run.state or {}).get("codex_model_access") != "own-subscription":
+        return
+    try:
+        owner_slack_user_id = linked_slack_user_id(user=owner, slack_team_id=mapping.slack_workspace_id)
+        if owner_slack_user_id is None:
+            return
+        if resolve_chatgpt_apps_mode(mapping.slack_workspace_id, owner_slack_user_id) != ChatGPTAppsMode.UNTIL_JOIN:
+            return
+        if not is_slack_app_chatgpt_apps_setting_enabled(integration, owner.distinct_id):
+            return
+        slack.client.chat_postEphemeral(
+            channel=channel, user=owner_slack_user_id, thread_ts=thread_ts, text=_CHATGPT_APPS_OFF_NOTICE
+        )
+    except Exception:
+        logger.warning("slack_app_chatgpt_apps_off_notice_failed", channel=channel, thread_ts=thread_ts)
+
+
 def _stop_run_for_chatgpt_apps(
     integration: Any,
     slack: Any,
@@ -1680,13 +1715,6 @@ def _stop_run_for_chatgpt_apps(
         logger.warning("slack_app_chatgpt_apps_handoff_cancel_refused", task_run_id=str(task_run.id), outcome=outcome)
         return ChatGPTAppsHandoff.FAILED
 
-    _post_thread_context(
-        slack,
-        channel,
-        thread_ts,
-        "Someone else joined this thread, so its ChatGPT apps are now off. "
-        "A new agent starts with the conversation so far.",
-    )
     logger.info("slack_app_chatgpt_apps_handoff_started", task_run_id=str(task_run.id))
     return ChatGPTAppsHandoff.STOPPED
 
