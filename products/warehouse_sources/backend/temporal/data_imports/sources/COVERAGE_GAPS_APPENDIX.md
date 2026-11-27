@@ -14181,11 +14181,11 @@ Note: Sprig's public read surface is genuinely tiny: GET /v1/surveys, GET /v1/re
 
 Re-audited 2026-11-19 against: <https://docs.sprig.com/llms.txt>
 
-- [ ] `Questions (GET /v2/studies/{studyId}/questions)` — question text and type per study, the dimension behind each answer in Responses; fan-out over studies (high)
-- [ ] `Studies v2 (GET /v2/studies)` — richer study list with type and status than the v1 surveys export; cursor paginated (low)
-- [ ] `Event definitions (GET /v2/events)` — tracked and page-URL events available for study targeting (low)
+- [x] `Questions (GET /v2/studies/{studyId}/questions)` — question text and type per study, the dimension behind each answer in Responses; fan-out over studies (high)
+- [x] `Studies v2 (GET /v2/studies)` — richer study list with type and status than the v1 surveys export; cursor paginated (low)
+- [x] `Event definitions (GET /v2/events)` — tracked and page-URL events available for study targeting (low)
 - [ ] `Attribute definitions (GET /v2/attributes)` — visitor attribute catalog for the environment (low)
-- [ ] `Invitations (GET /v2/studies/{studyId}/invitations)` — invitation sends per study; SURVEY studies only (low)
+- [x] `Invitations (GET /v2/studies/{studyId}/invitations)` — invitation sends per study; SURVEY studies only (low)
 
 Note (2026-11-19): The earlier audit missed the newer v2 Study API, now listed in llms.txt with OpenAPI blocks on each .md page. All routes are cursor paginated. The v2 API may need a different credential than v1, so check auth before building. Excluded targeting, assets, panels, translations and all write routes.
 
