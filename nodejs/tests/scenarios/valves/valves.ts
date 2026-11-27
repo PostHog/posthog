@@ -183,18 +183,27 @@ export const destAmbiguous: ValveDefinition = {
     },
 }
 
+export const FailoverDose = z.object({ warmReader: z.literal(true).optional() }).strict()
+
 export const pgFailover: ValveDefinition = {
     name: 'pg.failover',
-    params: z.object({}).strict(),
+    params: FailoverDose,
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
     roleExitGraceMs: 5000,
     restarts: CdpRole.exclude(['cdp-ses-webhooks']).options,
     journalsIntent: true,
-    apply: ({ environment, commits, manifest }, _target, _dose, holdMs, signal) =>
+    apply: ({ environment, commits, manifest }, _target, dose, holdMs, signal) =>
         manifest === undefined
             ? Promise.reject(new Error('pg.failover runs only on a run host'))
-            : environment.actuate({ kind: 'rds.failover', manifest, holdMs, commits, signal }),
+            : environment.actuate({
+                  kind: 'rds.failover',
+                  manifest,
+                  holdMs,
+                  commits,
+                  signal,
+                  warmReader: FailoverDose.parse(dose).warmReader === true,
+              }),
 }
 
 const Dose = z.union([

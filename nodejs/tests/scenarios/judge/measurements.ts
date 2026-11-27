@@ -14,7 +14,7 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import { SCRAPE_GAP_MS, WORKER_OF, p99Of, pickupsBetween } from './pickups'
+import { SCRAPE_GAP_MS, WORKER_OF } from './pickups'
 
 export type MetricSample = {
     role: string
@@ -207,8 +207,7 @@ const byTime = <T extends { at: number }>(series: readonly T[]): T[] => [...seri
 const committedAt = ({ at, latencyMs }: WriterSample): number => at + latencyMs
 
 function longestIdle(writer: readonly WriterSample[], from: number, to: number): number {
-    const endsBefore = writer.map(committedAt).filter((end) => end < from)
-    let probedUntil = endsBefore.length > 0 ? maxOf(endsBefore) : from
+    let probedUntil = from
     let longest = 0
     for (const sample of byTime(writer)) {
         if (sample.at >= to || committedAt(sample) <= probedUntil) {
@@ -520,7 +519,13 @@ type SeriesPoint = {
 const NO_WHOLE_MINUTE = 'the valve phase holds no whole minute'
 const UNBOUNDED_PICKUPS = "scrape windows cannot bound a minute's pickups"
 
-type Series = { baseline: number | null; bar: number | null; points: SeriesPoint[]; valve: Phase }
+type Series = {
+    baseline: number | null
+    bar: number | null
+    unmeasured?: string
+    points: SeriesPoint[]
+    valve: Phase
+}
 
 const recentBaselineOf = (baseline: Phase): Phase | undefined =>
     seconds(baseline.to - baseline.from) < MIN_BASELINE_SECONDS
@@ -569,15 +574,21 @@ function seriesOver(
                       ...(unmeasured ? { unmeasured } : {}),
                   }
               })
-    return { baseline: usable ? reference.value : null, bar, points, valve }
+    return {
+        baseline: usable ? reference.value : null,
+        bar,
+        ...(reference.unmeasured ? { unmeasured: reference.unmeasured } : {}),
+        points,
+        valve,
+    }
 }
 
 const valueOf = (value: number | null, censored?: true): Value =>
     value === null ? { value, censored: true } : censored ? { value, censored } : { value }
 
-const pointsOf = ({ baseline, bar, points }: Series, prefix = ''): Measured[] => [
-    { key: `${prefix}baseline`, ...valueOf(baseline) },
-    { key: `${prefix}bar`, ...valueOf(bar) },
+const pointsOf = ({ baseline, bar, unmeasured, points }: Series, prefix = ''): Measured[] => [
+    { key: `${prefix}baseline`, ...valueOf(baseline), ...(unmeasured ? { unmeasured } : {}) },
+    { key: `${prefix}bar`, ...valueOf(bar), ...(unmeasured ? { unmeasured } : {}) },
     ...points.map(
         ({ offsetS, value, censored, incomplete, unmeasured }): Measured => ({
             key: `${prefix}t${offsetS}`,
@@ -631,24 +642,12 @@ function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, S
         if (!samples.some((sample) => sample.role === role)) {
             return []
         }
-        const series = seriesOver({ drive, timeline }, (window, baseline): WindowP99 => {
-            if (!baseline) {
-                return { value: null, clean: false, censored: true, unmeasured: UNBOUNDED_PICKUPS }
-            }
-            const pickups = pickupsBetween(samples, [role], window, { straddlesEnd: false, fetchedBefore: window.to })
-            if (pickups.reset) {
-                return { value: null, clean: false, censored: true }
-            }
-            if ('unread' in pickups) {
-                return { value: null, clean: false, incomplete: true }
-            }
-            const buckets = pickups.picked[queue] ?? {}
-            if ((buckets['+Inf'] ?? 0) === 0) {
-                return { value: null, clean: false }
-            }
-            const { value, beyond } = p99Of(buckets)
-            return { value, clean: !beyond, ...(beyond ? { censored: true as const } : {}) }
-        })
+        const series = seriesOver({ drive, timeline }, () => ({
+            value: null,
+            clean: false,
+            censored: true,
+            unmeasured: UNBOUNDED_PICKUPS,
+        }))
         return series ? [[queue, series] as [string, Series]] : []
     })
 }
