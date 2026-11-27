@@ -121,6 +121,7 @@ describe('live log', () => {
             consumerLoopErrors: 0,
             janitorStalled: 0,
             lateness: {},
+            sesNotifications: {},
         }
         const second: MetricSample = { ...first, at: 1_767_225_631_000, cpuSeconds: 4 }
         let reads = 0

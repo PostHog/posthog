@@ -38,6 +38,7 @@ const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 
     consumerLoopErrors: 0,
     janitorStalled: 0,
     lateness: {},
+    sesNotifications: {},
 })
 
 const offered = (unitId: string, offeredAtMs: number): JournalEntry => ({
@@ -240,6 +241,7 @@ describe('measurements', () => {
                 consumerLoopErrors: 0,
                 janitorStalled: 0,
                 lateness: {},
+                sesNotifications: {},
             })
             expect(samples.at(-1)!.rssBytes).toBeGreaterThan(0)
             expect(host).toEqual<HostSample[]>([
@@ -331,7 +333,15 @@ describe('measurements', () => {
         [
             string,
             string[],
-            Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'janitorStalled' | 'lateness'>,
+            Pick<
+                MetricSample,
+                | 'processed'
+                | 'pgClientErrors'
+                | 'consumerLoopErrors'
+                | 'janitorStalled'
+                | 'lateness'
+                | 'sesNotifications'
+            >,
         ]
     >([
         [
@@ -349,6 +359,8 @@ describe('measurements', () => {
                 'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="deferred"} 1',
                 'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="deferred"} 2',
                 'cdp_cyclotron_job_lateness_seconds_count{queue="email",wait="scheduled"} 7',
+                'email_tracking_ses_queued_notifications_total{stage="queued"} 9',
+                'email_tracking_ses_queued_notifications_total{stage="recorded"} 8',
             ],
             {
                 processed: { email: 7, hogflow: 3 },
@@ -356,12 +368,20 @@ describe('measurements', () => {
                 consumerLoopErrors: 4,
                 janitorStalled: 5,
                 lateness: { email: { '5': 7, '+Inf': 9 } },
+                sesNotifications: { queued: 9, recorded: 8 },
             },
         ],
         [
             'a role whose labelled counters never moved',
             [],
-            { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0, janitorStalled: 0, lateness: {} },
+            {
+                processed: {},
+                pgClientErrors: 0,
+                consumerLoopErrors: 0,
+                janitorStalled: 0,
+                lateness: {},
+                sesNotifications: {},
+            },
         ],
     ])('samples the Cyclotron counters of %s', (_story, lines, counters) => {
         const text = [METRICS, '# HELP cdp_cyclotron_jobs_processed The number of jobs', ...lines].join('\n')

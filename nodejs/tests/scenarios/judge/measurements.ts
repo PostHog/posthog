@@ -27,6 +27,7 @@ export type MetricSample = {
     consumerLoopErrors: number
     janitorStalled: number
     lateness: Record<string, Record<string, number>>
+    sesNotifications: Record<string, number>
 }
 
 export type MissedScrape = { role: string; replica: number; at: number }
@@ -239,6 +240,41 @@ export const sesFeedbackPosts: MeasurementDefinition = {
                       value: posts.filter(({ status }) => status >= 400 && status < 500).length,
                   },
               ]),
+}
+
+const SES_NOTIFICATION_STAGES = ['queued', 'recorded', 'skipped'] as const
+
+export const sesNotificationsLost: MeasurementDefinition = {
+    name: 'ses_notifications_lost',
+    params: z.object({}).strict(),
+    unit: 'notifications',
+    measure: ({ samples, missed, sampledFrom, converged }) => {
+        const replicas = [...byRole(samples).values()].flatMap(replicasOf)
+        const counting = replicas.filter((ofReplica) =>
+            ofReplica.some(({ sesNotifications }) => Object.keys(sesNotifications).length > 0)
+        )
+        if (counting.length === 0) {
+            return []
+        }
+        const [queued, recorded, skipped] = SES_NOTIFICATION_STAGES.map((stage) =>
+            increaseAcrossReplicas(counting, ({ sesNotifications }) => sesNotifications[stage] ?? 0, sampledFrom)
+        )
+        const incomplete = counting.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}
+        const lost =
+            converged === false
+                ? {
+                      value: null,
+                      censored: true as const,
+                      unmeasured: 'the run did not converge, so the consumer may still have been recording',
+                  }
+                : { value: queued - recorded - skipped }
+        return [
+            { key: 'lost', ...lost, ...incomplete },
+            { key: 'queued', value: queued, ...incomplete },
+            { key: 'recorded', value: recorded, ...incomplete },
+            { key: 'skipped', value: skipped, ...incomplete },
+        ]
+    },
 }
 
 export type Phase = { from: number; to: number }
@@ -671,6 +707,7 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     deliveryLatencyMs,
     sesFeedbackMs,
     sesFeedbackPosts,
+    sesNotificationsLost,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]
@@ -719,6 +756,16 @@ function processedOf(text: string): Record<string, number> {
     return processed
 }
 
+function sesNotificationsOf(text: string): Record<string, number> {
+    const stages: Record<string, number> = {}
+    for (const { labels, value } of seriesOf(text, 'email_tracking_ses_queued_notifications_total')) {
+        if (labels.stage !== undefined) {
+            stages[labels.stage] = (stages[labels.stage] ?? 0) + value
+        }
+    }
+    return stages
+}
+
 function latenessOf(text: string): Record<string, Record<string, number>> {
     const lateness: Record<string, Record<string, number>> = {}
     for (const { labels, value } of seriesOf(text, 'cdp_cyclotron_job_lateness_seconds_bucket')) {
@@ -748,6 +795,7 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
               janitorStalled: totalOf(text, 'cdp_cyclotron_v2_janitor_stalled'),
               lateness: latenessOf(text),
+              sesNotifications: sesNotificationsOf(text),
           }
 }
 
