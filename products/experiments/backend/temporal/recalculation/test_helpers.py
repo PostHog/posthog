@@ -79,7 +79,7 @@ def _mean_metric(uuid: str) -> dict:
 
 @contextmanager
 def _record_captures():
-    """Patch the global posthoganalytics client so the analytics tests can assert the exact event
+    """Patch the global posthoganalytics client so a test can assert the exact event
     name + properties without sending anything. Yields the list of captured capture(...) kwargs."""
     captured: list[dict] = []
 
