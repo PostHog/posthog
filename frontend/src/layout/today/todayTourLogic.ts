@@ -94,6 +94,7 @@ export interface todayTourLogicActions {
     setNewNavDialogOpen: (open: boolean) => {
         open: boolean
     } // navSwitchLogic
+    showAdvertisement: () => boolean // navSwitchLogic
     restoreView: (view: TodayView) => {
         view: TodayView
     } // todayShellLogic
@@ -149,7 +150,7 @@ export const todayTourLogic = kea<todayTourLogicType>([
             todayShellLogic,
             ['showPane', 'restoreView'],
             navSwitchLogic,
-            ['setNewNavDialogOpen', 'dismissNewNavDialog'],
+            ['setNewNavDialogOpen', 'dismissNewNavDialog', 'showAdvertisement'],
             helpMenuLogic,
             ['setHelpMenuOpen'],
         ],
@@ -257,6 +258,7 @@ export const todayTourLogic = kea<todayTourLogicType>([
         // A local development shortcut that forgets what the switch flow saved in this browser, then reloads, so the
         // flow runs again from the start. The reload also drops logics that a hot reload left on an older version.
         resetDesignTour: () => {
+            actions.showAdvertisement()
             window.location.reload()
         },
     })),
