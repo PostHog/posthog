@@ -11776,10 +11776,10 @@ Diffed against: <https://api.planningcenteronline.com/people/v2/documentation>
 - [x] `People lookups (GET /people/v2/marital_statuses; GET /people/v2/membership_types; GET /people/v2/inactive_reasons; GET /people/v2/name_prefixes; GET /people/v2/school_options; GET /people/v2/note_categories; GET /people/v2/list_categories)` — resolve the status, membership, school and category IDs carried on the people and notes we sync (high)
 - [x] `Workflow steps and cards (GET /people/v2/workflows/{workflow_id}/steps; GET /people/v2/people/{person_id}/workflow_cards)` — we sync workflows but not their steps or the cards that move people through them, so follow-up pipelines cannot be analyzed (high)
 - [x] `Service plan items (GET /services/v2/service_types/{service_type_id}/plans/{plan_id}/items)` — the order of service for each plan: songs, headings, media and lengths; fan-out per plan (high)
-- [ ] `Volunteer schedules (GET /services/v2/people/{person_id}/schedules)` — who was scheduled to serve, in which team and position, and their response status (high)
-- [ ] `Donation designations and refunds (GET /giving/v2/donations/{donation_id}/designations; GET /giving/v2/donations/{donation_id}/refund)` — split of each donation across funds and refund records; we sync donations and funds but not the link between them; fan-out per donation (medium)
-- [ ] `Publishing episodes, series, channels and speakers (GET /publishing/v2/episodes; GET /publishing/v2/series; GET /publishing/v2/channels; GET /publishing/v2/speakers)` — the Publishing app is missing: sermon and media episodes with their series and speakers (medium)
-- [ ] `Form submissions and fields (GET /people/v2/forms/{form_id}/form_submissions; GET /people/v2/forms/{form_id}/fields)` — we sync forms but not what people submitted; fan-out per form (medium)
+- [x] `Volunteer schedules (GET /services/v2/people/{person_id}/schedules)` — who was scheduled to serve, in which team and position, and their response status (high)
+- [x] `Donation designations and refunds (GET /giving/v2/donations/{donation_id}/designations; GET /giving/v2/donations/{donation_id}/refund)` — split of each donation across funds and refund records; we sync donations and funds but not the link between them; fan-out per donation (medium)
+- [x] `Publishing episodes, series, channels and speakers (GET /publishing/v2/episodes; GET /publishing/v2/series; GET /publishing/v2/channels; GET /publishing/v2/speakers)` — the Publishing app is missing: sermon and media episodes with their series and speakers (medium)
+- [x] `Form submissions and fields (GET /people/v2/forms/{form_id}/form_submissions; GET /people/v2/forms/{form_id}/fields)` — we sync forms but not what people submitted; fan-out per form (medium)
 - [ ] `Check-in attendance types and labels (GET /check-ins/v2/events/{event_id}/attendance_types; GET /check-ins/v2/labels)` — lookups for how attendance is counted per event; attendance types fan out per event (low)
 - [ ] `Song arrangements and team positions (GET /services/v2/songs/{song_id}/arrangements; GET /services/v2/service_types/{service_type_id}/team_positions)` — song arrangement details and the position lookup for scheduled volunteers (low)
 
@@ -13309,7 +13309,7 @@ Note: Fetched the official llms index and parsed the OpenAPI definitions embedde
 
 ## ServiceNow — gaps
 
-Today (19): `assets`, `catalog_requests`, `catalog_tasks`, `change_requests`, `change_tasks`, `choices`, `configuration_items`, `group_members`, `incidents`, `knowledge_articles`, `metric_instances`, `problems`, `requested_items`, `service_offerings`, `services`, `task_slas`, `tasks`, `user_groups`, `users`
+Today (23): `assets`, `catalog_requests`, `catalog_tasks`, `change_requests`, `change_tasks`, `choices`, `ci_relationships`, `companies`, `configuration_items`, `group_members`, `incidents`, `journal_entries`, `knowledge_articles`, `locations`, `metric_instances`, `problems`, `requested_items`, `service_offerings`, `services`, `task_slas`, `tasks`, `user_groups`, `users`
 
 Diffed against: <https://www.servicenow.com/docs/r/zurich/it-service-management/service-level-management/r_TaskSLATable.html (plus https://www.servicenow.com/docs/r/zurich/platform-administration/c_MetricInstance.html, .../system-localization/r_ChoicesTable.html, .../it-service-management/incident-management/itsm-incident-use-case.html)>
 
@@ -13324,12 +13324,12 @@ Note: ServiceNow's Table API is generic — /api/now/table/{table} can query any
 
 Re-audited 2026-11-19 against: <https://www.servicenow.com/docs/api/khub/maps/q4dSP2Icgr1SFv5wanVXvQ/topics/rJ9NSvcVJopY2MEdpkyvcw/content>
 
-- [ ] `Journal entries: comments and work notes (GET /api/now/table/sys_journal_field)` — Comments and work notes on incidents, changes and requested items already synced; join on element_id and element to see the conversation and first-response times (high)
-- [ ] `CI relationships (GET /api/now/table/cmdb_rel_ci)` — Parent and child links between configuration items already synced; needed for impact and dependency analysis across incidents and changes (high)
+- [x] `Journal entries: comments and work notes (GET /api/now/table/sys_journal_field)` — Comments and work notes on incidents, changes and requested items already synced; join on element_id and element to see the conversation and first-response times (high)
+- [x] `CI relationships (GET /api/now/table/cmdb_rel_ci)` — Parent and child links between configuration items already synced; needed for impact and dependency analysis across incidents and changes (high)
 - [ ] `Catalog items (GET /api/now/table/sc_cat_item)` — Lookup for the catalog item referenced on requested_items and catalog_tasks, so request volume can be grouped by item (medium)
 - [ ] `Approvals (GET /api/now/table/sysapproval_approver)` — Approver, state and decision time for change requests and requested items; shows approval delays (medium)
-- [ ] `Locations (GET /api/now/table/cmn_location)` — Lookup for the location field on users, assets and configuration items (medium)
-- [ ] `Companies (GET /api/now/table/core_company)` — Lookup for company references on users, assets and vendors (medium)
+- [x] `Locations (GET /api/now/table/cmn_location)` — Lookup for the location field on users, assets and configuration items (medium)
+- [x] `Companies (GET /api/now/table/core_company)` — Lookup for company references on users, assets and vendors (medium)
 - [ ] `User roles (GET /api/now/table/sys_user_has_role)` — Role grants per user; supports access audits next to the users table (low)
 
 Note (2026-11-19): Used the ServiceNow docs content API (khub) and confirmed each table name in a Zurich or Australia docs page: sys_journal_field (retrieving journal entries), cmdb_rel_ci (CI relationships in the CMDB), sc_cat_item (Service Catalog and CSDM tables), sysapproval_approver (approvals reference), cmn_location, core_company and sys_user_has_role. All use the generic Table API, so each is a one-line settings entry like the existing tables. sys_journal_field can be large, so use the sys_created_on cursor. Field-level audit history (sys_audit) and cmn_department were not confirmed in docs and are left out.
@@ -13531,13 +13531,13 @@ Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api
 
 Re-audited 2026-11-19 against: <https://help.sigmacomputing.com/llms.txt>
 
-- [ ] `Account types (GET /v2/accountTypes)` — Lookup for the account type on each member, for licence and seat reporting (high)
-- [ ] `Team members (GET /v2/teams/{teamId}/members)` — Membership join between teams and members, both already synced (high)
+- [x] `Account types (GET /v2/accountTypes)` — Lookup for the account type on each member, for licence and seat reporting (high, added here)
+- [x] `Team members (GET /v2/teams/{teamId}/members)` — Membership join between teams and members, both already synced (high, added here)
 - [ ] `Workbook schedules (GET /v2/workbooks/{workbookId}/schedules)` — Scheduled exports and alerts per workbook, with owner and cadence (medium)
 - [ ] `Workbook tags (GET /v2/workbooks/{workbookId}/tags)` — Tags per workbook, for governance and certification reporting (medium)
-- [ ] `Workbook sources (GET /v2/workbooks/{workbookId}/sources)` — Which data models and tables each workbook reads, for lineage (medium)
+- [x] `Workbook sources (GET /v2/workbooks/{workbookId}/sources)` — Which data models and tables each workbook reads, for lineage (medium, added here)
 - [ ] `Data model sources (GET /v2/dataModels/{dataModelId}/sources)` — Upstream connections and tables of each data model, for lineage (medium)
-- [ ] `Data model elements (GET /v2/dataModels/{dataModelId}/elements)` — Elements inside each data model, like the workbook elements table (medium)
+- [x] `Data model elements (GET /v2/dataModels/{dataModelId}/elements)` — Elements inside each data model, like the workbook elements table (medium, added here)
 - [ ] `Workbook materialization schedules (GET /v2/workbooks/{workbookId}/materialization-schedules)` — Materialization cadence per workbook, for warehouse cost review (low)
 - [ ] `User attributes (GET /v2/user-attributes)` — Attribute definitions used for row-level security (low)
 - [ ] `Workbook version history (GET /v2/workbooks/{workbookId}/version-history)` — Change history of each workbook, with author and time (low)
@@ -14419,16 +14419,18 @@ Diffed against: <https://docs.stripe.com/api/v2/money-management/outbound-paymen
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json>
 
-- [ ] `Invoice line items (GET /v1/invoices/{invoice}/lines)` — per-product, per-price revenue lines on each invoice; the invoice row alone cannot split revenue by product (high)
-- [ ] `Connected accounts (GET /v1/accounts)` — the account list for Connect platforms, to resolve the account IDs on charges, transfers and application fees (high)
+- [x] `Invoice line items (GET /v1/invoices/{invoice}/lines)` — per-product, per-price revenue lines on each invoice; the invoice row alone cannot split revenue by product (high)
+- [x] `Connected accounts (GET /v1/accounts)` — the account list for Connect platforms, to resolve the account IDs on charges, transfers and application fees (high)
 - [ ] `Checkout session line items (GET /v1/checkout/sessions/{session}/line_items)` — what was bought in each checkout, to join conversion to products (medium)
-- [ ] `Credit note line items (GET /v1/credit_notes/{credit_note}/lines)` — which invoice lines each credit note refunded or credited (medium)
+- [x] `Credit note line items (GET /v1/credit_notes/{credit_note}/lines)` — which invoice lines each credit note refunded or credited (medium)
 - [ ] `Billing meter event summaries (GET /v1/billing/meters/{id}/event_summaries)` — aggregated usage per customer and time window for usage-based billing; needs customer and time range params (medium)
 - [ ] `Billing alerts (GET /v1/billing/alerts)` — usage and credit alert thresholds set on meters (low)
 - [ ] `Tax codes (GET /v1/tax_codes)` — lookup that resolves the tax_code carried on products (low)
 - [ ] `Product features (GET /v1/products/{product}/features)` — join between products and entitlement features, which we sync separately (low)
 - [ ] `Payment records (GET /v1/payment_records)` — unified record of payments reported from any processor (low)
 - [ ] `Billing portal configurations (GET /v1/billing_portal/configurations)` — customer portal settings that explain self-serve cancellation and plan switching (low)
+
+Note (2026-11-27): Built `InvoiceLineItem` and `CreditNoteLineItem` from the lines the invoice and credit note listings already fetch, and exposed the existing `Account` resource as a default-off table. Skipped billing meter event summaries: every request needs a customer and a time range, so a table would fan out over every meter and every customer, and the metered quantities that were billed are already on the invoice line items.
 
 Note (2026-11-19): Diffed the public v1 spec3.json collection GETs (and one level of nesting) against the 46 synced tables, and also read the repo COVERAGE_GAPS.md. The v1 'lower priority' families (issuing, treasury, terminal, identity, financial_connections, climate, sigma, reporting, files, webhook_endpoints) were left out as niche. Line item routes are fan-outs under a parent and need per-parent paging. Did not re-report the v2 money-management lists.
 
@@ -14619,13 +14621,13 @@ Diffed against: <https://developers.taboola.com/backstage-api/reference/campaign
 - [x] `GET /users/current/allowed-accounts` — Lookup table of accounts and their IDs - resolves the account_id every other table is scoped by, and enumerates what can be synced (high). Added as `allowed_accounts` (full refresh).
 - [x] `GET /{account_id}/advertisers` — Lookup table resolving the advertiser IDs carried on synced campaigns (high). Added as `advertisers` (full refresh; empty for non-network accounts, which get a 404).
 - [x] `GET /{account_id}/reports/campaign-summary/dimensions/country_breakdown` — Geo performance breakdown, one of the most commonly wanted report cuts (high). Added as `campaign_summary_by_country` (trailing 30-day snapshot, full refresh).
-- [ ] `GET /{account_id}/reports/campaign-summary/dimensions/item_breakdown` — Per-creative spend and conversion metrics, joining directly to the already-synced campaign_items (high)
+- ~~`GET /{account_id}/reports/campaign-summary/dimensions/item_breakdown` — Per-creative spend and conversion metrics, joining directly to the already-synced campaign_items (high)~~ — skipped: `item_breakdown` is not a Campaign Summary dimension (see the Dimensions Cheat Sheet); per-item performance comes from `top-campaign-content/dimensions/item_breakdown`, which is already synced as `top_campaign_content`
 - [ ] `GET /{account_id}/reports/campaign-summary/dimensions/platform_breakdown` — Desktop/mobile/tablet split, needed for device-level bid analysis (medium)
-- [ ] `GET /{account_id}/reports/campaign-summary/dimensions/region_breakdown and /dma_breakdown` — Sub-national geo dimensions for US and regional targeting analysis (medium)
+- [x] `GET /{account_id}/reports/campaign-summary/dimensions/region_breakdown and /dma_breakdown` — Sub-national geo dimensions for US and regional targeting analysis (medium). Added as `campaign_summary_by_region` and `campaign_summary_by_dma` (trailing 30-day snapshots, full refresh).
 - [ ] `GET /{account_id}/campaigns/{campaign_id}/items/{item_id}/children/` — Child creative variants under a parent item - spend is reported at this grain for motion and multi-variant ads (medium)
-- [ ] `GET /{account_id}/campaigns/{campaign_id}/targeting/audience_segments, /contextual_segments, /my_audiences, /postal_code` — Targeting configuration per campaign, required to explain why performance differs between campaigns (medium)
+- [x] `GET /{account_id}/campaigns/{campaign_id}/targeting/audience_segments, /contextual_segments, /my_audiences, /postal_code` — Targeting configuration per campaign, required to explain why performance differs between campaigns (medium). Added as `campaign_audience_segment_targeting`, `campaign_contextual_targeting`, `campaign_my_audience_targeting` and `campaign_postal_code_targeting` (fan-out over `campaigns`, one row per INCLUDE/EXCLUDE restriction, full refresh).
 - [ ] `GET /{account_id}/dictionary/audience_segments/{country} and /dictionary/contextual_segments/` — Lookup tables resolving the segment IDs used in campaign targeting (medium)
-- [ ] `GET /{account_id}/my_audiences and /{account_id}/combined_audiences/` — First-party and combined audience definitions with size, referenced by targeting rows (medium)
+- [x] `GET /{account_id}/my_audiences and /{account_id}/combined_audiences/` — First-party and combined audience definitions with size, referenced by targeting rows (medium). Added as `my_audiences` and `combined_audiences` (full refresh).
 - [ ] `GET /resources/campaigns_properties/category, /operating_systems, /platforms, /resources/countries, /resources/languages` — Static lookup tables decoding the enum codes stored on campaigns and campaign_items (low)
 
 Note: Full Backstage API path list extracted from the ReadMe reference page HTML (developers.taboola.com serves an SPA, so sitemap.xml 404s and sitemap-0.xml returns HTML). The connector pins a single dimension per report: sources/taboola/settings.py uses /reports/campaign-summary/dimensions/campaign_day_breakdown and /reports/top-campaign-content/dimensions/item_breakdown. The other campaign-summary dimensions documented on that page (site_breakdown, country_breakdown, region_breakdown, dma_breakdown, platform_breakdown, user_segment_breakdown, item_breakdown) are the same report re-cut and are unreachable today.
@@ -15161,14 +15163,14 @@ Note: Docs are a JS-rendered ReadMe site with no downloadable OAS, so the endpoi
 
 ## TrafficStars — gaps
 
-Today (3): `campaign_statistics_daily`, `campaigns`, `creatives`
+Today (9): `campaign_statistics_daily`, `campaigns`, `countries`, `country_statistics_daily`, `creative_statistics_daily`, `creatives`, `device_statistics_daily`, `os_statistics_daily`, `spot_statistics_daily`
 
 Diffed against: <https://docs.trafficstars.com/_reports.md>
 
-- [ ] `Advertiser custom report by group type (GET /v1.1/advertiser/custom/report/by-{group_type})` — Spend and results split by country, creative, spot, device, os, hour or subid, the breakdowns the daily campaign table lacks (high)
-- [ ] `Advertiser stats by section (GET /v1/stats/advertiser/{section})` — Older advertiser statistics by section, a second cut of campaign performance (low)
-- [ ] `Countries (GET /v1.1/countries)` — Code to name lookup for country values on the breakdown reports and campaign targeting (medium)
-- [ ] `Spots (GET /v1.1/spots)` — Ad placements with type and status, resolves spot ids in spot breakdown reports (medium)
+- [x] `Advertiser custom report by group type (GET /v1.1/advertiser/custom/report/by-{group_type})` — Spend and results split by country, creative, spot, device, os, hour or subid, the breakdowns the daily campaign table lacks (high)
+- [ ] `Advertiser stats by section (GET /v1/stats/advertiser/{section})` — Older advertiser statistics by section, a second cut of campaign performance (low) Skipped: the vendor marks this route deprecated in favor of the custom reports.
+- [x] `Countries (GET /v1.1/countries)` — Code to name lookup for country values on the breakdown reports and campaign targeting (medium)
+- [ ] `Spots (GET /v1.1/spots)` — Ad placements with type and status, resolves spot ids in spot breakdown reports (medium) Skipped: publisher spot management API, and spot_statistics_daily already carries the spot id and name.
 - [ ] `Retargeting lists (GET /v1/retargeting/list/{id})` — Retargeting audiences with their fields for an advertiser user id (low)
 - [ ] `User balance (GET /v2/userinfo/balance)` — Current account balance and credit, one row per snapshot, for spend monitoring (low)
 
@@ -16085,10 +16087,10 @@ Today (12): `account_stats_by_date`, `captions`, `channel_episodes`, `channels`,
 
 Diffed against: <https://docs.wistia.com/llms.txt>
 
-- [ ] `Webinar registrations (GET /webinars/{webinarId}/registrations)` — who registered for each synced webinar; fan-out under webinars (high)
-- [ ] `Media stats by date (GET /stats/medias/{mediaId}/by_date)` — daily plays, load and hours watched per video; media_stats only has lifetime totals (high)
-- [ ] `Media analytics timeseries (GET /analytics/medias/{mediaId}/timeseries)` — newer analytics API time series per video (medium)
-- [ ] `Speakers (GET /speakers)` — speakers detected in media transcripts (medium)
+- [x] `Webinar registrations (GET /webinars/{webinarId}/registrations)` — who registered for each synced webinar; fan-out under webinars (high)
+- [x] `Media stats by date (GET /stats/medias/{mediaId}/by_date)` — daily plays, load and hours watched per video; media_stats only has lifetime totals (high)
+- [x] `Media analytics timeseries (GET /analytics/medias/{mediaId}/timeseries)` — newer analytics API time series per video (medium)
+- [x] `Speakers (GET /speakers)` — speakers detected in media transcripts (medium)
 - [ ] `Folder sharings (GET /folders/{folderId}/sharings)` — who has access to each synced folder; fan-out under folders (medium)
 - [ ] `Brands (GET /brands)` — saved branding sets on the account (low)
 - [ ] `Deleted media (GET /deleted_media)` — media removed from the account, useful for audit (low)

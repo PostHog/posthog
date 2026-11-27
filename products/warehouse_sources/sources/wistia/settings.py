@@ -14,6 +14,9 @@ PAGE_SIZE = 100
 # Account stats by date has no pagination, so a full refresh walks the history in yearly windows.
 ACCOUNT_STATS_HISTORY_START = date(2010, 1, 1)
 ACCOUNT_STATS_WINDOW_DAYS = 365
+# Per-media daily stats are read in windows of this size. The analytics timeseries endpoint
+# refuses a range longer than 2 years.
+MEDIA_STATS_WINDOW_DAYS = 365
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,12 @@ class WistiaEndpointConfig:
     parent_key: Optional[str] = None
     # The child endpoint returns one object per parent, not a list.
     child_is_single_object: bool = False
+    # The child endpoint wraps its rows in this key and pages with a `page_info` cursor.
+    child_data_selector: Optional[str] = None
+    # The endpoint reads one media per request in date windows, from the day before the media was
+    # created. `end_date` is exclusive on the analytics API and inclusive on the stats API.
+    media_date_windows: bool = False
+    end_date_exclusive: bool = False
 
 
 WISTIA_ENDPOINTS: dict[str, WistiaEndpointConfig] = {
@@ -97,6 +106,22 @@ WISTIA_ENDPOINTS: dict[str, WistiaEndpointConfig] = {
         should_sync_default=False,
         description="Needs a Wistia plan that includes webinars.",
     ),
+    "webinar_registrations": WistiaEndpointConfig(
+        name="webinar_registrations",
+        path="/webinars/{parent_id}/registrations",
+        primary_keys=["webinar_hashed_id", "visitor_key"],
+        parent="webinars",
+        parent_key="webinar_hashed_id",
+        child_data_selector="registrations",
+        should_sync_default=False,
+        description="Full refresh only. Needs a Wistia plan that includes webinars. Reads the registrations of every webinar.",
+    ),
+    "speakers": WistiaEndpointConfig(
+        name="speakers",
+        path="/speakers",
+        primary_keys=["speaker_profile_id"],
+        params={"sort_by": "created", "sort_direction": "1"},
+    ),
     # The Stats API documents no sort parameter for visitors and events.
     "visitors": WistiaEndpointConfig(
         name="visitors",
@@ -143,6 +168,46 @@ WISTIA_ENDPOINTS: dict[str, WistiaEndpointConfig] = {
             }
         ],
         partition_key="date",
+    ),
+    "media_stats_by_date": WistiaEndpointConfig(
+        name="media_stats_by_date",
+        path="/stats/medias/{parent_id}/by_date",
+        primary_keys=["media_hashed_id", "date"],
+        incremental_fields=[
+            {
+                "label": "date",
+                "type": IncrementalFieldType.Date,
+                "field": "date",
+                "field_type": IncrementalFieldType.Date,
+            }
+        ],
+        partition_key="date",
+        parent="medias",
+        parent_key="media_hashed_id",
+        media_date_windows=True,
+        should_sync_default=False,
+        description="Makes one request for each media and each year since the media was created.",
+    ),
+    "media_analytics_timeseries": WistiaEndpointConfig(
+        name="media_analytics_timeseries",
+        path="/analytics/medias/{parent_id}/timeseries",
+        primary_keys=["media_hashed_id", "timestamp"],
+        params={"granularity": "daily"},
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        partition_key="timestamp",
+        parent="medias",
+        parent_key="media_hashed_id",
+        media_date_windows=True,
+        end_date_exclusive=True,
+        should_sync_default=False,
+        description="Daily metrics for each media. Makes one request for each media and each year since the media was created.",
     ),
 }
 

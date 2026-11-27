@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0208_move_apollo_accounts_to_full_refresh"),
+        ("warehouse_sources", "0209_warehousecolumnstatistics_checked_at"),
     ]
 
     operations = [
