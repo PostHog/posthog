@@ -35,9 +35,13 @@ from posthog.errors import (
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseUDFTimeOut
 
 HTTP_CLIENT_URL = "https://clickhouse.example.com:8443"
+UDF_POOL_TIMEOUT = (
+    "Executable user defined function aggregate_funnel_v13 failed: Code: 159. DB::Exception: "
+    "Could not get process from pool, max processes 8 was reached, waited for 10000 ms. (TIMEOUT_EXCEEDED)"
+)
 
 
 def _http_client_response(code: int, detail: str, name: str) -> str:
@@ -580,6 +584,12 @@ class TestWrapClickhouseQueryError:
                 QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
             ),
             (
+                "funnel_udf_timeout",
+                _http_client_error(754, UDF_POOL_TIMEOUT, "UDF_EXECUTION_FAILED"),
+                ClickHouseUDFTimeOut,
+                QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+            ),
+            (
                 "unknown_identifier",
                 _http_client_error(47, "Missing columns: 'privat_column'.", "UNKNOWN_IDENTIFIER"),
                 CHQueryErrorUnknownIdentifier,
@@ -596,6 +606,29 @@ class TestWrapClickhouseQueryError:
         assert classify_query_error(raw) == category
         assert classify_query_error(wrapped) == category
         assert HTTP_CLIENT_URL not in str(wrapped)
+
+    @parameterized.expand(
+        [
+            ("pool_timeout", f"DB::Exception: {UDF_POOL_TIMEOUT}. (UDF_EXECUTION_FAILED)", True),
+            ("timeout_name_only", "DB::Exception: aggregate_funnel_v13 failed. (TIMEOUT_EXCEEDED)", True),
+            ("script_error", "DB::Exception: aggregate_funnel_v13 failed: exit code 1. (UDF_EXECUTION_FAILED)", False),
+        ]
+    )
+    def test_udf_failure_is_a_timeout_only_when_it_carries_an_inner_timeout(
+        self, _name: str, raw_message: str, is_timeout: bool
+    ) -> None:
+        raw = ServerException(raw_message, code=754)
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        if is_timeout:
+            assert type(wrapped) is ClickHouseUDFTimeOut
+            assert "date range" in str(wrapped)
+            expected = QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+        else:
+            assert type(wrapped).__name__ == "CHQueryErrorUdfExecutionFailed"
+            expected = QueryErrorCategory.ERROR
+        assert classify_query_error(raw) == expected
+        assert classify_query_error(wrapped) == expected
 
     def test_http_client_cancel_reports_its_clickhouse_type_and_is_not_retried(self) -> None:
         raw = _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")
