@@ -40,13 +40,17 @@ def _transport_error(error: Exception) -> MCPClientError:
     if status_error is None:
         client_error = MCPClientError("MCP server request failed")
     else:
-        response = status_error.response
-        client_error = MCPClientError(
-            f"MCP server responded with HTTP {response.status_code} {response.reason_phrase}".rstrip(),
-            status_code=response.status_code,
-        )
+        status_code = status_error.response.status_code
+        client_error = MCPClientError(f"MCP server responded with HTTP {status_code}", status_code=status_code)
     client_error.__cause__ = error
     return client_error
+
+
+def _cancelled_by_caller() -> bool:
+    # anyio undoes the cancellations its own cancel scopes made once they exit, so after the transport closes
+    # any cancellation still requested on this task came from the caller.
+    task = asyncio.current_task()
+    return task is not None and task.cancelling() > 0
 
 
 class MCPClient:
@@ -67,7 +71,7 @@ class MCPClient:
             streamable_error = await self._close_transport()
         except asyncio.CancelledError:
             streamable_error = await self._close_transport()
-            if streamable_error is None:
+            if streamable_error is None or _cancelled_by_caller():
                 raise
 
         try:
@@ -123,7 +127,8 @@ class MCPClient:
         return None
 
     async def _raise_transport_error(self) -> None:
-        if transport_error := await self._close_transport():
+        transport_error = await self._close_transport()
+        if transport_error is not None and not _cancelled_by_caller():
             raise transport_error
 
     async def close(self) -> None:

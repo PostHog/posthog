@@ -11,7 +11,7 @@ from posthog.schema import AssistantTool
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.mcp_store.backend.oauth import is_token_expiring
+from products.mcp_store.backend.oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring
 from products.mcp_store.backend.url_policy import check_mcp_url_policy
 
 from ee.hogai.context.context import AssistantContextManager
@@ -25,7 +25,6 @@ from .installations import (
     _get_installations,
     _get_tool_approval_states,
     _get_unlisted_tool_state,
-    _mark_needs_reauth_sync,
     _refresh_token_sync,
 )
 from .mcp_client import MCPClient, MCPClientError
@@ -220,12 +219,11 @@ class CallMCPServerTool(MaxTool):
         try:
             return await self._attempt_call(server_url, tool_name, arguments)
         except MCPClientError as e:
-            # Of the HTTP statuses, only a 401 means that the server rejected the credentials.
-            # A refresh cannot fix other statuses, and a failed refresh marks the installation for re-authentication.
-            if e.status_code is not None and e.status_code != 401:
+            # Only a 401 means the server rejected the credentials, and a rejected refresh takes the installation
+            # out of service until the user reconnects.
+            if e.status_code != 401:
                 raise
-            # Refresh auth in case that was the issue and retry the tool call once.
-            await self._refresh_auth_or_mark_reauth(server_url)
+            await self._refresh_auth(server_url)
             return await self._attempt_call(server_url, tool_name, arguments)
 
     async def _attempt_call(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
@@ -323,33 +321,28 @@ class CallMCPServerTool(MaxTool):
 
     async def _try_proactive_token_refresh(self, server_url: str) -> None:
         inst = self._get_installation(server_url)
-        if not is_token_expiring(inst.get("sensitive_configuration") or {}):
+        sensitive = inst.get("sensitive_configuration") or {}
+        # Without a refresh token, refresh_installation_token flags the installation for re-authentication.
+        if not sensitive.get("refresh_token") or not is_token_expiring(sensitive):
             return
         try:
             await self._refresh_token_for_server(server_url)
         except Exception:
             logger.warning("Proactive token refresh failed, continuing with current token", server_url=server_url)
 
-    async def _refresh_auth_or_mark_reauth(self, server_url: str) -> None:
+    async def _refresh_auth(self, server_url: str) -> None:
         try:
             await self._refresh_token_for_server(server_url)
-        except Exception:
-            inst = self._get_installation(server_url)
-            await database_sync_to_async(_mark_needs_reauth_sync)(inst["id"])
+        except TokenRefreshRejectedError:
             raise MaxToolFatalError(
                 f"Authentication failed for {server_url} and token refresh failed. "
                 "Ask the user to re-authenticate with this MCP server in the MCP store settings page."
             )
+        except TokenRefreshError:
+            raise MaxToolRetryableError(f"Authentication failed for {server_url} and token refresh failed. Try again.")
 
     async def _refresh_token_for_server(self, server_url: str) -> None:
         inst = self._get_installation(server_url)
-        sensitive = inst.get("sensitive_configuration") or {}
-        refresh_token = sensitive.get("refresh_token")
-        if not refresh_token:
-            raise MaxToolFatalError(
-                f"No refresh token available for {server_url}. Ask the user to re-authenticate with this MCP server."
-            )
-
         updated = await database_sync_to_async(_refresh_token_sync)(inst)
 
         inst["sensitive_configuration"] = updated

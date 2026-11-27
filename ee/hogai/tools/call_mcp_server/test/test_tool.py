@@ -1,6 +1,8 @@
 import json
 import time
 import uuid
+import asyncio
+from collections.abc import Callable
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
@@ -21,7 +23,7 @@ from products.mcp_store.backend.models import (
     MCPServerInstallationTool,
     TeamMCPGatewayConfig,
 )
-from products.mcp_store.backend.oauth import TokenRefreshError
+from products.mcp_store.backend.oauth import TokenRefreshError, TokenRefreshRejectedError
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
@@ -30,7 +32,7 @@ from ee.hogai.tools.call_mcp_server.installations import (
     _get_installations,
     _get_tool_approval_states,
 )
-from ee.hogai.tools.call_mcp_server.mcp_client import MCPClientError
+from ee.hogai.tools.call_mcp_server.mcp_client import MCPClient, MCPClientError
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
@@ -320,7 +322,7 @@ class TestCallTool(TestCallMCPServerTool):
 
     async def test_mcp_client_error_becomes_retryable(self):
         tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
-        tool._refresh_auth_or_mark_reauth = AsyncMock()
+        tool._refresh_auth = AsyncMock()
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
             mock_instance.initialize = AsyncMock(side_effect=MCPClientError("Connection refused"))
@@ -332,7 +334,7 @@ class TestCallTool(TestCallMCPServerTool):
 
     async def test_timeout_error_becomes_retryable(self):
         tool = self._create_tool(installations=[{"display_name": "Slow", "url": "https://mcp.slow.com"}])
-        tool._refresh_auth_or_mark_reauth = AsyncMock()
+        tool._refresh_auth = AsyncMock()
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
@@ -345,7 +347,7 @@ class TestCallTool(TestCallMCPServerTool):
 
     async def test_connect_error_becomes_retryable(self):
         tool = self._create_tool(installations=[{"display_name": "Down", "url": "https://mcp.down.com"}])
-        tool._refresh_auth_or_mark_reauth = AsyncMock()
+        tool._refresh_auth = AsyncMock()
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
@@ -584,12 +586,14 @@ def _make_oauth_installation(
 _RealAsyncClient = httpx.AsyncClient
 
 
-def _fake_mcp_server(*, failing_method: str, status_code: int):
+def _fake_mcp_server(*, failing_method: str, status_code: int, on_failure: Callable[[], object] | None = None):
     def handle(request: httpx.Request) -> httpx.Response:
         if request.method != "POST":
             return httpx.Response(405)
         message = json.loads(request.content)
         if message["method"] == failing_method and request.headers["Authorization"] == "Bearer old-access-token":
+            if on_failure is not None:
+                on_failure()
             return httpx.Response(status_code)
         if "id" not in message:
             return httpx.Response(202)
@@ -701,6 +705,22 @@ class TestProactiveTokenRefresh(TestCallMCPServerTool):
 
         tool._refresh_token_for_server.assert_not_called()
 
+    async def test_no_proactive_refresh_without_refresh_token(self):
+        inst = _make_oauth_installation(
+            server_url=self.SERVER_URL,
+            refresh_token=None,
+            token_retrieved_at=time.time() - 2000,
+            expires_in=3600,
+        )
+        tool = self._create_tool(installations=[inst])
+        tool._refresh_token_for_server = AsyncMock()
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            MockClient.return_value = self._make_mock_client()
+            await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
+
+        tool._refresh_token_for_server.assert_not_called()
+
     async def test_proactive_refresh_failure_does_not_block_mcp_call(self):
         inst = _make_oauth_installation(
             server_url=self.SERVER_URL,
@@ -729,7 +749,7 @@ class TestAuthRefresh(TestCallMCPServerTool):
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             failing_client = self._make_mock_client()
-            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error"))
+            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error", status_code=401))
 
             retried_client = self._make_mock_client()
             retried_client.call_tool = AsyncMock(return_value="success after refresh")
@@ -770,7 +790,7 @@ class TestAuthRefresh(TestCallMCPServerTool):
             with self.assertRaises(MaxToolRetryableError) as ctx:
                 await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
 
-        self.assertIn("HTTP 500", str(ctx.exception))
+        self.assertEqual(str(ctx.exception), "MCP server error: MCP server responded with HTTP 500")
         await sync_to_async(installation.refresh_from_db)()
         self.assertFalse(installation.sensitive_configuration.get("needs_reauth"))
 
@@ -791,31 +811,97 @@ class TestAuthRefresh(TestCallMCPServerTool):
 
         refresh.assert_called_once()
 
-    async def test_refresh_failure_raises_fatal(self):
+    async def test_rejected_refresh_raises_fatal(self):
         inst = _make_oauth_installation(server_url=self.SERVER_URL)
         tool = self._create_tool(installations=[inst])
-        tool._refresh_token_for_server = AsyncMock(side_effect=TokenRefreshError("bad refresh"))
+        tool._refresh_token_for_server = AsyncMock(side_effect=TokenRefreshRejectedError("invalid_grant"))
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             failing_client = self._make_mock_client()
-            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error"))
+            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error", status_code=401))
             MockClient.return_value = failing_client
 
             with self.assertRaises(MaxToolFatalError) as ctx:
                 await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
             self.assertIn("re-authenticate", str(ctx.exception))
 
-    async def test_refresh_failure_marks_installation_for_reauth(self):
+    async def test_transient_refresh_failure_is_retryable(self):
+        inst = _make_oauth_installation(server_url=self.SERVER_URL)
+        tool = self._create_tool(installations=[inst])
+        tool._refresh_token_for_server = AsyncMock(side_effect=TokenRefreshError("token endpoint returned 503"))
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            failing_client = self._make_mock_client()
+            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error", status_code=401))
+            MockClient.return_value = failing_client
+
+            with self.assertRaises(MaxToolRetryableError):
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
+
+    async def test_transient_refresh_failure_keeps_installation_connected(self):
         installation = await sync_to_async(self._install_server)(
             name="OAuth Server", url=self.SERVER_URL, auth_type="oauth"
         )
         inst = _make_oauth_installation(server_url=self.SERVER_URL, installation_id=str(installation.id))
         tool = self._create_tool(installations=[inst])
-        tool._refresh_token_for_server = AsyncMock(side_effect=TokenRefreshError("bad refresh"))
+        tool._refresh_token_for_server = AsyncMock(side_effect=TokenRefreshError("token endpoint returned 503"))
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             failing_client = self._make_mock_client()
-            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error"))
+            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error", status_code=401))
+            MockClient.return_value = failing_client
+
+            with self.assertRaises(MaxToolRetryableError):
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
+
+        await sync_to_async(installation.refresh_from_db)()
+        self.assertFalse(installation.sensitive_configuration.get("needs_reauth"))
+
+    async def test_error_without_http_status_skips_refresh(self):
+        inst = _make_oauth_installation(server_url=self.SERVER_URL)
+        tool = self._create_tool(installations=[inst])
+        tool._refresh_token_for_server = AsyncMock()
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            failing_client = self._make_mock_client()
+            failing_client.initialize = AsyncMock(side_effect=MCPClientError("MCP server request failed"))
+            MockClient.return_value = failing_client
+
+            with self.assertRaises(MaxToolRetryableError):
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
+
+        tool._refresh_token_for_server.assert_not_called()
+
+    @parameterized.expand([("initialize",), ("tools/call",)])
+    async def test_caller_cancellation_wins_over_transport_error(self, failing_method: str):
+        task = asyncio.current_task()
+        assert task is not None
+        client = MCPClient(self.SERVER_URL, headers={"Authorization": "Bearer old-access-token"}, team_id=self.team.id)
+
+        try:
+            with _fake_mcp_server(failing_method=failing_method, status_code=500, on_failure=task.cancel):
+                with self.assertRaises(asyncio.CancelledError):
+                    await client.initialize()
+                    await client.call_tool("some_tool", {})
+                await client.close()
+        finally:
+            task.uncancel()
+
+    async def test_no_refresh_token_flags_installation_for_reauth(self):
+        installation = await sync_to_async(self._install_server)(
+            name="OAuth Server",
+            url=self.SERVER_URL,
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "old-access-token"},
+        )
+        inst = _make_oauth_installation(
+            server_url=self.SERVER_URL, refresh_token=None, installation_id=str(installation.id)
+        )
+        tool = self._create_tool(installations=[inst])
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            failing_client = self._make_mock_client()
+            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error", status_code=401))
             MockClient.return_value = failing_client
 
             with self.assertRaises(MaxToolFatalError):
@@ -825,12 +911,20 @@ class TestAuthRefresh(TestCallMCPServerTool):
         self.assertTrue(installation.sensitive_configuration.get("needs_reauth"))
 
     async def test_no_refresh_token_raises_fatal(self):
-        inst = _make_oauth_installation(server_url=self.SERVER_URL, refresh_token=None)
+        installation = await sync_to_async(self._install_server)(
+            name="OAuth Server",
+            url=self.SERVER_URL,
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "old-access-token"},
+        )
+        inst = _make_oauth_installation(
+            server_url=self.SERVER_URL, refresh_token=None, installation_id=str(installation.id)
+        )
         tool = self._create_tool(installations=[inst])
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             failing_client = self._make_mock_client()
-            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error"))
+            failing_client.initialize = AsyncMock(side_effect=MCPClientError("auth error", status_code=401))
             MockClient.return_value = failing_client
 
             with self.assertRaises(MaxToolFatalError) as ctx:
