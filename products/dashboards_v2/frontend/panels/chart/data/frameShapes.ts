@@ -26,20 +26,29 @@ function sum(values: unknown[]): number {
 }
 
 /**
- * One series per category, the shape the part-of-a-whole charts take. A frame with a string field gives one category
- * per row. Frames without one, such as time series, give one category per frame, valued by the sum of its numbers.
+ * One series per category, the shape the part-of-a-whole charts take. Frames with a string field give one category
+ * per row. Frames without one, such as time series or totals, give one category per frame, valued by the sum of its
+ * numbers.
  */
 export function categoriesFromFrames(frames: DataFrame[]): Series[] {
-    const [labels] = fieldsOf(frames[0], 'string')
-    const [values] = fieldsOf(frames[0], 'number')
-    if (labels && values) {
-        return labels.values.map((label, row) => ({
-            key: `${String(label)}#${row}`,
-            label: String(label),
-            data: [Number(values.values[row]) || 0],
-        }))
+    if (fieldsOf(frames[0], 'string').length > 0) {
+        return frames.flatMap((frame, index) => {
+            const [labels] = fieldsOf(frame, 'string')
+            const [values] = fieldsOf(frame, 'number')
+            return labels && values
+                ? labels.values.map((label, row) => ({
+                      key: `${index}:${String(label)}#${row}`,
+                      label: String(label),
+                      data: [Number(values.values[row]) || 0],
+                  }))
+                : []
+        })
     }
-    return timeSeriesFromFrames(frames).series.map((series) => ({ ...series, data: [sum(series.data)] }))
+    // Summed from the frame, not the time series, because a total has no time to line its numbers up against.
+    return timeSeriesFromFrames(frames).series.map((series, index) => ({
+        ...series,
+        data: [sum(fieldValues(frames[index], 'number'))],
+    }))
 }
 
 export function latestValue(frames: DataFrame[]): number | null {
@@ -119,14 +128,14 @@ export function slopeFromFrames(frames: DataFrame[]): { labels: string[]; series
     }
     return {
         labels: [labels[0], labels[labels.length - 1]],
-        series: series.map((one) => {
-            const values = one.data.filter(Number.isFinite)
-            return { ...one, data: [values[0] ?? NaN, values.at(-1) ?? NaN] }
-        }),
+        // A series without a value at an end keeps the gap there, so no value is shown at a date it was not measured.
+        series: series.map((one) => ({ ...one, data: [one.data[0] ?? NaN, one.data.at(-1) ?? NaN] })),
     }
 }
 
 const ROOT = 'All'
+// Kept apart from category names, so a category called `All` does not flow into itself.
+const ROOT_ID = '\u0000root'
 
 /**
  * Flows from a frame with a source and a target string field and a number field, one link per row. Without them, each
@@ -135,16 +144,20 @@ const ROOT = 'All'
 export function flowsFromFrames(frames: DataFrame[]): { nodes: SankeyNodeInput[]; links: SankeyLinkInput[] } {
     const [sources, targets] = fieldsOf(frames[0], 'string')
     const [values] = fieldsOf(frames[0], 'number')
-    const links: SankeyLinkInput[] =
-        sources && targets && values
-            ? sources.values.map((source, row) => ({
-                  source: String(source),
-                  target: String(targets.values[row]),
-                  value: Number(values.values[row]) || 0,
-              }))
-            : categoriesFromFrames(frames).map((one) => ({ source: ROOT, target: one.label, value: one.data[0] }))
-    const ids = [...new Set(links.flatMap((link) => [link.source, link.target]))]
-    return { nodes: ids.map((id) => ({ id })), links: links.filter((link) => link.value > 0) }
+    if (sources && targets && values) {
+        const links = sources.values.map((source, row) => ({
+            source: String(source),
+            target: String(targets.values[row]),
+            value: Number(values.values[row]) || 0,
+        }))
+        const ids = [...new Set(links.flatMap((link) => [link.source, link.target]))]
+        return { nodes: ids.map((id) => ({ id })), links: links.filter((link) => link.value > 0) }
+    }
+    const categories = categoriesFromFrames(frames).filter((one) => one.data[0] > 0)
+    return {
+        nodes: [{ id: ROOT_ID, label: ROOT }, ...categories.map((one) => ({ id: one.key, label: one.label }))],
+        links: categories.map((one) => ({ source: ROOT_ID, target: one.key, value: one.data[0] })),
+    }
 }
 
 /**
@@ -159,14 +172,21 @@ export function flameFromFrames(frames: DataFrame[]): FlameNode {
         stacks && values
             ? stacks.values.map((stack, row) => [String(stack).split(';'), Number(values.values[row]) || 0])
             : categoriesFromFrames(frames).map((one) => [[one.label], one.data[0]])
+    const childrenOf = new Map<FlameNode, Map<string, FlameNode>>()
     for (const [path, value] of rows) {
         root.value += value
         let node = root
         for (const name of path) {
             const id = `${node.id};${name}`
-            let child = node.children?.find((candidate) => candidate.id === id)
+            let byId = childrenOf.get(node)
+            if (!byId) {
+                byId = new Map()
+                childrenOf.set(node, byId)
+            }
+            let child = byId.get(id)
             if (!child) {
                 child = { id, name, value: 0, children: [] }
+                byId.set(id, child)
                 node.children?.push(child)
             }
             child.value += value

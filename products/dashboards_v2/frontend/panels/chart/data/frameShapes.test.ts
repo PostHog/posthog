@@ -1,5 +1,11 @@
 import type { DataFrame } from '../../../query/queryTypes'
-import { boxPlotFromFrames, categoriesFromFrames, flameFromFrames } from './frameShapes'
+import {
+    boxPlotFromFrames,
+    categoriesFromFrames,
+    flameFromFrames,
+    flowsFromFrames,
+    slopeFromFrames,
+} from './frameShapes'
 
 const rows = (labels: string[], values: unknown[]): DataFrame => ({
     fields: [
@@ -15,10 +21,18 @@ const series = (name: string, values: (number | null)[]): DataFrame => ({
     ],
 })
 
+const total: DataFrame = { name: 't', fields: [{ name: 'v', type: 'number', values: [7] }] }
+
 describe('frameShapes', () => {
     it.each([
         { shape: 'a row per category', frames: [rows(['a', 'b'], [3, undefined])], expected: [3, 0] },
         { shape: 'a frame per series', frames: [series('a', [1, null, 2]), series('b', [4])], expected: [3, 4] },
+        {
+            shape: 'a total without times',
+            frames: [total],
+            expected: [7],
+        },
+        { shape: 'rows from every target', frames: [rows(['a'], [1]), rows(['a'], [2])], expected: [1, 2] },
     ])('values each category from $shape without a NaN', ({ frames, expected }) => {
         expect(categoriesFromFrames(frames).map((one) => one.data[0])).toEqual(expected)
     })
@@ -38,5 +52,18 @@ describe('frameShapes', () => {
             ['idle', 1],
         ])
         expect(root.children?.[0].children?.map((child) => child.name)).toEqual(['render', 'fetch'])
+    })
+
+    it('keeps a gap at a slope end the series has no value for', () => {
+        const { series: slopes } = slopeFromFrames([series('a', [null, 10, 20])])
+
+        expect(slopes[0].data).toEqual([NaN, 20])
+    })
+
+    it('keeps the root of a fallback flow apart from a category named like it', () => {
+        const { links } = flowsFromFrames([series('All', [1, 2])])
+
+        expect(links).toHaveLength(1)
+        expect(links[0].source).not.toBe(links[0].target)
     })
 })
