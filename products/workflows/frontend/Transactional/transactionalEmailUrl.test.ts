@@ -67,18 +67,16 @@ describe('transactionalEmailStatsRowUrl', () => {
     ])('%s', (_name, row, expected) => {
         expect(transactionalEmailStatsRowUrl({ ...counts, ...row })).toBe(expected)
     })
-})
 
-describe('transactionalSendPageUrl', () => {
     test.each([
         [
             'a transactional send the log still keeps opens its send page',
             'transactional_email',
-            29,
+            22,
             '/transactional/log/msg-1',
         ],
-        ['a transactional send older than the log opens nothing', 'transactional_email', 31, null],
-        ['a workflow email opens nothing', 'action_email_1', 1, null],
+        ['a transactional send the log may have expired keeps the preview', 'transactional_email', 24, null],
+        ['a workflow email keeps the preview', 'action_email_1', 1, null],
     ])('%s', (_name, actionId, daysAgo, expected) => {
         const sentAt = dayjs().subtract(daysAgo, 'day').toISOString()
         expect(transactionalSendPageUrl({ action_id: actionId, invocation_id: 'msg-1', sent_at: sentAt })).toBe(
