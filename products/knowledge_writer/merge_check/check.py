@@ -164,7 +164,7 @@ def picked_pages_row(
         criterion="picked_pages",
         value=f"{read_count}/{len(fate_by_page)}",
         source=FACTS_SOURCE,
-        evidence="\n".join(f"{fate}: {page_path}" for page_path, fate in fate_by_page.items()),
+        evidence="\n".join(f"{fate}: {single_line(page_path)}" for page_path, fate in fate_by_page.items()),
         effect=CriterionEffect.NEUTRAL,
     )
 

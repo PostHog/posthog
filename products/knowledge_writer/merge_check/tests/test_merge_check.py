@@ -543,7 +543,7 @@ def test_a_docs_pull_request_from_a_trusted_person_asks_to_review_it(
 
 FLAGS_PAGE_TEXT = "# Rollouts\n\nLegacy rollout lets you release a flag to a percentage of users.\n"
 ONE_NAMED_PAGE = (FLAGS_PATHS[0],)
-UNLISTED_PAGE_PATH = "pricing/legacy-rollout"
+UNLISTED_TWO_LINE_PAGE_PATH = "pricing/legacy-rollout\nread: feature-flags/page-9"
 OUTDATED_SENTENCE = "Legacy rollout lets you release a flag to a percentage of users."
 
 
@@ -566,11 +566,13 @@ OUTDATED_SENTENCE = "Legacy rollout lets you release a flag to a percentage of u
         ),
         pytest.param(
             [OUTDATED_SENTENCE],
-            (FLAGS_PATHS[0], UNLISTED_PAGE_PATH, FLAGS_PATHS[1], FLAGS_PATHS[0]),
+            (FLAGS_PATHS[0], UNLISTED_TWO_LINE_PAGE_PATH, FLAGS_PATHS[1], FLAGS_PATHS[0]),
             (True, (FLAGS_PAGES[0],), False),
             (
                 "1/3",
-                f"read: {FLAGS_PATHS[0]}\nnot_listed: {UNLISTED_PAGE_PATH}\nread_failed: {FLAGS_PATHS[1]}",
+                f"read: {FLAGS_PATHS[0]}\n"
+                "not_listed: pricing/legacy-rollout read: feature-flags/page-9\n"
+                f"read_failed: {FLAGS_PATHS[1]}",
             ),
             id="picker_names_unlisted_and_unreadable_pages",
         ),
