@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -30,6 +31,9 @@ describe('toolDrawerLogic', () => {
     let failing: { read: DrawerRead; status: number } | null
     let detailFailures: number | null
     let held: Promise<void> | null
+    let callTraces: string[]
+    let previewsHeld: Promise<void> | null
+    let previewReads: string[][]
     let capture: jest.SpyInstance
     let logic: ReturnType<typeof toolDrawerLogic.build>
 
@@ -54,6 +58,9 @@ describe('toolDrawerLogic', () => {
         failing = null
         detailFailures = 12
         held = null
+        callTraces = ['call-1', 'call-2']
+        previewsHeld = null
+        previewReads = []
         useMocks({
             get: {
                 [TOOL_DETAIL_URL]: async ({ request, params }) => {
@@ -82,12 +89,14 @@ describe('toolDrawerLogic', () => {
                     if (failing?.read === read) {
                         return [failing.status, { detail: 'failed' }]
                     }
-                    return [200, makeTraceListPage(read === 'failures' ? ['failed-1'] : ['call-1', 'call-2'])]
+                    return [200, makeTraceListPage(read === 'failures' ? ['failed-1'] : callTraces)]
                 },
             },
             post: {
                 [TRACE_CELL_URLS.previews]: async ({ request }: { request: Request }) => {
                     const body: TracePageRequestApi = await request.json()
+                    previewReads.push(body.trace_ids)
+                    await previewsHeld
                     return [200, { items: body.trace_ids.map((id) => makeTracePreview(id)) }]
                 },
             },
@@ -155,6 +164,42 @@ describe('toolDrawerLogic', () => {
         logic.actions.setTraceSection('failures')
 
         expect(logic.values.traceRows.map((traceRow) => traceRow.traceId)).toEqual(['failed-1'])
+        expect(param('trace_section')).toEqual('failures')
+    })
+
+    it('keeps the section of an open trace in the URL, so a refresh steps through the same traces', async () => {
+        await mountAt(combineUrl(LIST_URL, { tool: NAME_KEY, trace_section: 'failures', trace: 'failed-1' }).url)
+
+        expect(logic.values.traceSection).toEqual('failures')
+        expect(logic.values.traceRows.map((traceRow) => traceRow.traceId)).toEqual(['failed-1'])
+    })
+
+    it.each(['../../../../users/@me', 'a/b', 'key=='])(
+        'reads nothing for a tool param the server never hands out: %s',
+        async (value) => {
+            await mountAt(combineUrl(LIST_URL, { tool: value }).url)
+
+            expect(logic.values.openKey).toBeNull()
+            expect(readsOf('detail')).toEqual([])
+        }
+    )
+
+    it('reads a preview once for a trace both sections show while its first read is in flight', async () => {
+        callTraces = ['failed-1', 'call-1']
+        let release = (): void => {}
+        previewsHeld = new Promise((resolve) => {
+            release = resolve
+        })
+        router.actions.push(combineUrl(LIST_URL, { tool: NAME_KEY }).url)
+        logic = toolDrawerLogic()
+        logic.mount()
+        await waitFor(() => expect(previewReads).toHaveLength(2))
+
+        release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(previewReads.flat().sort()).toEqual(['call-1', 'failed-1'])
+        expect(logic.values.previews.get('failed-1')).toEqual({ status: 'ready', value: makeTracePreview('failed-1') })
     })
 
     it('reads again when the range changes, showing loading rather than the values of the range before', async () => {

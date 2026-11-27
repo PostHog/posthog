@@ -55,8 +55,16 @@ export function ToolsListHost(): JSX.Element {
 
     const maxCalls = counts?.maxCalls ?? 0
     const columns = useMemo(
-        () => toolsTableColumns({ maxCalls, order: sortedBy, onOrder: setOrder, traceShares, 'data-attr': DATA_ATTR }),
-        [maxCalls, sortedBy, setOrder, traceShares]
+        () =>
+            toolsTableColumns({
+                maxCalls,
+                order: sortedBy,
+                onOrder: setOrder,
+                onOpen: openTool,
+                traceShares,
+                'data-attr': DATA_ATTR,
+            }),
+        [maxCalls, sortedBy, setOrder, openTool, traceShares]
     )
 
     return (

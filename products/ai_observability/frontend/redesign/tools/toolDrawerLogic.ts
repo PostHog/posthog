@@ -23,12 +23,13 @@ import {
     EntitySeed,
     RECENT_TRACES_LIMIT,
     ReadFor,
+    createPreviewReader,
     detailLoadOf,
     drawerReadParams,
+    entityKeyParam,
     isReportedFailure,
     latest,
     readLoadOf,
-    readMissingPreviews,
     recentTracesLoadOf,
     rowWithKey,
     scopedTracesHref,
@@ -48,6 +49,8 @@ import { TOOLS_LIST_FILTERS } from './toolsListLogic'
 
 // pinned: the param of the open tool's key, which saved links read
 const TOOL_PARAM = 'tool'
+// pinned: the param of the section an open trace steps through, which saved links read
+const TRACE_SECTION_PARAM = 'trace_section'
 
 /** The drawer section a trace opened from, whose traces the trace drawer steps through. */
 export type ToolTraceSection = 'failures' | 'calls'
@@ -184,6 +187,7 @@ export interface toolDrawerLogicActions {
 export interface toolDrawerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         openKey: (location: { hash: string; pathname: string; search: string }) => string | null
+        traceSection: (location: { hash: string; pathname: string; search: string }) => ToolTraceSection
         readParams: (
             filters: ListFilters,
             dateFrom: string,
@@ -305,12 +309,6 @@ export const toolDrawerLogic = kea<toolDrawerLogicType>([
                 close: () => null,
             },
         ],
-        traceSection: [
-            'calls' as ToolTraceSection,
-            {
-                setTraceSection: (_, { section }) => section,
-            },
-        ],
         detailFailure: [
             null as LoadFailure | null,
             {
@@ -350,8 +348,14 @@ export const toolDrawerLogic = kea<toolDrawerLogicType>([
             () => [router.selectors.location],
             ({ pathname, search }: { pathname: string; search: string }): string | null =>
                 removeProjectIdIfPresent(pathname) === TOOLS_LIST_FILTERS.path
-                    ? rawSearchParam(search, TOOL_PARAM)
+                    ? entityKeyParam(rawSearchParam(search, TOOL_PARAM))
                     : null,
+        ],
+        // In the URL with the trace, so a refresh or a step through history steps through the same section.
+        traceSection: [
+            () => [router.selectors.location],
+            ({ search }: { search: string }): ToolTraceSection =>
+                rawSearchParam(search, TRACE_SECTION_PARAM) === 'failures' ? 'failures' : 'calls',
         ],
         readParams: [
             (s) => [s.filters, s.dateFrom, s.dateTo, s.filterTestAccounts],
@@ -451,7 +455,8 @@ export const toolDrawerLogic = kea<toolDrawerLogicType>([
                 openName ? scopedTracesHref(location, searchParams, { kind: 'tool', value: openName }) : null,
         ],
     }),
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
+        const readPreviews = createPreviewReader(cache, actions)
         const trackRecentTracesFailure = (errorObject: unknown): void => {
             if (isReportedFailure(errorObject)) {
                 diagnosticsTracking.readFailed({ kind: 'tool', read: 'recent_traces' })
@@ -465,11 +470,21 @@ export const toolDrawerLogic = kea<toolDrawerLogicType>([
                 actions.setSeed({ item, params: values.readParams })
                 diagnosticsTracking.entityOpened({ kind: 'tool', trigger: 'row' })
                 router.actions.push(
-                    ...currentUrlWith(router.values, { ...CLOSED_TRACE_DRAWER, [TOOL_PARAM]: item.key })
+                    ...currentUrlWith(router.values, {
+                        ...CLOSED_TRACE_DRAWER,
+                        [TOOL_PARAM]: item.key,
+                        [TRACE_SECTION_PARAM]: undefined,
+                    })
                 )
             },
             close: () => {
-                router.actions.push(...currentUrlWith(router.values, { [TOOL_PARAM]: undefined }))
+                router.actions.push(
+                    ...currentUrlWith(router.values, { [TOOL_PARAM]: undefined, [TRACE_SECTION_PARAM]: undefined })
+                )
+            },
+            // Set on the entry the trace opens from, so the entry the trace pushes carries it too.
+            setTraceSection: ({ section }) => {
+                router.actions.replace(...currentUrlWith(router.values, { [TRACE_SECTION_PARAM]: section }))
             },
             retry: () => {
                 const {
@@ -497,10 +512,8 @@ export const toolDrawerLogic = kea<toolDrawerLogicType>([
             },
             loadToolRecentFailuresFailure: ({ errorObject }) => trackRecentTracesFailure(errorObject),
             loadToolRecentCallsFailure: ({ errorObject }) => trackRecentTracesFailure(errorObject),
-            loadToolRecentFailuresSuccess: async ({ recentFailures }, breakpoint) =>
-                readMissingPreviews(recentFailures.value, values.previews, actions, breakpoint),
-            loadToolRecentCallsSuccess: async ({ recentCalls }, breakpoint) =>
-                readMissingPreviews(recentCalls.value, values.previews, actions, breakpoint),
+            loadToolRecentFailuresSuccess: ({ recentFailures }) => readPreviews(recentFailures.value, values.previews),
+            loadToolRecentCallsSuccess: ({ recentCalls }) => readPreviews(recentCalls.value, values.previews),
         }
     }),
     // Fire on mount with the URL's tool, then each time the open tool or its selection changes, the traces once the
