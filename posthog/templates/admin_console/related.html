@@ -1,0 +1,15 @@
+{% extends "admin_console/base.html" %}
+{% block title %}{{ relation.label }} · {{ record_title }} · PostHog Admin{% endblock %}
+{% block content %}
+    <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
+        <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Home</a>
+        {% for parent in record_parents %}
+            ›
+            <a class="text-muted-foreground" href="{{ parent.href }}">{{ parent.label }}</a>
+        {% endfor %}
+        ›
+        <a class="text-muted-foreground" href="{{ record_url }}">{{ record_title }}</a>
+    </nav>
+    <h1 class="m-0 mt-1.5 mb-4 text-[22px] font-extrabold break-words">{{ relation.label }}</h1>
+    {% include "admin_console/_blocks.html" %}
+{% endblock %}

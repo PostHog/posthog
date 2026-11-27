@@ -1,4 +1,13 @@
 {# A Table block in a quill Card. Rows are Row (cells) or GroupRow (a full-width heading row). #}
+{# A table with a select sits in a GET form that opens the tool operation with the ticked rows; only a tool page has `tool`. #}
+{% if table.select and tool %}
+    <form method="get"
+          action="{% url 'admin_console_tool_operation' tool_key=tool.key operation_key=table.select.operation_key %}"
+          data-console-select>
+        {% for name, value in table.select.values.items %}
+            <input type="hidden" name="{{ name }}" value="{{ value }}" />
+        {% endfor %}
+{% endif %}
 <section class="quill-card group/card flex flex-col"
          data-quill
          data-slot="card"
@@ -18,6 +27,11 @@
             <table class="w-full border-collapse text-xs">
                 <thead>
                     <tr class="text-left text-muted-foreground border-b border-border{% if table.scrolls %} sticky top-0 bg-card{% endif %}">
+                        {% if table.select and tool %}
+                            <th class="px-3 py-2">
+                                <input type="checkbox" aria-label="Select all rows" data-console-select-all />
+                            </th>
+                        {% endif %}
                         {% for column in table.columns %}
                             <th class="px-3 py-2 font-bold whitespace-nowrap{% if forloop.counter0 in table.numeric_columns %} text-right{% endif %}">
                                 {{ column }}
@@ -29,6 +43,16 @@
                     {% for row in table.rows %}
                         {% if row.cells %}
                             <tr class="border-b border-border last:border-b-0">
+                                {% if table.select and tool %}
+                                    <td class="px-3 py-1.5 align-top">
+                                        {% if row.select_value %}
+                                            <input type="checkbox"
+                                                   name="{{ table.select.field }}"
+                                                   value="{{ row.select_value }}"
+                                                   aria-label="Select {{ row.cells.0.text }} {{ row.cells.0.detail }}" />
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
                                 {% for cell in row.cells %}
                                     <td class="px-3 py-1.5 align-top{% if forloop.counter0 in table.numeric_columns %} text-right tabular-nums whitespace-nowrap{% endif %}{% if cell.muted %} text-muted-foreground{% endif %}{% if cell.mono %} font-mono whitespace-nowrap{% endif %}">
                                         {% if cell.tone %}
@@ -49,7 +73,8 @@
                             </tr>
                         {% else %}
                             <tr class="bg-muted border-b border-border">
-                                <td class="px-3 py-1.5" colspan="{{ table.columns|length }}">
+                                <td class="px-3 py-1.5"
+                                    colspan="{% if table.select and tool %}{{ table.columns|length|add:1 }}{% else %}{{ table.columns|length }}{% endif %}">
                                     {% if row.href %}
                                         <a class="font-bold" href="{{ row.href }}">{{ row.text }}</a>
                                     {% else %}
@@ -72,4 +97,14 @@
             </div>
         {% endif %}
     </div>
+    {% if table.select and tool and table.rows %}
+        <div class="quill-card__footer flex flex-wrap gap-2 px-3 pt-3 border-t border-border"
+             data-slot="card-footer">
+            <button type="submit"
+                    class="quill-button quill-button--variant-primary quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
+                {{ table.select.label }}
+            </button>
+        </div>
+    {% endif %}
 </section>
+{% if table.select and tool %}</form>{% endif %}

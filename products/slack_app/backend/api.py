@@ -39,6 +39,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.slack.block_actions import BlockActionHandler, block_action_handler_for
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
@@ -6111,6 +6112,32 @@ def _signals_report_state_action(payload: dict) -> tuple[str, dict] | None:
     return (action["action_id"], value) if isinstance(value, dict) else None
 
 
+def _registered_block_action(payload: dict) -> tuple[dict, BlockActionHandler] | None:
+    """The first action of the payload that a product registered a handler for, with that handler."""
+    for action in payload.get("actions", []):
+        action_id = action.get("action_id")
+        if isinstance(action_id, str) and (handler := block_action_handler_for(action_id)) is not None:
+            return action, handler
+    return None
+
+
+def _extract_registered_action_hints(payload: dict) -> int | None:
+    """Integration id that a registered product button carries in its JSON value, for region routing."""
+    registered = _registered_block_action(payload)
+    if registered is None:
+        return None
+    return _extract_action_value_hints(payload, registered[0]["action_id"])[0]
+
+
+def _handle_registered_block_action(payload: dict, action: dict, handler: BlockActionHandler) -> HttpResponse:
+    try:
+        handler(payload, action)
+    except Exception:
+        # The owning product failed, and a non-200 answer only makes Slack show an error icon on the button.
+        logger.exception("slack_app_registered_block_action_failed", action_id=action.get("action_id"))
+    return HttpResponse(status=200)
+
+
 def _extract_dismiss_hints(payload: dict) -> int | None:
     """Integration id carried by a signals report follow-up button, used for region-ownership routing."""
     clicked = _signals_report_state_action(payload)
@@ -6624,6 +6651,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     project_picker_integration_id = project_picker.picked_integration_id(payload)
+    registered_action_integration_id = _extract_registered_action_hints(payload)
     # Both controls a reply carries, the modal a thumbs-down opens, and the reply suggestions claim
     # the same workspace, so one hint serves all of them. The modal and the suggestions need their
     # own extractors: a view submission carries no action, and each suggestion has its own action id.
@@ -6687,6 +6715,10 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # settled in the fork activity, and a rating is matched to its run in the feedback
         # handler.
         local = workspace_integration_exists(reply_control_integration_id, slack_team_id)
+    elif slack_team_id and registered_action_integration_id:
+        # A button of another product, registered in posthog.slack.block_actions. Routing only claims
+        # the workspace. Who may click is decided by the product's handler.
+        local = workspace_integration_exists(registered_action_integration_id, slack_team_id)
 
     proxied = was_proxied(request)
     incoming_host = request.get_host()
@@ -6768,6 +6800,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return _handle_app_home_view_submission(payload)
 
     if payload_type == "block_actions":
+        if (registered := _registered_block_action(payload)) is not None:
+            return _handle_registered_block_action(payload, *registered)
         actions = payload.get("actions", [])
         for action in actions:
             action_id = action.get("action_id")

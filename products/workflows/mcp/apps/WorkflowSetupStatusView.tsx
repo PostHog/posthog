@@ -50,7 +50,10 @@ export function WorkflowSetupStatusView({ data, openLink }: WorkflowSetupStatusV
                         {data.steps.map((step) => (
                             <li key={step.key} className="flex items-start gap-3">
                                 {step.done ? (
-                                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" aria-label="Done" />
+                                    <CheckCircle2
+                                        className="mt-0.5 size-4 shrink-0 text-success-foreground"
+                                        aria-label="Done"
+                                    />
                                 ) : (
                                     <Circle
                                         className="mt-0.5 size-4 shrink-0 text-muted-foreground"

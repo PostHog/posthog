@@ -65,3 +65,13 @@ export const OverviewTabMenuOpen: StoryObj = {
     render: () => <TabsWithMenu activeSectionKey={UNGROUPED_TILES_TAB_KEY} />,
     play: openGroupMenu,
 }
+
+export const Loading: StoryObj<typeof DashboardTileGroupTabs> = {
+    args: {
+        sections: SECTIONS,
+        activeSectionKey: 'group-revenue',
+        onSelect: () => {},
+        loading: true,
+        children: null,
+    },
+}

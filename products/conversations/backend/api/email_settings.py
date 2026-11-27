@@ -2,6 +2,7 @@
 
 import uuid
 import secrets
+import unicodedata
 from email.utils import formataddr, make_msgid
 from enum import StrEnum
 from hashlib import sha256
@@ -388,6 +389,17 @@ class EmailChannelKindQuerySerializer(serializers.Serializer):
     )
 
 
+def _clean_from_name(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise serializers.ValidationError("Display name cannot be blank.")
+    # The email header policy refuses any value that splitlines() breaks, which includes
+    # U+2028 and U+0085. A stored name like that makes every reply on the channel fail to build.
+    if len(value.splitlines()) > 1 or any(unicodedata.category(c) == "Cc" for c in value):
+        raise serializers.ValidationError("Display name cannot contain line breaks or control characters.")
+    return value
+
+
 class EmailConnectSerializer(serializers.Serializer):
     from_email = serializers.EmailField(help_text="Email address that receives forwarded mail and sends replies.")
     from_name = serializers.CharField(max_length=255, help_text="Display name used for outbound email.")
@@ -407,10 +419,7 @@ class EmailConnectSerializer(serializers.Serializer):
         return value.lower()
 
     def validate_from_name(self, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError("Display name cannot be blank.")
-        return value
+        return _clean_from_name(value)
 
     def validate(self, attrs: dict) -> dict:
         kind = attrs.get("kind", EmailChannelKind.SUPPORT)
@@ -435,6 +444,13 @@ class EmailSetTrustedRelaySerializer(ConfigIdSerializer):
 
     def validate_trusted_relay_sender(self, value: str) -> str:
         return value.strip().lower()
+
+
+class EmailSetDisplayNameSerializer(ConfigIdSerializer):
+    from_name = serializers.CharField(max_length=255, help_text="Display name used for outbound email.")
+
+    def validate_from_name(self, value: str) -> str:
+        return _clean_from_name(value)
 
 
 class EmailDnsRecordSerializer(serializers.Serializer):
@@ -994,6 +1010,40 @@ class EmailSetTrustedRelayView(APIView):
         return Response({"ok": True})
 
 
+class EmailSetDisplayNameView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @validated_request(
+        tags=["conversations"],
+        request_serializer=EmailSetDisplayNameSerializer,
+        responses={
+            200: EmailChannelOperationResponseSerializer,
+            403: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        result = _get_team_from_request(request)
+        if isinstance(result, Response):
+            return result
+        user, team = result
+
+        config = _get_config_for_team(request.validated_data["config_id"], team)
+        is_admin = _is_organization_admin(user, team)
+        if not config:
+            return Response({"error": "Email config not found"}, status=404 if is_admin else 403)
+        if config.kind == EmailChannelKind.SUPPORT and not is_admin:
+            return Response({"error": "Only organization admins can manage support email channels."}, status=403)
+        if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION and config.owner_id != user.id and not is_admin:
+            return Response({"error": "Email config not found"}, status=403)
+
+        config.from_name = request.validated_data["from_name"]
+        config.save(update_fields=["from_name"])
+
+        logger.info("email_channel_display_name_updated", team_id=team.id, config_id=config.id, user_id=user.id)
+        return Response({"ok": True})
+
+
 class EmailVerifyForwardingView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [EmailForwardingChallengeThrottle]
@@ -1158,7 +1208,7 @@ class EmailDisconnectView(APIView):
             if config.kind == EmailChannelKind.SUPPORT and not is_admin:
                 return Response({"error": "Only organization admins can manage support email channels."}, status=403)
             if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION and config.owner_id != user.id and not is_admin:
-                return Response({"error": "Email config not found"}, status=404)
+                return Response({"error": "Email config not found"}, status=403)
 
             domain_to_delete = config.domain
             was_default = config.is_default

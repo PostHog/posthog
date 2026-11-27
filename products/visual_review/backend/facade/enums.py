@@ -58,7 +58,7 @@ class ReviewDecision(StrEnum):
     REJECTED = "rejected"  # Passive annotation — no system effect in MVP
 
 
-class ReviewState(StrEnum):
+class ReviewState(LabeledStrEnum):
     """
     Human review state for a snapshot.
 
@@ -66,10 +66,10 @@ class ReviewState(StrEnum):
     ReviewState tracks the human decision and can change between runs.
     """
 
-    PENDING = "pending"  # Not yet reviewed
-    APPROVED = "approved"  # Accepted the change — updates baseline
-    TOLERATED = "tolerated"  # Acknowledged as rendering noise — does not update baseline
-    REJECTED = "rejected"  # Explicitly rejected
+    PENDING = "pending", "pending"  # Not yet reviewed
+    APPROVED = "approved", "approved"  # Accepted the change — updates baseline
+    TOLERATED = "tolerated", "tolerated"  # Acknowledged as rendering noise — does not update baseline
+    REJECTED = "rejected", "rejected"  # Explicitly rejected
 
 
 class ClassificationReason(StrEnum):
@@ -135,6 +135,46 @@ class ActorType(StrEnum):
     HUMAN = "human"
     AGENT = "agent"
     AUTO = "auto"
+
+
+class DecisionAction(StrEnum):
+    """What one review decision on a pair of pictures did. Stored in the snapshot's decision history."""
+
+    ACCEPT = "accept"
+    REJECT = "reject"
+    # Takes back the accept or reject before it, so the pair needs review again
+    CLEAR = "clear"
+
+
+class DecisionChannel(LabeledStrEnum):
+    """How a review decision reached the server.
+
+    `mcp` comes from a client-supplied marker, so it is a best effort. A client that drops the
+    marker counts as a person, which is the safe direction for the rules that stop an agent.
+    The labels differ from the values, because another product's `created_via` field has the same
+    values with plain labels, and identical pairs would give the two one OpenAPI component.
+    """
+
+    WEB = "web", "Visual Review page"
+    API = "api", "API key"
+    MCP = "mcp", "Agent through MCP"
+
+
+class DecisionState(LabeledStrEnum):
+    """Where the newest decision on a pair of pictures leaves it."""
+
+    APPROVED = "approved", "approved"
+    REJECTED = "rejected", "rejected"
+    # A decision was taken back, so the pair needs review again
+    CLEARED = "cleared", "cleared"
+
+
+class EarlierDecisionChange(LabeledStrEnum):
+    """Which picture changed since an earlier decision on the same snapshot."""
+
+    BEFORE = "before", "before"
+    AFTER = "after", "after"
+    BOTH = "both", "both"
 
 
 class QuarantineLiftState(LabeledStrEnum):
