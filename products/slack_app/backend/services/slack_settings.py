@@ -10,9 +10,8 @@ layer with zero translation.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, TypeVar
+from typing import Literal, TypeVar
 from uuid import UUID
 
 from django.db import models, transaction
@@ -221,23 +220,13 @@ def resolve_chatgpt_apps_mode(slack_workspace_id: str, slack_user_id: str | None
     """
     if not slack_user_id:
         return ChatGPTAppsMode.OFF
-
-    from products.slack_app.backend.models import SlackSettings
-
-    row = (
-        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
-        .values("chatgpt_apps_mode", "chatgpt_apps_enabled")
-        .first()
-    )
-    return chatgpt_apps_mode_from_stored(row or {})
-
-
-def chatgpt_apps_mode_from_stored(row: Mapping[str, Any]) -> ChatGPTAppsMode:
-    """The mode a settings row stores. A row from before the mode existed keeps what its switch said."""
-    if row.get("chatgpt_apps_mode") is None and row.get("chatgpt_apps_enabled"):
-        return ChatGPTAppsMode.ALWAYS
-    return mode_from_stored(
-        row.get("chatgpt_apps_mode"), ChatGPTAppsMode, unset=ChatGPTAppsMode.OFF, unknown=ChatGPTAppsMode.OFF
+    return _resolve_personal_mode(
+        slack_workspace_id,
+        slack_user_id,
+        "chatgpt_apps_mode",
+        ChatGPTAppsMode,
+        unset=ChatGPTAppsMode.OFF,
+        unknown=ChatGPTAppsMode.OFF,
     )
 
 
@@ -508,7 +497,6 @@ __all__ = [
     "update_onboarding",
     "AIPreferences",
     "resolve_auto_model_choice",
-    "chatgpt_apps_mode_from_stored",
     "resolve_chatgpt_apps_mode",
     "resolve_channel_welcome_mode",
     "resolve_untagged_question_mode",

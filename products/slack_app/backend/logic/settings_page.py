@@ -57,7 +57,6 @@ from products.slack_app.backend.services.reaction_settings import (
     with_every_kind,
 )
 from products.slack_app.backend.services.slack_settings import (
-    chatgpt_apps_mode_from_stored,
     mode_from_stored,
     resolve_external_channels_enabled,
     set_auto_model_choice,
@@ -128,7 +127,6 @@ _SETTINGS_COLUMNS = (
     "thread_join_mode",
     "auto_model_choice",
     "feature_tips",
-    "chatgpt_apps_enabled",
     "channel_welcome_mode",
     "chatgpt_apps_mode",
 )
@@ -203,7 +201,12 @@ def _personal_settings(
         auto_model_choice=bool(personal_row.get("auto_model_choice")),
         feature_tips_enabled=parse_state(personal_row.get("feature_tips")).opted_out_at is None,
         chatgpt_apps_mode=(
-            chatgpt_apps_mode_from_stored(personal_row).value
+            mode_from_stored(
+                personal_row.get("chatgpt_apps_mode"),
+                ChatGPTAppsMode,
+                unset=ChatGPTAppsMode.OFF,
+                unknown=ChatGPTAppsMode.OFF,
+            ).value
             if slack_user_id and _chatgpt_plan_runs_slack_tasks(integration, user)
             else None
         ),
