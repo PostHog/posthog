@@ -1,6 +1,11 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -14,10 +19,27 @@ from products.workflows.backend.services.audience_v2 import (
     build_dedupe_count_query,
     get_dedupe_audience_count_v2,
     get_person_audience_count_v2,
+    slices_are_even,
 )
 from products.workflows.backend.services.batch_audience import get_batch_audience_person_ids_snapshot
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
+
+AUDIENCE_V2 = "products.workflows.backend.services.audience_v2"
+PERSON_SAMPLING = "products.feature_flags.backend.person_sampling"
+
+
+@contextmanager
+def sample_everyone() -> Iterator[None]:
+    # Modulus 1 samples every id and MIN_SAMPLED_MATCHES 0 forces the sampled branch, so the
+    # extrapolated result must equal the exact count.
+    with (
+        patch(f"{PERSON_SAMPLING}.SAMPLE_MODULUS", 1),
+        patch(f"{PERSON_SAMPLING}.MIN_SAMPLED_MATCHES", 0),
+        patch(f"{AUDIENCE_V2}.SAMPLE_MODULUS", 1),
+        patch(f"{AUDIENCE_V2}.MIN_SAMPLED_MATCHES", 0),
+    ):
+        yield
 
 
 class TestAudienceV2(ClickhouseTestMixin, BaseTest):
@@ -44,15 +66,60 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
     def test_sampled_path_extrapolates_by_modulus(self):
         self._create_persons([True, True, False])
 
-        # Modulus 1 samples everyone and MIN_SAMPLED_MATCHES 0 forces the sampled branch,
-        # so the extrapolated result must equal the exact count.
-        with (
-            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
-            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
-        ):
+        with sample_everyone():
             result = get_person_audience_count_v2(self.team, FILTERS)
 
         assert (result.affected, result.total) == (2, 3)
+
+    def _create_three_subscribed_persons_in_the_first_slice(self) -> None:
+        # ClickHouse orders UUIDs by their last 8 bytes, and the first slice starts at the lowest value
+        # there. Under a modulus of 2 it covers last halves below 0x0800..., so the first three ids are
+        # inside it and the two others fall between slices.
+        for uuid, subscribed in [
+            ("018f0000-0000-7000-0000-000000000001", "true"),
+            ("018f0000-0000-7000-0000-000000000002", "true"),
+            ("018f0000-0000-7000-0000-000000000003", "true"),
+            ("018f0000-0000-7000-0900-000000000001", "false"),
+            ("018f0000-0000-7000-0900-000000000002", "false"),
+        ]:
+            _create_person(team=self.team, distinct_ids=[uuid], uuid=uuid, properties={"subscribed": subscribed})
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            # 3 of 5 rows are in the slices, so each sampled person counts 5/3 times, not the nominal 2.
+            ("scales_by_the_measured_share", 2, (5, 5)),
+            # 3 of 5 rows is far from the nominal 1 in 64, so the ids are not random there and the
+            # hash sample counts instead, which on 5 persons falls back to the exact count.
+            ("falls_back_when_the_share_is_far_from_nominal", 64, (3, 5)),
+        ]
+    )
+    def test_sampled_path_extrapolates_by_the_measured_share_of_rows(self, _name, modulus, expected):
+        self._create_three_subscribed_persons_in_the_first_slice()
+
+        with patch(f"{AUDIENCE_V2}.SAMPLE_MODULUS", modulus), patch(f"{AUDIENCE_V2}.MIN_SAMPLED_MATCHES", 0):
+            result = get_person_audience_count_v2(self.team, FILTERS)
+
+        assert (result.affected, result.total) == expected
+
+    def test_id_slices_reach_the_raw_person_prefilter(self):
+        # The read saving depends on WhereClauseExtractor pushing the id slices into the raw person
+        # scan, where ClickHouse prunes granules by the (team_id, id) sort key. If that push stops, the
+        # estimate stays right but every preview reads the whole team's properties again.
+        self._create_three_subscribed_persons_in_the_first_slice()
+
+        with (
+            patch(f"{AUDIENCE_V2}.SAMPLE_MODULUS", 2),
+            patch(f"{AUDIENCE_V2}.MIN_SAMPLED_MATCHES", 0),
+            self.capture_select_queries() as queries,
+        ):
+            get_person_audience_count_v2(self.team, FILTERS)
+
+        filtered_counts = [query for query in queries if "count(DISTINCT persons.id)" in query]
+        assert len(filtered_counts) == 1
+        assert "AS where_optimization" in filtered_counts[0]
+        inner_scan = filtered_counts[0].split("AS where_optimization", 1)[1]
+        assert "00000000-0000-0000-0800-000000000000" in inner_scan
 
     def test_no_filters_returns_total_for_everyone(self):
         self._create_persons([True, False])
@@ -106,10 +173,7 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         assert (result.affected, result.total) == (1, 2)
         assert (result.affected, result.total) == (v1_result.affected, v1_result.total)
 
-        with (
-            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
-            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
-        ):
+        with sample_everyone():
             sampled_result = get_person_audience_count_v2(self.team, filters)
 
         assert (sampled_result.affected, sampled_result.total) == (1, 2)
@@ -278,10 +342,7 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
             )
         flush_persons_and_events()
 
-        with (
-            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
-            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
-        ):
+        with sample_everyone():
             result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
         assert (result.affected, result.total) == (3, 3)
@@ -312,3 +373,24 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         assert "cityHash64" in inner_scan
         assert "optimize_aggregation_in_order" in clickhouse_sql
         assert "max_bytes_before_external_group_by=4294967296" in clickhouse_sql
+
+
+# Persons per slice, in slice order: slices 8-11 hold v4, v5 and v7 ids, the others only UUIDT ids.
+EVEN_VARIANT_SLICES = (0,) * 8 + (10_000,) * 4 + (0,) * 4
+
+
+class TestSlicesAreEven(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("even_variant_ids", EVEN_VARIANT_SLICES, True),
+            ("even_mix_with_uuidt_ids", (300,) * 8 + (10_000,) * 4 + (300,) * 4, True),
+            ("noise_of_a_random_sample", (0,) * 8 + (10_250, 9_800, 10_100, 9_850) + (0,) * 4, True),
+            ("clustered_batch_in_one_slice", (0,) * 8 + (16_000, 10_000, 10_000, 10_000) + (0,) * 4, False),
+            ("large_team_random_ids", (0,) * 8 + (1_054_860, 1_054_475, 1_053_308, 1_053_238) + (0,) * 4, True),
+            ("large_team_cluster_of_10k", (0,) * 8 + (1_064_000, 1_054_000, 1_054_000, 1_054_000) + (0,) * 4, False),
+            ("clustered_uuidt_batch", (300,) * 7 + (3_000,) + (10_000,) * 4 + (300,) * 4, False),
+            ("too_few_rows_to_compare", (0,) * 8 + (90, 10, 50, 40) + (0,) * 4, True),
+        ]
+    )
+    def test_slices_are_even(self, _name, slice_persons, expected):
+        assert slices_are_even(slice_persons) is expected
