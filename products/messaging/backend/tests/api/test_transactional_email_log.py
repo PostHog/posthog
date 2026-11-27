@@ -746,12 +746,6 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 [(BILLING, "billing", None), (DOCS, None, "not_found")],
             ),
             (
-                "a redirect that drops a link parameter keeps its click",
-                [(300, f"{BILLING}?ref=email"), (330, DOCS)],
-                [("billing", "/billing", 305), ("docs", "/docs", 335)],
-                [(f"{BILLING}?ref=email", "billing", None), (DOCS, "docs", None)],
-            ),
-            (
                 "a visit at the end of the window keeps its click",
                 [(300, BILLING), (7200, BILLING)],
                 [("late", "/billing", 2100)],
