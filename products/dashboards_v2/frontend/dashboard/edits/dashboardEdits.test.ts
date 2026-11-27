@@ -275,6 +275,20 @@ describe('dashboardEdits', () => {
         ])
     })
 
+    it('copies a duplicated section with its tiles under new ids', () => {
+        const board = dashboard([section('s', 0, 0, 24, [section('inner', 0, 0, 12, [text('a', 0, 0, 6, 8)])])])
+        const duplicated = applyEdit(board, { edit: 'duplicateTile', id: 's' }, sizeOf)
+        const [original, copy] = gridTabs(duplicated)[0].tiles
+        const ids = allTiles(duplicated).map((tile) => tile.id)
+
+        expect(new Set(ids).size).toBe(6)
+        expect(places([copy], 'first').map((place) => place.split(': ')[1])).toEqual(
+            places([{ ...original, place: { ...original.place, y: original.place.h } }], 'first').map(
+                (place) => place.split(': ')[1]
+            )
+        )
+    })
+
     it('keeps the last tab with tiles when only link tabs would be left', () => {
         const board: Dashboard = {
             ...dashboard([text('a', 0, 0, 8, 8)]),

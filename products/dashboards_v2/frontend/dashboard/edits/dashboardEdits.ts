@@ -28,7 +28,10 @@ export type LayoutEdit =
     | { edit: 'removeTile'; id: string }
     /** Shows the tile's panel on another grid too. Both tiles then share its content, such as a chart's query. */
     | { edit: 'addToGrid'; id: string; grid: string }
-    /** Puts a copy under the tile, in the same grid. The copy has its own content, so a change to one leaves the other. */
+    /**
+     * Puts a copy under the tile, in the same grid. The copy has its own content, so a change to one leaves the other.
+     * A section is copied with every tile in it.
+     */
     | { edit: 'duplicateTile'; id: string }
     | { edit: 'autoLayout'; grid: string; columns: number }
     | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionPanel, 'title'>> }
@@ -105,13 +108,21 @@ function changeGrid(dashboard: Dashboard, gridId: string, change: (tiles: Tile[]
     )
 }
 
-function newId(dashboard: Dashboard, prefix: string): string {
+/** Gives ids the dashboard does not use yet. Each one it gives is taken too, so one edit can add several tiles. */
+function newIds(dashboard: Dashboard): (prefix: string) => string {
     const taken = new Set([...dashboard.tabs.map((tab) => tab.id), ...allTiles(dashboard).map((tile) => tile.id)])
-    let n = taken.size + 1
-    while (taken.has(`${prefix}${n}`)) {
-        n++
+    return (prefix) => {
+        let n = taken.size + 1
+        while (taken.has(`${prefix}${n}`)) {
+            n++
+        }
+        taken.add(`${prefix}${n}`)
+        return `${prefix}${n}`
     }
-    return `${prefix}${n}`
+}
+
+function newId(dashboard: Dashboard, prefix: string): string {
+    return newIds(dashboard)(prefix)
 }
 
 function moveTile(
@@ -209,15 +220,23 @@ function gridIdOf(dashboard: Dashboard, id: string): string | null {
     return tab?.id ?? section?.id ?? null
 }
 
+function copyOf(tile: Tile, nextId: (prefix: string) => string): Tile {
+    if (isSectionPanel(tile.panel)) {
+        const tiles = tile.panel.tiles.map((inner) => copyOf(inner, nextId))
+        return { ...tile, id: nextId('section'), panel: { ...tile.panel, tiles } }
+    }
+    const { ref: _shared, ...panel } = tile.panel
+    return { ...tile, id: nextId('tile'), panel }
+}
+
 function duplicateTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'duplicateTile' }>): Dashboard {
     const tile = findTile(dashboard, edit.id)
     const grid = gridIdOf(dashboard, edit.id)
-    if (!tile || isSectionPanel(tile.panel) || !grid) {
+    if (!tile || !grid) {
         return dashboard
     }
-    const { ref: _shared, ...panel } = tile.panel
     const y = tile.place.y + tile.place.h
-    const copy: Tile = { id: newId(dashboard, 'tile'), panel, place: { ...tile.place, y } }
+    const copy = { ...copyOf(tile, newIds(dashboard)), place: { ...tile.place, y } }
     // Everything from the copy's row down moves by its height, and settling brings back up what it did not need to push.
     return changeGrid(dashboard, grid, (tiles) => [
         ...tiles.map((other) =>
