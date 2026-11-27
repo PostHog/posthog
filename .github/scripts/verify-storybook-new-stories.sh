@@ -156,11 +156,15 @@ if [ ${#stories_to_verify[@]} -gt 0 ]; then
             status=0
             wait "$pid" || status=$?
             # Printed after the wait so a failure's diff output is in the log, in run order.
-            echo "=== $name (output) ==="
+            echo "=== $name ==="
             cat "/tmp/storybook-verify-${name}.log" 2>/dev/null || true
             if [ "$status" -ne 0 ]; then
+                echo "$name failed"
                 failed_runs+=("$name")
+            else
+                echo "$name passed"
             fi
+            echo ""
         done
     }
 

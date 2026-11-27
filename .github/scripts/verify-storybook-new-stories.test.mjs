@@ -84,6 +84,12 @@ for (const { changedStory, failureBrowser, expectedStatus, changedRuns } of [
             assert.equal(calls.filter((call) => call.includes('Unchanged\\.stories')).length, 0)
             if (changedRuns) {
                 assert.equal(calls.filter((call) => call.includes('--browsers webkit')).length, 1)
+                if (expectedStatus === 0) {
+                    assert.match(result.stdout, /=== chromium-run-1 ===[\s\S]*chromium-run-1 passed/)
+                    assert.match(result.stdout, /=== webkit-run ===[\s\S]*webkit-run passed/)
+                    assert.match(result.stdout, /=== chromium-run-2 ===[\s\S]*chromium-run-2 passed/)
+                    assert.match(result.stdout, /=== chromium-run-3 ===[\s\S]*chromium-run-3 passed/)
+                }
             }
         } finally {
             rmSync(cwd, { recursive: true, force: true })
