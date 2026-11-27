@@ -112,11 +112,32 @@ describe('SES feedback per ramp step', () => {
     it.each<[string, Partial<MeasureEvidence>]>([
         ['the run did not converge', { converged: false }],
         ['the truth never settled', { unsettled: 'the edge kept accepting sends' }],
+        [
+            'the run did not converge and the truth could not be read',
+            { converged: false, unread: 'the edge answered 503' },
+        ],
     ])('marks every row incomplete when %s, since posts may be missing', (_story, judged) => {
         const measured = measure(BOTH, evidence(truth, judged))
 
         expect(measured.length).toBeGreaterThan(0)
         expect(measured.filter(({ incomplete }) => incomplete !== true)).toEqual([])
+    })
+
+    it('censors the latency of a step where a post got no answer, keeping it as a lower bound', () => {
+        const measured = measure([{ name: 'ses_feedback_ms', params: {} }], evidence(truth))
+
+        expect(measured.map(({ key, value, censored, unmeasured }) => ({ key, value, censored, unmeasured }))).toEqual([
+            ...['p50_1x', 'p99_1x'].map((key) => ({
+                key,
+                value: key === 'p50_1x' ? 30 : 60,
+                censored: true,
+                unmeasured: '1 SES feedback post in this step got no answer, so its latency reads low',
+            })),
+            ...[
+                ['p50_2x', 5],
+                ['p99_2x', 7],
+            ].map(([key, value]) => ({ key, value, censored: undefined, unmeasured: undefined })),
+        ])
     })
 
     it('names the latency unmeasured for a step where no post got an answer', () => {

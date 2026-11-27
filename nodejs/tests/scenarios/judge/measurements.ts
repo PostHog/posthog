@@ -193,9 +193,24 @@ function feedbackPostsByStep({ journal, truth, drive, steps }: MeasureEvidence):
 const feedbackCompleteness = ({ converged, unsettled }: MeasureEvidence): { incomplete?: true } =>
     converged === false || unsettled !== undefined ? { incomplete: true } : {}
 
-const truthUnread = (unread: string): Measured[] => [
-    { value: null, censored: true, unmeasured: `the truth could not be read (${unread})` },
+const truthUnread = (evidence: MeasureEvidence, unread: string): Measured[] => [
+    {
+        value: null,
+        censored: true,
+        unmeasured: `the truth could not be read (${unread})`,
+        ...feedbackCompleteness(evidence),
+    },
 ]
+
+const unansweredOf = (posts: FeedbackPost[]): { censored?: true; unmeasured?: string } => {
+    const unanswered = posts.filter(({ status }) => status === 0).length
+    return unanswered === 0
+        ? {}
+        : {
+              censored: true,
+              unmeasured: `${unanswered} SES feedback post${unanswered === 1 ? '' : 's'} in this step got no answer, so its latency reads low`,
+          }
+}
 
 export const sesFeedbackMs: MeasurementDefinition = {
     name: 'ses_feedback_ms',
@@ -203,7 +218,7 @@ export const sesFeedbackMs: MeasurementDefinition = {
     unit: 'ms',
     measure: (evidence) =>
         evidence.unread !== undefined
-            ? truthUnread(evidence.unread)
+            ? truthUnread(evidence, evidence.unread)
             : feedbackPostsByStep(evidence).flatMap(([{ scale }, posts]) => {
                   const answered = posts
                       .filter(({ status }) => status !== 0)
@@ -223,7 +238,7 @@ export const sesFeedbackMs: MeasurementDefinition = {
                                 censored: true as const,
                                 unmeasured: 'no SES feedback post in this step got an answer',
                             }
-                          : { value: nearestRank(answered, share) }),
+                          : { value: nearestRank(answered, share), ...unansweredOf(posts) }),
                   }))
               }),
 }
@@ -234,7 +249,7 @@ export const sesFeedbackPosts: MeasurementDefinition = {
     unit: 'posts',
     measure: (evidence) =>
         evidence.unread !== undefined
-            ? truthUnread(evidence.unread)
+            ? truthUnread(evidence, evidence.unread)
             : feedbackPostsByStep(evidence).flatMap(([{ scale }, posts]) =>
                   [
                       { key: `posted_${scale}x`, value: posts.length },
