@@ -11,6 +11,7 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SignalReport } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
+import { ReportCheckExplanation } from './ReportCheckExplanation'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMetricSuggestionModal } from './ReportCheckMetricSuggestionModal'
 import {
@@ -115,7 +116,7 @@ export function ReportExpectedImpact({
                     </div>
                 )}
                 {measurements.length ? (
-                    measurements.map(({ check, reportStatus, config, metric, goal, detail, tag, cancellable }) => {
+                    measurements.map(({ check, reportStatus, config, metric, goal, tag, cancellable, ...row }) => {
                         const query = asReportMetricSeriesQuery(metric)
                         const showApprovalLabel =
                             cancellable &&
@@ -172,9 +173,10 @@ export function ReportExpectedImpact({
                                         {config.baseline_value != null && (
                                             <p className="m-0 text-secondary text-sm">{`Baseline: ${formatReportMetricValue(metric, config.baseline_value) ?? config.baseline_value}`}</p>
                                         )}
-                                        <p className="m-0 text-secondary text-sm">{detail}</p>
+                                        <p className="m-0 text-secondary text-sm">{row.detail}</p>
                                     </>
                                 )}
+                                {row.explanation && <ReportCheckExplanation explanation={row.explanation} />}
                                 {(config.monitoring || config.query != null) && (
                                     <LemonCollapse
                                         multiple
@@ -197,7 +199,7 @@ export function ReportExpectedImpact({
                                                                 detail={
                                                                     showApprovalLabel && check.soak_minutes != null
                                                                         ? `Check observation window after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
-                                                                        : detail
+                                                                        : row.detail
                                                                 }
                                                             />
                                                         }

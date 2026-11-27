@@ -84,6 +84,14 @@ const explanations = new Map([
     ['passed', '11 rageclicks in the last 14 days. Expected at most 20, was 64 when set.'],
     ['failed', '14 new events after the fix, on the same stack frame.'],
     ['inconclusive', 'The crash only shows on a physical device, which no tool here can reach.'],
+    [
+        'markdown-link',
+        `No new exceptions since the [US deploy marker](https://us.posthog.com/project/1/sql?open_query=${'SELECT%20count()%20FROM%20events%20WHERE%20event%20%3D%20%27%24exception%27%20AND%20'.repeat(6)}1). The [EU deploy marker](https://eu.posthog.com/project/2/error_tracking/0190f3a2-0000-7000-8000-000000000000) shows the same. The retry path ran 412 times without a failure, and the checkout funnel held steady across both regions for the full window.`,
+    ],
+    [
+        'bare-url',
+        `The export queue drained, then grew again: https://example.com/exports/queue?filter=${'status%3Dpending%26region%3Dus%26'.repeat(8)}end`,
+    ],
 ])
 
 function ChecksSection({
@@ -152,6 +160,26 @@ export const Running: Story = {
 export const NarrowRail: Story = {
     parameters: { railWidth: 'narrow' },
     args: { checks: everyState },
+}
+
+export const LongExplanations: Story = {
+    parameters: { railWidth: 'narrow' },
+    args: {
+        checks: [
+            check({
+                id: 'markdown-link',
+                status: 'passed',
+                title: 'Checkout exceptions stay at zero after the retry fix',
+                last_run_at: '2026-09-20T09:00:00Z',
+            }),
+            check({
+                id: 'bare-url',
+                status: 'failed',
+                title: 'The export backlog stays clear',
+                last_run_at: '2026-09-21T09:00:00Z',
+            }),
+        ],
+    },
 }
 
 function observation(measuredAt: string, observedValue: number): SignalReportArtefact {

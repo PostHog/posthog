@@ -5,6 +5,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { asReportMetricSeriesQuery } from '../../utils/reportMetrics'
+import { ReportCheckExplanation } from './ReportCheckExplanation'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMonitoringTimeline } from './ReportCheckMonitoringTimeline'
 import { ReportCheckObservation, interimCheckTag, monitoringTimeline } from './reportCheckObservations'
@@ -31,7 +32,7 @@ export function ReportCheckRow({
     suggestionDisabledReason?: string | null
 }): JSX.Element {
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
-    const { check, reportStatus, detail, cancelled, cancellable } = row
+    const { check, reportStatus, detail, explanation, cancelled, cancellable } = row
     const timeline = monitoringTimeline(row, observations, Date.now())
     const tag = interimCheckTag(row, timeline)
     const checkMetric = monitoringEnabled && !cancelled ? reportCheckMetric(check) : null
@@ -90,9 +91,14 @@ export function ReportCheckRow({
             )}
             {(!timeline || !chartQuery) && (
                 <div className="min-w-0 pl-[1.375rem]">
-                    <span className="min-w-0 flex-1 text-xs leading-snug text-tertiary">
+                    <span className="min-w-0 flex-1 break-words text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">
                         <ReportCheckTiming check={check} reportStatus={reportStatus} detail={detail} />
                     </span>
+                </div>
+            )}
+            {explanation && (
+                <div className="min-w-0 pl-[1.375rem]">
+                    <ReportCheckExplanation explanation={explanation} />
                 </div>
             )}
             {timeline && !chartQuery && (
