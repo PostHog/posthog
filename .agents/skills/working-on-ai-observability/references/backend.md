@@ -8,7 +8,7 @@ This file gives the reasons, and the rules the table does not carry.
 - **Views are thin because HTTP, Temporal, PostHog AI and MCP share the facade.** A decision made in a view is a decision the other three callers do not get.
 - **A facade function takes typed parameters.** A loose dict or a mode flag makes every caller learn the function again.
 - **A facade function may also return a plain id or count that the caller uses as it is.** It never returns something the view must reshape before it serves it.
-- **The facade function is the unit of work.** Only it knows which steps must succeed or fail together, so the transaction boundary sits in the one place that shows what is inside it.
+- **A data access function opens the transaction for the writes it does, and no other code opens one.** The transaction and its `select_for_update` sit next to the writes they protect. Writes that must succeed or fail together go through one data access function.
 - **Behavior takes loaded data so that its tests need no database.** An ORM object is fine as data: read its fields, and leave relations, `.save()` and managers to the data access module.
 - **Validation is behavior, and has one implementation.** A create and an update share one check. When two languages each need the same behavior, both run one shared case file under `shared/`.
 - **An edge-case path lives in one module and one block.** The main path then reads as if only the common case existed.
