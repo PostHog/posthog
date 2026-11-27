@@ -46,6 +46,12 @@ from products.signals.backend.scout_harness.tools.lighthouse import (
     prepare_lighthouse_audit,
     run_lighthouse_audit,
 )
+from products.signals.backend.scout_harness.tools.messages import (
+    InvalidMessageError,
+    SendMessageOutcome,
+    SendMessageResult,
+    send_message_sync,
+)
 from products.signals.backend.scout_harness.tools.notes import (
     InvalidNoteError,
     ScoutNote,
@@ -161,6 +167,10 @@ __all__ = [
     "cancel_report_check",
     "create_report_check",
     "list_report_checks",
+    "InvalidMessageError",
+    "SendMessageOutcome",
+    "SendMessageResult",
+    "send_message_sync",
     "record_structured_output",
     "record_structured_output_sync",
     "remember",
