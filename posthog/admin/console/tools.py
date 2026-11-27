@@ -1,13 +1,17 @@
 import re
 import dataclasses
 from typing import TYPE_CHECKING, ClassVar, Protocol
+from urllib.parse import urlencode
 
 from django import forms
+from django.urls import reverse
 
 from posthog.admin.console.panels import Gate, Owner, Tone, check_danger, is_internal_path
+from posthog.admin.console.records import RECORD_TYPES
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from django.db.models import Model
     from django.forms.boundfield import BoundField
     from django.http import HttpRequest, HttpResponse
 
@@ -438,6 +442,25 @@ class ConsoleTool:
     owner: ClassVar[Owner | None]
     group: ClassVar[str]
     description: ClassVar[str] = ""
+    # The RECORD_TYPES key of the one record a tool is about. The tool reads the record from the query parameter of the
+    # same name, for example ?team=7, and its breadcrumb runs through that record.
+    subject: ClassVar[str | None] = None
+
+    def subject_of(self, request: "HttpRequest") -> "Model | None":
+        if self.subject is None:
+            return None
+        # The breadcrumb, page() and live() each ask for the record, so one request looks it up once.
+        found: dict[tuple[str, str], Model | None] = request.__dict__.setdefault("console_subjects", {})
+        key = (self.subject, request.GET.get(self.subject, ""))
+        if key not in found:
+            found[key] = RECORD_TYPES[self.subject].find(key[1])
+        return found[key]
+
+    @classmethod
+    def url_for(cls, obj: "Model") -> str:
+        if cls.subject is None:
+            raise ValueError(f"Tool {cls.key!r} has no subject, so it has no page for one record")
+        return f"{reverse('admin_console_tool', kwargs={'tool_key': cls.key})}?{urlencode({cls.subject: obj.pk})}"
 
     def page(self, request: "HttpRequest") -> Page:
         raise NotImplementedError

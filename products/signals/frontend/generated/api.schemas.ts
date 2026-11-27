@@ -2010,6 +2010,11 @@ export interface ScoutSuggestionItemApi {
     title: string
     /** Project-specific evidence for this suggestion, in prose. */
     why_here: string
+    /**
+     * One plain sentence saying what the scout would do. Blank on batches stored before the field existed, so a client falls back to `description`, then to the first sentence of `why_here`.
+     * @maxLength 200
+     */
+    goal?: string
     /** Custom only: the one-line description the scout would be created with. */
     description: string
     /** Custom only: the complete skill body the scout would be created with. */
@@ -13280,6 +13285,8 @@ export interface SlackScoutChannelApi {
 export interface SlackScoutChannelSourceApi {
     /** Id of the Slack data warehouse source. */
     id: string
+    /** Name that tells the project's Slack sources apart: the source's table prefix, or the date it was connected when it has no prefix. */
+    label: string
     /** Channels the source syncs, ordered by name. */
     channels: SlackScoutChannelApi[]
 }
