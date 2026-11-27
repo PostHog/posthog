@@ -3,7 +3,7 @@ import { Client } from 'pg'
 import { defaultConfig } from '~/common/config/config'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { scratchSchema, withPostgres } from '../environment/stack'
+import { scratchSchema, withPostgres, writerUrlOf } from '../environment/stack'
 import { Queue, QueueCounts, createCyclotronProbe } from './cyclotron-probe'
 
 const SCHEMA = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_probe_${process.pid}`, [
@@ -162,6 +162,17 @@ describe('cyclotron probe', () => {
         await withPostgres((client) => client.query("DELETE FROM cyclotron_jobs WHERE status = 'completed'"), PROBE_URL)
 
         await waitForExpect(async () => expect((await probe.counts(QUEUES)).inserted - before).toBe(3))
+    })
+
+    it("refuses to read a cloud run's writer activity from the run's own or the profile's database when the host named no writer", async () => {
+        const writerUrl = writerUrlOf(
+            { SCENARIO_RUN_MANIFEST: '/opt/scenario/input/manifest.json', CYCLOTRON_NODE_DATABASE_URL: PROBE_URL },
+            { CYCLOTRON_NODE_DATABASE_URL: PROBE_URL }
+        )
+
+        await expect(createCyclotronProbe(PROBE_URL, undefined, writerUrl).activity()).rejects.toThrow(
+            'no direct writer URL in a cloud run'
+        )
     })
 
     it("counts the other client backends of the writer's own database by state and by what an active one waits on", async () => {
