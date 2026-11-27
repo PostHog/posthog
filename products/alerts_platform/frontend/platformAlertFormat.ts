@@ -45,7 +45,8 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
     [PlatformAlertConfigurationSourceKindEnumApi.Insight]: {
         label: 'Insight',
         iconType: 'product_analytics',
-        alertUrl: legacyAlertUrl(urls.alert),
+        // An insight alert with no source row keeps the configuration's id as its own.
+        alertUrl: ({ id, legacy_configuration_id }) => urls.alert(legacy_configuration_id ?? id),
     },
     // A warehouse alert has no page of its own, so it links to the page that lists what it watches.
     [PlatformAlertConfigurationSourceKindEnumApi.WarehouseSource]: {
@@ -240,16 +241,17 @@ export function listRowFiringSince(row: PlatformAlertListRow): string | null {
     return alert?.state === 'firing' ? alert.firing_started_at : null
 }
 
+// The API refuses every write to an insight alert (409), because the insight alert API owns them.
 export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
-    return configuration.owner === PlatformAlertOwnerEnumApi.Platform
+    return (
+        configuration.owner === PlatformAlertOwnerEnumApi.Platform &&
+        configuration.source_kind !== PlatformAlertConfigurationSourceKindEnumApi.Insight
+    )
 }
 
 // The API refuses a group snooze on a source-owned alert (409) and on an ungrouped one (400).
 export function canSnoozeGroups(configuration: PlatformAlertConfigurationApi): boolean {
-    return (
-        configuration.owner === PlatformAlertOwnerEnumApi.Platform &&
-        configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels
-    )
+    return canChangeFromList(configuration) && configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels
 }
 
 export function groupSnoozeLockedByAlert(configuration: PlatformAlertConfigurationApi, now: Date): boolean {

@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { PlatformAlertApi, PlatformAlertConfigurationApi, PlatformAlertOwnerEnumApi } from './generated/api.schemas'
+import { PlatformAlertApi, PlatformAlertConfigurationApi } from './generated/api.schemas'
 import {
     SOURCE_KINDS,
+    canChangeFromList,
     canSnoozeGroups,
     describeGroup,
     groupSnoozeLockedByAlert,
@@ -27,7 +28,7 @@ export function PlatformAlertGroupRowMenu({
     const now = new Date()
     const snoozed = listRowMute({ kind: 'group', configuration, group }, now)?.kind === 'snoozed'
     let disabledReason: string | undefined
-    if (configuration.owner !== PlatformAlertOwnerEnumApi.Platform) {
+    if (!canChangeFromList(configuration)) {
         disabledReason = `${SOURCE_KINDS[configuration.source_kind].label} manages this alert, so snooze the whole alert there`
     } else if (!canSnoozeGroups(configuration)) {
         disabledReason = 'This alert is not grouped, so snooze the whole alert'

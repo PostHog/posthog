@@ -371,6 +371,26 @@ export const ListPaginatedGroupsExpanded: Story = {
 // Native clicks rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
 export const ListRowMenuDisabledAlertOpen: Story = {
     parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    // An insight alert is read-only here, so the disabled alert has to be one the list can change.
+                    results: [
+                        CONFIGURATION,
+                        {
+                            ...DISABLED_CONFIGURATION,
+                            source_kind: 'logs',
+                            source_config: CONFIGURATION.source_config,
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
     play: async ({ canvasElement }) => {
         const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
         name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()

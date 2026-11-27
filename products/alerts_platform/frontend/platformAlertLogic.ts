@@ -26,7 +26,7 @@ import { Breadcrumb } from '~/types'
 import type { TeamPublicType } from '~/types'
 
 import { platformAlertsPartialUpdate, platformAlertsRetrieve, platformAlertsSnoozeGroupCreate } from './generated/api'
-import { PlatformAlertApi, PlatformAlertConfigurationApi, PlatformAlertOwnerEnumApi } from './generated/api.schemas'
+import { PlatformAlertApi, PlatformAlertConfigurationApi } from './generated/api.schemas'
 import {
     RuleMetadataForm,
     errorMessage,
@@ -34,6 +34,7 @@ import {
     ruleMetadataEntries,
     ruleMetadataEntriesError,
     ruleMetadataRecord,
+    canChangeFromList,
     canSnoozeGroups,
 } from './platformAlertFormat'
 import { PLATFORM_ALERTS_BREADCRUMB, reloadWhenSnoozeEnds } from './platformAlertsLogic'
@@ -337,7 +338,7 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
         canEditRuleMetadata: [
             (s) => [s.configuration],
             (configuration: PlatformAlertConfigurationApi | null): boolean =>
-                configuration?.owner === PlatformAlertOwnerEnumApi.Platform,
+                configuration !== null && canChangeFromList(configuration),
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
