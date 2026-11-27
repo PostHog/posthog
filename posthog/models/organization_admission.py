@@ -12,6 +12,7 @@ from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
 
 REFRESH_INTERVAL_SECONDS = 30.0
+MAX_SNAPSHOT_AGE_SECONDS = 2 * REFRESH_INTERVAL_SECONDS
 
 _Read = TypeVar("_Read")
 
@@ -26,9 +27,10 @@ class Admission(StrEnum):
 class _DeactivatedTenants:
     organization_ids: frozenset[uuid.UUID]
     team_ids: frozenset[int]
+    loaded_at: float
 
 
-class AdmissionSnapshotMissing(Exception):
+class AdmissionUnavailable(Exception):
     pass
 
 
@@ -55,8 +57,8 @@ class OrganizationAdmission:
         if not team_id and not parsed_organization_id:
             return Admission.UNRESOLVED
         deactivated = self._deactivated
-        if deactivated is None:
-            raise AdmissionSnapshotMissing()
+        if deactivated is None or self._clock() - deactivated.loaded_at >= MAX_SNAPSHOT_AGE_SECONDS:
+            raise AdmissionUnavailable()
         if team_id:
             return Admission.DEACTIVATED if team_id in deactivated.team_ids else Admission.ADMITTED
         return Admission.DEACTIVATED if parsed_organization_id in deactivated.organization_ids else Admission.ADMITTED
@@ -76,9 +78,12 @@ class OrganizationAdmission:
         try:
             if not self.is_stale():
                 return
-            self._last_attempt = self._clock()
+            attempted_at = self._clock()
+            self._last_attempt = attempted_at
             organization_ids, team_ids = self._read(_load_deactivated)
-            self._deactivated = _DeactivatedTenants(organization_ids=organization_ids, team_ids=team_ids)
+            self._deactivated = _DeactivatedTenants(
+                organization_ids=organization_ids, team_ids=team_ids, loaded_at=attempted_at
+            )
         finally:
             self._refresh_lock.release()
 

@@ -5,7 +5,7 @@ import pytest
 from django.db import OperationalError, connections
 
 from posthog.models import Organization, Team
-from posthog.models.organization_admission import Admission, AdmissionSnapshotMissing, OrganizationAdmission
+from posthog.models.organization_admission import Admission, AdmissionUnavailable, OrganizationAdmission
 
 
 class FakeClock:
@@ -86,6 +86,20 @@ def test_deactivation_takes_effect_at_the_next_refresh() -> None:
 
 
 @pytest.mark.django_db
+def test_a_set_older_than_two_refreshes_is_unavailable() -> None:
+    team = _team_in_organization(is_active=False)
+    clock = FakeClock()
+    admission = OrganizationAdmission(clock=clock)
+    assert admission.check(team_id=team.id) == Admission.DEACTIVATED
+
+    clock.now += 59
+    assert admission.check_cached(team_id=team.id) == Admission.DEACTIVATED
+    clock.now += 1
+    with pytest.raises(AdmissionUnavailable):
+        admission.check_cached(team_id=team.id)
+
+
+@pytest.mark.django_db
 def test_reads_the_replica_when_the_primary_fails() -> None:
     team = _team_in_organization(is_active=False)
     admission = OrganizationAdmission(clock=FakeClock(), replica="default")
@@ -104,7 +118,7 @@ def test_raises_when_primary_and_replica_fail_and_waits_before_retrying() -> Non
         with pytest.raises(OperationalError):
             admission.check(team_id=team.id)
         clock.now += 29
-        with pytest.raises(AdmissionSnapshotMissing):
+        with pytest.raises(AdmissionUnavailable):
             admission.check(team_id=team.id)
 
     clock.now += 1

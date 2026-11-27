@@ -1,4 +1,5 @@
 import uuid
+import logging
 import datetime as dt
 from dataclasses import dataclass
 
@@ -12,7 +13,7 @@ from temporalio.client import Client
 from temporalio.worker import ExecuteActivityInput, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team, organization_admission
-from posthog.models.organization_admission import Admission, OrganizationAdmission
+from posthog.models.organization_admission import OrganizationAdmission
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.organization_admission import OrganizationAdmissionInterceptor, _tenant_of
 from posthog.temporal.common.worker import interceptor_classes
@@ -94,7 +95,9 @@ async def _team_in_organization(is_active: bool | None) -> Team:
 
 
 @pytest.fixture
-def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+def clock(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> FakeClock:
+    caplog.set_level(logging.INFO, logger="temporalio.activity")
+    caplog.set_level(logging.INFO, logger="temporalio.workflow")
     clock = FakeClock()
     monkeypatch.setattr(organization_admission, "ORGANIZATION_ADMISSION", OrganizationAdmission(clock=clock))
     return clock
@@ -148,8 +151,9 @@ async def test_shadow_on_a_cold_worker_counts_unavailable_and_loads_in_the_backg
     team = await _team_in_organization(is_active=False)
     inputs = ProbeInput(value="x", team_id=team.id)
 
+    loaded_before = _refreshes("succeeded")
     result, cold, _ = await _run_probe(temporal_client, inputs)
-    await sync_to_async(wait_until)(organization_admission.ORGANIZATION_ADMISSION.has_snapshot)
+    await sync_to_async(wait_until)(lambda: _refreshes("succeeded") == loaded_before + 1)
     _, loaded, _ = await _run_probe(temporal_client, inputs)
 
     assert result == ["ran x", "ran x"]
@@ -169,11 +173,13 @@ async def test_shadow_counts_against_the_cached_set_while_it_refreshes(
 
     await sync_to_async(Organization.objects.filter(id=team.organization_id).update)(is_active=False)
     clock.now += 30
+    loaded_before = _refreshes("succeeded")
     _, while_refreshing, _ = await _run_probe(temporal_client, inputs)
+    await sync_to_async(wait_until)(lambda: _refreshes("succeeded") == loaded_before + 1)
+    _, after_refresh, _ = await _run_probe(temporal_client, inputs)
 
     assert while_refreshing == {"admitted": 1}
-    admission = organization_admission.ORGANIZATION_ADMISSION
-    await sync_to_async(wait_until)(lambda: admission.check_cached(team_id=team.id) == Admission.DEACTIVATED)
+    assert after_refresh == {"would_skip": 1}
 
 
 @pytest.mark.asyncio
@@ -207,13 +213,14 @@ async def test_shadow_runs_the_activity_when_the_lookup_fails(
 @pytest.mark.asyncio
 async def test_off_reads_nothing_and_counts_nothing(temporal_client: Client, settings, clock: FakeClock) -> None:
     settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = "off"
+    refreshes_before = (_refreshes("succeeded"), _refreshes("failed"))
 
     result, tenant_checks, bare_checks = await _run_probe(temporal_client, ProbeInput(value="x", team_id=42))
 
     assert result == ["ran x", "ran x"]
     assert tenant_checks == {}
     assert bare_checks == {}
-    assert not organization_admission.ORGANIZATION_ADMISSION.has_snapshot()
+    assert (_refreshes("succeeded"), _refreshes("failed")) == refreshes_before
 
 
 @pytest.mark.parametrize("mode", ["enforce", "Shadow", ""])

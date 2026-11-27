@@ -13,7 +13,7 @@ from temporalio import activity
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, Interceptor
 
 from posthog.models import organization_admission
-from posthog.models.organization_admission import Admission, AdmissionSnapshotMissing, OrganizationAdmission
+from posthog.models.organization_admission import Admission, AdmissionUnavailable, OrganizationAdmission
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
@@ -87,7 +87,7 @@ def _shadow_outcome(input: ExecuteActivityInput) -> str:
     _start_refresh(admission)
     try:
         return _SHADOW_OUTCOMES[admission.check_cached(team_id=team_id, organization_id=organization_id)]
-    except AdmissionSnapshotMissing:
+    except AdmissionUnavailable:
         return "unavailable"
 
 
