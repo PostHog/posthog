@@ -8,7 +8,7 @@ import { adventCalendarLogic } from './adventCalendarLogic'
 import { AdventShareModal } from './AdventShareModal'
 
 export function AdventShareButton(): JSX.Element | null {
-    const { openCount } = useValues(adventCalendarLogic)
+    const { openCount, revealingDoor } = useValues(adventCalendarLogic)
     const [isSharing, setSharing] = useState(false)
 
     if (openCount === 0) {
@@ -17,7 +17,13 @@ export function AdventShareButton(): JSX.Element | null {
 
     return (
         <>
-            <LemonButton type="primary" icon={<IconShare />} data-attr="advent-share" onClick={() => setSharing(true)}>
+            <LemonButton
+                type="primary"
+                icon={<IconShare />}
+                data-attr="advent-share"
+                disabledReason={revealingDoor ? 'Share after the door opens' : null}
+                onClick={() => setSharing(true)}
+            >
                 Share
             </LemonButton>
             <AdventShareModal isOpen={isSharing} onClose={() => setSharing(false)} />
