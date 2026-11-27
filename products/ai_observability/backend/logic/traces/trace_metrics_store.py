@@ -21,7 +21,7 @@ _Entry = TraceMetricsRows | Literal["too_heavy"]
 _ENTRY = TypeAdapter[_Entry](cast(Any, _Entry))
 
 
-def _selection_key(team: Team, user: User, selection: TraceSelection) -> tuple[str, str]:
+def _cache_key(name: str, team: Team, user: User, selection: TraceSelection, *details: str) -> str:
     # A relative range ends at now, so refreshes within a minute share one read. Keying on the bucket instead would
     # serve a window that ended up to a bucket earlier than the one asked for.
     window = selection.window
@@ -34,18 +34,13 @@ def _selection_key(team: Team, user: User, selection: TraceSelection) -> tuple[s
     selection_hash = hashlib.sha256(repr(by_minute).encode()).hexdigest()
     # A test account filter can read a warehouse table that only some people may read, and a cache hit skips that
     # access check, so each person reads only the entries their own reads wrote.
-    return selection_hash, f"{user.pk}:{requester_fingerprint(team.pk, user)}"
+    requester = f"{user.pk}:{requester_fingerprint(team.pk, user)}"
+    return ":".join(["ai_observability", name, str(team.pk), selection_hash, *details, requester])
 
 
 def metrics_cache_key(team: Team, user: User, selection: TraceSelection, size: BucketSize) -> str:
-    selection_hash, requester = _selection_key(team, user, selection)
     # Two windows within the same minutes can straddle the span that switches hourly buckets to daily ones.
-    return f"ai_observability:trace_metrics:{team.pk}:{selection_hash}:{size.value}:{requester}"
-
-
-def _count_cache_key(team: Team, user: User, selection: TraceSelection) -> str:
-    selection_hash, requester = _selection_key(team, user, selection)
-    return f"ai_observability:trace_count:{team.pk}:{selection_hash}:{requester}"
+    return _cache_key("trace_metrics", team, user, selection, size.value)
 
 
 def _read(key: str) -> _Entry | None:
@@ -86,7 +81,7 @@ def cached_trace_count(team: Team, user: User, selection: TraceSelection, size: 
     metrics = _read(metrics_cache_key(team, user, selection, size))
     if isinstance(metrics, TraceMetricsRows):
         return metrics.current.traces
-    key = _count_cache_key(team, user, selection)
+    key = _cache_key("trace_count", team, user, selection)
     cached = cache.get(key)
     if isinstance(cached, int):
         return cached
