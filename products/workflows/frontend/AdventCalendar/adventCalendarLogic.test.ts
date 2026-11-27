@@ -246,17 +246,19 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-3-upper')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect([logic.values.ticketDays, logic.values.ticketFlight]).toEqual([[1, 2, 3], 3])
+        const preview = { tickets: logic.values.tickets, flight: logic.values.ticketFlight }
+        router.actions.push('/workflows/advent')
+        logic.unmount()
+        logic = adventCalendarLogic()
+        logic.mount()
+
+        expect(preview).toEqual({ tickets: 3, flight: 3 })
         expect({
-            saved: logic.values.progressByUser,
-            tickets: logic.values.ticketsByUser,
+            door: doorOf(logic, 'door-1')?.status,
+            tickets: logic.values.tickets,
             opens: api.opens,
             events: sent.filter(([event]) => event === 'workflows advent door opened'),
-        }).toEqual({ saved: {}, tickets: {}, opens: [], events: [] })
-
-        router.actions.push('/workflows/advent')
-
-        expect(logic.values.tickets).toBe(0)
+        }).toEqual({ door: 'ready', tickets: 0, opens: [], events: [] })
     })
 
     it('keeps a door shut until its day comes, then unlocks it on an open page', () => {
@@ -292,19 +294,26 @@ describe('adventCalendarLogic', () => {
                 [other]: { opened: [1], answers: {} },
             })
         )
-
         window.localStorage.setItem(TICKETS_KEY, JSON.stringify({ [UUID]: [2] }))
 
         await expectLogic(logic, () => logic.actions.answerDoor('door-2', 'james')).toFinishAllListeners()
+        const shares = logic.values.pollShares
+        logic.unmount()
+        logic = adventCalendarLogic()
+        logic.mount()
+        const mine = { door: doorOf(logic, 'door-2'), tickets: logic.values.tickets }
+        signIn({ uuid: other })
 
-        expect(JSON.parse(window.localStorage.getItem(KEY)!)).toEqual({
-            [UUID]: { opened: [1, 2], answers: { 2: 'tim' } },
-            [other]: { opened: [1], answers: {} },
+        expect({ shares, mine, answers: api.answers }).toEqual({
+            shares: { 2: { james: 38, tim: 62 } },
+            mine: { door: { status: 'open', reward: 'Tim Glaser' }, tickets: 1 },
+            answers: [],
         })
-        expect(JSON.parse(window.localStorage.getItem(TICKETS_KEY)!)).toEqual({ [UUID]: [2] })
-        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
-        expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
-        expect(api.answers).toEqual([])
+        expect([doorOf(logic, 'door-1')?.status, doorOf(logic, 'door-2')?.status, logic.values.tickets]).toEqual([
+            'open',
+            'ready',
+            0,
+        ])
     })
 
     it('keeps the opened doors of each account apart in one browser', () => {
