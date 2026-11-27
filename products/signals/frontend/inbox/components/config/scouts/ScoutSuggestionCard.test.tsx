@@ -98,16 +98,21 @@ describe('ScoutSuggestionCard', () => {
         expect(getByLabelText(label)).toBe(getByTestId('scout-suggestion-body'))
     })
 
-    // The producer cites reports as Markdown links in the motivation, and a link inside the body
-    // button is not valid HTML, so the motivation has to render outside it.
-    it('renders the motivation outside the card body', () => {
+    // The producer cites reports as Markdown links in the evidence, and a link inside the body
+    // button is not valid HTML, so the evidence has to render outside it, and open on a press.
+    it('opens the evidence outside the card body on Why this?', () => {
         const item = {
             ...mockScoutSuggestions[1],
             why_here: 'Signups on the team plan dropped, as [Signup drop-off](https://example.com/report) shows.',
         }
         const { getByTestId, getByText } = render(<ScoutSuggestionCard item={item} surface="strip" />)
+        const evidence = getByText(/Signups on the team plan dropped/)
+        expect(evidence.closest('[hidden]')).not.toBeNull()
 
-        const motivation = getByText(/Signups on the team plan dropped/)
-        expect(getByTestId('scout-suggestion-body').contains(motivation)).toBe(false)
+        fireEvent.click(getByText('Why this?'))
+
+        expect(evidence.closest('[hidden]')).toBeNull()
+        expect(getByTestId('scout-suggestion-motivation-toggle').getAttribute('aria-expanded')).toBe('true')
+        expect(getByTestId('scout-suggestion-body').contains(evidence)).toBe(false)
     })
 })
