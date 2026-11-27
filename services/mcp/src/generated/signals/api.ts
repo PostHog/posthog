@@ -5606,9 +5606,9 @@ export const signalsScoutSendMessageBodyRouteMax = 64
 
 export const signalsScoutSendMessageBodyReportIdMax = 64
 
-export const signalsScoutSendMessageBodyTitleMax = 150
+export const signalsScoutSendMessageBodyTitleMax = 80
 
-export const signalsScoutSendMessageBodyBodyMax = 3000
+export const signalsScoutSendMessageBodyBodyMax = 500
 
 export const signalsScoutSendMessageBodyDedupeKeyMax = 200
 
@@ -5630,12 +5630,12 @@ export const SignalsScoutSendMessageBody = () => zod
         title: zod
             .string()
             .max(signalsScoutSendMessageBodyTitleMax)
-            .describe('Short plain-text title. At most 150 characters.'),
+            .describe('Short plain-text title. At most 80 characters.'),
         body: zod
             .string()
             .max(signalsScoutSendMessageBodyBodyMax)
             .describe(
-                'Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.'
+                'Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.'
             ),
         dedupe_key: zod
             .string()
