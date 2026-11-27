@@ -1,6 +1,8 @@
+import { type AiLab } from 'lib/components/BrandMark/aiLabShades'
+import { type BrandMarkName } from 'lib/components/BrandMark/brandMarks'
+
 import labPatterns from '../shared/ai_labs.json'
 
-export type AiLab = 'Anthropic' | 'OpenAI' | 'Google' | 'xAI' | 'Cursor' | 'Open weights'
 export type ModelLab = AiLab | 'Other'
 
 export const LAB_ORDER: ModelLab[] = ['Anthropic', 'OpenAI', 'xAI', 'Google', 'Open weights', 'Cursor', 'Other']
@@ -80,4 +82,19 @@ export function isFoldedModelsLabel(label: string): boolean {
 
 export function seriesLab(label: string): ModelLab {
     return LAB_ORDER.find((lab) => otherModelsLabel(lab) === label) ?? modelLab(label)
+}
+
+const LAB_MARKS: Record<ModelLab, BrandMarkName> = {
+    // Same mark as the harness: Claude for Anthropic, Grok for xAI.
+    Anthropic: 'Claude',
+    OpenAI: 'OpenAI',
+    Google: 'Google',
+    xAI: 'Grok',
+    Cursor: 'Cursor',
+    'Open weights': 'Unbranded model',
+    Other: 'Unbranded model',
+}
+
+export function labMark(lab: ModelLab): BrandMarkName {
+    return LAB_MARKS[lab]
 }

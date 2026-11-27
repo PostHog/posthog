@@ -19,6 +19,16 @@ class UnlayerRenderError(UnlayerError):
     pass
 
 
+@frozen
+class MessageTemplateListFilter:
+    """Which of a team's templates a list returns. Every set field narrows the list, and an empty one leaves it whole."""
+
+    transactional: bool | None = None
+    search: str = ""
+    created_by_id: int | None = None
+    tags: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class EmailTemplateSummary:
     id: UUID
@@ -39,10 +49,17 @@ class TransactionalEmailError(Exception):
 
     code = "invalid"
     attr: str | None = None
+    # The total size of the files the CDP service verified before it refused, or None when it didn't verify them all.
+    attachment_bytes: int | None = None
 
 
 class TemplateNotSendable(TransactionalEmailError):
     code = "template_not_sendable"
+
+
+class SensitiveTemplate(TransactionalEmailError):
+    code = "sensitive_template"
+    attr = "sensitive"
 
 
 class MarketingTemplate(TransactionalEmailError):
@@ -83,6 +100,11 @@ class IdempotencyKeyReused(TransactionalEmailError):
     code = "idempotency_key_reused"
 
 
+class CategoryNotFound(TransactionalEmailError):
+    code = "category_not_found"
+    attr = "category"
+
+
 class SendingSuspended(TransactionalEmailError):
     code = "sending_suspended"
 
@@ -115,12 +137,79 @@ class FieldNotAccepted(TransactionalEmailError):
         self.field = field
 
 
+class MessageTooLarge(TransactionalEmailError):
+    code = "message_too_large"
+
+    def __init__(self, largest_file_sha256: str | None) -> None:
+        super().__init__("These files make the email larger than PostHog can send.")
+        self.largest_file_sha256 = largest_file_sha256
+
+
+class AttachmentNotUploaded(TransactionalEmailError):
+    code = "attachment_not_uploaded"
+
+    def __init__(self, sha256: str | None) -> None:
+        super().__init__("A file this email names isn't uploaded.")
+        self.sha256 = sha256
+
+
+class UploadQuotaExceeded(TransactionalEmailError):
+    code = "upload_quota_exceeded"
+
+
+class AttachmentsRefused(TransactionalEmailError):
+    attr = "attachments"
+
+    def __init__(self, code: str, message: str, *, why: str, fix: str) -> None:
+        super().__init__(message)
+        self.code, self.why, self.fix = code, why, fix
+
+
+@frozen
+class AttachmentUploadRequest:
+    sha256: str
+    size: int
+
+
+class AttachmentUploadStatus(LabeledStrEnum):
+    PRESENT = "present", "Present"
+    UPLOAD = "upload", "Upload"
+
+
+@frozen
+class PresentAttachment:
+    sha256: str
+    expires_at: datetime
+    status: AttachmentUploadStatus = AttachmentUploadStatus.PRESENT
+
+
+@frozen
+class AttachmentUploadTarget:
+    sha256: str
+    url: str = field(repr=False)
+    method: str
+    headers: dict[str, str]
+    url_expires_at: datetime
+    status: AttachmentUploadStatus = AttachmentUploadStatus.UPLOAD
+
+
+AttachmentUploadSlot = PresentAttachment | AttachmentUploadTarget
+
+
 @frozen
 class EmailAttachment:
+    sha256: str
     filename: str
-    content: str = field(repr=False)
     content_type: str | None = None
     content_id: str | None = None
+
+
+@frozen
+class ReplyHeaders:
+    """Message-IDs, each in angle brackets, that thread a reply under the message it answers. At most 100 references."""
+
+    in_reply_to: str
+    references: tuple[str, ...] = ()
 
 
 class SenderRequired(TransactionalEmailError):
@@ -139,6 +228,40 @@ class InvalidRequest(TransactionalEmailError):
     code = "invalid_request"
 
 
+class SandboxFieldsUnsupported(TransactionalEmailError):
+    code = "sandbox_fields_unsupported"
+
+    def __init__(self, message: str, attr: str | None = None) -> None:
+        super().__init__(message)
+        self.attr = attr
+
+
+class SandboxRecipientNotMember(TransactionalEmailError):
+    code = "sandbox_recipient_not_member"
+
+
+class SandboxSenderNotAvailable(TransactionalEmailError):
+    code = "sandbox_sender_unavailable"
+
+
+class BatchUnavailable(TransactionalEmailError):
+    code = "batch_unavailable"
+
+
+@frozen
+class EmailTracking:
+    opens: bool = True
+    clicks: bool | None = None
+    engagement: bool = True
+
+
+@frozen
+class EmailCategory:
+    id: UUID
+    type: str
+    archived: bool = False
+
+
 @frozen
 class CodeEmail:
     key: str
@@ -147,14 +270,34 @@ class CodeEmail:
     text: str
     sender: str | None
     reply_to: tuple[str, ...]
-    capture_engagement: bool
+    tracking: EmailTracking
+    sensitive: bool | None = None
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    reply_headers: ReplyHeaders | None = None
+    category: EmailCategory | None = None
 
 
 class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
+
+
+class SendWarningCode(LabeledStrEnum):
+    SANDBOX_SENDER = "sandbox_sender", "Sent from the PostHog test sender"
+
+
+@frozen
+class SendWarning:
+    code: SendWarningCode
+    message: str
+    setup_url: str
+    agent_action: str
+
+
+class QueuedEmailStatus(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    SCHEDULED = "scheduled", "Scheduled"
 
 
 @frozen
@@ -162,6 +305,38 @@ class QueuedEmail:
     message_id: str
     # True when an earlier request with the same idempotency key already queued this email.
     replayed: bool = False
+    warnings: tuple[SendWarning, ...] = ()
+    # The total size of the email's files, as the CDP service verified them. None when it didn't say.
+    attachment_bytes: int | None = None
+    status: QueuedEmailStatus = QueuedEmailStatus.QUEUED
+    # The CDP service's answer as it sent it, so a replay returns the first request's time unchanged.
+    scheduled_at: str | None = None
+    sent_from_sandbox: bool = False
+
+
+class BatchTooLarge(Exception):
+    pass
+
+
+@frozen
+class BatchRecipient:
+    to: str
+    idempotency_key: str
+    distinct_id: str | None = None
+    message_data: dict[str, Any] = field(default_factory=dict)
+    refusal: InvalidRecipient | None = None
+
+
+@frozen
+class EmailNotQueued:
+    message_id: str
+    error: TransactionalEmailError | DeliveryUnavailable
+
+
+@frozen
+class EmailBatchSent:
+    results: tuple[QueuedEmail | EmailNotQueued, ...]
+    warnings: tuple[SendWarning, ...] = ()
 
 
 class SupabaseEmailActionType(LabeledStrEnum):
@@ -225,10 +400,20 @@ class EmailDeliveryStatus(LabeledStrEnum):
     COMPLAINED = "complained", "Complained"
 
 
+class EmailSendStatus(LabeledStrEnum):
+    SCHEDULED = "scheduled", "Scheduled"
+    QUEUED = "queued", "Queued"
+    FAILED = "failed", "Failed"
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    BOUNCED = "bounced", "Bounced"
+    COMPLAINED = "complained", "Complained"
+
+
 @frozen
 class EmailStatus:
     message_id: str
-    status: EmailDeliveryStatus
+    status: EmailSendStatus
     created_at: datetime
     status_at: datetime
     # Why a send failed, or the bounce type of a bounced email.
@@ -264,6 +449,7 @@ class TransactionalEmailLogEntry:
     template_id: str | None
     # Empty when the template was deleted.
     template_name: str
+    code_email_id: str | None
     sending_domain: str
     opened: bool
     clicked: bool
@@ -277,6 +463,12 @@ class TransactionalEmailLogEvent:
 
 
 @frozen
+class TransactionalEmailTracking:
+    opens: bool
+    clicks: bool
+
+
+@frozen
 class TransactionalEmailLogDetail:
     entry: TransactionalEmailLogEntry
     timeline: list[TransactionalEmailLogEvent]
@@ -287,6 +479,7 @@ class TransactionalEmailLogDetail:
     action_id: str
     # True when the template keeps no rendered body.
     sensitive: bool
+    tracking: TransactionalEmailTracking
 
 
 class EmailStatsInterval(LabeledStrEnum):
@@ -325,6 +518,8 @@ class TransactionalEmailStatsRow:
     # The template id or the sending domain.
     key: str
     label: str
+    template_id: str | None
+    code_email_id: str | None
     sent: int
     delivered: int
     bounced: int
@@ -341,3 +536,147 @@ class TransactionalEmailResults:
     revenue: float
     # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
     median_hours_to_convert: float | None
+
+
+@frozen
+class TransactionalEmailConversions:
+    sends: int
+    converted: int
+
+
+@frozen
+class TransactionalEmailImpact:
+    sent: int
+    delivered: int
+    opened: int
+    clicked: int
+    not_clicked: int
+    untracked: int
+    clicks_untracked: int
+    window_days: int
+    after_click: TransactionalEmailConversions | None
+    without_click: TransactionalEmailConversions | None
+    sessions: int | None
+    link_tagging_enabled: bool
+
+
+class CodeEmailSourceOrigin(LabeledStrEnum):
+    MANUAL = "manual", "Manual"
+    DETECTED = "detected", "Detected from GitHub"
+
+
+@frozen
+class CodeManagedEmail:
+    """An email sent from code under a `template_key` with no template, as the Transactional emails list shows it."""
+
+    id: UUID
+    key: str
+    hog_flow_id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
+    source_url: str | None
+    source_origin: CodeEmailSourceOrigin | None
+    created_at: datetime
+
+
+class CodeManagedEmailNotFound(Exception):
+    pass
+
+
+@frozen
+class CodeEmailSourceCandidate:
+    """A file in a connected GitHub repository that holds a code email's key."""
+
+    repository: str
+    path: str
+    line: int
+    url: str
+    call_site: bool
+
+
+@frozen
+class CodeEmailSourceCandidates:
+    candidates: tuple[CodeEmailSourceCandidate, ...]
+    complete: bool
+
+
+class CodeEmailSourceKeyUnsearchable(Exception):
+    """GitHub can't search for the key: it is blank, spans lines, or is longer than a search allows."""
+
+
+class CodeEmailSourceSearchUnavailable(Exception):
+    """No GitHub installation answered the search."""
+
+    def __init__(self, *, shed: bool) -> None:
+        super().__init__("budget shed" if shed else "GitHub error")
+        self.shed = shed
+
+
+@frozen
+class TransactionalEmailActivityEvent:
+    uuid: str
+    event: str
+    timestamp: datetime
+    current_url: str | None
+    pathname: str | None
+    session_id: str | None
+    # Set on autocaptured events, such as `click` or `submit`.
+    event_type: str | None
+    # The clicked element and its parents, empty unless the event is autocaptured.
+    elements_chain: str
+
+
+@frozen
+class TransactionalEmailActivitySession:
+    session_id: str
+    first_event_at: datetime
+    last_event_at: datetime
+    event_count: int
+    # True when none of the session's events came before the send, so the person started it after the email.
+    started_after_send: bool
+
+
+@frozen
+class TransactionalEmailActivity:
+    distinct_id: str
+    sent_at: datetime
+    # Oldest first, ending just before the send.
+    before: list[TransactionalEmailActivityEvent]
+    # Oldest first, starting at the send.
+    after: list[TransactionalEmailActivityEvent]
+    has_more_before: bool
+    has_more_after: bool
+    sessions: list[TransactionalEmailActivitySession]
+
+
+@frozen
+class WorkflowEmailSend:
+    """One email a workflow or broadcast step sent, read from the `$workflows_email_*` events."""
+
+    # A run can send several emails, so a send is its run and the step that sent it.
+    invocation_id: str
+    action_id: str
+    workflow_id: str
+    distinct_id: str
+    recipient: str
+    # Empty for a sensitive template, whose events leave the subject out.
+    subject: str
+    sent_at: datetime
+    status: EmailDeliveryStatus
+    opened: bool
+    clicked: bool
+
+
+@frozen
+class WorkflowEmailPage:
+    sends: list[WorkflowEmailSend]
+    has_more: bool
+    # The events only exist while the team records engagement events.
+    engagement_events_enabled: bool
+
+
+@frozen
+class WorkflowEmailDetail:
+    send: WorkflowEmailSend
+    timeline: list[TransactionalEmailLogEvent]

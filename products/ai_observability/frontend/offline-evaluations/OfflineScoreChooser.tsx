@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconSearch, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { ScorerBadges } from '../scoreDefinitions/ScorerBadges'
 import { offlineExperimentsLogic, type OfflineExperimentsLogicProps } from './offlineExperimentsLogic'
 
 export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.Element {
@@ -70,7 +71,13 @@ export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.El
                                             key={scorer.id}
                                             data-attr="offline-score-selection-toggle"
                                             checked={draftScorerIds.includes(scorer.id)}
-                                            label={`${scorer.name} (${scorer.kind})${scorer.archived ? ' · Archived' : ''}`}
+                                            label={
+                                                <span className="inline-flex flex-wrap items-center gap-1">
+                                                    <span>{scorer.name}</span>
+                                                    <ScorerBadges scorer={scorer} />
+                                                    {scorer.archived && <span className="text-muted">Archived</span>}
+                                                </span>
+                                            }
                                             onChange={(checked) =>
                                                 setDraftScorerIds(
                                                     checked

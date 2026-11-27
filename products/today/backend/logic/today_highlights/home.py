@@ -92,7 +92,7 @@ def _tile(context: Context, short_id: str, dashboard_id: int, dashboard: Insight
         importance=0.6,
         relevance=1.0,
         title=(HOME_WORSE_SERIES if measured else HOME_WORSE).format(
-            name=short(insight.name or pretty(name), 60),
+            name=insight.name or "Untitled insight",
             series=measured,
             moved="increased" if change > 0 else "decreased",
             pct=f"{abs(change):.0f}",

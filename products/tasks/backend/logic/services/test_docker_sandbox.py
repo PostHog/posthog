@@ -228,13 +228,24 @@ class TestDockerSandboxUnit:
         assert "c2VjcmV0" not in redacted
         assert "<redacted>" in redacted
 
-    def test_redact_sandbox_command_hides_github_clone_token(self) -> None:
-        command = "git clone https://x-access-token:github-secret@github.com/PostHog/posthog.git"
+    @pytest.mark.parametrize(
+        "clone_url, expected",
+        [
+            (
+                "https://x-access-token:clone-secret@github.com/PostHog/posthog.git",
+                "https://x-access-token:<redacted>@github.com/PostHog/posthog.git",
+            ),
+            (
+                "https://oauth2:clone-secret@gitlab.com/acme/platform/api.git",
+                "https://oauth2:<redacted>@gitlab.com/acme/platform/api.git",
+            ),
+        ],
+    )
+    def test_redact_sandbox_command_hides_clone_token(self, clone_url: str, expected: str) -> None:
+        redacted = redact_sandbox_command(f"git clone {clone_url}")
 
-        redacted = redact_sandbox_command(command)
-
-        assert "github-secret" not in redacted
-        assert "https://x-access-token:<redacted>@github.com/PostHog/posthog.git" in redacted
+        assert "clone-secret" not in redacted
+        assert expected in redacted
 
     @pytest.mark.parametrize("name", ("GITHUB_TOKEN", "POSTHOG_WIZARD_API_KEY"))
     def test_redact_sandbox_command_hides_worker_credentials(self, name: str) -> None:
@@ -308,7 +319,6 @@ class TestDockerSandboxUnit:
             name="test-sandbox",
             template=SandboxTemplate.DEFAULT_BASE,
             environment_variables={
-                "LLM_GATEWAY_URL": "http://localhost:13308",
                 "POSTHOG_API_URL": "http://localhost:8000",
                 "AI_GATEWAY_URL": "http://127.0.0.1:8080",
                 "POSTHOG_PROJECT_ID": "1",
@@ -322,7 +332,6 @@ class TestDockerSandboxUnit:
         docker_args = docker_run_call[0][0]
 
         env_args = " ".join(docker_args)
-        assert "LLM_GATEWAY_URL=http://host.docker.internal:13308" in env_args
         assert "POSTHOG_API_URL=http://host.docker.internal:8000" in env_args
         assert "AI_GATEWAY_URL=http://host.docker.internal:8080" in env_args
         assert "POSTHOG_PROJECT_ID=1" in env_args
@@ -487,6 +496,40 @@ class TestDockerSandboxUnit:
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    @pytest.mark.parametrize(
+        "repository, tokens, expected_url, expected_parent, expected_dir",
+        [
+            (
+                "PostHog/posthog",
+                {"github_token": "gh-token"},
+                "https://x-access-token:gh-token@github.com/posthog/posthog.git",
+                "/tmp/workspace/repos/posthog",
+                "posthog",
+            ),
+            (
+                "Acme/Platform/API",
+                {"gitlab_token": "gl-token"},
+                "https://oauth2:gl-token@gitlab.com/acme/platform/api.git",
+                "/tmp/workspace/repos/acme/platform",
+                "api",
+            ),
+        ],
+        ids=["github", "gitlab_nested_group"],
+    )
+    def test_clone_repository_remote_and_path(self, repository, tokens, expected_url, expected_parent, expected_dir):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository(repository, **tokens)
+                command = mock_execute.call_args[0][0]
+
+        assert f"cd {shlex.quote(expected_parent)} &&" in command
+        assert f"{shlex.quote(expected_url)} {shlex.quote(expected_dir)} &&" in command
 
     def test_clone_repository_branch_flag(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)

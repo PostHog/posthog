@@ -28,6 +28,8 @@ import { CanvasNavIntent, isSafeGitHubPullRequestUrl } from './canvasProtocol'
 
 export interface CanvasHostLogicProps {
     canvasId: string
+    /** The name from the canvas API response, never from the iframe. */
+    canvasName: string | null
     /** The canvas's space. Supplied by the host, never by the iframe. */
     spaceId: string | null
     /** The source version the running code came from. */
@@ -71,6 +73,8 @@ export interface canvasHostLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
     activePrompt: CanvasHostPrompt | null
+    canvasId: string
+    canvasName: string | null
     prompts: CanvasHostPrompt[]
 }
 
@@ -131,6 +135,8 @@ export interface canvasHostLogicActions {
 export interface canvasHostLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        canvasId: (canvasId: string) => string
+        canvasName: (canvasName: string | null) => string | null
         activePrompt: (prompts: CanvasHostPrompt[]) => CanvasHostPrompt | null
     }
 }
@@ -172,6 +178,8 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
         ],
     }),
     selectors({
+        canvasId: [(_, props) => [props.canvasId], (canvasId: string): string => canvasId],
+        canvasName: [(_, props) => [props.canvasName], (canvasName: string | null): string | null => canvasName],
         activePrompt: [
             (s) => [s.prompts],
             (prompts: CanvasHostPrompt[]): CanvasHostPrompt | null => prompts[0] ?? null,
@@ -203,14 +211,11 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
                 case 'canvas':
                     router.actions.push(urls.canvasDetail(intent.dashboardId))
                     break
-                case 'new-canvas':
-                    router.actions.push(urls.canvasNew(props.spaceId))
-                    break
                 case 'connect':
                     router.actions.push(connectorSettingsUrl(intent.provider))
                     break
                 default:
-                    // The web app has no task composer route to prefill, so these are dropped.
+                    // The web app has no task composer route to prefill, and it does not create canvases, so these are dropped.
                     break
             }
         },

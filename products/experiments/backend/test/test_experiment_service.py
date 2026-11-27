@@ -43,14 +43,13 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
     ExperimentService,
-    ExperimentVersionConflict,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
     _merge_metric_arrays,
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
+from products.experiments.backend.facade.contracts import ExperimentVersionConflict
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
@@ -71,7 +70,11 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_calculation_key_version, patch_exposure_event_flag
+from products.experiments.backend.test.utils import (
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    override_exposure_event_cutoff,
+    patch_calculation_key_version,
+)
 from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -732,11 +735,12 @@ class TestExperimentService(APIBaseTest):
         assert "baseline variant cannot be excluded" in str(ctx.exception)
 
     def test_existing_flag_in_another_config_format_raises(self):
+        # A config version 2 flag is linked by one of its rules, so this is a format that nothing reads.
         FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
             key="other-format",
-            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+            filters={"version": 3, "rules": []},
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -835,13 +839,6 @@ class TestExperimentService(APIBaseTest):
                 {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}},
                 {"type": "primary"},
                 "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
-            ),
-            (
-                "quantile_with_breakdown_override",
-                False,
-                {**_QUANTILE_METRIC, "uuid": "quantile-uuid"},
-                {"type": "primary", "breakdowns": [{"property": "$browser"}]},
-                "Invalid saved metric at index 0: breakdowns are not supported for percentile metrics",
             ),
         ]
     )
@@ -1147,6 +1144,10 @@ class TestExperimentService(APIBaseTest):
             ),
             ("valid_quantile", _QUANTILE_METRIC),
             (
+                "valid_quantile_with_breakdown",
+                {**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}},
+            ),
+            (
                 "valid_quantile_numerical_event_property",
                 {
                     **_QUANTILE_METRIC,
@@ -1229,16 +1230,6 @@ class TestExperimentService(APIBaseTest):
                     }
                 ],
                 "percentile metrics need a numeric event property",
-            ),
-            (
-                "quantile_with_breakdown",
-                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}}],
-                "breakdowns are not supported for percentile metrics",
-            ),
-            (
-                "quantile_with_single_field_breakdown",
-                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdown": "$browser"}}],
-                "breakdowns are not supported for percentile metrics",
             ),
             (
                 "quantile_with_data_warehouse_source",
@@ -1934,7 +1925,7 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"start_date": timezone.now()})
 
         with self.assertRaises(ValidationError) as ctx:
-            service.update_experiment(experiment, {"holdout": holdout})
+            service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         assert "Can't update holdout" in str(ctx.exception)
 
@@ -2783,6 +2774,18 @@ class TestExperimentService(APIBaseTest):
 
         assert "linked feature flag has been deleted" in str(ctx.exception)
 
+    def test_update_experiment_restore_with_flag_adopted_by_another_product_raises(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        experiment.deleted = True
+        experiment.save()
+        Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=experiment.feature_flag)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"deleted": False})
+
+        assert "now belongs to a survey" in str(ctx.exception)
+
     def test_update_experiment_updates_holdout_on_draft(self):
         holdout = ExperimentHoldout.objects.create(
             team=self.team,
@@ -2793,7 +2796,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_draft_experiment()
         service = self._service()
 
-        service.update_experiment(experiment, {"holdout": holdout})
+        service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}
@@ -4172,7 +4175,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now() - timedelta(days=90)}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, False, [], [], [], True)],
+                [("update_start_date", 0, False, ["stale_experiment"], [], ["stale_experiment::info:"], True)],
             ),
             (
                 "update_imports_concluded_draft",
@@ -5521,10 +5524,10 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled for team, start_date offset from cutoff in days, custom exposure event, expected events)
+            # (name, cutoff set, start_date offset from cutoff in days, custom exposure event, expected events)
             ("before_cutoff", True, -7, None, ["$feature_flag_called", "$experiment_exposure"]),
             ("after_cutoff", True, 7, None, ["$experiment_exposure"]),
-            ("after_cutoff_flag_disabled", False, 7, None, ["$feature_flag_called", "$experiment_exposure"]),
+            ("after_cutoff_without_cutoff_set", False, 7, None, ["$feature_flag_called", "$experiment_exposure"]),
             (
                 "custom_flag_called_after_cutoff",
                 True,
@@ -5537,7 +5540,7 @@ class TestExperimentService(APIBaseTest):
     def test_create_exposure_cohort_uses_resolved_exposure_event(
         self,
         name: str,
-        flag_enabled: bool,
+        cutoff_set: bool,
         start_offset_days: int,
         custom_exposure_event: str | None,
         expected_events: list[str],
@@ -5561,7 +5564,7 @@ class TestExperimentService(APIBaseTest):
             ),
         )
 
-        with patch_exposure_event_flag(enabled=flag_enabled):
+        with override_exposure_event_cutoff(enabled=cutoff_set):
             cohort = service.create_exposure_cohort(experiment)
 
         assert cohort.filters is not None
@@ -6203,6 +6206,22 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
+    def test_filter_experiments_queryset_by_feature_flag_ids(self) -> None:
+        service = self._service()
+        for name in ("First", "Second", "Unlisted"):
+            service.create_experiment(name=name, feature_flag_key=f"flag-ids-{name.lower()}")
+        flag_ids = Experiment.objects.filter(team=self.team, name__in=["First", "Second"]).values_list(
+            "feature_flag_id", flat=True
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"feature_flag_ids": ",".join(str(flag_id) for flag_id in flag_ids)},
+        )
+
+        assert sorted(queryset.values_list("name", flat=True)) == ["First", "Second"]
 
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
@@ -8298,6 +8317,34 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         assert experiment.exposure_criteria["exposure_config"]["connection_id"] == connection_id
         assert experiment.metrics[0]["source"]["kind"] == "ExperimentWarehouseNativeNode"
 
+    def test_a_save_turns_the_test_account_filter_off_for_a_warehouse_native_exposure(self) -> None:
+        connection_id = str(self.bigquery.id)
+        criteria_with_filter = {**_warehouse_exposure(connection_id), "filterTestAccounts": True}
+        experiment = self._create(exposure_criteria=criteria_with_filter, metrics=[_warehouse_metric(connection_id)])
+        assert (experiment.exposure_criteria or {})["filterTestAccounts"] is False
+
+        self.service.update_experiment(experiment, {"exposure_criteria": criteria_with_filter})
+
+        experiment.refresh_from_db()
+        assert (experiment.exposure_criteria or {})["filterTestAccounts"] is False
+
+    def test_a_save_turns_the_matured_users_setting_off_for_a_warehouse_native_exposure(self) -> None:
+        connection_id = str(self.bigquery.id)
+        experiment = self.service.create_experiment(
+            name="Warehouse experiment",
+            feature_flag_key="warehouse-experiment",
+            exposure_criteria=_warehouse_exposure(connection_id),
+            metrics=[_warehouse_metric(connection_id)],
+            only_count_matured_users=True,
+            allow_unknown_events=True,
+        )
+        assert experiment.only_count_matured_users is False
+
+        self.service.update_experiment(experiment, {"only_count_matured_users": True})
+
+        experiment.refresh_from_db()
+        assert experiment.only_count_matured_users is False
+
     @parameterized.expand(
         [
             (
@@ -8334,7 +8381,7 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
                 "connection_does_not_exist",
                 "missing",
                 ["missing"],
-                "Invalid connectionId",
+                "does not exist, or you do not have access",
             ),
             (
                 "flag_off",
@@ -8374,44 +8421,42 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         assert expected_error in str(ctx.exception)
         assert not Experiment.objects.filter(team=self.team).exists()
 
-    @parameterized.expand(
-        [("launch_action",), ("patch_start_date",), ("live_create",), ("patch_sources_of_a_launched_experiment",)]
-    )
-    def test_refuses_warehouse_native_sources_on_a_launched_experiment(self, path: str) -> None:
+    def test_launches_a_warehouse_native_experiment(self) -> None:
         connection_id = str(self.bigquery.id)
-        exposure_criteria = _warehouse_exposure(connection_id)
-        metrics = [_warehouse_metric(connection_id)]
-        with self.assertRaises(ValidationError) as ctx:
-            if path == "live_create":
-                self.service.create_experiment(
-                    name="Warehouse experiment",
-                    feature_flag_key="warehouse-experiment",
-                    exposure_criteria=exposure_criteria,
-                    metrics=metrics,
-                    start_date=timezone.now(),
-                )
-            elif path == "patch_sources_of_a_launched_experiment":
-                launched = self.service.create_experiment(
-                    name="Events experiment",
-                    feature_flag_key="events-experiment",
-                    metrics=[_EVENTS_METRIC],
-                    start_date=timezone.now(),
-                    allow_unknown_events=True,
-                )
-                self.service.update_experiment(launched, {"exposure_criteria": exposure_criteria, "metrics": metrics})
-            else:
-                experiment = self._create(exposure_criteria=exposure_criteria, metrics=metrics)
-                if path == "launch_action":
-                    self.service.launch_experiment(experiment)
-                else:
-                    self.service.update_experiment(experiment, {"start_date": timezone.now()})
+        experiment = self._create(
+            exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+        )
 
-        assert "cannot run yet" in str(ctx.exception)
-        assert not Experiment.objects.filter(
-            team=self.team,
-            start_date__isnull=False,
-            exposure_criteria__exposure_config__kind="ExperimentWarehouseNativeExposureConfig",
-        ).exists()
+        self.service.launch_experiment(experiment)
+
+        experiment.refresh_from_db()
+        assert experiment.start_date is not None
+
+    @parameterized.expand([("launch_action",), ("patch_start_date",)])
+    def test_refuses_to_launch_when_the_user_lost_access_to_the_connection(self, path: str) -> None:
+        connection_id = str(self.bigquery.id)
+        experiment = self._create(
+            exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+        )
+        # A launched experiment runs its sources without a user, so the launch is the last place to check access.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        with self.assertRaises(ValidationError) as ctx:
+            if path == "launch_action":
+                self.service.launch_experiment(experiment)
+            else:
+                self.service.update_experiment(experiment, {"start_date": timezone.now()})
+
+        assert "do not have access" in str(ctx.exception)
+        experiment.refresh_from_db()
+        assert experiment.start_date is None
 
     def test_refuses_a_raw_query_when_the_user_cannot_read_every_table_on_the_connection(self) -> None:
         self.organization.available_product_features = [

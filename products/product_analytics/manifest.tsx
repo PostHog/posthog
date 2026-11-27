@@ -126,7 +126,7 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.insightView(ref as InsightShortId),
             listHref: () => urls.savedInsights(),
             listSearchParam: 'search',
-            iconColor: ['var(--color-product-product-analytics-light)'],
+            iconColor: ['var(--color-product-product-analytics-light)', 'var(--color-product-product-analytics-dark)'],
             filterKey: 'insight',
         },
     },
@@ -225,7 +225,7 @@ export const manifest: ProductManifest = {
                 { name: 'Notifications', href: urls.savedInsights(SavedInsightsTabs.Notifications) },
             ],
             iconType: 'product_analytics',
-            iconColor: ['var(--color-product-product-analytics-light)'],
+            iconColor: ['var(--color-product-product-analytics-light)', 'var(--color-product-product-analytics-dark)'],
             sceneKey: 'SavedInsights',
             sceneKeys: ['SavedInsights', 'Insight'],
         },
@@ -248,6 +248,15 @@ export const manifest: ProductManifest = {
         },
     ],
     treeItemsMetadata: [
+        {
+            path: 'Tags',
+            category: 'Schema',
+            iconType: 'tag',
+            href: urls.tagDefinitions(),
+            flag: FEATURE_FLAGS.TAG_MANAGEMENT,
+            requiresOrganizationAdmin: true,
+            searchKeywords: ['labels', 'merge', 'rename'],
+        },
         {
             path: 'Event definitions',
             category: 'Schema',

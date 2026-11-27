@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.conf import settings
+from django.db import DatabaseError, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -34,9 +35,21 @@ ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
+    def _partner_app(self, name: str) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name=name,
+            client_id=f"{name}-client",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+        )
+
     def test_create_personal_api_key(self):
         label = "Test key uno"
         description = "Test description"
+        partner = self._partner_app("Partner")
         response = self.client.post(
             "/api/personal_api_keys",
             {
@@ -45,6 +58,8 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
                 "scopes": ["insight:read"],
                 "scoped_organizations": [],
                 "scoped_teams": [],
+                "provisioned_by": str(partner.id),
+                "provisioned_by_name": partner.name,
             },
         )
         assert response.status_code == 201
@@ -68,8 +83,13 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "value": data["value"],
             "mask_value": data["mask_value"],
             "local_dev_value": None,
+            "user_distinct_id": self.user.distinct_id,
+            "current_organization_id": str(self.user.current_organization_id),
+            "current_team_id": self.user.current_team_id,
+            "provisioned_by_name": None,
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
+        assert key.provisioned_by_id is None
 
     @parameterized.expand(
         [
@@ -190,6 +210,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         }
 
     def test_update_api_key(self):
+        partner = self._partner_app("Partner")
         key = PersonalAPIKey.objects.create(
             label="Test",
             user=self.user,
@@ -197,10 +218,17 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             scopes=[
                 "insight:read",
             ],
+            provisioned_by=partner,
         )
         response = self.client.patch(
             f"/api/personal_api_keys/{key.id}",
-            {"label": "test-update", "scopes": ["insight:write"], "scoped_teams": [self.team.id, self.team.id]},
+            {
+                "label": "test-update",
+                "scopes": ["insight:write"],
+                "scoped_teams": [self.team.id, self.team.id],
+                "provisioned_by": None,
+                "provisioned_by_name": "Someone else",
+            },
         )
         assert response.status_code == 200
         data = response.json()
@@ -208,8 +236,31 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert data["label"] == "test-update"
         assert data["scopes"] == ["insight:write"]
         assert data["scoped_teams"] == [self.team.id]
+        assert data["provisioned_by_name"] == partner.name
         key.refresh_from_db()
         assert key.scoped_teams == [self.team.id]
+        assert key.provisioned_by_id == partner.id
+
+    @parameterized.expand(
+        [
+            ("drops a retired scope the key already holds", ["insight:read", "retired_product:read"], 200),
+            ("rejects an unknown scope the key does not hold", ["insight:read", "never_existed:read"], 400),
+        ]
+    )
+    def test_update_with_a_scope_that_no_longer_exists(self, _name, sent_scopes, expected_status):
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read", "retired_product:read"],
+        )
+
+        response = self.client.patch(f"/api/personal_api_keys/{key.id}", {"label": "renamed", "scopes": sent_scopes})
+
+        assert response.status_code == expected_status
+        key.refresh_from_db()
+        if expected_status == 200:
+            assert key.scopes == ["insight:read"]
 
     def test_allows_all_scope(self):
         response = self.client.post(
@@ -248,8 +299,15 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             scopes=["*"],
         )
         assert PersonalAPIKey.objects.count() == 1
+        stale_copy = PersonalAPIKey.objects.get(id=key.id)
+
         response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
         assert response.status_code == 204
+        assert PersonalAPIKey.objects.count() == 0
+
+        stale_copy.label = "Renamed"
+        with self.assertRaises(DatabaseError), transaction.atomic():
+            stale_copy.save()
         assert PersonalAPIKey.objects.count() == 0
 
     @parameterized.expand(
@@ -322,6 +380,10 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "value": None,
             "mask_value": my_key.mask_value,
             "local_dev_value": None,
+            "user_distinct_id": self.user.distinct_id,
+            "current_organization_id": str(self.user.current_organization_id),
+            "current_team_id": self.user.current_team_id,
+            "provisioned_by_name": None,
         }
 
     def test_get_own_personal_api_key(self):
@@ -1390,6 +1452,9 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["label"], "Test key")
+        self.assertEqual(response.json()["user_distinct_id"], self.user.distinct_id)
+        self.assertEqual(response.json()["current_organization_id"], str(self.user.current_organization_id))
+        self.assertEqual(response.json()["current_team_id"], self.user.current_team_id)
 
         # Should not be allowed to get by ID
         response = self.client.get(

@@ -69,6 +69,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
 from products.signals.backend.enums import ReportLinkWritePath, SignalSourceProduct
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -89,10 +90,10 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.report_tags import set_report_tags
-from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, contains_reviewer
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
-from products.signals.backend.source_issues import append_source_issues
+from products.signals.backend.source_issues import append_source_issues, lock_source_issues, reported_source_issue
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
 from products.signals.backend.trial.funding import direct_report_funding_snapshot
@@ -151,6 +152,18 @@ class ScoutReportAlreadyEmittedError(Exception):
 
     def __init__(self, existing: ExistingScoutReport) -> None:
         super().__init__(f"report {existing.report_id} already holds this idempotency key")
+        self.existing = existing
+
+
+class SourceIssueAlreadyReportedError(Exception):
+    """`create_scout_report` was called with a source issue that an open report already names.
+
+    The emit path turns this into a refusal that hands the scout the open report, so the scout adds
+    its findings to that report instead of opening a second one for the same issue."""
+
+    def __init__(self, issue: SourceIssue, existing: ExistingScoutReport) -> None:
+        super().__init__(f"report {existing.report_id} already names {issue.url}")
+        self.issue = issue
         self.existing = existing
 
 
@@ -254,7 +267,11 @@ def create_scout_report(
 
     `source_issues`, when supplied, become the report's `source_issue` rows in the same transaction.
     A report born READY then comments a link on each issue after commit, when the team opted into
-    the GitHub writeback (`source_issues.append_source_issues`).
+    the GitHub writeback (`source_issues.append_source_issues`). When an open report already names
+    one of the issues, the call raises `SourceIssueAlreadyReportedError` carrying that report and
+    writes nothing, unless `links` links that report as separate work
+    (`source_issues.SEPARATE_REPORT_LINK_KINDS`). The check holds a lock per issue until commit, so
+    two concurrent calls for one issue cannot both create a report.
 
     `idempotency_key`, when supplied, is stored on the report under a per-team unique index, so one
     key can only ever author one report. A call whose key a report already holds raises
@@ -290,9 +307,14 @@ def create_scout_report(
 
     report_id = str(funded_report_id or uuid.uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
+    source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
     try:
         with transaction.atomic():
-            report = SignalReport.objects.create(
+            if source_issues:
+                _refuse_reported_source_issues(
+                    team_id=team_id, source_issues=source_issues, links=links, idempotency_key=idempotency_key
+                )
+            report = SignalReport(
                 id=report_id,
                 team_id=team_id,
                 self_driving_funding=direct_report_funding_snapshot(team_id),
@@ -314,6 +336,10 @@ def create_scout_report(
                     timezone.now() if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT) else None
                 ),
             )
+            if emit_signals:
+                # The backing signals reach ClickHouse after this commit, so the ready event cannot read their source yet.
+                report._known_source_products = [source_product]  # type: ignore[attr-defined]
+            report.save(force_insert=True)
             report_id = str(report.id)
             _apply_report_tags(report, tags)
             # Provenance: every authored report carries a note marking it scout-authored, attributed to
@@ -381,6 +407,9 @@ def create_scout_report(
                     report_id=report_id,
                     content=suggested_reviewers or SuggestedReviewers(root=[]),
                     attribution=attribution,
+                    implementation_authorization=ImplementationAuthorization(mode="reviewer")
+                    if created_by_id is None
+                    else None,
                     reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="scout"),
                     reevaluate_autostart=False,
                 )
@@ -432,7 +461,6 @@ def create_scout_report(
         # on the evidence card + header, matching the emit_signal path. `run` is the single place the
         # skill_name is available (bound signals otherwise ship empty extra, see `_build_signals`).
         skill_name = run.skill_name if run is not None else None
-        source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
         for signal, document_id in zip(signals, document_ids):
             _emit_bound_signal(
                 team_id=team_id,
@@ -495,6 +523,26 @@ def scout_report_tags_in_use(*, team_id: int) -> list[str]:
     hidden = {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED}
     counts = Counter(tag for status, tags in rows if status not in hidden for tag in tags if slugify_tag(tag) == tag)
     return sorted(counts, key=lambda tag: (-counts[tag], tag))[:MAX_TAGS_IN_USE]
+
+
+def _refuse_reported_source_issues(
+    *, team_id: int, source_issues: Sequence[SourceIssue], links: Sequence[ReportLink], idempotency_key: str | None
+) -> None:
+    """Raise when an open report already names one of the issues. Runs inside the report transaction.
+
+    The key is checked again under the lock: a retry that waited for the first call's commit finds the
+    report its own emission authored, and that report names the same issues."""
+    lock_source_issues(team_id=team_id, issues=source_issues)
+    if idempotency_key is not None:
+        existing = find_scout_report_by_idempotency_key(team_id=team_id, idempotency_key=idempotency_key)
+        if existing is not None:
+            raise ScoutReportAlreadyEmittedError(existing)
+    reported = reported_source_issue(team_id=team_id, issues=source_issues, links=links)
+    if reported is not None:
+        issue, report = reported
+        raise SourceIssueAlreadyReportedError(
+            issue, ExistingScoutReport(report_id=str(report.id), status=SignalReport.Status(report.status))
+        )
 
 
 def find_scout_report_by_idempotency_key(*, team_id: int, idempotency_key: str) -> ExistingScoutReport | None:
@@ -1428,6 +1476,11 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
             # leaving autostart's owner exclusion resting on the best-effort tally alone.
             "is_skill_owner": entry.is_skill_owner,
             "source_skill": entry.source_skill,
+            # The supplied entry's own value, which is False for a fresh scout pick. A stored entry sent
+            # back unchanged (`add_scout_report_reviewers`) keeps the flags that bar it from the
+            # autostart identity.
+            "is_research_selected": entry.is_research_selected,
+            "is_default_owner": entry.is_default_owner,
         }
         try:
             merged.append(SuggestedReviewerEntry.model_validate(candidate))
@@ -1468,6 +1521,7 @@ def set_scout_report_reviewers(
             report_id=report_id,
             content=merged,
             attribution=attribution,
+            implementation_authorization=ImplementationAuthorization(mode="reviewer"),
             reviewer_proposal=proposal,
             reevaluate_autostart=False,
         )
@@ -1499,6 +1553,45 @@ def set_scout_report_reviewers(
             )
         )
     return True
+
+
+def add_scout_report_reviewers(
+    *,
+    team_id: int,
+    report_id: str,
+    additions: Sequence[SuggestedReviewerEntry],
+    max_reviewers: int,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+    service: ReviewerRules | None = None,
+) -> bool:
+    """Add reviewers the report does not hold yet after its current ones, up to `max_reviewers`.
+
+    The current list is read under the report lock and sent back as the expected state, so the write
+    goes through the report's saved reviewer corrections like any scout selection: a person's removal
+    or confirmed list still wins. A report whose stored reviewers are invalid is left for a person.
+    """
+    _validate_report_id(report_id)
+    service = service or ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
+    with transaction.atomic():
+        SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
+        snapshot = service.read()
+        if snapshot.invalid_reviewers:
+            return False
+        current = snapshot.reviewers
+        room = max(0, max_reviewers - len(current))
+        added = [entry for entry in additions if not contains_reviewer(current, entry)][:room]
+        if not added:
+            return False
+        return set_scout_report_reviewers(
+            team_id=team_id,
+            report_id=report_id,
+            suggested_reviewers=SuggestedReviewers(root=[*current, *added]),
+            attribution=attribution,
+            author=author,
+            proposal=ReviewerProposal(expected_state=snapshot.state, source="scout_edit"),
+            service=service,
+        )
 
 
 def set_scout_report_repository(

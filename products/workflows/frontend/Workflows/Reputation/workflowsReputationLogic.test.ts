@@ -18,8 +18,12 @@ const allowance: EmailSendingAllowanceApi = {
     max_tier: 4,
     emails_per_day: 50000,
     max_batch_audience: 25000,
+    rate_limited_max_batch_audience: null,
     emails_sent_last_day: 18400,
     enforced: true,
+    next_tier: null,
+    recent_rates: null,
+    recent_changes: [],
 }
 
 describe('workflowsReputationLogic', () => {

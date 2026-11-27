@@ -74,7 +74,7 @@ def create_or_update_file(
     all_existing = (
         FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref)
         .filter(~Q(shortcut=True))
-        .all()
+        .order_by("id")
     )
     for existing in all_existing:
         has_existing = True
@@ -120,15 +120,15 @@ def create_or_update_file(
 
 
 def delete_file(*, team: Team, file_type: str, ref: str, surface: str = DEFAULT_SURFACE):
-    count, _ = FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).delete()
-    if count > 0:
-        FileSystemShortcut.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).delete()
+    delete_files(team=team, file_type=file_type, refs=[ref], surface=surface)
 
 
 def delete_files(*, team: Team, file_type: str, refs: Sequence[str], surface: str = DEFAULT_SURFACE) -> None:
-    count, _ = FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref__in=refs).delete()
+    unique_refs = list(dict.fromkeys(refs))
+    same_objects = Q(ref=unique_refs[0]) if len(unique_refs) == 1 else Q(ref__in=unique_refs)
+    count, _ = FileSystem.objects.filter(surface_q(surface), same_objects, team=team, type=file_type).delete()
     if count > 0:
-        FileSystemShortcut.objects.filter(surface_q(surface), team=team, type=file_type, ref__in=refs).delete()
+        FileSystemShortcut.objects.filter(surface_q(surface), same_objects, team=team, type=file_type).delete()
 
 
 def split_path(path: str) -> list[str]:

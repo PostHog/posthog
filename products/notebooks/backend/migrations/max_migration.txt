@@ -1,1 +1,1 @@
-0029_squash_2026_11_02_schema_addons
+0034_app_release_sql_rows

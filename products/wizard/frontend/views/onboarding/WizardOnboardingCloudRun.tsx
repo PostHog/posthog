@@ -109,6 +109,11 @@ export function WizardOnboardingCloudRun({
                             >
                                 {startLabel}
                             </LemonButton>
+                            <p className="text-xs text-muted mb-0">
+                                When you start, the setup agent analyzes your codebase to choose the analytics that fit
+                                your app. It also looks for data sources you can connect to PostHog, like Stripe or
+                                Postgres.
+                            </p>
                         </>
                     )}
                 </div>

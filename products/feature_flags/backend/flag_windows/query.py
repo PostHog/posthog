@@ -17,6 +17,13 @@ people per bucket and since the edit.
   on a large flag a count of a subset can come out a little above the count of the whole, for example `exposed` above
   `with_flag`. `uniqExact` would keep every person id of every count of every bucket in memory, in a query that reads
   every event of the team.
+- A person who had an exposed value counts only as exposed, also for the time before it. Most of the people that an edit
+  moves have the old value for seconds, with no time to hit an error. As unexposed people they would lower that error
+  rate, and a healthy rollout would look like a regression. So the unexposed people never had an exposed value, or in
+  the counts by the properties of each event, never at an event in the watched conditions.
+- The unexposed counts are differences of two counts, because a state of one bucket can't leave out the people who are
+  exposed in another. The noise of two estimates can be larger than their difference. So the query also counts samples
+  of the people, and the difference comes from the largest sample that `uniq` counts exactly.
 - An edit moves the people of some conditions only, and the people that match no condition get false before and after
   it. The counts in the watched conditions leave the others out, in two ways that the backtest compares:
   - By `$feature_flag_reason`, which the SDKs put on `$feature_flag_called` from the `/flags` response. The reason names
@@ -32,6 +39,9 @@ people per bucket and since the edit.
     of the same range gives the same counts. A condition that the query can't express, such as one on a deleted
     static cohort, leaves its edit without counts by properties. A value that ClickHouse rejects when the query runs,
     such as text compared with a number, leaves every edit without them.
+
+`flag_windows/last_values.py` counts people by the last value they had, so the first rule doesn't hold there: it also
+sees the people whose events don't carry the flag. It runs one query per kind of actor.
 
 One query per team reads every watched edit: a query per edit would read the same events again.
 """
@@ -61,8 +71,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError
 from posthog.models import Team
 
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flag_calls import FlagCalls
 from products.feature_flags.backend.person_sampling import SPILL_GROUP_BY_AFTER_BYTES
 from products.feature_flags.backend.user_blast_radius import (
     replace_proxy_properties,
@@ -79,6 +88,11 @@ QUERY_MAX_THREADS = 2
 # ClickHouse rejects these when a property filter compares a value it can't cast or compile: CANNOT_PARSE_TEXT,
 # CANNOT_PARSE_DATETIME, TYPE_MISMATCH, CANNOT_PARSE_NUMBER and CANNOT_COMPILE_REGEXP.
 PROPERTY_VALUE_ERROR_CODES = frozenset({6, 41, 53, 72, 427})
+
+# The samples hold one in this many people. The last one is exact for up to about 15 million people.
+SAMPLES = (1, 16, 256)
+# A count that `uniq` gives exactly. It estimates above 65,536, and an estimate of more can come out a little below that.
+EXACT_COUNT = 60_000
 
 IN_BUCKET = "_finalizeAggregation({state})"
 SINCE_EDIT = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
@@ -127,6 +141,8 @@ class FlagRead:
     actor: ast.Expr
     # A group flag needs the group on the event.
     has_actor: ast.Expr
+    # The event carries `$feature/<key>`.
+    carries_flag: ast.Expr
     # The event carries the flag, or loaded flags when the edit enables the flag.
     with_flag: ast.Expr
     # The event carries a value other than false.
@@ -136,10 +152,52 @@ class FlagRead:
     # The person (or group) is in a watched condition, by each way of matching. Empty without watched conditions.
     in_condition: Mapping[ConditionMatch, ast.Expr] = field(default_factory=dict)
 
+    @property
+    def unexposed(self) -> ast.Expr:
+        """The event carries the value false, or loaded flags without this one when the edit enables the flag."""
+        return parse_expr(
+            "{with_flag} AND NOT {exposed}", placeholders={"with_flag": self.with_flag, "exposed": self.exposed}
+        )
+
     def has_variant(self, variant: str) -> ast.Expr:
         return parse_expr(
             "{variant_key} = {variant}",
             placeholders={"variant_key": self.variant_key, "variant": ast.Constant(value=variant)},
+        )
+
+
+@frozen
+class BucketRange:
+    """The buckets of `[start, end)`. They start at `start`, not at a multiple of the bucket since the epoch, so a range
+    that starts at an edit time does not begin with a partial bucket."""
+
+    start: datetime
+    end: datetime
+    bucket: timedelta
+
+    def __post_init__(self) -> None:
+        seconds = self.bucket.total_seconds()
+        if seconds < 1 or seconds != int(seconds):
+            raise ValueError(f"A bucket must be a whole number of seconds, got {self.bucket}")
+        if self.end <= self.start:
+            raise ValueError(f"The range must end after it starts, got {self.start} to {self.end}")
+        # HogQL caps the rows of a query, and a capped result would drop the newest buckets without an error.
+        if self.buckets > MAX_SELECT_RETURNED_ROWS:
+            raise ValueError(f"The range holds {self.buckets} buckets, more than {MAX_SELECT_RETURNED_ROWS}")
+
+    @property
+    def buckets(self) -> int:
+        return math.ceil((self.end - self.start) / self.bucket)
+
+    def bucket_of(self, timestamp: ast.Expr) -> ast.Expr:
+        """The start of the bucket that holds `timestamp`, which must not be before the range."""
+        return parse_expr(
+            "toStartOfInterval({timestamp}, toIntervalSecond({seconds}), {start})",
+            placeholders={
+                "timestamp": timestamp,
+                "seconds": ast.Constant(value=int(self.bucket.total_seconds())),
+                "start": ast.Constant(value=self.start),
+            },
         )
 
 
@@ -153,6 +211,63 @@ class BucketCounts:
 
 
 @frozen
+class SplitCounts:
+    """The people (or groups) of a flag, split by the value they had."""
+
+    with_flag: int
+    # With an exposed value.
+    exposed: int
+    # The rest of `with_flag`.
+    unexposed: int
+    # With an error under an exposed value.
+    exposed_with_errors: int
+    # The unexposed people with an error.
+    unexposed_with_errors: int
+    # The unexposed counts come from a sample of one in this many people, scaled up to everyone.
+    unexposed_one_in: int
+
+
+# One column for the exposed people with errors, and three per sample.
+SPLIT_COLUMNS = 1 + 3 * len(SAMPLES)
+
+
+def split_columns(
+    actor: ast.Expr, *, with_flag: ast.Expr, exposed: ast.Expr, exposed_error: ast.Expr, unexposed_error: ast.Expr
+) -> list[ast.Expr]:
+    """The counts that `split_counts` reads, from expressions that hold for the rows of a person with the flag, with an
+    exposed value, and with an error under each value."""
+    # Without the exposed people, the last count is the people with errors who never had an exposed value.
+    counts = [with_flag, exposed, ast.Or(exprs=[exposed, unexposed_error])]
+    columns = [exposed_error, *counts]
+    for one_in in SAMPLES[1:]:
+        in_sample = parse_expr(
+            "cityHash64({actor}) % {one_in} = 0", placeholders={"actor": actor, "one_in": ast.Constant(value=one_in)}
+        )
+        columns += [ast.And(exprs=[count, in_sample]) for count in counts]
+    return columns
+
+
+def split_counts(values: Sequence[int]) -> SplitCounts:
+    exposed_with_errors, *by_sample = values
+    samples = [(one_in, by_sample[3 * index : 3 * index + 3]) for index, one_in in enumerate(SAMPLES)]
+    _, (with_flag, exposed, _) = samples[0]
+    one_in, (sampled_with_flag, sampled_exposed, sampled_exposed_or_with_errors) = next(
+        ((one_in, counts) for one_in, counts in samples if counts[0] <= EXACT_COUNT), samples[-1]
+    )
+    # Above the limit of the last sample, the counts are separate estimates, so a part can come out above the whole.
+    unexposed = max(0, sampled_with_flag - sampled_exposed)
+    unexposed_with_errors = min(unexposed, max(0, sampled_exposed_or_with_errors - sampled_exposed))
+    return SplitCounts(
+        with_flag=with_flag,
+        exposed=exposed,
+        unexposed=unexposed * one_in,
+        exposed_with_errors=exposed_with_errors,
+        unexposed_with_errors=unexposed_with_errors * one_in,
+        unexposed_one_in=one_in,
+    )
+
+
+@frozen
 class EditCounts:
     # The ways of matching that the edit has counts in the watched conditions for, in the order of their columns.
     matches: tuple[ConditionMatch, ...]
@@ -160,22 +275,22 @@ class EditCounts:
 
 
 @frozen
-class _Actor:
+class Actor:
     # The person, or the group that a group flag aggregates by.
     expr: ast.Expr
     # The event has the actor. A group flag needs the group on the event.
     present: ast.Expr
 
 
-def _actor(group_type_index: int | None) -> _Actor:
+def actor_of(group_type_index: int | None) -> Actor:
     if group_type_index is None:
-        return _Actor(expr=ast.Field(chain=["person_id"]), present=ast.Constant(value=True))
+        return Actor(expr=ast.Field(chain=["person_id"]), present=ast.Constant(value=True))
     actor = ast.Field(chain=[f"$group_{group_type_index}"])
-    return _Actor(expr=actor, present=parse_expr("notEmpty({actor})", placeholders={"actor": actor}))
+    return Actor(expr=actor, present=parse_expr("notEmpty({actor})", placeholders={"actor": actor}))
 
 
 def read_flag(edit: WatchedEdit, in_condition: Mapping[ConditionMatch, ast.Expr]) -> FlagRead:
-    actor = _actor(edit.group_type_index)
+    actor = actor_of(edit.group_type_index)
     # A flag key can hold any character, so it goes in as an AST node, never as HogQL text.
     property_name = f"$feature/{edit.flag_key}"
     flag_value = ast.Call(name="toString", args=[ast.Field(chain=["properties", property_name])])
@@ -215,6 +330,7 @@ def read_flag(edit: WatchedEdit, in_condition: Mapping[ConditionMatch, ast.Expr]
     return FlagRead(
         actor=actor.expr,
         has_actor=actor.present,
+        carries_flag=carries_flag,
         with_flag=with_flag,
         exposed=exposed,
         variant_key=variant_key,
@@ -274,36 +390,27 @@ def _matches_condition(team: Team, condition: WatchedCondition, end: datetime) -
     )
 
 
-@frozen
-class _FlagCalls:
-    """Where the reason joins read the flag calls of a team."""
+def edits_by_actor(edits: Sequence[WatchedEdit]) -> dict[int | None, list[tuple[int, WatchedEdit]]]:
+    """The edits with their position in `edits`, by the group type that their flag aggregates by."""
+    by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
+    for index, edit in enumerate(edits):
+        by_actor.setdefault(edit.group_type_index, []).append((index, edit))
+    return by_actor
 
-    table: tuple[str, ...]
-    # Limits the rows to flag calls.
-    only_calls: ast.Expr
-    flag_key: ast.Expr
-    # The stored person id. The events read it too, because the query doesn't apply person merges.
-    person_id: ast.Expr
 
-    @classmethod
-    def of(cls, team: Team) -> "_FlagCalls":
-        # Ingestion writes no flag calls to events for some teams of an organization on FLAG_EVALUATIONS_ONLY. The
-        # flag_evaluations swap can't move this scan, because there `person_id` applies person merges. So the scan
-        # reads `flag_evaluations` by name. In the other modes events holds every flag call, and flag_evaluations
-        # only those of the teams that ingestion writes there.
-        if get_flag_evaluations_read_mode(team.organization_id) != FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
-            return cls(
-                table=("events",),
-                only_calls=parse_expr("event = '$feature_flag_called'"),
-                flag_key=parse_expr("properties.$feature_flag"),
-                person_id=ast.Field(chain=["person_id"]),
-            )
-        return cls(
-            table=("posthog", "flag_evaluations"),
-            only_calls=ast.Constant(value=True),
-            flag_key=ast.Field(chain=["flag_key"]),
-            person_id=ast.Field(chain=["flag_evaluation_person_id"]),
-        )
+def _join_by_actor(table: ast.SelectQuery, alias: str, actor: Actor) -> ast.JoinExpr:
+    return ast.JoinExpr(
+        join_type="LEFT JOIN",
+        table=table,
+        alias=alias,
+        constraint=ast.JoinConstraint(
+            expr=parse_expr(
+                "{joined_actor} = {actor}",
+                placeholders={"joined_actor": ast.Field(chain=[alias, "actor"]), "actor": actor.expr},
+            ),
+            constraint_type="ON",
+        ),
+    )
 
 
 def _reason_joins(
@@ -312,22 +419,23 @@ def _reason_joins(
     """The joins that tell, for each edit with watched conditions, whether the actor of an event sent a flag call
     with a watched reason after the edit, and the column of each edit. One join per kind of actor, so the query reads
     the flag calls once for all the edits of that kind."""
-    edits_by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
-    for index, edit in enumerate(edits):
-        if edit.conditions:
-            edits_by_actor.setdefault(edit.group_type_index, []).append((index, edit))
-    if not edits_by_actor:
+    watched_by_actor = {
+        group_type_index: watched
+        for group_type_index, all_edits in edits_by_actor(edits).items()
+        if (watched := [(index, edit) for index, edit in all_edits if edit.conditions])
+    }
+    if not watched_by_actor:
         return [], {}
-    calls = _FlagCalls.of(team)
+    calls = FlagCalls.of(team)
     joins: list[ast.JoinExpr] = []
     columns: dict[str, ast.Expr] = {}
-    for group_type_index, watched in edits_by_actor.items():
+    for group_type_index, watched in watched_by_actor.items():
         alias = "flag_reasons" if group_type_index is None else f"flag_reasons_{group_type_index}"
-        actor = _actor(group_type_index)
+        actor = actor_of(group_type_index)
         reasons_by_edit = {edit.id: _watched_reasons(edit) for _, edit in watched}
         subquery = ast.SelectQuery(
             select=[
-                ast.Alias(alias="actor", expr=calls.person_id if group_type_index is None else actor.expr),
+                ast.Alias(alias="actor", expr=calls.actor_column(group_type_index)),
                 *[
                     ast.Alias(
                         alias=f"e{index}",
@@ -353,8 +461,8 @@ def _reason_joins(
                     "since": ast.Constant(value=min(edit.edited_at for _, edit in watched)),
                     "end": ast.Constant(value=end),
                     "flag_key": calls.flag_key,
-                    "flag_keys": _constants(edit.flag_key for _, edit in watched),
-                    "reasons": _constants(reason for reasons in reasons_by_edit.values() for reason in reasons),
+                    "flag_keys": constants(edit.flag_key for _, edit in watched),
+                    "reasons": constants(reason for reasons in reasons_by_edit.values() for reason in reasons),
                     "has_actor": actor.present,
                 },
             ),
@@ -366,20 +474,7 @@ def _reason_joins(
                 ]
             ),
         )
-        joins.append(
-            ast.JoinExpr(
-                join_type="LEFT JOIN",
-                table=subquery,
-                alias=alias,
-                constraint=ast.JoinConstraint(
-                    expr=parse_expr(
-                        "{reasons_actor} = {actor}",
-                        placeholders={"reasons_actor": ast.Field(chain=[alias, "actor"]), "actor": actor.expr},
-                    ),
-                    constraint_type="ON",
-                ),
-            )
-        )
+        joins.append(_join_by_actor(subquery, alias, actor))
         for index, edit in watched:
             columns[edit.id] = ast.Field(chain=[alias, f"e{index}"])
     return joins, columns
@@ -393,7 +488,7 @@ def _watched_reasons(edit: WatchedEdit) -> list[str]:
     return reasons
 
 
-def _called_with_watched_reason(edit: WatchedEdit, calls: _FlagCalls, reasons: Sequence[str]) -> ast.Expr:
+def _called_with_watched_reason(edit: WatchedEdit, calls: FlagCalls, reasons: Sequence[str]) -> ast.Expr:
     return parse_expr(
         """
         max(
@@ -406,12 +501,12 @@ def _called_with_watched_reason(edit: WatchedEdit, calls: _FlagCalls, reasons: S
             "flag_key": calls.flag_key,
             "edit_flag_key": ast.Constant(value=edit.flag_key),
             "edited_at": ast.Constant(value=edit.edited_at),
-            "reasons": _constants(reasons),
+            "reasons": constants(reasons),
         },
     )
 
 
-def _constants(values: Iterable[str]) -> ast.Tuple:
+def constants(values: Iterable[str]) -> ast.Tuple:
     return ast.Tuple(exprs=[ast.Constant(value=value) for value in sorted(set(values))])
 
 
@@ -458,110 +553,127 @@ def _states(index: int, edit: WatchedEdit, read: FlagRead, counts: Sequence[ast.
     ]
 
 
+def run_window_query(team: Team, query: ast.SelectQuery, query_type: str) -> list[Any]:
+    """The result rows of an observation window query, run with the settings that every window query shares."""
+    with tags_context(
+        product=Product.FEATURE_FLAGS,
+        feature=Feature.HEALTH_CHECK,
+        team_id=team.pk,
+        org_id=team.organization_id,
+    ):
+        response = execute_hogql_query(
+            query,
+            team=team,
+            query_type=query_type,
+            workload=Workload.OFFLINE,
+            # The join that applies person merges costs seconds on large teams and moves the counts by a tiny
+            # fraction, because a merge moves few people.
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+            # A query that breaks on timeout returns partial counts, which would read as lower counts.
+            settings=HogQLGlobalSettings(
+                max_execution_time=QUERY_TIMEOUT_SECONDS,
+                max_threads=QUERY_MAX_THREADS,
+                timeout_overflow_mode="throw",
+                # The reason joins and the last values group by actor. On a large team the aggregation goes to disk
+                # instead of failing the counts of every edit.
+                max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
+            ),
+        )
+    return response.results or []
+
+
+def run_bucket_query(
+    team: Team,
+    per_bucket: ast.SelectQuery,
+    states_by_edit: Mapping[str, Sequence[ast.Alias]],
+    buckets: int,
+    query_type: str,
+) -> dict[str, tuple[BucketCounts, ...]]:
+    """The counts of each edit in each `bucket` of `per_bucket`, oldest first. `per_bucket` selects the bucket and one
+    `uniqState` per count of each edit."""
+    query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["bucket"]),
+            *[
+                parse_expr(template, placeholders={"state": ast.Field(chain=[state.alias])})
+                for states in states_by_edit.values()
+                for state in states
+                for template in (IN_BUCKET, SINCE_EDIT)
+            ],
+        ],
+        select_from=ast.JoinExpr(table=per_bucket),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["bucket"]), order="ASC")],
+        # One row per bucket. HogQL adds LIMIT 100 to a query without one.
+        limit=ast.Constant(value=buckets),
+    )
+    rows_by_edit: dict[str, list[BucketCounts]] = {edit_id: [] for edit_id in states_by_edit}
+    for row in run_window_query(team, query, query_type):
+        values = iter(row[1:])
+        for edit_id, states in states_by_edit.items():
+            # Each state gives the bucket's own value, then the value since the edit.
+            pairs = [(int(next(values)), int(next(values))) for _ in states]
+            rows_by_edit[edit_id].append(
+                BucketCounts(
+                    start=row[0],
+                    in_bucket=tuple(pair[0] for pair in pairs),
+                    since_edit=tuple(pair[1] for pair in pairs),
+                )
+            )
+    return {edit_id: tuple(rows) for edit_id, rows in rows_by_edit.items()}
+
+
 @frozen
 class _BucketQuery:
     team: Team
     edits: Sequence[WatchedEdit]
     counts: Callable[[WatchedEdit, FlagRead], Sequence[ast.Expr]]
-    start: datetime
-    end: datetime
-    seconds: int
-    buckets: int
+    bucket_range: BucketRange
     query_type: str
     event: str | None
     joins: tuple[ast.JoinExpr, ...]
 
     def run(self, with_properties: bool) -> dict[str, EditCounts]:
         # Each run builds its own tree, because resolving a query can change the nodes in it.
-        reason_joins, reason_columns = _reason_joins(self.team, self.edits, self.end)
+        start, end = self.bucket_range.start, self.bucket_range.end
+        reason_joins, reason_columns = _reason_joins(self.team, self.edits, end)
         joins = [*(clone_expr(join) for join in self.joins), *reason_joins]
-        reads = [
-            read_flag(edit, _in_condition(self.team, edit, reason_columns.get(edit.id), self.end, with_properties))
+        reads = {
+            edit.id: read_flag(edit, _in_condition(self.team, edit, reason_columns.get(edit.id), end, with_properties))
             for edit in self.edits
-        ]
-        states_by_edit = [
-            _states(index, edit, read, self.counts(edit, read))
-            for index, (edit, read) in enumerate(zip(self.edits, reads))
-        ]
-        states = [state for edit_states in states_by_edit for state in edit_states]
-        # Buckets start at `start`, not at a multiple of the bucket since the epoch, so a range that starts at an edit
-        # time does not begin with a partial bucket.
-        bucket_start = parse_expr(
-            "toStartOfInterval(timestamp, toIntervalSecond({seconds}), {start})",
-            placeholders={"seconds": ast.Constant(value=self.seconds), "start": ast.Constant(value=self.start)},
-        )
+        }
+        states_by_edit = {
+            edit.id: _states(index, edit, reads[edit.id], self.counts(edit, reads[edit.id]))
+            for index, edit in enumerate(self.edits)
+        }
         where = parse_expr(
             "timestamp >= {start} AND timestamp < {end}",
-            placeholders={"start": ast.Constant(value=self.start), "end": ast.Constant(value=self.end)},
+            placeholders={"start": ast.Constant(value=start), "end": ast.Constant(value=end)},
         )
         if self.event is not None:
             where = ast.And(
                 exprs=[where, parse_expr("event = {event}", placeholders={"event": ast.Constant(value=self.event)})]
             )
         per_bucket = ast.SelectQuery(
-            select=[ast.Alias(alias="bucket", expr=bucket_start), *states],
+            select=[
+                ast.Alias(alias="bucket", expr=self.bucket_range.bucket_of(ast.Field(chain=["timestamp"]))),
+                *[state for states in states_by_edit.values() for state in states],
+            ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), next_join=_chain(joins)),
             where=where,
             group_by=[ast.Field(chain=["bucket"])],
         )
-        query = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["bucket"]),
-                *[
-                    parse_expr(template, placeholders={"state": ast.Field(chain=[state.alias])})
-                    for state in states
-                    for template in (IN_BUCKET, SINCE_EDIT)
-                ],
-            ],
-            select_from=ast.JoinExpr(table=per_bucket),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["bucket"]), order="ASC")],
-            # One row per bucket. HogQL adds LIMIT 100 to a query without one.
-            limit=ast.Constant(value=self.buckets),
-        )
-        with tags_context(
-            product=Product.FEATURE_FLAGS,
-            feature=Feature.HEALTH_CHECK,
-            team_id=self.team.pk,
-            org_id=self.team.organization_id,
-        ):
-            response = execute_hogql_query(
-                query,
-                team=self.team,
-                query_type=self.query_type,
-                workload=Workload.OFFLINE,
-                # The join that applies person merges costs seconds on large teams and moves the counts by a tiny
-                # fraction, because a merge moves few people.
-                modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                ),
-                # A query that breaks on timeout returns partial counts, which would read as lower counts.
-                settings=HogQLGlobalSettings(
-                    max_execution_time=QUERY_TIMEOUT_SECONDS,
-                    max_threads=QUERY_MAX_THREADS,
-                    timeout_overflow_mode="throw",
-                    # The reason joins group the flag calls by actor. On a large team the aggregation goes to disk
-                    # instead of failing the counts of every edit.
-                    max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
-                ),
-            )
-
-        rows_by_edit: dict[str, list[BucketCounts]] = {edit.id: [] for edit in self.edits}
-        for row in response.results or []:
-            values = iter(row[1:])
-            for edit, edit_states in zip(self.edits, states_by_edit):
-                # Each state gives the bucket's own value, then the value since the edit.
-                pairs = [(int(next(values)), int(next(values))) for _ in edit_states]
-                rows_by_edit[edit.id].append(
-                    BucketCounts(
-                        start=row[0],
-                        in_bucket=tuple(pair[0] for pair in pairs),
-                        since_edit=tuple(pair[1] for pair in pairs),
-                    )
-                )
+        buckets = run_bucket_query(self.team, per_bucket, states_by_edit, self.bucket_range.buckets, self.query_type)
         return {
-            edit.id: EditCounts(matches=tuple(read.in_condition), buckets=tuple(rows_by_edit[edit.id]))
-            for edit, read in zip(self.edits, reads)
+            edit_id: EditCounts(matches=tuple(read.in_condition), buckets=buckets[edit_id])
+            for edit_id, read in reads.items()
         }
+
+
+def check_edit_ids(edits: Sequence[WatchedEdit]) -> None:
+    if len({edit.id for edit in edits}) != len(edits):
+        raise ValueError("Each watched edit needs its own id")
 
 
 def counts_by_bucket(
@@ -578,17 +690,8 @@ def counts_by_bucket(
     """For each edit, the people (or groups) that each of its `counts` holds for after the edit, in each bucket of
     `[start, end)` that has events, oldest bucket first. `query_type` names the query in the query log. `event` limits
     the scan to one event name. `joins` join tables to the events, so that the counts of every edit can read them."""
-    seconds = bucket.total_seconds()
-    if seconds < 1 or seconds != int(seconds):
-        raise ValueError(f"A bucket must be a whole number of seconds, got {bucket}")
-    if end <= start:
-        raise ValueError(f"The range must end after it starts, got {start} to {end}")
-    buckets = math.ceil((end - start) / bucket)
-    # HogQL caps the rows of a query, and a capped result would drop the newest buckets without an error.
-    if buckets > MAX_SELECT_RETURNED_ROWS:
-        raise ValueError(f"The range holds {buckets} buckets, more than {MAX_SELECT_RETURNED_ROWS}")
-    if len({edit.id for edit in edits}) != len(edits):
-        raise ValueError("Each watched edit needs its own id")
+    bucket_range = BucketRange(start=start, end=end, bucket=bucket)
+    check_edit_ids(edits)
     if not edits:
         return {}
 
@@ -596,10 +699,7 @@ def counts_by_bucket(
         team=team,
         edits=edits,
         counts=counts,
-        start=start,
-        end=end,
-        seconds=int(seconds),
-        buckets=buckets,
+        bucket_range=bucket_range,
         query_type=query_type,
         event=event,
         joins=tuple(joins),

@@ -80,6 +80,15 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.STATUSPAGE, "incidents", "statuspage", "incident"),
     (ExternalDataSourceType.CRONITOR, "issues", "cronitor", "incident"),
     (ExternalDataSourceType.INSTATUS, "incidents", "instatus", "incident"),
+    (ExternalDataSourceType.ROOTLY, "incidents", "rootly", "incident"),
+    (ExternalDataSourceType.ZENDUTY, "incidents", "zenduty", "incident"),
+    (ExternalDataSourceType.SPLUNKOBSERVABILITYCLOUD, "incidents", "splunk_observability_cloud", "incident"),
+    (ExternalDataSourceType.UPTIMEROBOT, "incidents", "uptimerobot", "incident"),
+    # On-call alert tables with their own toggle
+    (ExternalDataSourceType.ROOTLY, "alerts", "rootly_alerts", "incident"),
+    (ExternalDataSourceType.INCIDENTIO, "alerts", "incident_io_alerts", "incident"),
+    (ExternalDataSourceType.FIREHYDRANT, "alerts", "firehydrant_alerts", "incident"),
+    (ExternalDataSourceType.GRAFANAIRM, "alert_groups", "grafana_irm_alert_groups", "incident"),
     # Work trackers
     (ExternalDataSourceType.ASANA, "tasks", "asana", "issue"),
     (ExternalDataSourceType.MONDAY, "items", "monday", "issue"),
@@ -92,6 +101,8 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.HELPSCOUT, "conversations", "helpscout", "ticket"),
     (ExternalDataSourceType.DECAGON, "conversations", "decagon", "ticket"),
     (ExternalDataSourceType.VITALLY, "Conversations", "vitally", "ticket"),
+    (ExternalDataSourceType.INTERCOM, "tickets", "intercom_tickets", "ticket"),
+    (ExternalDataSourceType.PYLON, "issues", "pylon", "ticket"),
     # Tier-2 security tools
     (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
     (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
@@ -116,6 +127,19 @@ TIER1_SOURCES = [
     # Business and product reviews
     (ExternalDataSourceType.TRUSTPILOT, "service_reviews", "trustpilot", "review"),
     (ExternalDataSourceType.OKENDO, "reviews", "okendo", "review"),
+    # Feedback, NPS and review tools
+    (ExternalDataSourceType.BEAMER, "feature_requests", "beamer", "feedback"),
+    (ExternalDataSourceType.BEAMER, "nps", "beamer_nps", "feedback"),
+    (ExternalDataSourceType.CHAMELEON, "responses", "chameleon", "feedback"),
+    (ExternalDataSourceType.FEATUREBASE, "survey_responses", "featurebase_surveys", "feedback"),
+    (ExternalDataSourceType.USERVOICE, "nps_ratings", "uservoice_nps", "feedback"),
+    (ExternalDataSourceType.VITALLY, "NPS_Responses", "vitally_nps", "feedback"),
+    (ExternalDataSourceType.ETSY, "reviews", "etsy", "review"),
+    (ExternalDataSourceType.G2, "reviews", "g2", "review"),
+    (ExternalDataSourceType.GUMROAD, "product_reviews", "gumroad", "review"),
+    (ExternalDataSourceType.TRUSTPILOT, "product_reviews", "trustpilot_product_reviews", "review"),
+    (ExternalDataSourceType.WOOCOMMERCE, "product_reviews", "woocommerce", "review"),
+    (ExternalDataSourceType.YOTPO, "reviews", "yotpo", "review"),
     # Cloud security
     (ExternalDataSourceType.AWSSECURITYHUB, "findings", "aws_security_hub", "scanner_finding"),
     (ExternalDataSourceType.AWSGUARDDUTY, "findings", "aws_guardduty", "scanner_finding"),
@@ -126,6 +150,39 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", "azure_application_insights", "issue"),
     (ExternalDataSourceType.APPSIGNAL, "exception_incidents", "appsignal", "issue"),
     (ExternalDataSourceType.CURSOR, "bugbot_reviews", "cursor", "issue"),
+    # SEO site audits
+    (ExternalDataSourceType.BINGWEBMASTERTOOLS, "crawl_issues", "bing_webmaster_tools", "search_opportunity"),
+    (ExternalDataSourceType.AHREFS, "site_audit_issues", "ahrefs", "search_opportunity"),
+    (ExternalDataSourceType.SEMRUSH, "site_audit_issue_details", "semrush", "search_opportunity"),
+    # GitHub security alerts
+    (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
+    (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
+    (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
+    # Monitoring alerts and error tracking
+    (ExternalDataSourceType.NEWRELIC, "alert_issues", "newrelic", "issue"),
+    (ExternalDataSourceType.NEWRELIC, "javascript_errors", "newrelic", "issue"),
+    (ExternalDataSourceType.NEWRELIC, "transaction_errors", "newrelic", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "performance_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "anomaly_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.AMAZONCLOUDWATCH, "alarm_history", "amazon_cloudwatch", "incident"),
+    (ExternalDataSourceType.LOGICMONITOR, "alerts", "logicmonitor", "incident"),
+    (ExternalDataSourceType.AIRBRAKE, "groups", "airbrake", "issue"),
+    (ExternalDataSourceType.MUX, "errors", "mux", "issue"),
+    # Tier-2 code, secret and cloud security scanners
+    (ExternalDataSourceType.SONARCLOUD, "issues", "sonarcloud", "scanner_finding"),
+    (ExternalDataSourceType.CHECKMARX, "scan_results", "checkmarx", "scanner_finding"),
+    (ExternalDataSourceType.VERACODE, "findings", "veracode", "scanner_finding"),
+    (ExternalDataSourceType.VERACODE, "sca_findings", "veracode_sca", "scanner_finding"),
+    (ExternalDataSourceType.SEMGREP, "sca_findings", "semgrep_sca", "scanner_finding"),
+    (ExternalDataSourceType.GITGUARDIAN, "secret_incidents", "gitguardian", "scanner_finding"),
+    (ExternalDataSourceType.INFISICAL, "secret_scanning_findings", "infisical", "scanner_finding"),
+    (ExternalDataSourceType.AWSMACIE, "findings", "aws_macie", "scanner_finding"),
+    (ExternalDataSourceType.SENTINELONE, "threats", "sentinelone", "scanner_finding"),
+    (ExternalDataSourceType.JFROGARTIFACTORY, "xray_violations", "jfrog_xray", "scanner_finding"),
+    (ExternalDataSourceType.DYNATRACE, "security_problems", "dynatrace_security", "scanner_finding"),
+    # App reviews and error-report feedback
+    (ExternalDataSourceType.APPSTORECONNECT, "customer_reviews", "app_store_connect", "review"),
+    (ExternalDataSourceType.SENTRY, "project_user_feedback", "sentry_feedback", "feedback"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
@@ -133,7 +190,7 @@ IDS = [product for _, _, product, _ in TIER1_SOURCES]
 
 _LONG_TEXT = "The export button crashes whenever a board has more than fifty cards"
 
-# Survey tools keep their answers in a JSON column, so a full record needs real answer JSON.
+# Survey and review tools that keep their text in a JSON column need real JSON in a full record.
 _SURVEY_ANSWERS = {
     "usersnap": ("ordered_inputs", json.dumps([{"label": "Comment", "text_value": _LONG_TEXT}])),
     "typeform": ("answers", json.dumps([{"type": "text", "text": _LONG_TEXT, "field": {"type": "long_text"}}])),
@@ -142,6 +199,9 @@ _SURVEY_ANSWERS = {
     "formbricks": ("data", json.dumps({"q1": "yes", "q2": _LONG_TEXT})),
     "survicate": ("answers", json.dumps([{"type": "text", "answer": _LONG_TEXT}])),
     "surveysparrow": ("answers", json.dumps([{"question_type": "TextInput", "answer": _LONG_TEXT}])),
+    "featurebase_surveys": ("responses", json.dumps([{"type": "text", "value": _LONG_TEXT}])),
+    "g2": ("answers", json.dumps({"hate": {"text": "What do you dislike?", "value": _LONG_TEXT}})),
+    "beamer": ("translations", json.dumps([{"title": _LONG_TEXT, "content": "", "language": "EN"}])),
 }
 
 
@@ -158,6 +218,10 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
             record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
         elif name == "messages":
             record[name] = '[{"role": "USER", "text": "hello", "body": "hello"}]'
+        elif name == "action_names":
+            record[name] = '["UsersController#show"]'
+        elif name == "trigger":
+            record[name] = '{"name": "High error rate", "metricName": "transaction_exception_rate"}'
         elif name == "bugs_found":
             record[name] = 2
         elif name == "dry_run":
@@ -166,6 +230,10 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
             record[name] = '[{"severity": "high", "resolution_status": "unresolved"}]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
+        elif name == "issue_flag":
+            record[name] = 4
+        elif name in ("affected_urls", "affected_pages", "inbound_links"):
+            record[name] = 3
         else:
             record[name] = f"value-{name}"
     return record

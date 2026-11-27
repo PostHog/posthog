@@ -1,5 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { type ColumnDef, type ColumnSizingState, type SortingState } from '@tanstack/react-table'
+import {
+    type ColumnDef,
+    type ColumnSizingState,
+    type RowSelectionState,
+    type SortingState,
+} from '@tanstack/react-table'
 import * as React from 'react'
 
 import { Badge, Checkbox, Field, Label } from '@posthog/quill-primitives'
@@ -260,4 +265,138 @@ export const FullWidthPaginated: Story = {
             className="rounded-md border border-[var(--border)]"
         />
     ),
+}
+
+// Invited users can't be selected: `rowSelectionDisabledReason` disables their checkboxes and says why in a tooltip,
+// and a shift-click range skips them.
+export const SelectableRows: Story = {
+    render: function Render() {
+        const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({ 'USR-2': true, 'USR-3': true })
+        const selected = Object.keys(rowSelection).length
+        return (
+            <div className="flex max-w-3xl flex-col gap-2">
+                <p className="text-sm text-muted-foreground">{`${selected} selected`}</p>
+                <DataTable
+                    columns={columns}
+                    data={people}
+                    selectable
+                    getRowId={(person) => person.id}
+                    rowSelectionLabel={(person) => `Select ${person.name}`}
+                    rowSelectionDisabledReason={(person) =>
+                        person.status === 'Active' ? null : "Invited users can't be selected until they accept."
+                    }
+                    rowSelection={rowSelection}
+                    onRowSelectionChange={setRowSelection}
+                    className="rounded-md border border-[var(--border)]"
+                />
+            </div>
+        )
+    },
+} satisfies Story
+
+interface Track {
+    id: string
+    name: string
+    owner: string
+    lanes: { name: string; from: number; to: number }[]
+}
+
+const tracks: Track[] = [
+    {
+        id: 'quiet-theme',
+        name: 'Quiet theme',
+        owner: 'Ava',
+        lanes: [
+            { name: 'quiet-theme flag', from: 2, to: 18 },
+            { name: 'Launch email', from: 12, to: 13 },
+        ],
+    },
+    {
+        id: 'faster-search',
+        name: 'Faster search',
+        owner: 'Ben',
+        lanes: [
+            { name: 'search-v2 flag', from: 0, to: 22 },
+            { name: 'Ranking test', from: 6, to: 20 },
+            { name: 'Beta opt-in', from: 4, to: 10 },
+        ],
+    },
+    { id: 'csv-export', name: 'CSV export', owner: 'Cara', lanes: [{ name: 'csv-export flag', from: 9, to: 26 }] },
+]
+
+const DAYS = 30
+const DAY_WIDTH = 28
+const LANE_HEIGHT = 28
+
+function TrackBar({ from, to }: { from: number; to: number }): React.ReactElement {
+    return (
+        <div className="relative" style={{ height: LANE_HEIGHT, width: DAYS * DAY_WIDTH }}>
+            <div
+                className="absolute top-1.5 h-4 rounded-full bg-[var(--info)]"
+                style={{ left: from * DAY_WIDTH, width: (to - from) * DAY_WIDTH }}
+            />
+        </div>
+    )
+}
+
+export const StickyColumnAndGrowingRows: Story = {
+    render: function StickyColumnAndGrowingRowsStory() {
+        const [open, setOpen] = React.useState<Record<string, boolean>>({ 'faster-search': true })
+        const trackColumns = React.useMemo<ColumnDef<Track>[]>(
+            () => [
+                {
+                    id: 'name',
+                    header: 'Release',
+                    size: 200,
+                    enableSorting: false,
+                    meta: { sticky: 'left' },
+                    cell: ({ row }) => (
+                        <div className="flex flex-col">
+                            <div className="flex items-center gap-2" style={{ height: LANE_HEIGHT }}>
+                                <span className="font-medium">{row.original.name}</span>
+                                <span className="text-muted-foreground">{row.original.owner}</span>
+                            </div>
+                            {open[row.original.id] &&
+                                row.original.lanes.map((lane) => (
+                                    <div
+                                        key={lane.name}
+                                        className="flex items-center pl-4 text-muted-foreground"
+                                        style={{ height: LANE_HEIGHT }}
+                                    >
+                                        {lane.name}
+                                    </div>
+                                ))}
+                        </div>
+                    ),
+                },
+                {
+                    id: 'timeline',
+                    header: 'Next 30 days',
+                    enableSorting: false,
+                    cell: ({ row }) => {
+                        const { lanes } = row.original
+                        const from = Math.min(...lanes.map((lane) => lane.from))
+                        const to = Math.max(...lanes.map((lane) => lane.to))
+                        return (
+                            <div className="flex flex-col">
+                                <TrackBar from={from} to={to} />
+                                {open[row.original.id] &&
+                                    lanes.map((lane) => <TrackBar key={lane.name} from={lane.from} to={lane.to} />)}
+                            </div>
+                        )
+                    },
+                },
+            ],
+            [open]
+        )
+        return (
+            <DataTable
+                columns={trackColumns}
+                data={tracks}
+                getRowId={(track) => track.id}
+                onRowClick={(track) => setOpen((state) => ({ ...state, [track.id]: !state[track.id] }))}
+                className="max-w-xl rounded-md border border-[var(--border)]"
+            />
+        )
+    },
 }

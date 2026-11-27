@@ -9,11 +9,7 @@ from anthropic.types import Message, MessageParam, OutputConfigParam, TextBlockP
 
 from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
-from posthog.llm.gateway_client import (
-    build_async_anthropic_client,
-    get_async_anthropic_gateway_client,
-    resolve_ai_gateway_config,
-)
+from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 
 from products.signals.backend.llm_spend import accounted_message, generate_with_spend
 from products.signals.backend.temporal import metrics
@@ -154,7 +150,7 @@ async def call_llm(
     temperature: Optional[float] = 0.2,
     retries: int = MAX_RETRIES,
     stage: Optional[str] = None,
-    ai_product: Optional[str] = None,
+    ai_product: str,
     model: Optional[str] = None,
     cache_system_prompt: bool = False,
     trace_id: str | None = None,
@@ -175,21 +171,13 @@ async def call_llm(
     # Prefill is what keeps non-thinking responses free of markdown fences; without it we lean on
     # the fence stripper the thinking path already uses.
     prefill = capabilities.prefill and not thinking
-    # A call site opts onto the Go ai-gateway by passing ai_product, which both routes it through
-    # the gateway-capable client and tags the generation. Without it the call stays on the Python
-    # gateway, so each product is switched (and reverted) independently.
-    if ai_product is not None:
-        client = build_async_anthropic_client(
-            product="signals",
-            ai_product=ai_product,
-            ai_stage=stage,
-            team_id=team_id,
-            use_bedrock_fallback=True,
-            trace_id=trace_id,
-            properties=properties,
-        )
-    else:
-        client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)
+    client = build_async_anthropic_client(
+        ai_product=ai_product,
+        ai_stage=stage,
+        team_id=team_id,
+        trace_id=trace_id,
+        properties=properties,
+    )
     if trial:
         client = client.with_options(max_retries=0)
 
@@ -222,13 +210,6 @@ async def call_llm(
         create_kwargs["temperature"] = temperature
     if team_id is not None:
         create_kwargs["metadata"] = {"user_id": f"team-{team_id}"}
-    # The per-key ai_stage header is what the Python gateway reads. Send it whenever the request
-    # lands there: an un-opted call site, or an opted one before the gateway env is set. Skip it
-    # only when an opted call site actually reaches the Go gateway, which reads ai_stage from the
-    # X-PostHog-Properties blob instead.
-    gateway = resolve_ai_gateway_config() if ai_product is not None else None
-    if stage and gateway is None:
-        create_kwargs["extra_headers"] = {"x-posthog-property-ai_stage": stage}
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
     if thinking:
@@ -240,6 +221,7 @@ async def call_llm(
             create_kwargs["thinking"] = {"type": "adaptive"}
             create_kwargs.pop("temperature", None)
 
+    gateway = resolve_ai_gateway_config()
     last_exception: Exception | None = None
     stage_label = stage or "unknown"
     for attempt in range(retries):

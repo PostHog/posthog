@@ -26,6 +26,35 @@ export type AgenticPendingAuth = {
     partner_organization_name: string | null
 }
 
+export interface ConsentError {
+    title: string
+    description: string
+}
+
+const MISSING_STATE_ERROR: ConsentError = {
+    title: 'Invalid request',
+    description: 'Missing required state parameter.',
+}
+
+// The authorize redirect sends these codes in the `error` search param when it can't offer a project.
+const CONSENT_ERRORS: Record<string, ConsentError> = {
+    forbidden: {
+        title: 'No project to connect',
+        description:
+            'You do not have access to a project in your organization, and only organization admins can create one. Ask an admin to create a project or give you access to one, then start again from the app that sent you here.',
+    },
+    project_limit_reached: {
+        title: 'No project to connect',
+        description:
+            'You do not have access to a project in your organization, and it has reached its project limit. Ask an organization admin to give you access to a project, then start again from the app that sent you here.',
+    },
+}
+
+const UNKNOWN_CONSENT_ERROR: ConsentError = {
+    title: 'Authorization failed',
+    description: 'PostHog cannot finish this authorization. Start it again from the app that sent you here.',
+}
+
 // A stuck confirm request left the button spinning with no way out, so bound it.
 const CONFIRM_TIMEOUT_MS = 20000
 
@@ -35,8 +64,51 @@ interface ConfirmFailure {
     retryable: boolean
 }
 
-// Turn a confirm failure into a specific reason the user can act on. The server returns a
-// plain { error: code } body; a timeout aborts the request before any body arrives.
+type ConfirmFailureCopy = Omit<ConfirmFailure, 'reason'>
+
+// Keyed by the `error` code in the confirm endpoint's plain { error: code } body.
+const CONFIRM_FAILURES: Record<string, (partnerName: string) => ConfirmFailureCopy> = {
+    expired_or_invalid_state: () => ({
+        message: 'This authorization request expired. Start it again from the app that sent you here.',
+        retryable: false,
+    }),
+    email_mismatch: () => ({
+        message:
+            'You are signed in with a different account than the one that started this request. Sign in with the matching account, then start again.',
+        retryable: false,
+    }),
+    team_not_found: () => ({
+        message: 'That project no longer exists. Pick a different project.',
+        retryable: true,
+    }),
+    team_not_accessible: () => ({
+        message: 'You do not have access to that project. Pick a project you can access.',
+        retryable: true,
+    }),
+    partner_deactivated: (partnerName) => ({
+        message: `${partnerName} is no longer active, so PostHog cannot finish the authorization.`,
+        retryable: false,
+    }),
+    missing_callback: (partnerName) => ({
+        message: `${partnerName} has no redirect URL set, so PostHog cannot finish. Contact ${partnerName}.`,
+        retryable: false,
+    }),
+    consent_changed: () => ({
+        message: 'This authorization request changed while the page was open. Start over to review it.',
+        retryable: false,
+    }),
+    project_limit_reached: (partnerName) => ({
+        message: `This organization has reached its project limit, so PostHog cannot create a project for ${partnerName}. Delete a project you no longer need, then try again.`,
+        retryable: true,
+    }),
+    forbidden: (partnerName) => ({
+        message: `Only organization admins can create projects in this organization. Ask an admin to connect ${partnerName}.`,
+        retryable: false,
+    }),
+}
+
+// Turn a confirm failure into a specific reason the user can act on. A timeout aborts the
+// request before any body arrives.
 function describeConfirmFailure(error: unknown, partnerName: string): ConfirmFailure {
     if (isAbortError(error)) {
         return {
@@ -47,57 +119,17 @@ function describeConfirmFailure(error: unknown, partnerName: string): ConfirmFai
     }
 
     const code = error instanceof ApiError ? error.data?.error : undefined
+    if (typeof code !== 'string') {
+        return { reason: 'unknown', message: 'Something went wrong while authorizing. Try again.', retryable: true }
+    }
 
-    switch (code) {
-        case 'expired_or_invalid_state':
-            return {
-                reason: code,
-                message: 'This authorization request expired. Start it again from the app that sent you here.',
-                retryable: false,
-            }
-        case 'email_mismatch':
-            return {
-                reason: code,
-                message:
-                    'You are signed in with a different account than the one that started this request. Sign in with the matching account, then start again.',
-                retryable: false,
-            }
-        case 'team_not_found':
-            return {
-                reason: code,
-                message: 'That project no longer exists. Pick a different project.',
-                retryable: true,
-            }
-        case 'team_not_accessible':
-            return {
-                reason: code,
-                message: 'You do not have access to that project. Pick a project you can access.',
-                retryable: true,
-            }
-        case 'partner_deactivated':
-            return {
-                reason: code,
-                message: `${partnerName} is no longer active, so PostHog cannot finish the authorization.`,
-                retryable: false,
-            }
-        case 'missing_callback':
-            return {
-                reason: code,
-                message: `${partnerName} has no redirect URL set, so PostHog cannot finish. Contact ${partnerName}.`,
-                retryable: false,
-            }
-        case 'consent_changed':
-            return {
-                reason: code,
-                message: 'This authorization request changed while the page was open. Start over to review it.',
-                retryable: false,
-            }
-        default:
-            return {
-                reason: typeof code === 'string' ? code : 'unknown',
-                message: 'Something went wrong while authorizing. Try again.',
-                retryable: true,
-            }
+    const describe = Object.hasOwn(CONFIRM_FAILURES, code) ? CONFIRM_FAILURES[code] : undefined
+    return {
+        reason: code,
+        ...(describe?.(partnerName) ?? {
+            message: 'Something went wrong while authorizing. Try again.',
+            retryable: true,
+        }),
     }
 }
 
@@ -130,9 +162,11 @@ export interface agenticAuthorizeLogicValues {
     allOrganizations: OrganizationBasicType[]
     allTeams: TeamBasicType[] | null
     allTeamsLoading: boolean
+    consentErrorCode: string | null
     filteredTeams: TeamBasicType[]
     isAgenticAuthorizationSubmitting: boolean
     isAgenticAuthorizationValid: boolean
+    pageError: ConsentError | null
     partnerName: string
     partnerOrganizationName: string | null
     paysForCustomers: boolean
@@ -195,6 +229,9 @@ export interface agenticAuthorizeLogicActions {
     setAgenticAuthorizationValues: (values: DeepPartial<AgenticAuthorizationFormValues>) => {
         values: DeepPartial<AgenticAuthorizationFormValues>
     }
+    setConsentErrorCode: (consentErrorCode: string | null) => {
+        consentErrorCode: string | null
+    }
     setState: (state: string) => {
         state: string
     }
@@ -222,6 +259,7 @@ export interface agenticAuthorizeLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface agenticAuthorizeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        pageError: (state: string, consentErrorCode: string | null) => ConsentError | null
         allOrganizations: (user: UserType | null) => OrganizationBasicType[]
         filteredTeams: (
             allTeams: TeamBasicType[] | null,
@@ -249,6 +287,7 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
     })),
     actions({
         setState: (state: string) => ({ state }),
+        setConsentErrorCode: (consentErrorCode: string | null) => ({ consentErrorCode }),
         cancel: true,
     }),
     loaders(({ values }) => ({
@@ -276,6 +315,12 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
             '' as string,
             {
                 setState: (_, { state }) => state,
+            },
+        ],
+        consentErrorCode: [
+            null as string | null,
+            {
+                setConsentErrorCode: (_, { consentErrorCode }) => consentErrorCode,
             },
         ],
     }),
@@ -356,6 +401,20 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
         },
     })),
     selectors(() => ({
+        pageError: [
+            (s) => [s.state, s.consentErrorCode],
+            (state: string, consentErrorCode: string | null): ConsentError | null => {
+                if (!state) {
+                    return MISSING_STATE_ERROR
+                }
+                if (!consentErrorCode) {
+                    return null
+                }
+                return Object.hasOwn(CONSENT_ERRORS, consentErrorCode)
+                    ? CONSENT_ERRORS[consentErrorCode]
+                    : UNKNOWN_CONSENT_ERROR
+            },
+        ],
         allOrganizations: [
             (s) => [s.user],
             (user: UserType): OrganizationBasicType[] => {
@@ -409,8 +468,13 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                 return
             }
             const state = (searchParams['state'] as string) ?? ''
+            const consentErrorCode = searchParams['error'] ? String(searchParams['error']) : null
 
             actions.setState(state)
+            actions.setConsentErrorCode(consentErrorCode)
+            if (consentErrorCode) {
+                return
+            }
             if (state) {
                 actions.loadPendingAuth()
             }

@@ -691,6 +691,9 @@ class TestWizardRunViewSet(APIBaseTest):
                         "head_branch": "posthog/wizard-123",
                         "base_branch": "master",
                         "created_at": artifact["created_at"],
+                        "state": "open",
+                        "merged_at": None,
+                        "closed_at": None,
                     }
                 ],
             },

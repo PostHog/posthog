@@ -26,6 +26,7 @@ tools:
             - description
             - stage
             - documentation_url
+            - image_url
             - payload
             - feature_flag_id
     early-access-feature-destroy:
@@ -74,6 +75,7 @@ tools:
             - description
             - stage
             - documentation_url
+            - image_url
     early-access-feature-retrieve:
         operation: early_access_feature_retrieve
         enabled: true

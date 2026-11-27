@@ -1,4 +1,5 @@
-import { BrandMarkLabel } from '../components/BrandMarkLabel'
+import { BrandMarkLabel } from 'lib/components/BrandMark/BrandMarkLabel'
+
 import { CustomHarnessIcon } from '../components/CustomHarnessIcon'
 import { harnessMark } from './harnessRegistry'
 

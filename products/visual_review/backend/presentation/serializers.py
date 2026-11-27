@@ -38,6 +38,8 @@ from ..facade.contracts import (
     FlakinessOverview,
     FlakinessTotals,
     LiftOnMergeInput,
+    NoRunNeededInput,
+    NoRunNeededResult,
     QuarantinedIdentifierEntry,
     QuarantineInput,
     QuarantineLiftEntry,
@@ -58,7 +60,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState, QuarantineLiftState, RunPurpose, ShiftBandKind
+from ..facade.enums import FlakinessState, NoRunNeededOutcome, QuarantineLiftState, RunGate, RunPurpose, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -177,6 +179,24 @@ class RunSerializer(DataclassSerializer):
             "exists). Null when the list is not filtered by `search`."
         ),
     )
+    gate = serializers.ChoiceField(
+        choices=RunGate.choices,
+        read_only=True,
+        help_text=(
+            "What gates the merge for this run, fixed when the run is created. `ci_job`: the CI job that completes "
+            "the run fails while snapshots are unresolved. `commit_status`: the commit status Visual Review posts is "
+            "the required check, and the CI job passes on unresolved snapshots."
+        ),
+    )
+    stale_approval_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "How many open approvals this run rests on have a baseline that changed after the approval, because "
+            "another pull request merged a different picture for the same snapshot. A run that would pass gets a "
+            "failing commit status while this is above 0. Update the branch and review the new run. Only for "
+            "current `commit_status` pull request runs, and only on the single-run read: 0 elsewhere and in lists."
+        ),
+    )
 
     class Meta:
         dataclass = Run
@@ -220,6 +240,37 @@ class CreateRunInputSerializer(DataclassSerializer):
         dataclass = CreateRunInput
 
 
+class NoRunNeededInputSerializer(DataclassSerializer):
+    commit_sha = serializers.RegexField(
+        r"^[0-9a-f]{40}$", help_text="Full SHA of the commit that gets the passing status."
+    )
+
+    class Meta:
+        dataclass = NoRunNeededInput
+        fields = ("repo_id", "run_type", "commit_sha", "branch", "pr_number")
+        extra_kwargs = {
+            "repo_id": {"help_text": "ID of the Visual Review repo the commit belongs to."},
+            "run_type": {"help_text": "Run type that needs no run at this commit, for example `storybook`."},
+            "branch": {"help_text": "Branch CI ran on. Only logged."},
+            "pr_number": {"help_text": "Pull request the commit belongs to, if any. Only logged."},
+        }
+
+
+class NoRunNeededResultSerializer(DataclassSerializer):
+    outcome = serializers.ChoiceField(
+        choices=NoRunNeededOutcome.choices,
+        help_text=(
+            "`posted`: the passing status was posted. `run_exists`: a run of this commit and run type owns the "
+            "status, so nothing was posted. `status_gate_off`: the repo does not use the Visual Review commit status "
+            "as its gate, so the CI job is the check and nothing was posted."
+        ),
+    )
+
+    class Meta:
+        dataclass = NoRunNeededResult
+        extra_kwargs = {"detail": {"help_text": "What the report did, in one sentence for the CI log."}}
+
+
 class AddSnapshotsInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = AddSnapshotsInput
@@ -258,6 +309,14 @@ class UpdateRepoInputSerializer(DataclassSerializer):
                 "help_text": (
                     "Post the visual review debt digest to the Slack channels of the teams that own the "
                     "snapshots. Off by default. The digest goes out every Monday morning."
+                )
+            },
+            "auto_quarantine_mode": {
+                "help_text": (
+                    "Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky, "
+                    "and lift a quarantine once the last 500 default-branch runs render the snapshot unchanged. "
+                    "`off` (the default) does nothing. `preview` logs each finding and changes nothing. "
+                    "`on` quarantines the snapshot for 14 days and notifies the owning team, and lifts clean quarantines."
                 )
             },
         }
@@ -373,6 +432,13 @@ class QuarantinedIdentifierEntrySerializer(DataclassSerializer):
         allow_null=True,
         required=False,
         help_text="Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context.",
+    )
+    lift_reason = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Why visual review lifted this quarantine by itself, for example after 500 clean default-branch runs. "
+            "Empty when a person, an agent, a merged fix, or the expiry ended it, and while it is active."
+        ),
     )
 
     class Meta:

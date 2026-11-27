@@ -43,6 +43,8 @@ Do not invent a score or a confidence level.
   - A view that is not stored is computed on every read, and again on every refresh of each materialized view that reads it. `recomputed_by_views` counts those materialized views. When it is above 0, the saving comes mostly from their refreshes, not from people's reads.
   - `saves_seconds_per_month` and `saves_bytes_per_month` are what those computations stop costing.
   - Materializing adds a recurring refresh cost, which these numbers already subtract.
+  - A negative `saves_bytes_per_month` means its refreshes scan more than its reads do today. Name that cost to the user.
+  - When `measurement_capped` is true, measuring the view hit the time limit. Every cost and saving is a lower bound, so say "at least", not "about".
   - `freshness_today_seconds` and `freshness_after_seconds` say how old the data can be now and after.
   - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often), `consumer_refresh` (the materialized views that read it refresh no more often) or `savings` (a shorter interval costs more than it saves).
   - `refresh_mode` is `incremental` when each refresh can read only new rows, by `incremental_key`, and update rows by `unique_key`. Otherwise it is `full`, and each refresh rebuilds the whole table.
@@ -57,6 +59,7 @@ Do not invent a score or a confidence level.
   - When `materialized` is true, it still refreshes. `refresh_seconds_per_month` and `refresh_bytes_per_month` are that cost. When `materialized` is false, it is a plain view and costs nothing to keep. It only adds clutter.
   - Accepting marks it deprecated in the data catalog. For a materialized view, it also stops the refreshes and deletes the stored table. The view definition stays, so it can be materialized again later. To keep it refreshing, pass `keep_materialized: true`. After accepting, `created_asset.stopped_materialization` says whether the refreshes stopped: they keep running when other views read from it or its refreshes feed person properties, a destination or a workflow.
   - To delete the view instead, pass `delete_view: true`. Ask the user first, because a deleted view cannot be restored. A 409 means another view now reads from it, or it now feeds person properties, account properties, a destination or a workflow, or it now reads a direct-connection source. Explain the reason to the user and do not retry. A 400 on `delete_view` means some days in the read window have no read data. Offer to mark it deprecated instead.
+  - If the user wants to stop paying for a materialized view's refreshes but is not ready to mark it deprecated, pass `mark_deprecated: false`. The refreshes stop and the stored table is deleted, but the data catalog does not change. If the view is still unread 30 days later, the deprecate suggestion comes back. A 409 has the same reasons as for `delete_view`.
 
 ## 3. Change a materialize suggestion before accepting
 

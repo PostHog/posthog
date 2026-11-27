@@ -3,9 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { resetContext } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { AccountDetailActions } from './AccountDetailActions'
 import { accountViewsLogic } from './accountViewsLogic'
 
@@ -21,15 +18,10 @@ jest.mock('../../generated/api', () => ({
 describe('AccountDetailActions', () => {
     beforeEach(() => {
         resetContext()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]: true,
-        })
     })
 
     afterEach(() => {
         cleanup()
-        featureFlagLogic.unmount()
     })
 
     it('opens the account view and tab configuration editors', async () => {
@@ -57,6 +49,8 @@ describe('AccountDetailActions', () => {
         logic.actions.openConfigure(null)
         logic.actions.loadConfigSuccess({
             pinned_properties: [],
+            pinned_properties_source: { kind: 'personal', roles: [] },
+            available_default_pinned_properties: [],
             task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
             account_detail_tabs: {
                 ordered_tab_ids: ['system:users', 'system:notes'],

@@ -13,6 +13,7 @@ import type {
     AIReplyPlaybookApi,
     AiFeedbackRequestApi,
     AiHumanOutcomeRequestApi,
+    AiRerunResponseApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsUUIDRequestApi,
@@ -24,6 +25,8 @@ import type {
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
+    IntercomImportJobApi,
+    IntercomImportStartApi,
     PaginatedTicketListApi,
     PaginatedTicketMacroListApi,
     PaginatedTicketMessageListApi,
@@ -32,6 +35,8 @@ import type {
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
+    PylonImportJobApi,
+    PylonImportStartApi,
     SigningSecretApi,
     TicketApi,
     TicketAttachmentApi,
@@ -93,6 +98,37 @@ export const conversationsAiReplyPlaybookRetrieve = async (
     options?: RequestInit
 ): Promise<AIReplyPlaybookApi> => {
     return apiMutator<AIReplyPlaybookApi>(getConversationsAiReplyPlaybookRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsIntercomImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/intercom_imports/`
+}
+
+export const conversationsIntercomImportsCreate = async (
+    projectId: string,
+    intercomImportStartApi: IntercomImportStartApi,
+    options?: RequestInit
+): Promise<IntercomImportJobApi> => {
+    return apiMutator<IntercomImportJobApi>(getConversationsIntercomImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intercomImportStartApi),
+    })
+}
+
+export const getConversationsIntercomImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/intercom_imports/status/`
+}
+
+export const conversationsIntercomImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<IntercomImportJobApi> => {
+    return apiMutator<IntercomImportJobApi>(getConversationsIntercomImportsStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -202,6 +238,37 @@ export const conversationsMacrosUsedCreate = async (
     return apiMutator<TicketMacroApi>(getConversationsMacrosUsedCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getConversationsPylonImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pylon_imports/`
+}
+
+export const conversationsPylonImportsCreate = async (
+    projectId: string,
+    pylonImportStartApi: PylonImportStartApi,
+    options?: RequestInit
+): Promise<PylonImportJobApi> => {
+    return apiMutator<PylonImportJobApi>(getConversationsPylonImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pylonImportStartApi),
+    })
+}
+
+export const getConversationsPylonImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pylon_imports/status/`
+}
+
+export const conversationsPylonImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PylonImportJobApi> => {
+    return apiMutator<PylonImportJobApi>(getConversationsPylonImportsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -400,6 +467,24 @@ export const conversationsTicketsAiHumanOutcomeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiHumanOutcomeRequestApi),
+    })
+}
+
+export const getConversationsTicketsAiRerunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/ai_rerun/`
+}
+
+/**
+ * Start a new Support AI run on this ticket. Its output is a private note and is never sent to the customer.
+ */
+export const conversationsTicketsAiRerunCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AiRerunResponseApi> => {
+    return apiMutator<AiRerunResponseApi>(getConversationsTicketsAiRerunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

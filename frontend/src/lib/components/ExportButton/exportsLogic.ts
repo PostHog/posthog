@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import {
     ExportNudge,
@@ -13,6 +13,7 @@ import {
     startExportNudge,
 } from 'lib/components/ExportButton/exportNudge'
 import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
+import { loadImageExportDialog } from 'lib/components/ImageSize/loadImageExportDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { delay } from 'lib/utils/async'
@@ -25,13 +26,14 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import {
     APIErrorType,
-    CohortType,
     ExportContext,
     ExportedAssetType,
     ExporterFormat,
     LocalExportContext,
     SidePanelTab,
 } from '~/types'
+
+import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
 const POLL_DELAY_MS = 10000
 // Long-running formats (e.g. MP4 session-replay renders) can take 30+ minutes,
@@ -43,6 +45,19 @@ const EXPORT_COMPLETE_MESSAGE = 'Export complete!'
 
 // An export is still rendering while it has neither produced content nor failed.
 const isRendering = (asset: ExportedAssetType): boolean => !asset.has_content && !asset.exception
+
+function needsImageSize(exportData: TriggerExportProps): boolean {
+    return (
+        exportData.export_format === ExporterFormat.PNG &&
+        exportData.export_context?.image_size === undefined &&
+        !!(
+            exportData.insight ||
+            exportData.insightShortId ||
+            exportData.dashboard ||
+            (exportData.export_context && 'source' in exportData.export_context)
+        )
+    )
+}
 
 export type ExportStatusFetcher = () => Promise<ExportedAssetType | null>
 
@@ -185,11 +200,11 @@ export interface exportsLogicActions {
         mode: SessionRecordingPlayerMode | undefined
         options:
             | {
-                  css_selector?: string | undefined
-                  filename?: string | undefined
-                  height?: number | undefined
-                  skip_inactivity?: boolean | undefined
-                  width?: number | undefined
+                  css_selector?: string
+                  filename?: string
+                  height?: number
+                  skip_inactivity?: boolean
+                  width?: number
               }
             | undefined
         sessionRecordingId: string
@@ -273,6 +288,15 @@ export const exportsLogic = kea<exportsLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         startExport: async ({ exportData }) => {
+            if (needsImageSize(exportData)) {
+                await loadImageExportDialog((image_size) =>
+                    actions.startExport({
+                        ...exportData,
+                        export_context: { ...exportData.export_context, image_size },
+                    })
+                )
+                return
+            }
             // Fires for every dashboard export entry point (menu bar, dropdown, export button)
             // regardless of edit permission. Format is a property so PNG is filterable.
             if (exportData.dashboard && exportData.export_format) {
@@ -391,8 +415,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         return null
                     }
                 )
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
-                const cohort: CohortType = await api.create('api/cohort', {
+                const cohort = await cohortsCreate(String(ApiConfig.getCurrentProjectId()), {
                     is_static: true,
                     name: name || 'Query cohort',
                     query: query,

@@ -39,7 +39,7 @@ They still honor steering, through the gate in `direct_gate.py` that `emit_signa
 Two rules keep that gate predictable.
 A team that wrote no steering gets no LLM call and no change in behavior.
 A team that wrote steering is filtered by that text alone, because the prompt there carries no actionability criteria of its own, unlike the record-shaped prompts in `_prompts.py`.
-The gate fails open on model errors, and reports a dropped signal as `signal_data_source_filtered` with `steering_applied`, the same stage event the pipeline fires.
+The gate fails open on model errors, and reports a dropped signal as `signal_data_source_filtered` with `filter_reason` `steering_rejected`, the same stage event the pipeline fires.
 
 Error tracking also has a deterministic issue filter, which runs before `emit_signal` and so before the steering gate.
 The filter is a compiled property filter in the `issue_filters` key (`contracts.ISSUE_FILTERS_KEY`) of each error tracking row.
@@ -65,6 +65,14 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   A source that declares `scope_field` (a HogQL expression yielding a record's scope id) and `scope_config_key` (a list of allowed ids on `SignalSourceConfig.config`) gets an `IN` clause added to its query, so a team narrows a workspace-wide warehouse sync without changing what the warehouse imports.
   An absent, empty, or malformed list means no narrowing.
   Declare the key per source in `contracts.SCOPE_CONFIG_KEYS` and read it from there, as `linear_issues.py` does for Linear team ids: the table stays out of `emission/` so the API serializer validates the same key without importing the emitters.
+  A saved `hogql_filter` (`contracts.HOGQL_FILTER_KEY`) is bound to the filter catalog version it was saved against and ANDed into the same query before the limit (`source_filters.py`).
+  A row with a malformed value in a field the filter uses never passes: the fetcher drops it and logs the count.
+  Unlike a malformed scope list, a saved filter that cannot be read or bound raises, so emission stops rather than reading unfiltered rows.
+  The emit activity calls the fetcher through `fetch_window.fetch_records`, which keeps that failed window per warehouse schema: a filtered source's failed fetch stores its window start on `SignalSourceFilterState`, and the next fetch reads from there instead of `last_synced_at`.
+  The activity calls `complete_fetch` only after the pipeline succeeds, and it clears the stored window only when the processed window covered it.
+  Each failure and success also stores a fingerprint of the saved filter that produced it, so the API's `filter_status` ignores results from a filter since replaced.
+  A tracked fetch reads oldest first, so a batch capped at `max_records` moves the stored window to its last row instead of clearing it, and the next fetch continues from there.
+  A config that sets `cursor_id_field` (Linear sets `id`) breaks timestamp ties with that column, so the next fetch resumes after the exact last row; without it, rows that share the last row's timestamp past the cap can be skipped.
 - **Grouped warehouse fetcher** (`fetchers/grouped_warehouse.py`) — for high-volume tables that store one row per occurrence (Datadog error spans and logs).
   The generic fetcher has no `GROUP BY`, so it would emit one signal per row.
   The grouped fetcher reads a fixed trailing window of event time (`GROUPED_WINDOW_DAYS`) and ignores `last_synced_at`.

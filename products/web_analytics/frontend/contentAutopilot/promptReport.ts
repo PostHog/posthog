@@ -6,7 +6,11 @@ import type {
     AEOPromptStatsApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
-export type PromptVisibilityMetric = 'cited' | 'mentioned'
+import { isNoSearchEngine } from './utils'
+
+export type PromptVisibilityMetric = 'cited' | 'mentioned' | 'position'
+/** The metrics a single answer can only pass or fail, so the prompt page can count yes and no answers. */
+export type PromptOutcomeMetric = Exclude<PromptVisibilityMetric, 'position'>
 
 export interface PromptRateKpi {
     /** Pooled rate over the window: all answers that qualify over all answers. */
@@ -125,7 +129,7 @@ export const pointsDelta = (delta: number, tooltip: string): KpiDelta => {
 }
 
 export const POSITION_DESCRIPTION =
-    'Where your site sits among the sources of an answer that cites it. #1 is the first source listed. Lower is better.'
+    'Where your link sits among the sources of answers that cite you, on average. #1 is first. Lower is better.'
 
 export const positionLabel = (position: number): string => `#${Math.round(position * 10) / 10}`
 
@@ -197,15 +201,17 @@ export const rateKpiCard = (kpi: PromptRateKpi): KpiCardContent => ({
             : pointsDelta(kpi.delta, 'The latest day against the 30-day average, in percentage points'),
 })
 
-/** Window-wide visibility and citation rates, with the latest day and how far it sits from the average. */
+/** Window-wide visibility and citation rates, with the latest day and how far it sits from the average.
+ *  They read web-search answers only, as the overview does: a no-search engine never cites, so it keeps its own row. */
 export const promptReportKpis = (stats: AEOPromptStatsApi): PromptReportKpis => {
     const dates = statsWindowDates(stats)
+    const daily = stats.daily.filter((row) => !isNoSearchEngine(row.engine))
     const byDate = new Map<string, AEOPromptDailyEngineStatsApi[]>()
-    for (const row of stats.daily) {
+    for (const row of daily) {
         byDate.set(row.date, [...(byDate.get(row.date) ?? []), row])
     }
     const days = dates.map((date) => ({ date, ...sumDaily(byDate.get(date) ?? []) }))
-    const totals = sumDaily(stats.daily)
+    const totals = sumDaily(daily)
     return {
         answers: totals.checks - totals.failed,
         days: dates.length,
@@ -217,7 +223,7 @@ export const promptReportKpis = (stats: AEOPromptStatsApi): PromptReportKpis => 
             days.map((day) => ({ ...day, count: day.cited })),
             { ...totals, count: totals.cited }
         ),
-        position: positionKpi(dates, byDate, stats.daily),
+        position: positionKpi(dates, byDate, daily),
     }
 }
 

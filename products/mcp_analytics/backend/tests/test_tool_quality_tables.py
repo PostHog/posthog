@@ -95,6 +95,27 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert rows[0].errors == 1
         assert rows[0].error_rate_pct == 33.3
 
+    @parameterized.expand([("asked", True, 3, 1), ("not_asked", None, 0, 0)])
+    def test_volume_buckets_come_back_only_when_asked_for(
+        self, _name: str, include_buckets: bool | None, expected_calls: int, expected_errors: int
+    ) -> None:
+        _emit(self.team, tool_name="query_run")
+        _emit(self.team, tool_name="query_run", is_error=True)
+        _emit(self.team, tool_name="exec", exec_tool_name="query_run")
+        flush_persons_and_events()
+
+        row = (
+            MCPToolQualityRowsQueryRunner(
+                query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), includeBuckets=include_buckets),
+                team=self.team,
+            )
+            .calculate()
+            .results[0]
+        )
+
+        assert sum(bucket.calls for bucket in row.buckets or []) == expected_calls
+        assert sum(bucket.errors for bucket in row.buckets or []) == expected_errors
+
     def test_category_filter_narrows_the_rows(self) -> None:
         _emit(self.team, tool_name="query_run", category="Data")
         _emit(self.team, tool_name="insight_get", category="Insights")
@@ -231,17 +252,26 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert row.total_calls == 1
         assert row.previous_calls == 1
 
-    def test_total_sessions_ignores_search_and_counts_each_session_once(self) -> None:
-        _emit(self.team, tool_name="query_run", session_id="s1")
-        _emit(self.team, tool_name="insight_get", session_id="s1")
-        _emit(self.team, tool_name="insight_get", session_id="s2")
+    @parameterized.expand(
+        [
+            ("search", {"search": "query_run"}, [("query_run", 1)]),
+            ("category", {"categories": ["Data"]}, [("query_run", 1)]),
+            ("no_matching_tool", {"search": "no_such_tool"}, []),
+        ]
+    )
+    def test_total_sessions_ignore_table_filters_and_count_each_session_once(
+        self, _name: str, table_filters: dict[str, Any], expected_rows: list[tuple[str, int]]
+    ) -> None:
+        _emit(self.team, tool_name="query_run", category="Data", session_id="s1")
+        _emit(self.team, tool_name="insight_get", category="Insights", session_id="s1")
+        _emit(self.team, tool_name="insight_get", category="Insights", session_id="s2")
         flush_persons_and_events()
 
         response = MCPToolQualityRowsQueryRunner(
-            query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), search="query_run"), team=self.team
+            query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), **table_filters), team=self.team
         ).calculate()
 
-        assert [(row.tool, row.sessions) for row in response.results] == [("query_run", 1)]
+        assert [(row.tool, row.sessions) for row in response.results] == expected_rows
         assert response.totalSessions == 2
 
     def test_sessions_count_the_mcp_session_id_when_there_is_no_posthog_session(self) -> None:

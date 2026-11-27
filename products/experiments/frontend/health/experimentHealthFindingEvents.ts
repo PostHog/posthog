@@ -34,8 +34,11 @@ export type ExperimentHealthFindingCode =
     | 'zero_exposures'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'events_billing_limit'
+    | 'feature_flags_billing_limit'
     | 'no_metric'
     | 'metric_event_not_ingested'
+    | 'metric_uses_feature_flag_called'
     | 'metric_cannot_compile'
     | 'metric_calculation_failed'
     | 'metric_all_zero'
@@ -49,7 +52,9 @@ export type ExperimentHealthFindingCode =
     | 'new_flag_no_traffic'
     | 'early_significance'
     | 'metrics_not_matured'
+    | 'result_ready'
     | 'flag_shared'
+    | 'stale_experiment'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
@@ -74,6 +79,9 @@ export type ExperimentHealthFindingActionKind =
     | 'edit_release_conditions'
     | 'add_primary_metric'
     | 'add_secondary_metric'
+    | 'end_experiment'
+    | 'freeze_exposure'
+    | 'move_start_date'
 
 const EXPERIMENT_WARNING_FINDING_CODES: Record<ExperimentWarningKey, ExperimentHealthFindingCode> = {
     running_but_flag_disabled: 'flag_off_while_running',
@@ -83,7 +91,7 @@ const EXPERIMENT_WARNING_FINDING_CODES: Record<ExperimentWarningKey, ExperimentH
     not_started_but_multiple_variants_rolled_out: 'flag_live_before_launch',
 }
 
-export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> = new Set(
+const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> = new Set(
     Object.values(EXPERIMENT_WARNING_FINDING_CODES)
 )
 

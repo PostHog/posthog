@@ -12,8 +12,10 @@ import { Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationsQueryResponse,
 } from '~/queries/schema/schema-general'
 
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -73,6 +75,14 @@ function recommendation(
         impactDirection: 'save',
         impactType: 'measured',
         currency: 'USD',
+        identity: {
+            rule: overrides.rule,
+            source_type: 'google_ads',
+            customer_id: '1234567890',
+            campaign_id: '',
+            subject: overrides.subject,
+        },
+        key: `${overrides.rule}:${overrides.subject}`,
         ...overrides,
     }
 }
@@ -94,7 +104,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         level: 'campaign',
         subject: 'Search - Competitors',
         action: 'Review bids, ads and landing page, or pause',
-        reason: "Its non-brand CPA is $412, 4.1x the account's non-brand CPA of $100.",
+        reason: "Its non-brand CPA is 4.1x the account's non-brand CPA.",
         impact: 3100,
         cpa: cpa(412, 100, 'account'),
     }),
@@ -105,6 +115,15 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         action: 'Add "acme" as a negative keyword',
         reason: '18% of its search term spend is on brand searches. Your brand campaign can serve them at a lower cost.',
         impact: 960,
+    }),
+    recommendation({
+        rule: 'spend_without_conversions',
+        subject: 'spreadsheet templates',
+        campaign: 'Search - Generic',
+        action: 'Add it as a negative, or change the keyword "dashboard software" from broad to exact match',
+        reason: 'Spent $380 (2.5x the campaign\'s non-brand CPA) on 95 clicks with no conversions. None of the main words in this search appear in the ads that showed on it or in the keyword "dashboard software".',
+        impact: 380,
+        cpa: cpa(null, 150, 'campaign'),
     }),
     recommendation({
         rule: 'spend_without_conversions',
@@ -136,15 +155,6 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         ],
     }),
     recommendation({
-        rule: 'spend_without_conversions',
-        subject: 'dashboard software jobs',
-        campaign: 'Search - Generic',
-        action: 'Add it as a negative, or change the keyword "dashboard software" from phrase to exact match',
-        reason: "Spent $380 (2.5x the campaign's non-brand CPA) on 95 clicks with no conversions",
-        impact: 380,
-        cpa: cpa(null, 150, 'campaign'),
-    }),
-    recommendation({
         rule: 'brand_overlap',
         subject: 'acme',
         campaign: 'Search - Brand',
@@ -173,10 +183,11 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'budget_constrained',
         level: 'campaign',
-        subject: 'Search - Brand',
+        subject: 'Search - Generic',
         action: 'Raise the daily budget from $50 to $80',
-        reason: 'Google Ads reports this campaign as limited by budget and recommends $80 a day.',
+        reason: "Limited by budget, and its non-brand CPA is at or below the account's non-brand CPA. 22% of eligible impressions are lost because the budget runs out. $80 a day is Google's recommended budget.",
         impact: 900,
+        cpa: cpa(85, 100, 'account'),
         impactDirection: 'invest',
         impactType: 'estimated',
     }),
@@ -185,7 +196,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         level: 'campaign',
         subject: 'Search - Product',
         action: 'Raise the budget',
-        reason: "Its non-brand CPA is $62, against the account's non-brand CPA of $100. It loses 31% of impressions to budget and 12% to ad rank.",
+        reason: "Its non-brand CPA is at or below the account's non-brand CPA. It loses 31% of impressions to budget and 12% to ad rank.",
         impact: 1500,
         cpa: cpa(62, 100, 'account'),
         impactDirection: 'invest',
@@ -194,21 +205,24 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'keyword_gap',
         subject: 'funnel analysis tool',
-        action: 'Add it as a keyword in a Search campaign',
-        reason: 'Ranks #24.0 organically with 3,800 impressions a month. Its words already convert in your ads.',
+        campaign: 'Search - Product',
+        action: 'Add as a keyword in Google Ads',
+        reason: "3,800 organic impressions at position 24.0, not bought. It ranks on https://example.com/funnels, which this campaign's ads link to",
         impact: 420,
         impactDirection: 'invest',
         impactType: 'estimated',
+        minor: true,
     }),
     recommendation({
         rule: 'content_gap',
         subject: 'event tracking setup',
         campaign: 'Search - Product',
         action: 'Create or improve a page for this search',
-        reason: "Converts in Ads at a CPA of $45 (the account's non-brand CPA is $100), but does not rank organically",
+        reason: "You pay $600/mo in Ads for this search, which converts at a CPA at or below the account's non-brand CPA. It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
         cpa: cpa(45, 100, 'account'),
         impact: 600,
         impactDirection: 'gain',
+        impactType: 'estimated',
     }),
     recommendation({
         rule: 'striking_distance',
@@ -223,9 +237,42 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'policy_limited',
         level: 'campaign',
-        subject: 'Performance Max - All products',
-        action: 'Check the affected ads in Policy manager',
-        reason: 'Some asset groups are limited by policy, so they show less often.',
+        subject: 'Search - Product',
+        action: 'Fix or appeal the policy issues in this campaign',
+        reason: "2 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
+        steps: [
+            {
+                text: 'In Google Ads, open Campaigns and search for this campaign.',
+                copyValue: 'Search - Product',
+                url: 'https://ads.google.com/aw/campaigns',
+                linkText: 'Campaigns',
+            },
+            {
+                text: 'Open Ads and search for each ad below. Fix the flagged text or the landing page, then save. Saving sends the ad to review again. A limited ad may need a certification from Google instead.',
+                url: 'https://ads.google.com/aw/ads',
+                linkText: 'Ads',
+            },
+            {
+                text: 'The ad "Acme alternative for teams" breaks the policy "Trademarks in ad text" (flagged text: "Acme").',
+                copyValue: 'Acme alternative for teams',
+            },
+            {
+                text: 'The ad "Product analytics pricing" breaks the policy "Destination mismatch".',
+                copyValue: 'Product analytics pricing',
+            },
+            {
+                text: 'The ad "Analytics for clinics" is limited by the policy "Healthcare and medicines".',
+                copyValue: 'Analytics for clinics',
+            },
+            {
+                text: 'If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.',
+                url: 'https://ads.google.com/aw/policy/ads/issues',
+                linkText: 'Policy manager',
+            },
+            {
+                text: 'Come back here after Google reviews the changes, usually within a business day.',
+            },
+        ],
     }),
     recommendation({
         rule: 'keyword_tracking',
@@ -236,6 +283,22 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         impactDirection: 'gain',
     }),
 ]
+
+const QUERY_URL = '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/'
+
+function respondWith(response: Partial<MarketingAnalyticsRecommendationsQueryResponse>): Mocks['post'] {
+    return {
+        [QUERY_URL]: () => [
+            200,
+            {
+                results: RESULTS,
+                disclaimer: DISCLAIMER,
+                conversionSource: { kind: 'google_ads', goalNames: [] },
+                ...response,
+            },
+        ],
+    }
+}
 
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
@@ -256,19 +319,19 @@ const MOCKS: Mocks = {
             previous: null,
         },
     },
-    post: {
-        '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
-            200,
-            { results: RESULTS, disclaimer: DISCLAIMER },
-        ],
-    },
+    post: respondWith({}),
 }
+
+const INTRO_SEEN_KEY = 'products.marketingAnalytics.recommendationsLogic.introSeen'
+const resetIntro = (): void => localStorage.removeItem(INTRO_SEEN_KEY)
 
 const meta: Meta<typeof RecommendationsSection> = {
     title: 'Scenes-App/Marketing Analytics/Recommendations',
     component: RecommendationsSection,
     beforeEach: () => {
         localStorage.removeItem('997__.scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter')
+        // Opening the recommendations in one story marks the intro as seen for the next ones.
+        localStorage.setItem(INTRO_SEEN_KEY, 'true')
         const originalNow = performance.now
         performance.now = () => 0
         return () => {
@@ -303,19 +366,35 @@ const meta: Meta<typeof RecommendationsSection> = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const Summary: Story = {}
+export const Summary: Story = {
+    beforeEach: resetIntro,
+    parameters: { testOptions: { waitForSelector: '[data-attr="marketing-recommendations-intro-open"]' } },
+}
+
+export const Loading: Story = {
+    parameters: {
+        msw: { mocks: { ...MOCKS, post: { ...MOCKS.post, [QUERY_URL]: () => new Promise(() => {}) } } },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="marketing-recommendations"] .Spinner',
+        },
+    },
+}
+
+async function openRecommendations(canvasElement: HTMLElement): Promise<void> {
+    const loaded = 'button:not([aria-disabled="true"]) *'
+    await userEvent.click(await within(canvasElement).findByText('Recommendations', { selector: loaded }))
+}
 
 export const Modal: Story = {
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
     },
 }
 
 export const ModalInstructions: Story = {
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
         await userEvent.click(await modal.findByText('View instructions'))
@@ -324,8 +403,7 @@ export const ModalInstructions: Story = {
 
 export const ModalKeywordTracking: Story = {
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Keyword tracking', { selector: 'button *' }))
     },
@@ -356,13 +434,28 @@ const SOURCES_WITH_GAPS = [
         'GoogleAds',
         'example',
         ['campaign', 'campaign_stats', 'customer', 'search_term_stats'],
-        ['search_term_keyword_stats', 'campaign_impression_share_stats']
+        ['search_term_keyword_stats', 'ad', 'campaign_impression_share_stats']
     ),
     SOURCES[1],
 ]
 
 const MOCKS_WITH_GAPS: Mocks = {
     ...MOCKS,
+    post: respondWith({
+        dataGaps: [
+            {
+                kind: 'posthog_conversions_not_ready',
+                message:
+                    'PostHog conversions for this period are still being computed, so CPAs count the conversions Google Ads reports. Check again in a few minutes.',
+            },
+            {
+                kind: 'conversion_action_tables_not_synced',
+                campaignTable: 'example.campaign',
+                message:
+                    'CPAs count the primary conversion actions, because campaign_conversion_action_stats is not synced. Sync it to count only the selected conversion actions.',
+            },
+        ],
+    }),
     get: {
         ...MOCKS.get,
         '/api/environments/:team_id/external_data_sources/': {
@@ -385,9 +478,164 @@ export const MissingTables: Story = {
 export const MissingTablesInModal: Story = {
     parameters: { msw: { mocks: MOCKS_WITH_GAPS } },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+    },
+}
+
+export const PostHogConversionGapsInModal: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT,
+        ],
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: respondWith({
+                    conversionSource: { kind: 'posthog', goalNames: ['Sign ups', 'Purchases'] },
+                    dataGaps: [
+                        {
+                            kind: 'posthog_conversion_goals_unusable',
+                            message:
+                                'CPAs count only the marked goals that can be counted: Demo requests has no event or action to count.',
+                        },
+                        {
+                            kind: 'posthog_campaigns_unmatched',
+                            message:
+                                'PostHog conversions from 2 utm_campaign values match no Google Ads campaign, so campaigns without PostHog conversions are not judged by CPA. The UTM audit lists them; map each one to its campaign in campaign name mappings.',
+                        },
+                    ],
+                }),
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await openRecommendations(canvasElement)
+        // The section has a button with the same label, so the modal's is found by its data-attr.
+        const modal = within(canvasElement.ownerDocument.body)
+        await modal.findByText('CPAs from your PostHog goals: Sign ups, Purchases')
+        const modalButton = canvasElement.ownerDocument.querySelector<HTMLElement>(
+            '[data-attr="marketing-recommendations-modal-data-gaps"]'
+        )
+        await userEvent.click(modalButton as HTMLElement)
+    },
+}
+
+function withResolved(
+    state: (
+        row: MarketingAnalyticsRecommendation
+    ) => MarketingAnalyticsRecommendationResolutionState | 'detected' | null
+): Mocks {
+    const results = RESULTS.map((row) => {
+        const resolved = state(row)
+        return resolved === 'detected'
+            ? { ...row, detectedChange: 'negative_keyword' as const }
+            : resolved
+              ? {
+                    ...row,
+                    resolution: {
+                        id: `resolution-${row.subject}`,
+                        resolution: resolved,
+                        resolved_at: '2025-02-14T12:00:00Z',
+                    },
+                }
+              : row
+    })
+    return {
+        ...MOCKS,
+        post: respondWith({ results }),
+    }
+}
+
+const BRAND_OVERLAP = RESULTS.filter((row) => row.rule === 'brand_overlap')
+const SPEND_WITHOUT_CONVERSIONS = RESULTS.filter((row) => row.rule === 'spend_without_conversions')
+
+export const ResolvedInModal: Story = {
+    parameters: {
+        msw: {
+            mocks: withResolved((row) =>
+                row === SPEND_WITHOUT_CONVERSIONS[0]
+                    ? 'dismissed'
+                    : row === SPEND_WITHOUT_CONVERSIONS[1]
+                      ? 'detected'
+                      : row === BRAND_OVERLAP[0]
+                        ? 'applied'
+                        : null
+            ),
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await openRecommendations(canvasElement)
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Review 3 dismissed or applied'))
+        await modal.findByText('Dismissed and applied')
+    },
+}
+
+const ALL_DISMISSED = withResolved(() => 'dismissed')
+
+export const AllDismissed: Story = {
+    parameters: { msw: { mocks: ALL_DISMISSED } },
+}
+
+export const AllDismissedInModal: Story = {
+    parameters: { msw: { mocks: ALL_DISMISSED } },
+    play: async ({ canvasElement }) => {
+        await openRecommendations(canvasElement)
+    },
+}
+
+const RESOLUTIONS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_resolutions/'
+
+async function dismissHighCostCampaign(canvasElement: HTMLElement): Promise<void> {
+    await openRecommendations(canvasElement)
+    const modal = within(canvasElement.ownerDocument.body)
+    await userEvent.click(await modal.findByText('High cost per conversion', { selector: 'button *' }))
+    await userEvent.click(await modal.findByLabelText('Dismiss Search - Competitors'))
+}
+
+export const ResolvingInModal: Story = {
+    parameters: {
+        msw: { mocks: { ...MOCKS, post: { ...MOCKS.post, [RESOLUTIONS_URL]: () => new Promise(() => {}) } } },
+        // The request never finishes, so the buttons keep their spinner.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => dismissHighCostCampaign(canvasElement),
+}
+
+export const RuleResolvedInModal: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    [RESOLUTIONS_URL]: async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        return [
+                            201,
+                            {
+                                id: 'resolution-review',
+                                ...body,
+                                key: 'review_campaign:Search - Competitors',
+                                resolved_by: null,
+                                resolved_at: '2025-02-15T12:00:00Z',
+                                created_at: '2025-02-15T12:00:00Z',
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await dismissHighCostCampaign(canvasElement)
+        await within(canvasElement.ownerDocument.body).findByText(
+            'Every recommendation in this rule is dismissed or applied. Review them to see each one.'
+        )
     },
 }

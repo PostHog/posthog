@@ -231,7 +231,7 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
 
 /**
  * Results that stop more than the threshold before the window end: now for a running experiment, the end date for a
- * stopped one. `_results_are_stale` in products/experiments/backend/recalculation.py repeats this rule, so change both.
+ * stopped one. `_results_are_stale` in products/experiments/backend/recalculation/admission.py repeats this rule, so change both.
  */
 const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
     if (
@@ -349,6 +349,8 @@ export interface experimentMetricsLogicValues {
     recalculationRejectionMessage: string | null
     refreshEligibilityTick: number
     resultConfigurationNotice: 'previous' | 'unknown' | null
+    resultsQueryTo: string | null
+    resultsQueryToLoading: boolean
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
     totalMetricsCount: number
@@ -409,6 +411,10 @@ export interface experimentMetricsLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
         resultConfigurationNotice: (currentRecalculation: RecalculationPayload | null) => 'previous' | 'unknown' | null
+        resultsQueryToLoading: (
+            recalculationLoading: boolean,
+            currentRecalculation: RecalculationPayload | null
+        ) => boolean
         isRecalculating: (
             recalculationLoading: boolean,
             currentRecalculation: RecalculationPayload | null,
@@ -499,6 +505,21 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 setCurrentRecalculation: () => false,
             },
         ],
+        /**
+         * The window end of the latest terminal run, which is the window of the results on screen. A run in
+         * flight keeps the previous value, so the exposures move to the new window only when its results land.
+         */
+        resultsQueryTo: [
+            null as string | null,
+            {
+                setCurrentRecalculation: (state, { recalculation }) =>
+                    (recalculation?.status === RECALCULATION_STATUSES.completed ||
+                        recalculation?.status === RECALCULATION_STATUSES.failed) &&
+                    recalculation.query_to
+                        ? recalculation.query_to
+                        : state,
+            },
+        ],
         // Bumped when the manual refresh window closes, so isManualRefreshBlocked recomputes without new data.
         refreshEligibilityTick: [0, { recheckRefreshEligibility: (state: number) => state + 1 }],
         // A 429 proves the backend enforces the window, even when this page's cached flags still say otherwise.
@@ -572,6 +593,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     .map((result) => result.configuration_status)
                 return statuses.includes('previous') ? 'previous' : statuses.includes('unknown') ? 'unknown' : null
             },
+        ],
+        // Until the first run loads, a null `resultsQueryTo` means "not loaded yet", not "no run".
+        resultsQueryToLoading: [
+            (s) => [s.recalculationLoading, s.currentRecalculation],
+            (recalculationLoading: boolean, currentRecalculation: RecalculationPayload | null): boolean =>
+                recalculationLoading && !currentRecalculation,
         ],
         // True while a recalculation is being fetched or is still running.
         isRecalculating: [
@@ -931,7 +958,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         : {}),
                 })
             },
+            setRecalculationLoading: ({ loading }) => {
+                if (!loading) {
+                    resolveResultsQueryToWaiters(cache)
+                }
+            },
             setCurrentRecalculation: () => {
+                resolveResultsQueryToWaiters(cache)
                 const notice = values.resultConfigurationNotice
                 if (notice && cache.reportedConfigurationNotice !== notice) {
                     cache.reportedConfigurationNotice = notice
@@ -1050,6 +1083,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         trigger,
                         is_existing: recalculation.is_existing,
                     })
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
 
                     if (
                         recalculation.status === RECALCULATION_STATUSES.completed ||
@@ -1092,6 +1128,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         actions.pollRecalculation(recalculation.id)
                     }
                 } catch (error: any) {
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
                     /**
                      * re enable the reload button.
                      */
@@ -1275,3 +1314,16 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         )
     }),
 ])
+
+function resolveResultsQueryToWaiters(cache: Record<string, any>): void {
+    const waiters: (() => void)[] = cache.resultsQueryToWaiters ?? []
+    cache.resultsQueryToWaiters = []
+    waiters.forEach((resolve) => resolve())
+}
+
+/** Resolves on the next action that can end `resultsQueryToLoading`. Hold a mount until then, or it never resolves. */
+export function resultsQueryToLoaded(logic: ReturnType<typeof experimentMetricsLogic.build>): Promise<void> {
+    return new Promise((resolve) => {
+        logic.cache.resultsQueryToWaiters = [...(logic.cache.resultsQueryToWaiters ?? []), resolve]
+    })
+}

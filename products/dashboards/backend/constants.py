@@ -25,6 +25,8 @@ LOGS_LIST_DEFAULT_LIMIT = 50
 # Six columns fit rate, errors and three percentiles side by side.
 METRICS_TABLE_MAX_COLUMNS = 6
 METRICS_TABLE_MAX_FILTERS = 5
+# A row is one combination of the group-by label values, e.g. a view and an HTTP method.
+METRICS_TABLE_MAX_GROUP_BY = 3
 METRICS_TABLE_MAX_LIMIT = 100
 METRICS_TABLE_DEFAULT_LIMIT = 25
 # Points per sparkline, and also the bucket count of the query. A query returns one row per bucket and label
@@ -38,6 +40,8 @@ METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES = frozenset({"-90d"})
 
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10
+
+MAX_CACHED_TILES_BATCH_SIZE = 100
 
 MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH = 10_000
 MAX_GROUPS = 100
@@ -74,16 +78,3 @@ WIDGET_DATE_FROM_LABELS: dict[str, str] = {
     "-30d": "Last 30 days",
     "-90d": "Last 90 days",
 }
-
-# `optimized` run_insights output is read by agents with a limited context window, so each tile's
-# formatted table is held to this many characters unless the caller asks for more.
-RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS = 2000
-
-# Ceiling on the whole `optimized` run_insights response. Tiles past it are not run.
-RUN_INSIGHTS_MAX_TOTAL_CHARS = 30000
-
-# Below this, a tile can only carry a sliced header, so it is reported as not run instead.
-RUN_INSIGHTS_MIN_TILE_CHARS = 200
-
-# The marker list grows with the dashboard, so it gets a ceiling of its own.
-RUN_INSIGHTS_MAX_UNRUN_TILES = 25

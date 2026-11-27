@@ -6,10 +6,13 @@ nobody in it. The finding names the missing traffic, not missing code: a flag ca
 users yet, or through a call that records nothing.
 """
 
+from datetime import UTC
+
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG
@@ -17,11 +20,24 @@ from products.experiments.backend.health.skips import (
     FLAG_DELETED,
     NO_FLAG,
     NOT_ON_ARCHIVED,
+    NOT_ON_WAREHOUSE_NATIVE_EXPOSURES,
     RUNS_BEFORE_LAUNCH,
     CheckOutcome,
+    CheckValues,
     not_applicable,
     not_checked,
 )
+
+
+def new_flag_no_traffic_values(ctx: HealthContext) -> CheckValues:
+    if ctx.archived or ctx.is_launched or ctx.warehouse_native_exposures:
+        return {}
+    values: dict[ExperimentHealthValueKey, bool | str] = {}
+    if ctx.flag_called is not None:
+        values[ExperimentHealthValueKey.FLAG_CALLED] = ctx.flag_called
+    if ctx.flag_last_called_at is not None:
+        values[ExperimentHealthValueKey.FLAG_LAST_CALLED_AT] = ctx.flag_last_called_at.astimezone(UTC).isoformat()
+    return values
 
 
 def new_flag_no_traffic(ctx: HealthContext) -> CheckOutcome:
@@ -30,10 +46,15 @@ def new_flag_no_traffic(ctx: HealthContext) -> CheckOutcome:
     # After launch, the zero exposures check reports an experiment without traffic.
     if ctx.is_launched:
         return not_applicable(RUNS_BEFORE_LAUNCH)
+    # The warehouse rows count the users, so a flag without calls doesn't leave the run empty.
+    if ctx.warehouse_native_exposures:
+        return not_applicable(NOT_ON_WAREHOUSE_NATIVE_EXPOSURES)
     if ctx.flag is None:
         return not_applicable(NO_FLAG)
     if ctx.flag.deleted:
         return not_applicable(FLAG_DELETED)
+    if not ctx.can_read_flag_calls:
+        return not_checked("Couldn't check because you can't query the feature flag's call events")
     if ctx.flag_called is None:
         return not_checked(
             "Couldn't check because this organization's flag calls are stored where this check can't read them"

@@ -91,7 +91,7 @@ _EARLIEST_START_TIME = "1970-01-01T00:00:00Z"
 
 # Endpoints cover the resources a user most commonly wants to analyze from an LLM observability
 # platform: traces, observations, scores, sessions, prompts, datasets, model pricing, score
-# configs, annotation queues, experiments, and comments.
+# configs, annotation queues, experiments, comments, and skills.
 # Incremental support is only declared where the API documents a server-side timestamp filter.
 LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
     "traces": LangfuseEndpointConfig(
@@ -246,6 +246,17 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         page_size=50,
         # Only filterable by object and author, not by time -> full refresh only.
         partition_key="createdAt",
+    ),
+    "skills": LangfuseEndpointConfig(
+        name="skills",
+        path="/api/public/skills",
+        pagination="page",
+        page_size=100,  # documented maximum
+        # Full refresh only: fromUpdatedAt filters on the latest version's update time, but moving
+        # the production label between older versions leaves that time unchanged, so an
+        # incremental sync would keep a stale productionVersion.
+        # One row per skill name; no stable creation field to partition on.
+        primary_keys=["name"],
     ),
 }
 

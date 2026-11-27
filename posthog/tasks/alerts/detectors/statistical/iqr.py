@@ -1,11 +1,11 @@
 from typing import Any
 
 import numpy as np
-from scipy.special import erf
 
 from posthog.schema import DetectorType
 
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, DetectorArtifact
+from posthog.tasks.alerts.detectors.normalizers import UNIFY, FitError
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
@@ -20,22 +20,6 @@ def _iqr_fence_distances(
     )
 
 
-def _iqr_distance_to_probability(distance: float, window_distances: np.ndarray) -> float:
-    """Normalize an IQR fence distance to a [0, 1] anomaly probability.
-
-    Uses pyod's 'unify' approach: standardize the distance against the
-    distribution of distances observed in the training window, then apply erf.
-    """
-    return _normalize_iqr_distance(distance, float(window_distances.mean()), float(window_distances.std()))
-
-
-def _normalize_iqr_distance(distance: float, mean_d: float, std_d: float) -> float:
-    if std_d == 0:
-        return 1.0 if distance > mean_d else 0.0
-    standardized = (distance - mean_d) / std_d
-    return float(np.clip(erf(standardized / np.sqrt(2)), 0.0, 1.0))
-
-
 @register_detector(DetectorType.IQR)
 class IQRDetector(BaseDetector):
     """
@@ -45,8 +29,9 @@ class IQRDetector(BaseDetector):
     - Values below Q1 - multiplier*IQR are anomalies
     - Values above Q3 + multiplier*IQR are anomalies
 
-    Scores are normalized to [0, 1] probabilities using pyod's 'unify'
-    approach (standardize against training window distances, then erf).
+    The raw score is the distance from the nearest fence, in IQRs. The
+    normalizer maps it to [0, 1] against the distances of the training window,
+    with pyod's ``unify`` method by default (standardize, then erf).
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
@@ -55,6 +40,7 @@ class IQRDetector(BaseDetector):
     """
 
     DEFAULT_MULTIPLIER = 1.5
+    DEFAULT_NORMALIZER = UNIFY
 
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
@@ -105,9 +91,12 @@ class IQRDetector(BaseDetector):
         else:
             raw_distance = 0.0
 
-        window_distances = _iqr_fence_distances(window_data, lower_fence, upper_fence, iqr)
+        try:
+            fitted = self._fit_normalizer(_iqr_fence_distances(window_data, lower_fence, upper_fence, iqr))
+        except FitError:
+            return DetectionResult(is_anomaly=False)
 
-        prob = _iqr_distance_to_probability(raw_distance, window_distances)
+        prob = self._normalize(fitted, raw_distance)
         is_anomaly = prob > threshold
 
         return DetectionResult(
@@ -123,6 +112,7 @@ class IQRDetector(BaseDetector):
                 "upper_fence": float(upper_fence),
                 "value": float(current_value),
                 "raw_distance": raw_distance,
+                "normalizer": fitted["method"],
             },
         )
 
@@ -168,13 +158,13 @@ class IQRDetector(BaseDetector):
             else:
                 raw_distance = 0.0
 
-            window_distances = np.where(
-                window_data < lower_fence,
-                (lower_fence - window_data) / iqr if iqr > 0 else 0.0,
-                np.where(window_data > upper_fence, (window_data - upper_fence) / iqr if iqr > 0 else 0.0, 0.0),
-            )
+            try:
+                fitted = self._fit_normalizer(_iqr_fence_distances(window_data, lower_fence, upper_fence, iqr))
+            except FitError:
+                scores.append(None)
+                continue
 
-            prob = _iqr_distance_to_probability(raw_distance, window_distances)
+            prob = self._normalize(fitted, raw_distance)
             scores.append(prob)
             if prob > threshold:
                 triggered.append(i + diffs_n)
@@ -198,7 +188,6 @@ class IQRDetector(BaseDetector):
         iqr = q3 - q1
         lower_fence = q1 - multiplier * iqr
         upper_fence = q3 + multiplier * iqr
-        window_distances = _iqr_fence_distances(window_data, lower_fence, upper_fence, iqr)
         return self._artifact(
             {
                 "q1": float(q1),
@@ -206,8 +195,7 @@ class IQRDetector(BaseDetector):
                 "iqr": float(iqr),
                 "lower_fence": float(lower_fence),
                 "upper_fence": float(upper_fence),
-                "mean_distance": float(window_distances.mean()),
-                "std_distance": float(window_distances.std()),
+                "normalizer": self._fit_normalizer(_iqr_fence_distances(window_data, lower_fence, upper_fence, iqr)),
             }
         )
 
@@ -218,6 +206,7 @@ class IQRDetector(BaseDetector):
         iqr = params["iqr"]
         lower_fence = params["lower_fence"]
         upper_fence = params["upper_fence"]
+        fitted = params["normalizer"]
         scores: list[float | None] = []
         metadata: list[dict[str, Any]] = []
         for value in rows if rows.ndim == 1 else rows[:, 0]:
@@ -229,7 +218,7 @@ class IQRDetector(BaseDetector):
                 raw_distance = (value - upper_fence) / iqr
             else:
                 raw_distance = 0.0
-            scores.append(_normalize_iqr_distance(raw_distance, params["mean_distance"], params["std_distance"]))
+            scores.append(self._normalize(fitted, raw_distance))
             metadata.append(
                 {
                     "q1": params["q1"],
@@ -239,6 +228,7 @@ class IQRDetector(BaseDetector):
                     "upper_fence": upper_fence,
                     "value": float(value),
                     "raw_distance": float(raw_distance),
+                    "normalizer": fitted["method"],
                 }
             )
         return scores, metadata

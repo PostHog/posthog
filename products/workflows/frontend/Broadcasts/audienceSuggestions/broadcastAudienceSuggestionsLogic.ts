@@ -27,6 +27,7 @@ import { cohortsCreate, cohortsList } from 'products/cohorts/frontend/generated/
 import type { UserType } from '../../../../../frontend/src/types'
 import { broadcastAudienceSuggestionsCurrent, broadcastAudienceSuggestionsGenerate } from '../../generated/api'
 import type { AudienceSuggestionApi, AudienceSuggestionsResponseApi } from '../../generated/api.schemas'
+import { COMPUTED_FILTER_KEYS } from '../audience/audienceList'
 import { urlForNewBroadcastWithAudience } from '../broadcastAudiencePrefill'
 
 const POLL_INTERVAL_MS = 1000
@@ -37,7 +38,6 @@ const REUSABLE_COHORT_MAX_AGE_MS = 60 * 60 * 1000
 const CREATE_FAILED_MESSAGE = "We couldn't create this audience. Try again."
 // pinned: source value - the broadcast launch event reports it
 export const AUDIENCE_SUGGESTION_SOURCE = 'audience_suggestion'
-const COMPUTED_FILTER_KEYS = new Set(['bytecode', 'bytecode_error', 'conditionHash'])
 const NEGATABLE_FILTER_TYPES = new Set(['behavioral', 'cohort', 'person', 'person_metadata'])
 
 // Saving drops nulls, fills `negation` and compiles bytecode, so an unchanged snapshot only matches in this form.

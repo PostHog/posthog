@@ -2,32 +2,21 @@ from contextlib import nullcontext
 from typing import cast
 
 from django import forms
-from django.contrib import admin, messages
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
-from django.shortcuts import redirect
-from django.urls import path, reverse
+from django.contrib import admin
+from django.http import HttpRequest
+from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
-from posthog.storage import object_storage
 
 from .logic.services.ai_run_defaults import validate_ai_run_preferences_payload
 from .models import SandboxSnapshot, Task, TaskRun, TeamTasksConfig, UserTasksConfig
-from .presentation.views.infrastructure_admin import infrastructure_admin
 from .visibility import task_run_visibility_q, task_visibility_q
 
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    change_list_template = "admin/tasks/task/change_list.html"
-
-    def get_urls(self) -> list:
-        return [
-            path("infrastructure/", self.admin_site.admin_view(infrastructure_admin), name="tasks_infrastructure"),
-            *super().get_urls(),
-        ]
-
     list_display = ("slug", "title", "origin_product", "internal", "team", "created_by", "created_at", "deleted")
     list_filter = ("origin_product", "internal", "deleted", "created_at")
     search_fields = ("title", "description", "repository")
@@ -37,7 +26,10 @@ class TaskAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("id", "slug", "task_number", "title", "description", "origin_product", "internal")}),
         ("Team & User", {"fields": ("team", "created_by")}),
-        ("Repository", {"fields": ("github_integration", "github_user_integration", "repository")}),
+        (
+            "Repository",
+            {"fields": ("github_integration", "github_user_integration", "repository_integration_id", "repository")},
+        ),
         ("Schema", {"fields": ("json_schema",)}),
         ("Status", {"fields": ("deleted", "deleted_at")}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
@@ -75,49 +67,12 @@ class TaskRunAdmin(admin.ModelAdmin):
             .filter(task_run_visibility_q(request.user.id))
         )
 
-    def get_urls(self) -> list:
-        # Prepended so it isn't shadowed by the default `<path:object_id>/` route.
-        return [
-            path(
-                "<uuid:run_id>/download-logs/",
-                self.admin_site.admin_view(self.download_logs),
-                name="tasks_taskrun_download_logs",
-            ),
-            *super().get_urls(),
-        ]
-
-    def download_logs(self, request: HttpRequest, run_id) -> HttpResponse:
-        run = self.get_object(request, run_id)
-        if run is None:
-            raise Http404("Task run not found")
-        if object_storage.head_object(run.log_url) is None:
-            self.message_user(
-                request,
-                "No logs available for this run — they may not have been written yet, or object storage is unreachable.",
-                level=messages.WARNING,
-            )
-            return redirect(reverse("admin:tasks_taskrun_change", args=[run_id]))
-        filename = f"run_{run.id}.jsonl"
-        url = object_storage.get_presigned_url(
-            run.log_url,
-            expiration=300,
-            content_disposition=f'attachment; filename="{filename}"',
-        )
-        if not url:
-            self.message_user(
-                request,
-                "Could not generate a download link for this run's logs (object storage unavailable).",
-                level=messages.WARNING,
-            )
-            return redirect(reverse("admin:tasks_taskrun_change", args=[run_id]))
-        return HttpResponseRedirect(url)
-
     @admin.display(description="Logs")
     def download_logs_link(self, obj: TaskRun) -> str:
         if not obj or not obj.pk:
             return "—"
-        url = reverse("admin:tasks_taskrun_download_logs", args=[obj.pk])
-        return format_html('<a class="button" href="{}">Download logs</a>', url)
+        url = reverse("admin_console_tool_operation", kwargs={"tool_key": "task-run-logs", "operation_key": "download"})
+        return format_html('<a href="{}?run={}">Download logs: now in PostHog Admin &#8599;</a>', url, obj.pk)
 
 
 @admin.register(SandboxSnapshot)

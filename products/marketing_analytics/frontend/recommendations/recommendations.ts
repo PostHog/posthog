@@ -1,9 +1,15 @@
+import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingSourceName } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import {
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange,
     MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsConversionSource,
+    MarketingAnalyticsRecommendationsDataGap,
+    MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSource,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
@@ -25,7 +31,8 @@ export const RECOMMENDATION_RULE_LABELS: Record<MarketingAnalyticsRecommendation
 }
 
 export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationRule, string> = {
-    budget_constrained: 'Google Ads limits these campaigns by budget and suggests a higher daily budget.',
+    budget_constrained:
+        'Conversions cost no more than the benchmark CPA, but Google Ads limits the campaign by budget and suggests a higher one.',
     brand_leak: 'Campaigns that are not about your brand spend on searches for your brand name.',
     scale_campaign:
         'Conversions cost less than the benchmark CPA, but the campaign loses impressions to budget or ad rank.',
@@ -33,7 +40,8 @@ export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommen
     policy_limited: 'Google limits some ads in these campaigns for policy reasons, so they show less often.',
     brand_overlap: 'You pay for brand searches where your site already ranks in the top 3 organically.',
     content_gap: 'Searches that convert cheaply in ads, where your site ranks below position 10 or not at all.',
-    keyword_gap: 'Popular organic searches you do not bid on, made of words that already convert in your ads.',
+    keyword_gap:
+        'Popular organic searches you do not bid on. Each one is a variant of a search that converts in your ads, or ranks on a page your ads link to.',
     spend_without_conversions: 'Search terms that cost at least twice the benchmark CPA and never converted.',
     striking_distance: 'Searches where your site ranks between positions 5 and 20. The top 3 gets most of the clicks.',
     keyword_tracking:
@@ -54,9 +62,12 @@ export const BENCHMARK_SOURCE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendat
         'The cost per conversion of your non-brand Search campaigns, or of every non-brand campaign if you have no Search campaigns. Brand searches cost less, so they are left out.',
 }
 
-export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix'
+export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix' | 'keep' | 'minor'
 
-const RULE_CATEGORIES: Record<MarketingAnalyticsRecommendationRule, RecommendationCategory> = {
+const RULE_CATEGORIES: Record<
+    MarketingAnalyticsRecommendationRule,
+    Exclude<RecommendationCategory, 'keep' | 'minor'>
+> = {
     spend_without_conversions: 'waste',
     brand_leak: 'waste',
     review_campaign: 'waste',
@@ -75,6 +86,16 @@ export const RECOMMENDATION_CATEGORY_LABELS: Record<RecommendationCategory, stri
     grow: 'Grow',
     organic: 'Improve organic search',
     fix: 'Fix issues',
+    keep: 'Keep doing',
+    minor: 'Under 1% of spend',
+}
+
+function groupCategory(group: RecommendationGroup): RecommendationCategory {
+    // "Under 1% of spend" is about spend to cut, so a rule that only says to keep spending is not minor.
+    if (group.keepOnly) {
+        return 'keep'
+    }
+    return group.minor ? 'minor' : RULE_CATEGORIES[group.rule]
 }
 
 export interface RecommendationSection {
@@ -84,15 +105,18 @@ export interface RecommendationSection {
 
 export function sectionRecommendations(groups: RecommendationGroup[]): RecommendationSection[] {
     return (Object.keys(RECOMMENDATION_CATEGORY_LABELS) as RecommendationCategory[])
-        .map((category) => ({ category, groups: groups.filter((group) => RULE_CATEGORIES[group.rule] === category) }))
+        .map((category) => ({
+            category,
+            groups: groups.filter((group) => groupCategory(group) === category),
+        }))
         .filter((section) => section.groups.length > 0)
 }
 
 export const IMPACT_DIRECTION_LABELS: Record<MarketingAnalyticsRecommendation['impactDirection'], string> = {
     save: 'Save',
     gain: 'Gain',
-    invest: 'Invest',
-    keep: 'Keep',
+    invest: 'Invest up to',
+    keep: 'Keep spending',
 }
 
 export const IMPACT_DIRECTION_DESCRIPTIONS: Record<MarketingAnalyticsRecommendation['impactDirection'], string> = {
@@ -114,7 +138,15 @@ export interface RecommendationGroup {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendation['level']
     recommendations: MarketingAnalyticsRecommendation[]
-    totals: RecommendationTotal[]
+    // Every row of the rule is minor, resolved ones included, so resolving rows never moves the rule to another section.
+    minor: boolean
+    keepOnly: boolean
+}
+
+export const RECOMMENDATIONS_PAGE_SIZE = 20
+
+export function impactColumnTitle(keepOnly: boolean): string {
+    return keepOnly ? 'Spend' : 'Impact'
 }
 
 // Accounts can use different currencies, so amounts only add up within one currency.
@@ -135,7 +167,136 @@ export function sumImpact(recommendations: MarketingAnalyticsRecommendation[]): 
     )
 }
 
-export function groupRecommendations(recommendations: MarketingAnalyticsRecommendation[]): RecommendationGroup[] {
+// Resolutions made in this session, by recommendation key. Null means restored.
+export type ResolutionOverrides = Record<string, MarketingAnalyticsRecommendationResolution | null>
+
+// A dismissal, an applied mark or a restore shows at once, without waiting for the query to run again.
+export function withResolutionOverrides(
+    recommendations: MarketingAnalyticsRecommendation[],
+    overrides: ResolutionOverrides
+): MarketingAnalyticsRecommendation[] {
+    return recommendations.map((recommendation) =>
+        recommendation.key in overrides
+            ? { ...recommendation, resolution: overrides[recommendation.key] }
+            : recommendation
+    )
+}
+
+function sameResolution(
+    a: MarketingAnalyticsRecommendationResolution | null | undefined,
+    b: MarketingAnalyticsRecommendationResolution | null | undefined
+): boolean {
+    return !a || !b ? !a === !b : a.id === b.id && a.resolution === b.resolution
+}
+
+// A query that started before a resolution can finish after it, so an override stays until a response agrees with it.
+export function reconcileResolutionOverrides(
+    overrides: ResolutionOverrides,
+    recommendations: MarketingAnalyticsRecommendation[]
+): ResolutionOverrides {
+    const byKey = new Map(recommendations.map((recommendation) => [recommendation.key, recommendation]))
+    return Object.fromEntries(
+        Object.entries(overrides).filter(([key, override]) => {
+            const recommendation = byKey.get(key)
+            return !!recommendation && !sameResolution(recommendation.resolution, override)
+        })
+    )
+}
+
+export const DETECTED_CHANGE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationDetectedChange, string> = {
+    negative_keyword: 'Google Ads lists this search as a negative keyword.',
+    brand_negative: 'Google Ads lists your brand as a negative keyword.',
+    keyword_added: 'Google Ads lists this search as a keyword in an active Search campaign.',
+}
+
+export function isResolved(recommendation: MarketingAnalyticsRecommendation): boolean {
+    return !!recommendation.resolution || !!recommendation.detectedChange
+}
+
+export function unresolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
+    return recommendations.filter((recommendation) => !isResolved(recommendation))
+}
+
+export function resolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
+    return recommendations.filter(isResolved)
+}
+
+export interface RecommendationsLoadStatus {
+    sourcesLoading: boolean
+    responseLoading: boolean
+    responseError: boolean
+    connectedSourceCount: number
+    selectedSourceCount: number
+    hasRecommendations: boolean
+}
+
+export function recommendationsShownState(status: RecommendationsLoadStatus): RecommendationsShownState | null {
+    const hasSelectedSource = status.selectedSourceCount > 0
+    if (hasSelectedSource && !status.responseError && status.hasRecommendations) {
+        return 'recommendations'
+    }
+    if (status.sourcesLoading || (status.responseLoading && hasSelectedSource)) {
+        return null
+    }
+    if (status.connectedSourceCount === 0) {
+        return 'no_connected_source'
+    }
+    if (!hasSelectedSource) {
+        return 'no_selected_source'
+    }
+    return status.responseError ? 'error' : 'empty'
+}
+
+type Direction = MarketingAnalyticsRecommendation['impactDirection']
+
+// These rules move a whole campaign's spend, so other recommendations on the same campaign overlap with them.
+const WHOLE_CAMPAIGN_RULES: Partial<Record<Direction, MarketingAnalyticsRecommendationRule[]>> = {
+    save: ['review_campaign'],
+    invest: ['scale_campaign', 'budget_constrained'],
+}
+
+function campaignOf(recommendation: MarketingAnalyticsRecommendation): string | null {
+    return recommendation.level === 'campaign' ? recommendation.subject : (recommendation.campaign ?? null)
+}
+
+// The account-wide total, where overlapping recommendations on one campaign count once and "keep" stays out.
+export function summarizeImpact(recommendations: MarketingAnalyticsRecommendation[]): RecommendationTotal[] {
+    const byCampaign = new Map<string, { whole: number; rest: number; direction: Direction; currency: string | null }>()
+    recommendations.forEach((recommendation, index) => {
+        const { impact, impactDirection: direction } = recommendation
+        if (!impact || direction === 'keep') {
+            return
+        }
+        const currency = recommendation.currency ?? null
+        const campaign = campaignOf(recommendation) ?? `#${index}`
+        const key = `${direction}|${currency}|${campaign}`
+        const bucket = byCampaign.get(key) ?? { whole: 0, rest: 0, direction, currency }
+        if (WHOLE_CAMPAIGN_RULES[direction]?.includes(recommendation.rule)) {
+            bucket.whole = Math.max(bucket.whole, impact)
+        } else {
+            bucket.rest += impact
+        }
+        byCampaign.set(key, bucket)
+    })
+    const totals = new Map<string, RecommendationTotal>()
+    for (const { whole, rest, direction, currency } of byCampaign.values()) {
+        // Reviewing a campaign covers every saving inside it; a budget raise and new keywords add up.
+        const amount = direction === 'save' ? Math.max(whole, rest) : whole + rest
+        const key = `${direction}|${currency}`
+        const total = totals.get(key) ?? { direction, currency, amount: 0 }
+        total.amount += amount
+        totals.set(key, total)
+    }
+    return [...totals.values()].sort(
+        (a, b) => DIRECTION_ORDER.indexOf(a.direction) - DIRECTION_ORDER.indexOf(b.direction)
+    )
+}
+
+export function groupRecommendations(
+    recommendations: MarketingAnalyticsRecommendation[],
+    // Kept in the list with no rows, so resolving the last row of the open rule does not switch to another rule.
+    keepRule: MarketingAnalyticsRecommendationRule | null
+): RecommendationGroup[] {
     const byRule = new Map<MarketingAnalyticsRecommendationRule, MarketingAnalyticsRecommendation[]>()
     for (const recommendation of recommendations) {
         byRule.set(recommendation.rule, [...(byRule.get(recommendation.rule) ?? []), recommendation])
@@ -143,13 +304,14 @@ export function groupRecommendations(recommendations: MarketingAnalyticsRecommen
     const groups = [...byRule.entries()].map(([rule, rows]) => ({
         rule,
         level: rows[0].level,
-        recommendations: rows,
-        totals: sumImpact(rows),
+        recommendations: unresolved(rows),
+        minor: rows.every((row) => row.minor),
+        keepOnly: rows.every((row) => row.impactDirection === 'keep'),
     }))
     // The backend already orders rules by impact. Groups that only say "keep" need no action, so they go last.
-    const needsAction = (group: RecommendationGroup): boolean =>
-        group.recommendations.some((row) => row.impactDirection !== 'keep')
-    return [...groups.filter(needsAction), ...groups.filter((group) => !needsAction(group))]
+    return [...groups.filter((group) => !group.keepOnly), ...groups.filter((group) => group.keepOnly)].filter(
+        (group) => group.recommendations.length > 0 || group.rule === keepRule
+    )
 }
 
 function syncedTable(source: ExternalDataSource, name: string): string | undefined {
@@ -188,6 +350,12 @@ const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] 
         rules: ['spend_without_conversions'],
     },
     {
+        table: 'ad',
+        purpose:
+            'find search terms that waste spend and do not match your ad copy, organic searches that rank on pages your ads link to, and count the ads limited by policy.',
+        rules: ['spend_without_conversions', 'keyword_gap', 'policy_limited'],
+    },
+    {
         table: 'campaign_impression_share_stats',
         purpose: 'tell budget limits from ad rank limits.',
         rules: ['budget_constrained', 'scale_campaign'],
@@ -210,6 +378,52 @@ export function recommendationDataGaps(source: ExternalDataSource): Recommendati
     }))
 }
 
+export type DataGapNavigation = 'edit_conversion_goals' | 'open_utm_audit'
+
+const SERVER_DATA_GAP_ACTIONS: Record<
+    MarketingAnalyticsRecommendationsDataGapKind,
+    'manage_source' | DataGapNavigation | null
+> = {
+    conversion_action_tables_not_synced: 'manage_source',
+    performance_max_search_terms_count_primary_conversions: null,
+    hidden_search_spend: null,
+    posthog_conversions_not_ready: null,
+    posthog_conversion_goals_unusable: 'edit_conversion_goals',
+    // It also covers a truncated result, which no goal edit fixes.
+    posthog_conversions_failed: null,
+    posthog_campaigns_unmatched: 'open_utm_audit',
+}
+
+export type ServerDataGap = { kind: MarketingAnalyticsRecommendationsDataGapKind; message: string } & (
+    | { action: 'manage_source'; sourceId: string; sourceName: string }
+    | { action: DataGapNavigation | null; sourceName: string | null }
+)
+
+export function serverDataGaps(
+    gaps: MarketingAnalyticsRecommendationsDataGap[],
+    selectedSources: ExternalDataSource[],
+    utmAuditEnabled: boolean
+): ServerDataGap[] {
+    return gaps.map((gap) => {
+        const source = gap.campaignTable
+            ? selectedSources.find((source) => recommendationsSource(source)?.campaignTable === gap.campaignTable)
+            : undefined
+        const sourceName = source ? marketingSourceName(source) : null
+        const action = SERVER_DATA_GAP_ACTIONS[gap.kind]
+        if (action === 'manage_source' && source && sourceName) {
+            return { kind: gap.kind, message: gap.message, action, sourceId: source.id, sourceName }
+        }
+        const reachable = action === 'edit_conversion_goals' || (action === 'open_utm_audit' && utmAuditEnabled)
+        return { kind: gap.kind, message: gap.message, action: reachable ? action : null, sourceName }
+    })
+}
+
+export function conversionSourceLabel(source: MarketingAnalyticsRecommendationsConversionSource): string {
+    return source.kind === 'posthog'
+        ? `CPAs from your PostHog goals: ${source.goalNames.join(', ')}`
+        : 'CPAs from Google Ads conversions'
+}
+
 export function recommendationsSource(source: ExternalDataSource): MarketingAnalyticsRecommendationsSource | null {
     if (source.source_type === 'GoogleAds') {
         const campaignTable = syncedTable(source, 'campaign')
@@ -226,6 +440,8 @@ export function recommendationsSource(source: ExternalDataSource): MarketingAnal
             searchTermTable: syncedTable(source, 'search_term_stats'),
             searchTermKeywordTable: syncedTable(source, 'search_term_keyword_stats'),
             performanceMaxSearchTermTable: syncedTable(source, 'performance_max_search_term_stats'),
+            adTable: syncedTable(source, 'ad'),
+            keywordTable: syncedTable(source, 'keyword'),
         }
     }
     if (source.source_type === 'GoogleSearchConsole') {

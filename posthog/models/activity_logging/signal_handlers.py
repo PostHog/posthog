@@ -3,7 +3,7 @@ import time
 import dataclasses
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Literal, Optional, Unpack
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -671,8 +671,22 @@ RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
 
 @mutable_receiver(model_activity_signal, sender=TaggedItem)
 def handle_tagged_item_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+    sender,
+    scope,
+    before_update,
+    after_update,
+    activity,
+    user,
+    was_impersonated=False,
+    log_entries: list[LogActivityEntry] | None = None,
+    **kwargs,
 ):
+    def record_activity(**entry: Unpack[LogActivityEntry]) -> None:
+        if log_entries is not None:
+            log_entries.append(entry)
+        else:
+            log_activity(**entry)
+
     # Use after_update for create/update, before_update for delete
     tagged_item = after_update or before_update
 
@@ -696,7 +710,20 @@ def handle_tagged_item_change(
     # Set by ActivityTriggerContext when the change comes from an automated source (e.g. a workflow)
     trigger = get_current_trigger()
 
-    log_activity(
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    if (
+        before_update is not None
+        and after_update is not None
+        and before_update.tag_id == after_update.tag_id
+        and before_update.tag.name != after_update.tag.name
+    ):
+        changes.append(
+            Change(
+                type=scope, field="tag", action="changed", before=before_update.tag.name, after=after_update.tag.name
+            )
+        )
+
+    record_activity(
         organization_id=organization_id,
         team_id=team_id,
         user=user,
@@ -705,7 +732,7 @@ def handle_tagged_item_change(
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes,
             name=tagged_item.tag.name,
             context=context,
             trigger=trigger,
@@ -716,8 +743,10 @@ def handle_tagged_item_change(
     # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
     related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object.type or "")
     if related_logger and related_object.id:
-        tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
-        log_activity(
+        tag_action: Literal["created", "deleted", "changed"] = (
+            "created" if activity == "created" else "changed" if activity == "updated" else "deleted"
+        )
+        record_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
@@ -732,8 +761,8 @@ def handle_tagged_item_change(
                         type=related_logger.scope,
                         field="tag",
                         action=tag_action,
-                        after=tagged_item.tag.name if activity == "created" else None,
-                        before=tagged_item.tag.name if activity == "deleted" else None,
+                        after=after_update.tag.name if after_update is not None else None,
+                        before=before_update.tag.name if before_update is not None else None,
                     )
                 ],
                 trigger=trigger,
@@ -745,6 +774,15 @@ def handle_tagged_item_change(
 def handle_organization_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    # The organization reads its own log, so a staff member who deactivates it for abuse stays unnamed there.
+    deactivated_from_outside = (
+        activity == "updated"
+        and user is not None
+        and before_update is not None
+        and before_update.is_active is not False
+        and after_update.is_active is False
+        and not after_update.memberships.filter(user_id=user.id).exists()
+    )
     log_activity(
         organization_id=after_update.id,
         team_id=None,
@@ -757,6 +795,7 @@ def handle_organization_change(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=after_update.name,
         ),
+        external_actor=deactivated_from_outside,
     )
 
 
@@ -907,7 +946,7 @@ def handle_project_secret_api_key_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     changes = changes_between(scope, previous=before_update, current=after_update)
-    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes)
+    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes, previous=before_update)
 
 
 @receiver(pre_delete, sender=ProjectSecretAPIKey)

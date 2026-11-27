@@ -28,6 +28,9 @@ import type {
     PulseSlotApi,
 } from 'products/today/frontend/generated/api.schemas'
 
+import { type ProductNumberKind, productNumberKind } from './todayPulseProductNumbers'
+
+export const HIGHLIGHTS_FIRST_POLL_MS = 400
 export const HIGHLIGHTS_POLL_MS = 2_000
 const MAX_HIDDEN_PULSE_NUMBERS = 50
 const HIGHLIGHTS_WAIT_MS = 2_000
@@ -195,8 +198,8 @@ export function placePulseSlots(
     return { slots: shown, places: nextPlaces }
 }
 
-function pulseKind(key: string): 'insight' | 'key_metric' {
-    return key.startsWith('insight:') ? 'insight' : 'key_metric'
+function pulseKind(key: string): 'insight' | 'key_metric' | ProductNumberKind {
+    return key.startsWith('insight:') ? 'insight' : (productNumberKind(key) ?? 'key_metric')
 }
 
 function hiddenHighlightKey(projectId: number | string, key: string): string {
@@ -313,7 +316,7 @@ export interface todayHighlightsLogicActions {
         pulseInsightResults: PulsePinApi[]
         payload?: string
     }
-    loadPulsePins: () => any
+    loadPulsePins: (_: void) => void
     loadPulsePinsFailure: (
         error: string,
         errorObject?: any
@@ -323,10 +326,10 @@ export interface todayHighlightsLogicActions {
     }
     loadPulsePinsSuccess: (
         pulsePins: PulsePinApi[],
-        payload?: any
+        payload?: void
     ) => {
         pulsePins: PulsePinApi[]
-        payload?: any
+        payload?: void
     }
     loadPulseRecentInsights: (_: any) => any
     loadPulseRecentInsightsFailure: (
@@ -547,41 +550,30 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         pulsePins: [
             [] as PulsePinApi[],
             {
-                loadPulsePins: async (): Promise<PulsePinApi[]> => {
+                loadPulsePins: async (_: void, breakpoint): Promise<PulsePinApi[]> => {
                     const edits = cache.pinEdits ?? 0
                     const hiddenEdits = cache.hiddenEdits
-                    try {
-                        const { pins, hidden = [] } = await todayPulsePinsRetrieve(String(values.currentProjectId))
-                        if (cache.hiddenEdits === hiddenEdits) {
-                            actions.setPulseHidden([...hidden])
-                        }
-                        return (cache.pinEdits ?? 0) === edits ? pins : values.pulsePins
-                    } catch (error) {
-                        if (error instanceof ApiError && error.status === 404) {
-                            return []
-                        }
-                        throw error
+                    const projectId = String(values.currentProjectId)
+                    const { pins, hidden = [] } = await todayPulsePinsRetrieve(projectId)
+                    breakpoint()
+                    if (cache.hiddenEdits === hiddenEdits) {
+                        actions.setPulseHidden([...hidden])
                     }
+                    return (cache.pinEdits ?? 0) === edits ? pins : values.pulsePins
                 },
             },
         ],
         highlights: [
             null as HighlightsApi | null,
             {
-                loadHighlights: async (refresh: boolean = false): Promise<HighlightsApi | null> => {
+                loadHighlights: async (refresh: boolean = false, breakpoint): Promise<HighlightsApi | null> => {
                     if (values.currentProjectId === null) {
                         return null
                     }
-                    try {
-                        return refresh
-                            ? await todayHighlightsRetrieve(String(values.currentProjectId), { refresh: true })
-                            : await todayHighlightsRetrieve(String(values.currentProjectId))
-                    } catch (error) {
-                        if (error instanceof ApiError && error.status === 404) {
-                            return null
-                        }
-                        throw error
-                    }
+                    const projectId = String(values.currentProjectId)
+                    const highlights = await todayHighlightsRetrieve(projectId, refresh ? { refresh: true } : undefined)
+                    breakpoint()
+                    return highlights
                 },
             },
         ],
@@ -849,7 +841,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             cache.disposables.add(
                 () => {
                     const timer = window.setTimeout(() => {
-                        if (!load.finished) {
+                        if (!load.finished && !load.wasHidden) {
                             capturePulseLoad('today pulse load slow', load)
                         }
                     }, PULSE_SLOW_MS)
@@ -1036,8 +1028,11 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             actions.forgetLocalPulseHidden([hidden.key])
             posthog.capture('today pulse metric unhidden', { kind: pulseKind(hidden.key), source: 'editor' })
         },
-        loadPulsePinsFailure: () => {
-            if ((cache.pinsLoadRetries ?? 0) >= PINS_LOAD_RETRIES) {
+        loadPulsePinsFailure: ({ errorObject }) => {
+            if (
+                (errorObject instanceof ApiError && errorObject.status === 404) ||
+                (cache.pinsLoadRetries ?? 0) >= PINS_LOAD_RETRIES
+            ) {
                 actions.pulsePinsLoadGaveUp()
                 return
             }
@@ -1145,12 +1140,16 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             }
             actions.setPulsePlaces(values.pulsePlacement.places)
             if (highlights.status === 'computing') {
+                const polls: number = cache.highlightsPolls ?? 0
+                cache.highlightsPolls = polls + 1
+                const delay = Math.min(HIGHLIGHTS_FIRST_POLL_MS * 2 ** polls, HIGHLIGHTS_POLL_MS)
                 cache.disposables.add(() => {
-                    const poll = window.setTimeout(() => actions.loadHighlights(), HIGHLIGHTS_POLL_MS)
+                    const poll = window.setTimeout(() => actions.loadHighlights(), delay)
                     return () => clearTimeout(poll)
                 }, 'highlightsPoll')
                 return
             }
+            cache.highlightsPolls = 0
             if (cache.highlightsLoadedCaptured) {
                 return
             }

@@ -8,6 +8,8 @@ import { createFuseSearch } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
+import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
+import { refreshDataCatalogAttention } from './dataCatalogAttentionLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
     dataCatalogCertificationsCreate,
@@ -64,6 +66,7 @@ const searchCertifications = createFuseSearch<DataCatalogCertificationApi>(['tar
 export interface certificationsLogicValues {
     actionsInFlight: Record<string, boolean>
     certifications: DataCatalogCertificationApi[]
+    certificationsLoadFailed: boolean
     certificationsLoading: boolean
     filteredCertifications: DataCatalogCertificationApi[]
     filters: CertificationsFilters
@@ -87,6 +90,9 @@ export interface certificationsLogicActions {
     ) => {
         force?: boolean
         shallow?: boolean
+    } // databaseTableListLogic
+    refreshDatabaseSchema: () => {
+        value: true
     } // databaseTableListLogic
     certifyCertification: (id: string) => {
         id: string
@@ -169,7 +175,7 @@ export type certificationsLogicType = MakeLogicType<
 export const certificationsLogic = kea<certificationsLogicType>([
     path(['products', 'data_catalog', 'frontend', 'certificationsLogic']),
     connect(() => ({
-        actions: [databaseTableListLogic, ['loadDatabase']],
+        actions: [databaseTableListLogic, ['loadDatabase', 'refreshDatabaseSchema']],
     })),
     actions({
         setFilters: (filters: Partial<CertificationsFilters>) => ({ filters }),
@@ -198,6 +204,13 @@ export const certificationsLogic = kea<certificationsLogicType>([
         ],
     })),
     reducers({
+        certificationsLoadFailed: [
+            false,
+            {
+                loadCertificationsFailure: () => true,
+                loadCertificationsSuccess: () => false,
+            },
+        ],
         filters: [
             DEFAULT_CERTIFICATIONS_FILTERS as CertificationsFilters,
             {
@@ -279,7 +292,7 @@ export const certificationsLogic = kea<certificationsLogicType>([
                     values.certifications.map((certification) => (certification.id === id ? updated : certification))
                 )
                 // Badges elsewhere read certification state off the shared schema, so refresh it.
-                actions.loadDatabase({ force: true })
+                actions.refreshDatabaseSchema()
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || failureMessage)
             } finally {
@@ -313,10 +326,13 @@ export const certificationsLogic = kea<certificationsLogicType>([
                 actions.setFilters(DEFAULT_CERTIFICATIONS_FILTERS)
                 showHighlightedPage()
             },
-            loadCertificationsSuccess: () => showHighlightedPage(),
+            loadCertificationsSuccess: () => {
+                showHighlightedPage()
+                refreshDataCatalogAttention()
+            },
             suggestionAccepted: () => {
                 actions.loadCertifications()
-                actions.loadDatabase({ force: true })
+                actions.refreshDatabaseSchema()
             },
             openNewCertificationModal: () => actions.loadDatabase(),
             createCertification: async () => {
@@ -371,7 +387,7 @@ export const certificationsLogic = kea<certificationsLogicType>([
                         values.certifications.filter((certification) => certification.id !== id)
                     )
                     // Badges elsewhere read certification state off the shared schema, so refresh it.
-                    actions.loadDatabase({ force: true })
+                    actions.refreshDatabaseSchema()
                     lemonToast.success('Certification revoked')
                 } catch (error) {
                     lemonToast.error(apiErrorDetail(error) || 'Could not revoke the certification. Try again.')
@@ -382,9 +398,20 @@ export const certificationsLogic = kea<certificationsLogicType>([
         }
     }),
     urlToAction(({ actions }) => ({
-        [urls.dataCatalog()]: (_, searchParams) => {
-            if (searchParams.tab === 'certifications' && typeof searchParams.table === 'string') {
+        [urls.dataCatalog()]: (_, searchParams, hashParams) => {
+            if (searchParams.tab !== 'certifications') {
+                return
+            }
+            if (typeof searchParams.table === 'string') {
                 actions.setFilters({ search: searchParams.table })
+            }
+            if (searchParams[TABLES_FILTER_PARAM] === PROPOSED_TABLES_FILTER) {
+                actions.setFilters({ status: 'proposed' })
+                router.actions.replace(
+                    urls.dataCatalog(),
+                    { ...searchParams, [TABLES_FILTER_PARAM]: undefined },
+                    hashParams
+                )
             }
         },
     })),

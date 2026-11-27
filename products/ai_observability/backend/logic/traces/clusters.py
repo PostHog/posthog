@@ -28,6 +28,12 @@ class TraceCluster:
     def is_outlier(self) -> bool:
         return self.cluster_id == NOISE_CLUSTER_ID
 
+    @property
+    def label(self) -> str:
+        if self.title is not None:
+            return self.title
+        return "Outliers" if self.is_outlier else f"Cluster {self.cluster_id}"
+
 
 def _parsed_clusters(raw: str | None) -> list[object]:
     if raw is None:

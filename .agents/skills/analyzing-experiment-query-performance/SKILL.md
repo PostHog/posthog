@@ -255,7 +255,13 @@ re-check the key's scopes before anything else.
 4. **Result-consistency questions** (precomputed vs direct results diverging) are out of scope here —
    these endpoints see performance and failures, not result values.
    That's the precompute result-consistency canary's territory:
-   its Prometheus health gauges and structured divergence logs in Loki (via the Grafana MCP).
+   Use `analyzing-experiment-precompute-canary` for its health gauges and structured divergence logs through the PostHog MCP.
+   Discover names with `posthog:metric-names-list`, then send existing PromQL as written in `posthog:query-metrics`'s `query.promql`.
+   Use `query.instant: true` for current values, or a range with `query.output: "summary"`. Share the returned `_posthogUrl`.
+   Query logs with `posthog:query-logs`, filtered by discovered `service.name`, severity, and an explicit time window.
+   US and EU have separate internal PostHog projects and instances. Use each region's connection and check `environment` where present.
+   **Fallback:** People on managed devices with an existing Grafana MCP connection can use it.
+   See `tools/infra-scripts/mcp/README.md` for its setup.
 5. In any writeup, cite `query_id`, `team_id`, and `experiment_id` so others can reproduce.
 
 ## Known limitations

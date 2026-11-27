@@ -284,6 +284,9 @@ class AiEventsTable(Table):
         ),
     }
 
+    def maps_to_native_string_column(self, property_name: str) -> bool:
+        return isinstance(self.fields.get(AI_PROPERTY_TO_COLUMN.get(property_name, "")), StringDatabaseField)
+
     def to_printed_clickhouse(self, context):
         return "ai_events"
 

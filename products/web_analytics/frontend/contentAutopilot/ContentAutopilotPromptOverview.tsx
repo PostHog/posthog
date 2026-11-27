@@ -1,0 +1,139 @@
+import { Button } from '@posthog/quill'
+
+import { pluralize } from 'lib/utils/strings'
+
+import { DataVisualizationNode } from '~/queries/schema/schema-general'
+
+import type { AEOPromptStatsApi } from 'products/web_analytics/frontend/generated/api.schemas'
+
+import { AiVisibilityCard } from './AiVisibilityCard'
+import { AiVisibilityTag } from './AiVisibilityTag'
+import { ContentAutopilotAnswerOutcomeChart } from './ContentAutopilotAnswerOutcomeChart'
+import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
+import { ContentAutopilotPromptConsensus } from './ContentAutopilotPromptConsensus'
+import type { PromptReportTab } from './contentAutopilotPromptDetailLogic'
+import { ContentAutopilotSentimentBar } from './ContentAutopilotSentimentBar'
+import type {
+    PromptConsensusMatrix,
+    PromptOutcomeMetric,
+    PromptReportKpis,
+    PromptSentimentSummary,
+} from './promptReport'
+import { sortEngines } from './utils'
+import type { AnswerOutcomeChart } from './visibilityChart'
+
+const ViewAllButton = ({
+    label,
+    onClick,
+    'data-attr': dataAttr,
+}: {
+    label: string
+    onClick: () => void
+    'data-attr': string
+}): JSX.Element => (
+    <Button onClick={onClick} data-attr={dataAttr}>
+        {label}
+    </Button>
+)
+
+/** The prompt's report at a glance: answers over time, each engine's results, tone, who gets cited and what the
+ *  engines searched for. Each tile links to the tab with the full detail. */
+export const ContentAutopilotPromptOverview = ({
+    stats,
+    kpis,
+    chart,
+    metric,
+    onMetricChange,
+    query,
+    consensus,
+    sentiment,
+    onOpenTab,
+}: {
+    stats: AEOPromptStatsApi
+    kpis: PromptReportKpis
+    chart: AnswerOutcomeChart
+    metric: PromptOutcomeMetric
+    onMetricChange: (metric: PromptOutcomeMetric) => void
+    query: DataVisualizationNode
+    consensus: PromptConsensusMatrix
+    sentiment: PromptSentimentSummary
+    onOpenTab: (tab: PromptReportTab) => void
+}): JSX.Element => {
+    const engineOrder = sortEngines(stats.engines.map(({ engine }) => engine))
+    const engines = stats.engines
+        .filter((engine) => engine.checks - engine.failed > 0)
+        .sort((a, b) => engineOrder.indexOf(a.engine) - engineOrder.indexOf(b.engine))
+
+    return (
+        <div className="flex flex-col gap-4" data-attr="content-autopilot-prompt-overview">
+            <ContentAutopilotAnswerOutcomeChart
+                chart={chart}
+                metric={metric}
+                onMetricChange={onMetricChange}
+                query={query}
+                description={`${pluralize(kpis.answers, 'answer')} across ${pluralize(kpis.days, 'day')}, from every engine. Failed checks are left out.`}
+                data-attr="content-autopilot-prompt-visibility-tile"
+            />
+            <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-2 gap-4">
+                <AiVisibilityCard title="By engine">
+                    <div className="overflow-x-auto" data-attr="content-autopilot-prompt-overview-engines">
+                        <ContentAutopilotEngineTable engines={engines} />
+                    </div>
+                </AiVisibilityCard>
+                <AiVisibilityCard
+                    title="How the answers speak about you"
+                    description="Scored on the sentences that name you, so praise of another tool doesn't count."
+                    actions={
+                        <ViewAllButton
+                            label="View sentiment"
+                            onClick={() => onOpenTab('sentiment')}
+                            data-attr="content-autopilot-prompt-overview-sentiment-more"
+                        />
+                    }
+                >
+                    <div data-attr="content-autopilot-prompt-overview-sentiment">
+                        <ContentAutopilotSentimentBar summary={sentiment} />
+                    </div>
+                </AiVisibilityCard>
+            </div>
+            <AiVisibilityCard
+                title="Cited sites by engine"
+                description="Share of each engine's answers that link to the site."
+                actions={
+                    <ViewAllButton
+                        label="View sources"
+                        onClick={() => onOpenTab('sources')}
+                        data-attr="content-autopilot-prompt-overview-sources-more"
+                    />
+                }
+            >
+                <div className="overflow-x-auto" data-attr="content-autopilot-prompt-overview-consensus">
+                    <ContentAutopilotPromptConsensus matrix={consensus} />
+                </div>
+            </AiVisibilityCard>
+            {stats.top_words.length ? (
+                <AiVisibilityCard
+                    title="Words the engines searched for"
+                    actions={
+                        <ViewAllButton
+                            label="View searches"
+                            onClick={() => onOpenTab('searches')}
+                            data-attr="content-autopilot-prompt-overview-searches-more"
+                        />
+                    }
+                >
+                    <div
+                        className="flex flex-wrap items-center gap-1"
+                        data-attr="content-autopilot-prompt-overview-searches"
+                    >
+                        {stats.top_words.map((word) => (
+                            <AiVisibilityTag key={word.word}>
+                                {word.word} <span className="text-muted-foreground">{word.count}</span>
+                            </AiVisibilityTag>
+                        ))}
+                    </div>
+                </AiVisibilityCard>
+            ) : null}
+        </div>
+    )
+}

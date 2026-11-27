@@ -1,5 +1,6 @@
 import uuid
 import random
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -13,6 +14,7 @@ from asgiref.sync import sync_to_async
 from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -28,6 +30,7 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
+from products.signals.backend.source_issues import open_report_for_source_issue, source_issues_by_report
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
@@ -62,7 +65,7 @@ async def aorganization():
         name=f"SignalsAssignOrg-{random.randint(1, 99999)}",
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -72,7 +75,7 @@ async def ateam(aorganization):
         name=f"SignalsAssignTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest.fixture(autouse=True)
@@ -318,6 +321,45 @@ async def test_potential_promotes_when_weight_crosses_threshold(ateam):
     assert refreshed.signal_count == 2
     assert refreshed.promoted_at is not None
     assert str(refreshed.triggering_signal_id) == input_.signal_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("existing_report", [False, True])
+@pytest.mark.parametrize("research_started", [False, True])
+async def test_retried_assignment_does_not_count_the_signal_again(
+    ateam, patch_side_effects, existing_report, research_started
+):
+    match: ExistingReportMatch | NewReportMatch = _new_match()
+    weight = WEIGHT_THRESHOLD
+    if existing_report:
+        report = await SignalReport.objects.acreate(
+            team=ateam, status=SignalReport.Status.POTENTIAL, total_weight=WEIGHT_THRESHOLD * 0.6, signal_count=1
+        )
+        match = _existing_match(str(report.id))
+        weight = WEIGHT_THRESHOLD * 0.6
+    input_ = _build_input(ateam.id, match, weight=weight)
+
+    first = await assign_and_emit_signal_activity(input_)
+    if research_started:
+        await SignalReport.objects.filter(id=first.report_id).aupdate(status=SignalReport.Status.IN_PROGRESS)
+    assigned = await SignalReport.objects.aget(id=first.report_id)
+    # The retried batch matches the signal again, and the new match can disagree with the first one.
+    second = await assign_and_emit_signal_activity(replace(input_, match_result=_new_match("Another title")))
+
+    retried = await SignalReport.objects.aget(id=first.report_id)
+    assert first.promoted is True
+    assert second.report_id == first.report_id
+    assert second.promoted is not research_started
+    assert (retried.signal_count, retried.total_weight, retried.status, retried.promoted_at) == (
+        assigned.signal_count,
+        assigned.total_weight,
+        assigned.status,
+        assigned.promoted_at,
+    )
+    assert await SignalReport.objects.filter(team=ateam).acount() == 1
+    assert patch_side_effects["emit"].call_args.kwargs["timestamp"] == first.timestamp
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["report_id"] == first.report_id
 
 
 @pytest.mark.asyncio
@@ -1065,22 +1107,32 @@ async def test_source_sync_matches_without_semantic_rejudgment(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "status,attaches",
+    "status,other_team,attaches",
     [
-        (SignalReport.Status.READY, True),
-        (SignalReport.Status.PENDING_INPUT, True),
-        (SignalReport.Status.RESOLVED, False),
-        (SignalReport.Status.SUPPRESSED, False),
-        (SignalReport.Status.FAILED, False),
+        (SignalReport.Status.READY, False, True),
+        (SignalReport.Status.PENDING_INPUT, False, True),
+        (SignalReport.Status.RESOLVED, False, False),
+        (SignalReport.Status.SUPPRESSED, False, False),
+        (SignalReport.Status.FAILED, False, False),
+        (SignalReport.Status.CLOSED, False, False),
+        (SignalReport.Status.DELETED, False, False),
+        (SignalReport.Status.READY, True, False),
     ],
 )
-async def test_github_issue_signal_attaches_to_the_open_report_naming_it_as_source_issue(ateam, status, attaches):
+async def test_github_issue_signal_attaches_to_the_open_report_naming_it_as_source_issue(
+    ateam, status, other_team, attaches
+):
+    owner = (
+        await database_sync_to_async(Team.objects.create)(organization=ateam.organization, name="Other project")
+        if other_team
+        else ateam
+    )
     triggering_signal_id = uuid.uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam, status=status, title="Scout report", triggering_signal_id=triggering_signal_id
+        team=owner, status=status, title="Scout report", triggering_signal_id=triggering_signal_id
     )
     await database_sync_to_async(SignalReportArtefact.add_log)(
-        team_id=ateam.id,
+        team_id=owner.id,
         report_id=str(report.id),
         content=SourceIssue.github("acme/widgets", 42),
         attribution=ArtefactAttribution.system(),
@@ -1115,6 +1167,45 @@ async def test_github_issue_signal_attaches_to_the_open_report_naming_it_as_sour
         semantic_match.assert_not_awaited()
     else:
         assert match is semantic
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "joins_existing,source_product,source_type,recorded",
+    [
+        (False, "github", "issue", True),
+        (True, "github", "issue", True),
+        (False, "conversations", "ticket", False),
+    ],
+)
+async def test_github_issue_signal_records_its_issue_on_the_report_it_lands_on(
+    ateam, joins_existing, source_product, source_type, recorded
+):
+    url = "https://github.com/Acme/Widgets/issues/42"
+    if joins_existing:
+        existing = await database_sync_to_async(SignalReport.objects.create)(
+            team=ateam, status=SignalReport.Status.POTENTIAL, title="Exports time out"
+        )
+        match: ExistingReportMatch | NewReportMatch = _existing_match(str(existing.id))
+    else:
+        match = _new_match()
+    input_ = replace(
+        _build_input(ateam.id, match, weight=WEIGHT_THRESHOLD * 0.5, source_product=source_product),
+        source_type=source_type,
+        extra={"html_url": url, "number": 42, "state": "open", "locked": False},
+    )
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    held = await database_sync_to_async(source_issues_by_report)(team_id=ateam.id, report_ids=[result.report_id])
+    found = await database_sync_to_async(open_report_for_source_issue)(team_id=ateam.id, url=url)
+    if recorded:
+        assert held == {result.report_id: [SourceIssue.github("acme/widgets", 42)]}
+        assert found is not None and str(found.id) == result.report_id
+    else:
+        assert held == {}
+        assert found is None
 
 
 @pytest.mark.asyncio
@@ -1710,3 +1801,49 @@ async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam, source
     await database_sync_to_async(pending.refresh_from_db)()
     assert pending.finalized_at == finalized_at
     assert pending.billing_exempt is exempt
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_replay_preserves_deleted_report_metadata(ateam, patch_side_effects):
+    report = await SignalReport.objects.acreate(team=ateam, status=SignalReport.Status.READY)
+    signal = _build_input(ateam.id, _existing_match(str(report.id)))
+    await assign_and_emit_signal_activity(signal)
+    report.status = SignalReport.Status.DELETED
+    await database_sync_to_async(report.save)(update_fields=["status"])
+
+    await assign_and_emit_signal_activity(signal)
+
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["deleted"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_replay_follows_merge_and_recovers_candidate(ateam, patch_side_effects):
+    source = await SignalReport.objects.acreate(team=ateam, status=SignalReport.Status.READY)
+    signal = _build_input(ateam.id, _existing_match(str(source.id)))
+    await assign_and_emit_signal_activity(signal)
+    survivor = await SignalReport.objects.acreate(
+        team=ateam, status=SignalReport.Status.CANDIDATE, triggering_signal_id=uuid.uuid4()
+    )
+    source.status = SignalReport.Status.SUPPRESSED
+    await database_sync_to_async(source.save)(update_fields=["status"])
+    await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+        team_id=ateam.id,
+        report_id=str(source.id),
+        content=Dismissal(reason=MERGE_DISMISSAL_REASON),
+        attribution=ArtefactAttribution.system(),
+    )
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(source.id),
+        content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(survivor.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    result = await assign_and_emit_signal_activity(signal)
+
+    assert result.report_id == str(survivor.id)
+    assert result.promoted is True
+    assert result.triggering_signal_id == str(survivor.triggering_signal_id)
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["report_id"] == str(survivor.id)

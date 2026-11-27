@@ -5,6 +5,8 @@ import pytest
 import time_machine
 from unittest.mock import Mock, patch
 
+from django.test import override_settings
+
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 
@@ -16,15 +18,13 @@ from posthog.hogql.placeholders import replace_placeholders
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     ExecuteLLMJudgeInputs,
-    _execute_llm_judge_activity,
     get_output_type_config,
+    run_generation_llm_judge,
 )
 from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
 from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
-    AI_EVENTS_RETENTION_DAYS,
-    JUDGE_SESSION_MAX_CHARS,
     ExecuteSessionEvaluationInputs,
     SessionFetchOutcome,
     _count_session_events,
@@ -45,6 +45,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     execute_trace_llm_judge_activity,
 )
 
+from products.ai_observability.backend.facade.evaluation_runtime import JUDGE_SESSION_MAX_CHARS
 from products.ai_observability.backend.hog import compile_ai_observability_hog
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.cdp.backend.validation import compile_hog
@@ -146,14 +147,51 @@ class TestFormatSessionForJudge:
     def test_numbers_an_image_once_across_the_session(self):
         image = {"type": "image_url", "image_url": {"url": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"}}
         traces = [_trace(f"t{i}", cost=0, latency=0) for i in range(2)]
-        for trace in traces:
-            trace.events[0].properties["$ai_input"] = [{"role": "user", "content": [image]}]
+        for index, trace in enumerate(traces):
+            trace.events[0].properties["$ai_input"] = [
+                {"role": "user", "content": [image, {"type": "text", "text": f"question {index}"}]}
+            ]
 
         rendered = format_session_for_judge(traces, JudgeAttachments(team_id=1).marker)
 
         assert rendered is not None
         assert rendered.count("[image 1]") == 2
         assert "[image 2]" not in rendered
+
+    def test_shows_chat_history_a_later_trace_resends_once(self):
+        traces = [_trace(f"t{i}", cost=0, latency=0) for i in range(2)]
+        first_turn = [
+            {"role": "system", "content": "Answer from the docs. critical evidence"},
+            {"role": "user", "content": "hi"},
+        ]
+        traces[0].events[0].properties["$ai_input"] = first_turn
+        traces[1].events[0].properties["$ai_input"] = [
+            *first_turn,
+            {"role": "assistant", "content": "hello"},
+            {"role": "user", "content": "second question"},
+        ]
+
+        rendered = format_session_for_judge(traces)
+
+        assert rendered is not None
+        assert rendered.count("critical evidence") == 1
+        assert "[1-2] Same as messages 1-2 of the input to [GEN 1] above" in rendered
+        assert "second question" in rendered
+
+    def test_a_sampled_session_shows_a_resent_prompt_again_in_the_next_trace(self):
+        traces = [_trace(f"t{i}", cost=0, latency=0) for i in range(2)]
+        prompt = {"role": "system", "content": "Answer from the docs. critical evidence"}
+        traces[0].events[0].properties["$ai_input"] = [
+            prompt,
+            *({"role": "user", "content": f"question {i} " + "x" * 900} for i in range(600)),
+        ]
+        traces[1].events[0].properties["$ai_input"] = [prompt, {"role": "user", "content": "last question"}]
+
+        rendered = format_session_for_judge(traces)
+
+        assert rendered is not None
+        assert "SAMPLED VIEW" in rendered
+        assert "critical evidence" in rendered.split("=== Trace 2 of 2")[1]
 
     def test_many_small_traces_are_judged_rather_than_skipped_on_count_alone(self):
         """The overflow check must measure the rendered transcript, not `per_trace_budget * n`.
@@ -414,13 +452,17 @@ class TestFetchSessionForEvaluation:
         query = mock_session_query_runner.call_args.kwargs["query"]
         assert query.dateRange.date_from == first_seen.isoformat()
 
-    def test_floors_date_from_at_retention_for_a_session_older_than_retention(self):
+    @pytest.mark.parametrize("retention_days_by_team,retention_days", [({}, 30), ({1: 90}, 90)])
+    def test_floors_date_from_at_retention_for_a_session_older_than_retention(
+        self, retention_days_by_team, retention_days
+    ):
         # A session's real start is unreachable past ai_events retention regardless of the
         # lookback math, so the fetch must not ask ClickHouse for data it can never return.
         window_start = datetime(2026, 7, 20, tzinfo=UTC)
-        first_seen = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS + 10)
-        retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
+        first_seen = window_start - timedelta(days=retention_days + 10)
+        retention_floor = window_start - timedelta(days=retention_days)
         with (
+            override_settings(AI_EVENTS_RETENTION_DAYS_BY_TEAM=retention_days_by_team),
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
@@ -429,7 +471,7 @@ class TestFetchSessionForEvaluation:
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
                 return_value=_SessionEventCount(event_count=3, first_seen=first_seen),
-            ),
+            ) as mock_count_session_events,
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
             ) as mock_session_query_runner,
@@ -441,6 +483,7 @@ class TestFetchSessionForEvaluation:
 
         query = mock_session_query_runner.call_args.kwargs["query"]
         assert query.dateRange.date_from == retention_floor.isoformat()
+        assert mock_count_session_events.call_args.args[2] == retention_floor
 
     def test_returns_traces_oldest_first_even_though_the_runner_orders_newest_first(self):
         # SessionQueryRunner orders `first_timestamp DESC` for the UI session list. The judge's
@@ -563,9 +606,7 @@ class TestExecuteSessionActivities:
                 result = (
                     async_to_sync(run_hog_eval_for_event)(evaluation, event_data)
                     if runtime == "hog"
-                    else _execute_llm_judge_activity(
-                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-                    )
+                    else run_generation_llm_judge(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
                 )
             elif target == "trace":
                 trace_inputs = ExecuteTraceEvaluationInputs(

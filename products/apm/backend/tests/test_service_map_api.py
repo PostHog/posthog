@@ -50,6 +50,7 @@ class TestServiceMapAPI(ClickhouseTestMixin, APIBaseTest):
 
     def _get(self, **params) -> dict:
         query = {"date_from": DATE_FROM, "date_to": DATE_TO, "environment": "prod", **params}
+        query = {key: value for key, value in query.items() if value is not None}
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(URL.format(self.team.id), query)
         self.assertEqual(response.status_code, 200, response.content)
@@ -73,6 +74,15 @@ class TestServiceMapAPI(ClickhouseTestMixin, APIBaseTest):
             sorted((e["caller"], e["callee"]) for e in data["edges"]), [("eu-sync", "eu-store"), ("eu-web", "eu-api")]
         )
         self.assertEqual(data["trace_count"], 2)
+
+    def test_no_environment_maps_every_environment_including_calls_between_them(self) -> None:
+        data = self._get(environment=None)
+        self.assertIsNone(data["environment"])
+        self.assertEqual(
+            sorted((e["caller"], e["callee"]) for e in data["edges"]),
+            [("api", "db-svc"), ("eu-sync", "eu-store"), ("eu-web", "eu-api"), ("web", "api"), ("web", "eu-sync")],
+        )
+        self.assertEqual(data["trace_count"], 5)
 
     def test_trace_sample_is_capped(self) -> None:
         with patch("products.apm.backend.logic.health.sources.MAP_TRACE_LIMIT", 1):

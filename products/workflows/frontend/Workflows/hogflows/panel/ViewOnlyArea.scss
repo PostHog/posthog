@@ -1,0 +1,32 @@
+.ViewOnlyArea[data-view-only] {
+    :is(input, textarea, select, button, .monaco-editor):not(
+        .LemonCollapsePanel__header,
+        .ViewOnlyArea__reading-control,
+        [data-attr='copy-code-button'],
+        [data-attr^='show-prop-filter-'],
+        [data-attr='workflow-schedule-row'],
+        [data-attr='warehouse-column-copy']
+    ) {
+        opacity: 0.6;
+    }
+
+    :is(input, select, button):not(
+        [type='text'],
+        [type='search'],
+        [type='email'],
+        [type='url'],
+        :not([type]),
+        .LemonCollapsePanel__header,
+        .ViewOnlyArea__reading-control,
+        [data-attr='copy-code-button'],
+        [data-attr^='show-prop-filter-'],
+        [data-attr='workflow-schedule-row'],
+        [data-attr='warehouse-column-copy']
+    ) {
+        pointer-events: none;
+    }
+
+    .EmailTemplater__preview-overlay {
+        visibility: hidden;
+    }
+}

@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -6,6 +7,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import posthog from 'lib/posthog-typed'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -15,7 +18,7 @@ import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/
 
 import { mcpAnalyticsSessionsActivityOverview } from '../generated/api'
 import type { MCPActivityOverviewApi } from '../generated/api.schemas'
-import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
+import { DEFAULT_FACET_FILTERS, mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import { mcpRecurringReportsLogic } from '../notifications/mcpRecurringReportsLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
@@ -57,6 +60,7 @@ const LANDED_REPORT = {
 } as SubscriptionApi
 
 const INTENT_AND_ALERT_STEPS = overviewWith({ calls_with_intent: 2, error_calls: 3 })
+const INTENT_STEP_ONLY = overviewWith({ calls_with_intent: 2 })
 const ALERT_STEP_ONLY = overviewWith({ error_calls: 3 })
 const NO_STEPS = overviewWith({})
 
@@ -107,7 +111,7 @@ describe('mcpEarlyDataLogic', () => {
     it.each([
         [
             'restored URL filters',
-            () => mcpAnalyticsFiltersLogic.actions.hydrateFilters(true, [TOOL_FILTER]),
+            () => mcpAnalyticsFiltersLogic.actions.hydrateFilters(true, [TOOL_FILTER], DEFAULT_FACET_FILTERS),
             { filter_test_accounts: true, properties: expect.stringContaining('$mcp_tool_name') },
             { filterTestAccounts: true, properties: [TOOL_FILTER] },
         ],
@@ -123,6 +127,16 @@ describe('mcpEarlyDataLogic', () => {
             { filter_test_accounts: true },
             { filterTestAccounts: true, properties: [] },
         ],
+        [
+            "the team's test-account default",
+            () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    test_account_filters_default_checked: true,
+                }),
+            { filter_test_accounts: true },
+            { filterTestAccounts: true, properties: [] },
+        ],
     ])('refetches activity with %s', async (_label, change, expectedParams, expectedQuery) => {
         await expectLogic(logic).toFinishAllListeners()
         overviewMock.mockClear()
@@ -135,24 +149,39 @@ describe('mcpEarlyDataLogic', () => {
     })
 
     it.each([
-        ['one refresh with steps', [INTENT_AND_ALERT_STEPS], [['intent', 'notification']]],
+        ['no URL params', {}],
+        ['shared filters', { filter_test_accounts: true, properties: [TOOL_FILTER] }],
+    ])('fetches activity once when mounting with %s', async (_label, searchParams) => {
+        logic.unmount()
+        overviewMock.mockClear()
+        router.actions.push(urls.mcpAnalyticsActivity(), searchParams)
+
+        logic = mcpEarlyDataLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(overviewMock).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        ['one refresh with steps', [INTENT_AND_ALERT_STEPS], [['notification', 'intent']]],
         [
             'the same steps after the 60s refresh',
             [INTENT_AND_ALERT_STEPS, overviewWith({ calls_with_intent: 2, error_calls: 3 })],
-            [['intent', 'notification']],
+            [['notification', 'intent']],
         ],
         [
             'a step done in between',
             [INTENT_AND_ALERT_STEPS, ALERT_STEP_ONLY],
-            [['intent', 'notification'], ['notification']],
+            [['notification', 'intent'], ['notification']],
         ],
         ['no steps to show', [NO_STEPS], []],
         [
             'the steps coming back after none',
             [INTENT_AND_ALERT_STEPS, NO_STEPS, INTENT_AND_ALERT_STEPS],
             [
-                ['intent', 'notification'],
-                ['intent', 'notification'],
+                ['notification', 'intent'],
+                ['notification', 'intent'],
             ],
         ],
     ])('reports the steps shown for %s', async (_label, overviews, expectedShown) => {
@@ -171,7 +200,7 @@ describe('mcpEarlyDataLogic', () => {
     })
 
     it.each([
-        ['loads', false, ['intent', 'notification']],
+        ['loads', false, ['notification', 'intent']],
         ['fails to load', true, ['intent']],
     ])('holds the card until the alert list %s, then reports it once', async (_label, listFails, expectedSteps) => {
         await resolveOffer(false)
@@ -209,7 +238,7 @@ describe('mcpEarlyDataLogic', () => {
 
         expect(eventsNamed('mcp analytics next steps shown')).toEqual([
             {
-                step_keys: ['intent', 'notification'],
+                step_keys: ['notification', 'intent'],
                 weekly_report: 'hidden:self-hosted',
                 total_calls: 40,
                 error_calls: 3,
@@ -218,8 +247,8 @@ describe('mcpEarlyDataLogic', () => {
     })
 
     it.each([
-        ['loads', false, ['weekly-report', 'intent', 'notification']],
-        ['fails to load', true, ['intent', 'notification']],
+        ['loads', false, ['notification', 'intent']],
+        ['fails to load', true, ['intent']],
     ])('holds the card until the report list %s, then reports it once', async (_label, listFails, expectedKeys) => {
         await resolveOffer(true)
         logic.unmount()
@@ -229,7 +258,7 @@ describe('mcpEarlyDataLogic', () => {
                 listFails ? reject(new Error('down')) : resolve({ next: null, previous: null, results: [] })
         })
         ;(subscriptionsList as jest.Mock).mockReturnValue(list)
-        overviewMock.mockResolvedValue(INTENT_AND_ALERT_STEPS)
+        overviewMock.mockResolvedValue(INTENT_STEP_ONLY)
         captureRawMock.mockClear()
         logic = mcpEarlyDataLogic()
         logic.mount()
@@ -254,13 +283,13 @@ describe('mcpEarlyDataLogic', () => {
 
         await resolveOffer(true)
 
-        expect(logic.values.nextSteps?.map((step) => step.key)).toEqual(['weekly-report', 'intent', 'notification'])
+        expect(logic.values.nextSteps?.map((step) => step.key)).toEqual(['notification', 'intent'])
     })
 
     it.each([
-        ['intent', 'open', 0],
-        ['intent', 'docs', 0],
-        ['notification', 'open', 1],
+        ['notification', 'open', 0],
+        ['intent', 'open', 1],
+        ['intent', 'docs', 1],
     ] as const)('reports a %s click with interaction %s at position %s', async (stepKey, interaction, position) => {
         await resolveOffer(false)
         overviewMock.mockResolvedValue(INTENT_AND_ALERT_STEPS)
@@ -282,10 +311,10 @@ describe('mcpEarlyDataLogic', () => {
             await expectLogic(logic, () => logic.actions.loadOverview()).toFinishAllListeners()
         })
 
-        it('reports the steps shown with the report leading and its state', () => {
+        it('reports the steps shown with the report state', () => {
             expect(eventsNamed('mcp analytics next steps shown')).toEqual([
                 {
-                    step_keys: ['weekly-report', 'intent', 'notification'],
+                    step_keys: ['notification', 'intent'],
                     weekly_report: 'ready',
                     total_calls: 40,
                     error_calls: 3,
@@ -294,7 +323,6 @@ describe('mcpEarlyDataLogic', () => {
         })
 
         it.each([
-            ['succeeds', () => Promise.resolve(LANDED_REPORT), []],
             ['is refused', () => Promise.reject(new ApiError('Bad Request', 400)), []],
             [
                 'fails in transit after the report landed',
@@ -306,11 +334,13 @@ describe('mcpEarlyDataLogic', () => {
                     })
                     return Promise.reject(new Error('network'))
                 },
-                [['intent', 'notification']],
+                [['intent']],
             ],
         ])(
             'reports the steps again only if creating the report %s changes them',
             async (_label, create, expectedShown) => {
+                overviewMock.mockResolvedValue(INTENT_STEP_ONLY)
+                await expectLogic(logic, () => logic.actions.loadOverview()).toFinishAllListeners()
                 createReportMock.mockImplementation(create)
                 captureRawMock.mockClear()
 
@@ -333,7 +363,7 @@ describe('mcpEarlyDataLogic', () => {
 
                 expect(createReportMock).not.toHaveBeenCalled()
                 expect(eventsNamed('mcp analytics next step clicked')).toEqual([
-                    { step_key: 'weekly-report', interaction, position: 0, weekly_report: 'ready' },
+                    { step_key: 'weekly-report', interaction, position: -1, weekly_report: 'ready' },
                 ])
             }
         )

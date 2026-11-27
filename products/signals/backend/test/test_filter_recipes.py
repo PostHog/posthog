@@ -21,6 +21,7 @@ from posthog.errors import InternalCHQueryError
 from posthog.models import Team
 
 from products.signals.backend.filter_catalog_schema import CatalogBundle, JsonPathRecipe
+from products.signals.backend.filter_catalog_seeds import GITHUB_ISSUE_SEED, LINEAR_ISSUE_SEED, CatalogSeed
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.filter_recipes import WarehouseFilterBindings
 
@@ -92,26 +93,40 @@ class TestFilterRecipeValidation(SimpleTestCase):
 
 class TestFilterRecipeExecution(SimpleTestCase):
     def assert_malformed(self, engine: WarehouseFilterBindings, payload: str, expression: str | None = None) -> None:
-        with self.assertRaisesRegex(InternalCHQueryError, "signal_filter:malformed_value:value") as raised:
-            self.execute(engine, payload, expression)
-        self.assertEqual(raised.exception.code, 395)
+        if expression is None:
+            with self.assertRaisesRegex(InternalCHQueryError, "signal_filter:malformed_value:value") as raised:
+                self.select(payload, engine.projections["value"].select())
+            self.assertEqual(raised.exception.code, 395)
+            return
+        predicate = engine.predicate(expression)
+        assert predicate is not None
+        self.assertEqual(self.select(payload, predicate.matches, predicate.malformed), (0, 1))
 
     def execute(
         self, engine: WarehouseFilterBindings, payload: str | int | None, expression: str | None = None
     ) -> object:
-        selected: ast.Expr = (
-            engine.projections["value"].select()
-            if expression is None
-            else engine.predicate(expression) or ast.Constant(value=True)
-        )
+        if expression is None:
+            return self.select(payload, engine.projections["value"].select())[0]
+        predicate = engine.predicate(expression)
+        assert predicate is not None
+        matches, malformed = self.select(payload, predicate.matches, predicate.malformed)
+        self.assertEqual(malformed, 0)
+        return matches
+
+    def matches(self, engine: WarehouseFilterBindings, expression: str) -> ast.Expr:
+        predicate = engine.predicate(expression)
+        assert predicate is not None
+        return predicate.matches
+
+    def select(self, payload: str | int | None, *exprs: ast.Expr) -> tuple[object, ...]:
         query = ast.SelectQuery(
-            select=[selected],
+            select=list(exprs),
             select_from=ast.JoinExpr(
                 alias="source",
                 table=ast.SelectQuery(select=[ast.Alias(alias="payload", expr=ast.Constant(value=payload))]),
             ),
         )
-        return self.execute_query(query)[0][0]
+        return self.execute_query(query)[0]
 
     def execute_query(self, query: ast.SelectQuery) -> list[tuple[object, ...]]:
         context = HogQLContext(
@@ -155,7 +170,7 @@ class TestFilterRecipeExecution(SimpleTestCase):
             ("integer", '{"value":9223372036854775808}'),
         ]
     )
-    def test_malformed_values_surface_errors(self, field_type: str, payload: str) -> None:
+    def test_malformed_values_never_pass(self, field_type: str, payload: str) -> None:
         engine = bindings(field_type)
         self.assert_malformed(engine, payload)
         self.assert_malformed(engine, payload, "true OR isNull(value)")
@@ -170,8 +185,11 @@ class TestFilterRecipeExecution(SimpleTestCase):
             ("null", []),
         ]
     )
-    def test_array_map_and_empty_policy(self, payload: str, expected: object) -> None:
-        self.assertEqual(self.execute(bindings("array<string>", "json_array_map", "empty_array"), payload), expected)
+    def test_array_map_and_empty_policy(self, payload: str, expected: list[str]) -> None:
+        engine = bindings("array<string>", "json_array_map", "empty_array")
+        self.assertEqual(self.execute(engine, payload), expected)
+        self.assertEqual(self.execute(engine, payload, "empty(value)"), int(not expected))
+        self.assertEqual(self.execute(engine, payload, "notEmpty(value)"), int(bool(expected)))
 
     @parameterized.expand(
         [
@@ -184,9 +202,9 @@ class TestFilterRecipeExecution(SimpleTestCase):
         ]
     )
     def test_array_shape_and_elements_fail_closed(self, payload: str) -> None:
-        self.assert_malformed(
-            bindings("array<string>", "json_array_map", "empty_array"), payload, "NOT has(value, 'internal')"
-        )
+        engine = bindings("array<string>", "json_array_map", "empty_array")
+        self.assert_malformed(engine, payload, "NOT has(value, 'internal')")
+        self.assert_malformed(engine, payload, "empty(value)")
 
     def test_json_array_and_column_recipes(self) -> None:
         self.assertEqual(self.execute(bindings("array<string>"), '{"value":["a","b"]}'), ["a", "b"])
@@ -271,7 +289,7 @@ class TestFilterRecipeExecution(SimpleTestCase):
                     select=[ast.Alias(alias="payload", expr=ast.Constant(value='{"value":"Core","other":"Team"}'))]
                 ),
             ),
-            where=engine.predicate("payload = 'Core' AND other = 'Team'"),
+            where=self.matches(engine, "payload = 'Core' AND other = 'Team'"),
         )
         self.assertEqual(self.execute_query(query), [("Core", "Team")])
 
@@ -300,65 +318,71 @@ class TestFilterRecipeExecution(SimpleTestCase):
         )
         self.assertEqual(self.execute(engine, json.dumps({key: "safe"})), "safe")
 
-    def test_linear_recipes_in_scoped_query(self) -> None:
-        specs = [
-            ("team_id", "team", "id"),
-            ("project_id", "project", "id"),
-            ("project_name", "project", "name"),
-            ("assignee_id", "assignee", "id"),
-            ("state_type", "state", "type"),
-            ("label_names", "labels", "name"),
+    @parameterized.expand(
+        [
+            (
+                "linear",
+                LINEAR_ISSUE_SEED,
+                {
+                    "team": json.dumps({"id": "team-a", "name": "Engineering", "key": "ENG"}),
+                    "project": json.dumps({"id": "project-a", "name": "Core"}),
+                    "assignee": "null",
+                    "state": json.dumps({"id": "state-a", "name": "Todo", "type": "unstarted", "color": "#000000"}),
+                    "labels": json.dumps({"nodes": [{"id": "label-a", "name": "feature", "color": "#ffffff"}]}),
+                    "priority": 2,
+                },
+                "team_id = 'team-a' AND project_name = 'Core' AND assignee_id IS NULL AND state_type = 'unstarted' AND NOT has(label_names, 'internal') AND priority IN (1,2)",
+                ("team-a", "project-a", "Core", None, "unstarted", ["feature"], 2),
+            ),
+            (
+                "github",
+                GITHUB_ISSUE_SEED,
+                {
+                    "labels": json.dumps([{"id": 1, "name": "bug", "color": "d73a4a"}]),
+                    "assignees": json.dumps([{"id": 2, "login": "octocat", "type": "User"}]),
+                    "user": json.dumps({"id": 3, "login": "reporter", "type": "User"}),
+                    "author_association": "NONE",
+                    "type": None,
+                    "milestone": json.dumps({"id": 4, "title": "v2", "state": "open"}),
+                },
+                "has(label_names, 'bug') AND has(assignee_logins, 'octocat') AND author_login = 'reporter' AND author_association NOT IN ('OWNER', 'MEMBER', 'COLLABORATOR') AND issue_type IS NULL AND milestone_title = 'v2'",
+                (["bug"], ["octocat"], "reporter", "NONE", None, "v2"),
+            ),
         ]
-        fields: list[dict[str, object]] = [
-            {
-                "name": name,
-                "type": "array<string>" if name == "label_names" else "string",
-                "description": "Synthetic issue field.",
-                "binding": {"kind": "json_array_map", "column": column, "array_path": ["nodes"], "value_path": [key]}
-                if name == "label_names"
-                else {"kind": "json_path", "column": column, "path": [key]},
-                "missing_value": "empty_array" if name == "label_names" else "null",
-                "malformed_value": "error",
-            }
-            for name, column, key in specs
-        ]
-        fields.append(
-            {
-                "name": "priority",
-                "type": "integer",
-                "description": "Synthetic issue priority.",
-                "binding": {"kind": "column", "column": "priority"},
-                "missing_value": "null",
-                "malformed_value": "error",
-            }
-        )
-        bundle = CatalogBundle.model_validate({"schema_version": 1, "fields": fields, "starter_expressions": []})
-        payloads: dict[str, str | int] = {
-            "team": json.dumps({"id": "team-a", "name": "Engineering", "key": "ENG"}),
-            "project": json.dumps({"id": "project-a", "name": "Core"}),
-            "assignee": "null",
-            "state": json.dumps({"id": "state-a", "name": "Todo", "type": "unstarted", "color": "#000000"}),
-            "labels": json.dumps({"nodes": [{"id": "label-a", "name": "feature", "color": "#ffffff"}]}),
-            "priority": 2,
+    )
+    def test_seed_recipes_in_scoped_query(
+        self,
+        _name: str,
+        seed: CatalogSeed,
+        payloads: dict[str, str | int | None],
+        expression: str,
+        expected: tuple[object, ...],
+    ) -> None:
+        bundle = CatalogBundle.model_validate(seed.bundle)
+        columns: dict[str, DatabaseField] = {
+            name: IntegerDatabaseField(name=name) if isinstance(value, int) else StringDatabaseField(name=name)
+            for name, value in payloads.items()
         }
-        columns: dict[str, DatabaseField] = {name: StringDatabaseField(name=name) for name in payloads}
-        columns["priority"] = IntegerDatabaseField(name="priority")
         engine = WarehouseFilterBindings(bundle, columns, source_alias="source")
-        predicate = engine.predicate(
-            "team_id = 'team-a' AND project_name = 'Core' AND assignee_id IS NULL AND state_type = 'unstarted' AND NOT has(label_names, 'internal') AND priority IN (1,2)"
-        )
+        predicate = engine.predicate(expression)
         assert predicate is not None
         query = ast.SelectQuery(
             select=[projection.select() for projection in engine.projections.values()],
             select_from=ast.JoinExpr(
                 alias="source",
                 table=ast.SelectQuery(
-                    select=[ast.Alias(alias=name, expr=ast.Constant(value=value)) for name, value in payloads.items()]
+                    select=[
+                        ast.Alias(
+                            alias=name,
+                            expr=ast.Call(name="nullIf", args=[ast.Constant(value=""), ast.Constant(value="")])
+                            if value is None
+                            else ast.Constant(value=value),
+                        )
+                        for name, value in payloads.items()
+                    ]
                 ),
             ),
-            where=ast.And(exprs=[ast.Constant(value=True), predicate]),
+            where=ast.And(exprs=[ast.Constant(value=True), predicate.matches]),
             limit=ast.Constant(value=1),
         )
-        self.assertEqual(
-            self.execute_query(query), [("team-a", "project-a", "Core", None, "unstarted", ["feature"], 2)]
-        )
+        self.assertEqual(self.execute_query(query), [expected])

@@ -1,5 +1,7 @@
 import './MCPToolCallPreview.scss'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
+import { type BrandMarkName } from 'lib/components/BrandMark/brandMarks'
 import { sparkPaths } from 'lib/components/ProductEmptyState/previewSparkline'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -8,8 +10,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook } from 'lib/utils/dom'
 
-import { type BrandMarkName } from '../brandMarks'
-import { BrandMark } from '../components/BrandMark'
 import { EXAMPLE_TOOL_CALLS } from './exampleToolCalls'
 
 const FILTERS: { id: string; label: string; mark?: BrandMarkName }[] = [

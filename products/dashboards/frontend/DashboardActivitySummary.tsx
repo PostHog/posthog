@@ -34,7 +34,7 @@ function SummaryContent({
             <li>
                 {summary.last_edited_at ? (
                     <>
-                        Last edited {dayjs(summary.last_edited_at).fromNow()}
+                        Edited {dayjs(summary.last_edited_at).fromNow()}
                         {byUser(summary.last_edited_by)}
                         {summary.last_edited_client ? ` via ${activityClientLabel(summary.last_edited_client)}` : ''}
                     </>
@@ -45,18 +45,21 @@ function SummaryContent({
             <li>
                 {summary.last_viewed_by_others_at ? (
                     <>
-                        Last opened by someone else {dayjs(summary.last_viewed_by_others_at).fromNow()}
-                        {byUser(summary.last_viewed_by_others_user)}
+                        Last viewed by others:{' '}
+                        {summary.last_viewed_by_others_user
+                            ? `${fullNameOrEmail(summary.last_viewed_by_others_user)}, `
+                            : ''}
+                        {dayjs(summary.last_viewed_by_others_at).fromNow()}
                     </>
                 ) : (
-                    'No one else has opened it'
+                    'No one else has viewed it'
                 )}
             </li>
             <li>
-                {summary.recent_viewer_count === 1 ? '1 person' : `${summary.recent_viewer_count} people`} opened it in
+                {summary.recent_viewer_count === 1 ? '1 person' : `${summary.recent_viewer_count} people`} viewed it in
                 the last 30 days
             </li>
-            <li className="text-xs opacity-75">Auto refreshes, API reads and subscriptions do not count as views.</li>
+            <li className="text-xs opacity-75">Refreshes, API reads and subscriptions are not counted.</li>
         </ul>
     )
 }

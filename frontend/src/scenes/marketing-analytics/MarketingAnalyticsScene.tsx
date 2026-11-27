@@ -172,8 +172,8 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
             <DashboardConversionRecommendations />
             {hasSources && hasSyncedMarketingSources && (
                 <div className="mt-2 mb-8 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
-                    {marketingTiles?.map((tile, i) => (
-                        <QueryTileItem key={i} tile={tile} />
+                    {marketingTiles?.map((tile) => (
+                        <QueryTileItem key={tile.tileId} tile={tile} />
                     ))}
                 </div>
             )}
@@ -199,7 +199,7 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
 
     const recommendations = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS] ? (
-        <div className="mb-6">
+        <div className="mb-2">
             <RecommendationsSection />
         </div>
     ) : null

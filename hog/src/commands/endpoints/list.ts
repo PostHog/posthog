@@ -44,7 +44,11 @@ export default defineCommand({
                 return
             }
             out.line(`No endpoints in project ${result.projectId} yet.`)
-            out.line(`Create one from a YAML file with ${out.style('hog endpoints push my-endpoint.yaml', 'bold')}.`)
+            out.notes({
+                notes: [
+                    `Create one from a YAML file with ${out.style('hog endpoints push my-endpoint.yaml', 'bold')}.`,
+                ],
+            })
             return
         }
         out.table(
@@ -62,7 +66,7 @@ export default defineCommand({
         if (result.nextOffset !== null) {
             const limit = options.limit === undefined ? '' : ` --limit ${options.limit}`
             const command = `hog endpoints list --offset ${result.nextOffset}${limit}`
-            out.line(`Run ${out.style(command, 'bold')} for the next page.`)
+            out.notes({ notes: [`Run ${out.style(command, 'bold')} for the next page.`] })
         }
     },
 

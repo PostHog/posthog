@@ -66,15 +66,6 @@ export function parseJsonObject(maybeJson: string | null): Record<string, unknow
     return parsedObject
 }
 
-export function normalizeJsonValue(value: unknown, fallback: JSONValue): JSONValue {
-    try {
-        const serializedValue = JSON.stringify(value)
-        return serializedValue === undefined ? fallback : (JSON.parse(serializedValue) as JSONValue)
-    } catch {
-        return fallback
-    }
-}
-
 /**
  * Convert a JSON object to a string with pretty formatting.
  * @param json - The JSON object to convert

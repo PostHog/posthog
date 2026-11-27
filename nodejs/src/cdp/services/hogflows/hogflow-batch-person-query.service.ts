@@ -13,10 +13,18 @@ export interface BlastRadiusResponse {
     total_users: number
 }
 
-export interface BlastRadiusPersonsResponse {
+export interface AudienceSnapshotPageResponse {
     users_affected: Array<string>
     cursor: string | null
     has_more: boolean
+}
+
+export interface AudienceSnapshotResponse {
+    status: 'resolving' | 'ready' | 'failed'
+    audience_size: number | null
+    error: string | null
+    // Absent from a Django that predates it.
+    skipped_test_account_filters?: string[]
 }
 
 export interface AccountAudienceResponse {
@@ -40,7 +48,11 @@ const histogramAudienceFetchDuration = new Histogram({
     buckets: [1, 2, 5, 10, 20, 30, 40, 50, 60, 90, 120],
 })
 
-export type AudienceFetchEndpoint = 'user_blast_radius' | 'user_blast_radius_persons' | 'account_audience'
+export type AudienceFetchEndpoint =
+    | 'user_blast_radius'
+    | 'account_audience'
+    | 'audience_snapshot'
+    | 'audience_snapshot_page'
 
 /**
  * An audience fetch used its full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget.
@@ -66,7 +78,7 @@ export class AudienceFetchTimeoutError extends Error {
 /**
  * Service for querying persons via Django internal API for batch HogFlow processing.
  * Calls internal endpoints authenticated with INTERNAL_API_SECRET.
- * Endpoints: /internal/hog_flows/user_blast_radius and /internal/hog_flows/user_blast_radius_persons
+ * Endpoints: /internal/hog_flows/user_blast_radius, /internal/hog_flows/account_audience and the batch job audience snapshot endpoints
  */
 export class HogFlowBatchPersonQueryService {
     constructor(
@@ -180,35 +192,44 @@ export class HogFlowBatchPersonQueryService {
         }
     }
 
-    /**
-     * Get list of persons affected by filters with cursor-based pagination.
-     * Returns distinct_id and person_id for each matching person, plus pagination info.
-     *
-     * @param cursor - Optional cursor from previous response for pagination
-     */
-    async getBlastRadiusPersons(
+    /** The first call starts resolving the run's whole audience; later calls only report its status. */
+    async requestAudienceSnapshot(
         team: Team,
-        filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>,
-        groupTypeIndex?: number,
-        cursor?: string | null,
-        dedupeKey?: 'email'
-    ): Promise<BlastRadiusPersonsResponse> {
-        const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons` as const
+        batchJobId: string,
+        options: { dedupeKey?: 'email'; maxAudienceSize: number }
+    ): Promise<AudienceSnapshotResponse> {
+        const urlPath =
+            `/api/projects/${team.id}/internal/hog_flows/batch_jobs/${batchJobId}/audience_snapshot` as const
 
         try {
-            return await this.fetchAudience<BlastRadiusPersonsResponse>(
-                'user_blast_radius_persons',
+            return await this.fetchAudience<AudienceSnapshotResponse>(
+                'audience_snapshot',
                 urlPath,
-                {
-                    filters,
-                    group_type_index: groupTypeIndex,
-                    cursor: cursor || null,
-                    dedupe_key: dedupeKey ?? null,
-                },
-                'blast radius persons'
+                { dedupe_key: options.dedupeKey ?? null, max_audience_size: options.maxAudienceSize },
+                'audience snapshot'
             )
         } catch (error) {
-            logger.error('Error calling blast radius persons endpoint', { error: serializeError(error), urlPath })
+            logger.error('Error calling audience snapshot endpoint', { error: serializeError(error), urlPath })
+            throw error
+        }
+    }
+
+    async getAudienceSnapshotPage(
+        team: Team,
+        batchJobId: string,
+        cursor?: string | null
+    ): Promise<AudienceSnapshotPageResponse> {
+        const urlPath = `/api/projects/${team.id}/internal/hog_flows/batch_jobs/${batchJobId}/audience_page` as const
+
+        try {
+            return await this.fetchAudience<AudienceSnapshotPageResponse>(
+                'audience_snapshot_page',
+                urlPath,
+                { cursor: cursor || null },
+                'audience snapshot page'
+            )
+        } catch (error) {
+            logger.error('Error calling audience snapshot page endpoint', { error: serializeError(error), urlPath })
             throw error
         }
     }

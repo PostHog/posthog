@@ -1,4 +1,4 @@
-import { BindLogic, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -16,23 +16,22 @@ import {
 import { urls } from 'scenes/urls'
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
-import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
 import { RecommendationCpa } from './RecommendationCpa'
 import { RecommendationDataGapButton } from './RecommendationDataGapButton'
 import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
+import { RecommendationResolutionButtons } from './RecommendationResolutionButtons'
 import {
     IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
+    conversionSourceLabel,
+    impactColumnTitle,
     RECOMMENDATION_CATEGORY_LABELS,
     RECOMMENDATION_RULE_DESCRIPTIONS,
     RECOMMENDATION_RULE_LABELS,
-    RecommendationDataGap,
+    RECOMMENDATIONS_PAGE_SIZE,
     RecommendationGroup,
-    RecommendationSection,
     RecommendationTotal,
 } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
@@ -52,8 +51,8 @@ const SUBJECT_NOUNS: Record<MarketingAnalyticsRecommendation['level'], [string, 
 }
 
 function subjectCount(group: RecommendationGroup): string {
-    const [singular, plural] = SUBJECT_NOUNS[group.level]
     const count = group.recommendations.length
+    const [singular, plural] = SUBJECT_NOUNS[group.level]
     return `${count} ${count === 1 ? singular : plural}`
 }
 
@@ -76,11 +75,15 @@ function ImpactTotals({ totals }: { totals: RecommendationTotal[] }): JSX.Elemen
     )
 }
 
-function rowKey(row: MarketingAnalyticsRecommendation, index: number): string {
-    return `${row.rule}-${row.subject}-${row.campaign ?? ''}-${index}`
-}
-
-function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[] }): JSX.Element {
+function RecommendationRows({
+    rows,
+    keepOnly,
+    showRule = false,
+}: {
+    rows: MarketingAnalyticsRecommendation[]
+    keepOnly: boolean
+    showRule?: boolean
+}): JSX.Element {
     const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
     const toggle = (key: string, rule: MarketingAnalyticsRecommendation['rule']): void => {
@@ -99,11 +102,12 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
         <LemonTable<MarketingAnalyticsRecommendation>
             size="small"
             dataSource={rows}
-            rowKey={rowKey}
+            rowKey={(row) => row.key}
+            pagination={{ pageSize: RECOMMENDATIONS_PAGE_SIZE, hideOnSinglePage: true, useUrl: false }}
             expandable={{
                 expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} rule={row.rule} />,
                 rowExpandable: (row) => (row.steps?.length ? 1 : 0),
-                isRowExpanded: (row, index) => expanded.has(rowKey(row, index)),
+                isRowExpanded: (row) => expanded.has(row.key),
                 showRowExpansionToggle: false,
             }}
             columns={[
@@ -121,11 +125,16 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                 {
                     title: 'Recommendation',
                     key: 'action',
-                    render: (_, row, index) => {
-                        const key = rowKey(row, index)
+                    render: (_, row) => {
+                        const key = row.key
                         return (
                             <div className="flex flex-col items-start gap-0.5 py-1">
-                                <span>{row.action}</span>
+                                {showRule && (
+                                    <span className="text-xs font-medium text-secondary">
+                                        {RECOMMENDATION_RULE_LABELS[row.rule]}
+                                    </span>
+                                )}
+                                <span className="text-pretty">{row.action}</span>
                                 <span className="text-xs text-secondary">{row.reason}</span>
                                 <RecommendationCpa recommendation={row} />
                                 {!!row.steps?.length && (
@@ -145,7 +154,7 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                     },
                 },
                 {
-                    title: 'Impact',
+                    title: impactColumnTitle(keepOnly),
                     key: 'impact',
                     align: 'right',
                     width: 140,
@@ -165,39 +174,46 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                             </div>
                         ),
                 },
+                {
+                    key: 'resolution',
+                    align: 'right',
+                    width: 0,
+                    render: (_, row) => <RecommendationResolutionButtons recommendation={row} />,
+                },
             ]}
         />
     )
 }
 
-export function RecommendationsModal({
-    isOpen,
-    onClose,
-    total,
-    totals,
-    sections,
-    selectedGroup,
-    onSelect,
-    dataNodeProps,
-    dataGaps,
-    disclaimer,
-}: {
-    isOpen: boolean
-    onClose: () => void
-    total: number
-    totals: RecommendationTotal[]
-    sections: RecommendationSection[]
-    selectedGroup: RecommendationGroup | undefined
-    onSelect: (group: RecommendationGroup) => void
-    dataNodeProps: DataNodeLogicProps
-    dataGaps: RecommendationDataGap[]
-    disclaimer: string | undefined
-}): JSX.Element {
-    const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
+export function RecommendationsModal(): JSX.Element {
+    const {
+        showResolved,
+        showingResolved,
+        selectedRule,
+        activeRecommendations,
+        resolvedRecommendations,
+        totals,
+        resolvedCount,
+        sections,
+        selectedGroup,
+        selectedGroupTotals,
+        dataGaps,
+        serverDataGaps,
+        conversionSource,
+        disclaimer,
+    } = useValues(recommendationsLogic)
+    const { reportRecommendationsActionClicked, setShowResolved, selectRule, closeRecommendations } =
+        useActions(recommendationsLogic)
+    const toggleResolved = (): void => {
+        if (!showResolved) {
+            reportRecommendationsActionClicked('show_resolved', 'modal')
+        }
+        setShowResolved(!showResolved)
+    }
     const navRef = useRef<HTMLElement>(null)
     const detailRef = useRef<HTMLElement>(null)
     const selectGroup = (group: RecommendationGroup): void => {
-        onSelect(group)
+        selectRule(group.rule, group.recommendations.length)
         // In a narrow modal the rule list sits above the table, so the table has to come into view.
         if ((detailRef.current?.offsetTop ?? 0) > (navRef.current?.offsetTop ?? 0) + 8) {
             requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
@@ -205,25 +221,22 @@ export function RecommendationsModal({
     }
     return (
         <LemonModal
-            isOpen={isOpen}
-            onClose={onClose}
+            isOpen={selectedRule !== null}
+            onClose={closeRecommendations}
             width={1120}
             title={
                 <div className="flex flex-wrap items-center justify-between gap-2 pr-8">
                     <span>Recommendations</span>
-                    <BindLogic logic={dataNodeLogic} props={dataNodeProps}>
+                    {dataGaps.length + serverDataGaps.length > 0 && (
                         <span className="flex items-center gap-2 text-sm font-normal">
-                            {dataGaps.length > 0 && (
-                                <RecommendationDataGapButton
-                                    gaps={dataGaps}
-                                    dataAttr="marketing-recommendations-modal-data-gaps"
-                                    location="modal_data_gaps"
-                                />
-                            )}
-                            <ElapsedTime />
-                            <Reload />
+                            <RecommendationDataGapButton
+                                gaps={dataGaps}
+                                serverGaps={serverDataGaps}
+                                dataAttr="marketing-recommendations-modal-data-gaps"
+                                location="modal_data_gaps"
+                            />
                         </span>
-                    </BindLogic>
+                    )}
                 </div>
             }
             footer={
@@ -233,8 +246,23 @@ export function RecommendationsModal({
             }
             description={
                 <span className="flex flex-wrap items-center gap-2">
-                    <span>{`${total} for the selected sources and dates`}</span>
+                    <span>{`${activeRecommendations.length} for the selected sources and dates`}</span>
                     <ImpactTotals totals={totals} />
+                    {conversionSource && (
+                        <span className="text-secondary">{conversionSourceLabel(conversionSource)}</span>
+                    )}
+                    {resolvedCount > 0 && (
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={toggleResolved}
+                            data-attr="marketing-recommendations-toggle-resolved"
+                        >
+                            {showResolved
+                                ? 'Hide dismissed and applied'
+                                : `Review ${resolvedCount} dismissed or applied`}
+                        </LemonButton>
+                    )}
                 </span>
             }
         >
@@ -257,13 +285,18 @@ export function RecommendationsModal({
                                         key={group.rule}
                                         size="small"
                                         fullWidth
-                                        active={group.rule === selectedGroup?.rule}
+                                        active={!showingResolved && group.rule === selectedGroup?.rule}
                                         onClick={() => selectGroup(group)}
                                         sideIcon={
                                             <LemonBadge.Number
                                                 count={group.recommendations.length}
                                                 maxDigits={2}
-                                                status={group.rule === selectedGroup?.rule ? 'primary' : 'muted'}
+                                                showZero
+                                                status={
+                                                    !showingResolved && group.rule === selectedGroup?.rule
+                                                        ? 'primary'
+                                                        : 'muted'
+                                                }
                                             />
                                         }
                                         data-attr={`marketing-recommendations-group-${group.rule}`}
@@ -274,7 +307,17 @@ export function RecommendationsModal({
                             </div>
                         ))}
                     </nav>
-                    {selectedGroup ? (
+                    {showingResolved ? (
+                        <section ref={detailRef} className="flex flex-col gap-3 min-w-0">
+                            <h3 className="mb-0">
+                                <span>Dismissed and applied</span>
+                                <span className="ml-2 text-sm font-normal text-secondary" translate="no">
+                                    {resolvedCount}
+                                </span>
+                            </h3>
+                            <RecommendationRows rows={resolvedRecommendations} keepOnly={false} showRule />
+                        </section>
+                    ) : selectedGroup ? (
                         <section ref={detailRef} className="flex flex-col gap-3 min-w-0">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div className="flex flex-col gap-1 min-w-0">
@@ -288,7 +331,7 @@ export function RecommendationsModal({
                                         {RECOMMENDATION_RULE_DESCRIPTIONS[selectedGroup.rule]}
                                     </p>
                                 </div>
-                                <ImpactTotals totals={selectedGroup.totals} />
+                                <ImpactTotals totals={selectedGroupTotals} />
                             </div>
                             {dataGaps
                                 .filter((gap) => gap.rules.includes(selectedGroup.rule))
@@ -314,10 +357,24 @@ export function RecommendationsModal({
                                         </div>
                                     </LemonBanner>
                                 ))}
-                            <RecommendationRows rows={selectedGroup.recommendations} />
+                            {selectedGroup.recommendations.length > 0 ? (
+                                <RecommendationRows
+                                    rows={selectedGroup.recommendations}
+                                    keepOnly={selectedGroup.keepOnly}
+                                />
+                            ) : (
+                                <p className="mb-0 text-secondary">
+                                    Every recommendation in this rule is dismissed or applied. Review them to see each
+                                    one.
+                                </p>
+                            )}
                         </section>
                     ) : (
-                        <p className="mb-0 text-secondary">No recommendations for the selected sources and dates.</p>
+                        <p className="mb-0 text-secondary">
+                            {resolvedCount > 0
+                                ? 'Every recommendation for these sources and dates is dismissed or applied. Review them to see each one.'
+                                : 'No recommendations for the selected sources and dates.'}
+                        </p>
                     )}
                 </div>
             </div>

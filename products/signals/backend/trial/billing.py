@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import models
 from django.utils import timezone
@@ -18,7 +19,7 @@ from products.signals.backend.trial.limits import STANDARD_TRIAL_LIMITS, TrialLi
 
 from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import CustomerInfo, CustomerProduct
-from ee.billing.quota_limiting import QuotaLimitingCaches, is_team_limited, self_driving_quota_resource
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
 logger = structlog.get_logger(__name__)
 
@@ -36,6 +37,7 @@ class TrialBillingStatus:
     ready: bool
     continuation: TrialContinuation
     limits: TrialLimits = STANDARD_TRIAL_LIMITS
+    customer_id: str | None = None
 
     @property
     def paid_authorized(self) -> bool:
@@ -80,7 +82,7 @@ class TrialBilling:
             return TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
         customer = cast(
             CustomerInfo,
-            BillingManager(get_cached_instance_license()).get_billing(
+            BillingManager(get_cached_instance_license()).get_billing_read_only(
                 self.organization, query_params={"include_forecasting": "false"}, timeout=(3, 5)
             ),
         )
@@ -125,15 +127,20 @@ class TrialBilling:
             ready=self._has_zero_allowance(product),
             continuation=continuation,
             limits=limits,
+            customer_id=customer.get("customer_id"),
         )
 
 
 def trial_billing_status(team: Team, *, use_cache: bool = False) -> TrialBillingStatus:
+    # A DEBUG stack has no billing service, so treat the organization as a fresh unpaid customer.
+    if settings.DEBUG:
+        return TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT)
     try:
         organization = team.organization
         if organization.is_active is not True:
             return TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
-        cache_key = f"signals_trial_billing_status:{organization.id}"
+        # Bump the version when TrialBillingStatus fields change: an entry older code cached lacks the new slots.
+        cache_key = f"signals_trial_billing_status:v2:{organization.id}"
         status: TrialBillingStatus | None = cache.get(cache_key) if use_cache else None
         if status is None:
             try:
@@ -144,7 +151,7 @@ def trial_billing_status(team: Team, *, use_cache: bool = False) -> TrialBilling
             cache.set(cache_key, status, timeout=30)
         # Admission shares remote Billing status, but always checks the current team quota.
         if status.paid_authorized and is_team_limited(
-            team.api_token, self_driving_quota_resource(organization), QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            team.api_token, QuotaResource.SIGNALS_SPEND_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         ):
             return replace(status, continuation=TrialContinuation.LIMIT)
         return status

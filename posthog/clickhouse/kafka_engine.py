@@ -11,6 +11,7 @@ from posthog.run_mode import run_mode
 _US = settings.CLOUD_DEPLOYMENT == "US"
 CONSUMER_GROUP_EVENTS_JSON = "clickhouse_events_json" if _US else "group1"
 CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON = "clickhouse_events_json_native_json"
+CONSUMER_GROUP_EVENTS_JSON_RECENT = "clickhouse_events_json_recent"
 # DEPRECATED: see posthog/models/app_metrics/sql.py for context. Kept only for the
 # deprecated `kafka_app_metrics` table DDL.
 CONSUMER_GROUP_APP_METRICS = "clickhouse_app_metrics" if _US else "group1"
@@ -41,8 +42,6 @@ CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
 CONSUMER_GROUP_LOG_ENTRIES_AUX = "clickhouse_log_entries_aux"
 CONSUMER_GROUP_APP_METRICS2_WS = "clickhouse_app_metrics2_ws"
 CONSUMER_GROUP_TOPHOG_WS = "clickhouse_tophog_ws"
-CONSUMER_GROUP_PRECALCULATED_EVENTS_WS = "clickhouse_precalculated_events_ws"
-CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES_WS = "clickhouse_precalculated_person_properties_ws"
 CONSUMER_GROUP_EVENTS_JSON_WS = "clickhouse_events_json_ws"
 CONSUMER_GROUP_GROUPS_WS = "clickhouse_groups_ws"
 CONSUMER_GROUP_PERSON_WS = "clickhouse_person_ws"
@@ -57,7 +56,6 @@ CONSUMER_GROUP_SESSION_REPLAY_EVENTS_WS = "clickhouse_session_replay_events_ws"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS = "clickhouse_session_replay_features_ws"
 # The ws2 suffix keeps this group distinct from the retired hand-managed pipeline.
 CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS = "clickhouse_raw_sessions_v3_events_json_ws2"
-CONSUMER_GROUP_COHORT_MEMBERSHIP_WS = "clickhouse_cohort_membership_ws"
 
 # WarpStream-shared consumer groups (topics moved to warpstream-shared VC; coexist with MSK
 # groups during the cut-over so both Kafka tables can run in parallel until the MSK side is
@@ -67,6 +65,7 @@ CONSUMER_GROUP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS = (
     "clickhouse_error_tracking_issue_fingerprint_overrides_ws"
 )
 CONSUMER_GROUP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS = "clickhouse_error_tracking_fingerprint_issue_state_ws"
+CONSUMER_GROUP_ERROR_TRACKING_ISSUE_TAGS = "clickhouse_error_tracking_issue_tags"
 CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG = "clickhouse_usage_report_events_preagg"
 CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP = "clickhouse_person_group_membership"
 

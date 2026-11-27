@@ -1,5 +1,6 @@
 import re
 import time
+import random
 import socket
 import ipaddress
 import dataclasses
@@ -10,8 +11,10 @@ from typing import Any, Generic, TypeVar
 from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
+import paramiko
 import structlog
 from sshtunnel import BaseSSHTunnelForwarderError, SSHTunnelForwarder
+from temporalio import activity
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
@@ -787,9 +790,10 @@ def _check_direct_host(config, team_id: int | None, source_type: str | None = No
     this module resolves the host once, validates that answer with `check_resolved_addresses`,
     and dials exactly those addresses through libpq's `host`/`hostaddr` pair. The MySQL client
     resolves the host itself, validates the answer with `check_resolved_addresses`, and dials
-    it on a socket it opens, so the hostname still reaches TLS. The MSSQL client hands the
-    hostname to its driver, whose single `server` argument is both the dial target and the
-    login server name, so for MSSQL this check is the only one.
+    it on a socket it opens, so the hostname still reaches TLS. The MSSQL client dials the addresses
+    `resolve_safe_host` approves. Its driver's single `server` argument is both the dial target
+    and the login server name, so an Azure SQL host, whose gateway routes on that name, keeps the
+    hostname, and for those hosts this check is the only one.
 
     A `team_id` of None fails closed. It changes nothing for a customer team, whose result is the
     same either way; it only costs the internal-host exemption on entry points that don't carry a
@@ -811,6 +815,17 @@ def _check_direct_host(config, team_id: int | None, source_type: str | None = No
 # The budget is bounded, so a wrong credential or a host that is really gone reaches the same
 # classification it reaches today, about 14 seconds later.
 _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS: tuple[float, ...] = (2.0, 4.0, 8.0)
+
+# A new source starts every table's first sync at once, and each sync opens its own tunnel. A
+# bastion that limits how many handshakes it takes at a time (sshd's MaxStartups or
+# PerSourcePenalties, or a firewall rate limit) resets most of them before it sends its banner.
+# Two changes keep that burst from switching off every table. Each wait is jittered, so the
+# syncs stop retrying in lockstep. And a reset before the banner, which proves the bastion is up,
+# gets these extra attempts, so the retries spread over about a minute instead of 14 seconds.
+# Only a Temporal activity gets them. A web request, such as a source check or a direct SQL query,
+# keeps the short budget, because a wrong port or a firewall can show the same reset.
+_SSH_GATEWAY_BUSY_EXTRA_BACKOFF_SECONDS: tuple[float, ...] = (16.0, 30.0)
+_SSH_TUNNEL_CONNECT_JITTER = (0.5, 1.5)
 
 # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP connection
 # but closes it during the handshake itself — a non-SSH service on the port, a bastion refusing
@@ -856,6 +871,32 @@ def _release_failed_forwarder(forwarder: SSHTunnelForwarder) -> None:
                 logger.debug("data_imports.ssh_tunnel_cleanup_failed", error=str(e)[:200])
 
 
+def _record_gateway_errors(forwarder: SSHTunnelForwarder) -> list[Exception]:
+    """Collect the errors the forwarder hits while it connects to the gateway.
+
+    sshtunnel catches them in `_create_tunnels`, logs them and raises one fixed message, so this
+    wraps the forwarder's own connect step to keep the cause.
+    """
+    errors: list[Exception] = []
+    connect = forwarder._connect_to_gateway
+
+    def recording_connect():
+        try:
+            return connect()
+        except Exception as e:
+            errors.append(e)
+            raise
+
+    forwarder._connect_to_gateway = recording_connect  # ty: ignore[invalid-assignment]
+    return errors
+
+
+def _gateway_dropped_before_banner(error: Exception) -> bool:
+    # paramiko wraps the socket error of its banner read in SSHException, so the reset or EOF is
+    # the context of that exception.
+    return isinstance(error, paramiko.SSHException) and isinstance(error.__context__, ConnectionResetError | EOFError)
+
+
 @contextmanager
 def _connected_ssh_tunnel(ssh_tunnel: SSHTunnel, config, *, ssh_host: str) -> Generator[SSHTunnelForwarder]:
     """Yield a started forwarder, retrying a failed connect to the gateway.
@@ -864,22 +905,29 @@ def _connected_ssh_tunnel(ssh_tunnel: SSHTunnel, config, *, ssh_host: str) -> Ge
     forwarder's own context, so a tunnel that drops part way through a sync still propagates on its
     first occurrence instead of restarting the sync.
     """
-    attempts = len(_SSH_TUNNEL_CONNECT_BACKOFF_SECONDS) + 1
+    backoff = _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS
+    attempt = 0
     with ExitStack() as stack:
-        for attempt in range(attempts):
+        while True:
             forwarder = ssh_tunnel.get_tunnel(config.host, config.port, ssh_host=ssh_host)
+            gateway_errors = _record_gateway_errors(forwarder)
             try:
                 tunnel = stack.enter_context(forwarder)
             except BaseSSHTunnelForwarderError:
                 _release_failed_forwarder(forwarder)
-                if attempt == attempts - 1:
+                gateway_busy = any(_gateway_dropped_before_banner(e) for e in gateway_errors)
+                if gateway_busy and activity.in_activity():
+                    backoff = _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS + _SSH_GATEWAY_BUSY_EXTRA_BACKOFF_SECONDS
+                if attempt >= len(backoff):
                     raise
                 logger.warning(
                     "data_imports.ssh_tunnel_connect_retry",
                     attempt=attempt + 1,
-                    attempts=attempts,
+                    attempts=len(backoff) + 1,
+                    gateway_busy=gateway_busy,
                 )
-                time.sleep(_SSH_TUNNEL_CONNECT_BACKOFF_SECONDS[attempt])
+                time.sleep(backoff[attempt] * random.uniform(*_SSH_TUNNEL_CONNECT_JITTER))
+                attempt += 1
                 continue
             except EOFError as e:
                 # Not one of the retried gateway-connect failures above, and retrying a dead

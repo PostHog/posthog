@@ -21,6 +21,17 @@ const HogFlowOutputVariableSchema = z.object({
 // type identical to the object schema's, so downstream field access still narrows.
 const legacyStringOutputVariable = z.string().transform((key): z.infer<typeof HogFlowOutputVariableSchema> => ({ key }))
 
+const SandboxEmailValueSchema = z
+    .object({
+        to: z.object({ email: z.string(), name: z.string().optional() }).strict(),
+        subject: z.string(),
+        preheader: z.string().optional(),
+        text: z.string().optional(),
+        html: z.string().optional(),
+        design: z.any().optional(),
+    })
+    .strict()
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -247,8 +258,12 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             // of the body, events keep no subject, clicked links keep only their origin, and the run
             // snapshot keeps no variables.
             sensitive: z.boolean().optional(),
+            click_tracking_enabled: z.boolean().optional(),
             // When true, links get utm_source, utm_medium and utm_campaign tags they don't already carry.
             utm_tags_enabled: z.boolean().optional(),
+            // When false, tracked links in this email don't get the run id that connects a click to the
+            // session it starts. Absent/true leaves that to the team setting.
+            run_link_tag_enabled: z.boolean().optional(),
             // When true, a marketing send ignores the team's frequency cap and takes no slot under it. Opt-outs
             // and unsubscribe headers still apply. For product email that is marketing in form but must not
             // crowd out, or be crowded out by, other marketing email.
@@ -263,10 +278,27 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 })
                 .optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
+            template_key: z.string().optional(),
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
+    }),
+
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('email_sandbox'),
+        config: z
+            .object({
+                message_category_id: z.string().optional(),
+                message_category_type: z.enum(['marketing', 'transactional']).optional(),
+                inputs: z
+                    .object({
+                        email: CyclotronInputSchema.extend({ value: SandboxEmailValueSchema }),
+                    })
+                    .strict(),
+            })
+            .strict(),
     }),
 
     // CDP functions

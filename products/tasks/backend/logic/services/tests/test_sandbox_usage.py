@@ -5,6 +5,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
@@ -21,6 +23,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
+    iter_sandbox_sessions,
     measure_task_run_cpu_attribution,
     open_sandbox_session,
     record_task_run_user_activity,
@@ -217,6 +220,8 @@ class TestSandboxSessionWrites(SandboxUsageBase):
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_close_captures_analytics_once(self, mock_capture):
         run = self._run()
+        run.task.created_by = self.user
+        run.task.save(update_fields=["created_by"])
         open_sandbox_session(run_id=run.id, sandbox_id="sb-analytics", config=_config())
         record_task_run_user_activity(run.id, self.team.id)
 
@@ -226,6 +231,8 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
+        assert props["$update_person_last_seen_at"] is False
+        assert captured[0].kwargs["distinct_id"] == str(self.user.distinct_id)
         assert props["ended_reason"] == SandboxSession.EndedReason.CLEANUP
         assert props["runtime_seconds"] >= 0
         assert props["idle_seconds"] >= 0
@@ -367,7 +374,7 @@ class TestActiveSessionCapReservation(SandboxUsageBase):
             created_by=self.user,
         )
         open_sandbox_session(run_id=task.create_run(mode="interactive").id, sandbox_id="sb-first", config=_config())
-        second = task.create_run(mode="interactive")
+        second = TaskRun.objects.create(task=task, team=self.team, state={"mode": "interactive"})
 
         with self.assertRaises(ActiveSessionCapError) as error_context:
             open_sandbox_session(run_id=second.id, sandbox_id="sb-second", config=_config())
@@ -454,6 +461,16 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             memory_gib_second_usd=memory_gib_second_usd,
         )
 
+    def test_session_scan_yields_every_row_exactly_once_across_chunks(self):
+        sessions = [self._session() for _ in range(5)]
+        expected = sorted(str(session.id) for session in sessions)
+
+        scanned = [
+            str(session.id) for session in iter_sandbox_sessions(SandboxSession.objects.unscoped(), chunk_size=2)
+        ]
+
+        assert sorted(scanned) == expected
+
     def test_billable_compute_requires_trusted_first_party_client_user_created_snapshot(self):
         for provenance in TaskClientProvenance:
             self._session(client_provenance=provenance)
@@ -489,6 +506,59 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
 
         assert is_billable_sandbox_session(session) is bool(usage.credits)
+
+    def test_ai_origin_compute_is_unbilled_by_default(self):
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_WEB, origin_product=Task.OriginProduct.POSTHOG_AI)
+        self._session(client_provenance=None, origin_product=Task.OriginProduct.SLACK)
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.ai_credits == []
+        assert usage.credits == []
+
+    @parameterized.expand(
+        [
+            ("posthog_ai_from_web", Task.OriginProduct.POSTHOG_AI, TaskClientProvenance.POSTHOG_WEB),
+            ("posthog_ai_from_desktop", Task.OriginProduct.POSTHOG_AI, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("slack_without_provenance", Task.OriginProduct.SLACK, None),
+        ]
+    )
+    @override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=["posthog_ai", "slack"])
+    def test_ai_origin_compute_bills_into_ai_credits_at_the_desktop_price(
+        self, _name: str, origin: str, provenance: TaskClientProvenance | None
+    ) -> None:
+        self._session(client_provenance=provenance, origin_product=origin)
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        # Each session is one hour of 4 cores and 16 GiB: the same 2016 credits in either meter, in only one.
+        assert usage.ai_credits == [(self.team.id, 2016)]
+        assert usage.credits == [(self.team.id, 2016)]
+
+    @override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=["posthog_ai", "slack"])
+    def test_ai_credits_exclude_unattributed_and_other_origin_compute(self):
+        self._session(origin_product=Task.OriginProduct.POSTHOG_AI, user_attributed_at=None)
+        self._session(origin_product=Task.OriginProduct.SIGNAL_REPORT)
+        self._session(
+            origin_product=Task.OriginProduct.SLACK,
+            created_at=datetime(2026, 1, 1, 1, tzinfo=UTC),
+            user_attributed_at=datetime(2026, 1, 1, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 1, 2, tzinfo=UTC),
+        )
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.ai_credits == []
+
+    @override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=["posthog_ai", "slack", "user_created"])
+    def test_desktop_compute_is_unchanged_when_its_origin_is_listed_for_ai_credits(self):
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.credits == [(self.team.id, 2016)]
+        assert usage.ai_credits == []
 
     def test_billable_compute_uses_session_snapshot_after_task_changes(self):
         session = self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)

@@ -41,15 +41,11 @@ export interface batchExportBackfillsLogicActions {
     openBackfillModal: () => {
         value: true
     } // batchExportBackfillModalLogic
-    submitBackfillFormSuccess: (backfillForm: {
-        earliest_backfill: boolean
-        end_at?: Dayjs | undefined
-        start_at?: Dayjs | undefined
-    }) => {
+    submitBackfillFormSuccess: (backfillForm: { earliest_backfill: boolean; end_at?: Dayjs; start_at?: Dayjs }) => {
         backfillForm: {
             earliest_backfill: boolean
-            end_at?: Dayjs | undefined
-            start_at?: Dayjs | undefined
+            end_at?: Dayjs
+            start_at?: Dayjs
         }
     } // batchExportBackfillModalLogic
     cancelBackfill: (backfill: BatchExportBackfill) => {

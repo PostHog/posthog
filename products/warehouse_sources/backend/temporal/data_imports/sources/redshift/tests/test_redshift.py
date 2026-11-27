@@ -15,6 +15,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
 
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
@@ -1040,21 +1041,32 @@ class TestRedshiftSourceNonRetryableErrors:
 
 
 class TestRedshiftValidateCredentials:
-    def test_server_without_ssl_returns_friendly_error_without_capturing(self, mocker):
-        # We always connect with sslmode=require, so a server that doesn't support SSL is a
-        # host/port misconfiguration on the customer's side — surface guidance, don't report it.
+    @pytest.mark.parametrize(
+        "raw_error,expected_fragment",
+        [
+            # We always connect with sslmode=require, so a server that doesn't support SSL is a
+            # host/port misconfiguration on the customer's side.
+            (
+                'connection failed: connection to server at "10.0.0.1", port 5439 failed: '
+                "server does not support SSL, but SSL was required",
+                "does not support SSL",
+            ),
+            # The SSH tunnel's local forward closing during the startup handshake.
+            (
+                'connection failed: connection to server at "127.0.0.1", port 41000 failed: '
+                "server closed the connection unexpectedly\n\tThis probably means the server "
+                "terminated abnormally\n\tbefore or while processing the request.",
+                "bastion can reach the cluster",
+            ),
+        ],
+        ids=["ssl_unsupported", "ssh_forward_closed"],
+    )
+    def test_known_connect_failures_return_friendly_error_without_capturing(self, mocker, raw_error, expected_fragment):
         config = _make_config()
         source = RedshiftSource()
         mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
         mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
-        mocker.patch.object(
-            source,
-            "get_schemas",
-            side_effect=psycopg.OperationalError(
-                'connection failed: connection to server at "10.0.0.1", port 5439 failed: '
-                "server does not support SSL, but SSL was required"
-            ),
-        )
+        mocker.patch.object(source, "get_schemas", side_effect=psycopg.OperationalError(raw_error))
         capture = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source.capture_exception"
         )
@@ -1062,7 +1074,8 @@ class TestRedshiftValidateCredentials:
         ok, error = source.validate_credentials(config, team_id=1)
 
         assert ok is False
-        assert error is not None and "does not support SSL" in error
+        assert error is not None and expected_fragment in error
+        assert "127.0.0.1" not in error and "10.0.0.1" not in error
         capture.assert_not_called()
 
     @pytest.mark.parametrize(
@@ -1088,25 +1101,28 @@ class TestRedshiftValidateCredentials:
         assert error is not None and expected_fragment in error
         capture.assert_not_called()
 
-    def test_ssh_gateway_session_error_maps_to_actionable_message(self, mocker):
-        # sshtunnel's raw "Could not establish session to SSH gateway" is meaningless to the user;
-        # it must be replaced with concrete guidance rather than surfaced verbatim.
+    @pytest.mark.parametrize(
+        ("err", "expected_fragments"),
+        [
+            # sshtunnel's raw "Could not establish session to SSH gateway" is meaningless to the user;
+            # it must be replaced with concrete guidance rather than surfaced verbatim.
+            (BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"), ("SSH tunnel", "firewall")),
+            (SSHGatewayClosedBeforeBannerError(), ("IP addresses", "MaxStartups")),
+        ],
+    )
+    def test_ssh_gateway_session_error_maps_to_actionable_message(self, mocker, err, expected_fragments):
         config = _make_config()
         source = RedshiftSource()
         mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
         mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
-        mocker.patch.object(
-            source,
-            "get_schemas",
-            side_effect=BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"),
-        )
+        mocker.patch.object(source, "get_schemas", side_effect=err)
 
         ok, error = source.validate_credentials(config, team_id=1)
 
         assert ok is False
         assert error is not None
         assert "Could not establish session to SSH gateway" not in error
-        assert "SSH tunnel" in error and "firewall" in error
+        assert all(fragment in error for fragment in expected_fragments)
 
 
 class TestRedshiftSourceForPipeline:

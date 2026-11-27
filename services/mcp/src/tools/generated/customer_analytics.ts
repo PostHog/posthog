@@ -286,6 +286,39 @@ const accountsCustomPropertyValuesCreate = (): ToolBase<
     },
 })
 
+const AccountsCustomPropertyValuesHistorySchema = () => {
+    const AccountsCustomPropertyValuesHistoryRetrieveParams =
+        orvalSchemas.AccountsCustomPropertyValuesHistoryRetrieveParams()
+    const AccountsCustomPropertyValuesHistoryRetrieveQueryParams =
+        orvalSchemas.AccountsCustomPropertyValuesHistoryRetrieveQueryParams()
+    return AccountsCustomPropertyValuesHistoryRetrieveParams.omit({ project_id: true }).extend(
+        AccountsCustomPropertyValuesHistoryRetrieveQueryParams.shape
+    )
+}
+
+const accountsCustomPropertyValuesHistory = (): ToolBase<
+    ReturnType<typeof AccountsCustomPropertyValuesHistorySchema>,
+    WithPostHogUrl<Schemas.CustomPropertyValueHistoryEntry[]>
+> => ({
+    name: 'accounts-custom-property-values-history',
+    schema: AccountsCustomPropertyValuesHistorySchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof AccountsCustomPropertyValuesHistorySchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomPropertyValueHistoryEntry[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/custom_property_values/history/`,
+            query: {
+                definition: params.definition,
+                since: params.since,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
 const AccountsCustomPropertyValuesListSchema = () => {
     const AccountsCustomPropertyValuesListParams = orvalSchemas.AccountsCustomPropertyValuesListParams()
     return AccountsCustomPropertyValuesListParams.omit({ project_id: true })
@@ -1081,6 +1114,9 @@ const customPropertySourcesCreate = (): ToolBase<
         if (params.column_descriptions !== undefined) {
             body['column_descriptions'] = params.column_descriptions
         }
+        if (params.missing_row_behavior !== undefined) {
+            body['missing_row_behavior'] = params.missing_row_behavior
+        }
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
         }
@@ -1167,6 +1203,9 @@ const customPropertySourcesPartialUpdate = (): ToolBase<
         }
         if (params.column_descriptions !== undefined) {
             body['column_descriptions'] = params.column_descriptions
+        }
+        if (params.missing_row_behavior !== undefined) {
+            body['missing_row_behavior'] = params.missing_row_behavior
         }
         if (params.is_enabled !== undefined) {
             body['is_enabled'] = params.is_enabled
@@ -1326,6 +1365,9 @@ const customerTasksCreate = (): ToolBase<ReturnType<typeof CustomerTasksCreateSc
         if (params.status !== undefined) {
             body['status'] = params.status
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         const result = await context.api.request<Schemas.CustomerTask>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_tasks/`,
@@ -1363,6 +1405,7 @@ const customerTasksList = (): ToolBase<
                 ordering: params.ordering,
                 search: params.search,
                 statuses: params.statuses,
+                tags: params.tags,
             },
         })
         return await withPostHogUrl(context, result, '/customer_analytics')
@@ -1395,6 +1438,9 @@ const customerTasksPartialUpdate = (): ToolBase<
         }
         if (params.status !== undefined) {
             body['status'] = params.status
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.name !== undefined) {
             body['name'] = params.name
@@ -2377,6 +2423,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'account-relationship-definitions-retrieve': accountRelationshipDefinitionsRetrieve,
     'accounts-create': accountsCreate,
     'accounts-custom-property-values-create': accountsCustomPropertyValuesCreate,
+    'accounts-custom-property-values-history': accountsCustomPropertyValuesHistory,
     'accounts-custom-property-values-list': accountsCustomPropertyValuesList,
     'accounts-destroy': accountsDestroy,
     'accounts-list': accountsList,

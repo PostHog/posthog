@@ -1,18 +1,15 @@
 """Friction scores: how much the dev loop put each author through, as a multiple of the typical author.
 
-A friction score counts only what happened to the author: failures they did not cause and re-runs that
-failed again, waits on reviewers, the merge queue, and their own rework. It is a mean per pull request, so
-shipping more or faster does not raise it (SPEC §2).
+A score is a mean per pull request of what happened to the author, so shipping more or faster does
+not raise it (SPEC §2).
 
-Every figure comes from the per-PR friction view (``views/pr_friction.py``). Each metric applies a curve
-to each pull request, then an author's value is the mean over their pull requests, pulled toward the
-repository mean with ``SHRINKAGE`` pseudo pull requests so that a handful of pull requests cannot put an
-author at either end. Each value divides by the typical author's value, and the weights add the ratios
-into one score where 1.0 is typical.
+Every figure comes from the per-PR friction view (``views/pr_friction.py``). An author's value for a
+metric is the mean over their pull requests, pulled toward the repository mean with ``SHRINKAGE``
+pseudo pull requests so that a handful of pull requests cannot put an author at either end. Each value
+divides by the typical author's value, and the weights add the ratios into one score where 1.0 is typical.
 
-The weights are a choice, not a fit to this data: a simulation showed that equal weights inside judged
-pain groups rank authors about as well as the true weights would, and paired comparisons of friction set
-the group weights. Change them only with a new round of those comparisons.
+The weights are a judgement, not a fit to this data. Paired comparisons of friction set the group
+weights, so change them only with a new round of those comparisons.
 """
 
 import math
@@ -50,21 +47,19 @@ GROUP_WEIGHTS: dict[FrictionGroup, float] = {
     FrictionGroup.CI: 20,
     FrictionGroup.REWORK: 15,
 }
-# CI time below this per push, and merge-queue time below its own threshold, is the normal cost of a push.
+# Time below these thresholds is the normal cost of a push.
 CI_WAIT_FREE_SECONDS = 10 * 60
 QUEUE_FREE_SECONDS = 30 * 60
-# Waiting hurts in steps: past a few hours the author has moved on, and the data cannot tell a longer wait
-# from a pull request left alone overnight or over a weekend. So time counts only up to these caps, and
-# one stuck pull request cannot put its author at the top of the ranking.
+# The data cannot tell a longer wait from a pull request left alone overnight, so time counts only
+# up to these caps and one stuck pull request cannot put its author at the top of the ranking.
 CI_WAIT_CAP_SECONDS = 2 * 3600
 QUEUE_CAP_SECONDS = 4 * 3600
-# The same holds for counted events: the fourth red stretch or kickout on one pull request tells little
-# more than the third, and a re-run loop can add dozens that the author did not start.
+# A re-run loop can add dozens of events that the author did not start.
 COUNT_CAP = 3
 APPROVAL_WAIT_REFERENCE_HOURS = 8
 APPROVAL_SLOW_HOURS = 24
 BOOTSTRAP_ROUNDS = 20
-# A team list shows a team's median only above this many scored members. Next to one author, the team
+# A team list shows a team's median only with at least this many scored members. Next to one author, the team
 # baseline needs this many others besides the author (SPEC §2 noise floor).
 MIN_TEAM_AUTHORS = 3
 MIN_OTHER_TEAM_AUTHORS = 2
@@ -135,12 +130,11 @@ class FrictionMetric:
     group: FrictionGroup
     weight: float
     external: bool
-    # The metric's value for one pull request, curve applied. None means the pull request has no value.
+    # None means the pull request has no value for the metric, so it stays out of the mean.
     value: Callable[[PullRequestFriction], float | None]
 
 
 METRICS: tuple[FrictionMetric, ...] = (
-    # Each red stretch counts once, whatever its length: a red pull request left alone hardly affects anyone.
     FrictionMetric(
         key="flake_red", group=FrictionGroup.CI, weight=1, external=True, value=lambda pr: _capped(pr.flake_red_count)
     ),
@@ -248,7 +242,7 @@ class FrictionScorer:
             for author, prs in by_author.items()
         }
         self._weights = effective_weights()
-        # values[author][metric] holds the curve value of each of the author's pull requests.
+        # Indexed as values[author][metric][pull request].
         self._values = {
             author: [[metric.value(pr) for pr in by_author[author]] for metric in METRICS] for author in self._authors
         }
@@ -316,7 +310,7 @@ class FrictionScorer:
         return bands
 
     def pull_request_scores(self, author: str) -> list[_PullRequestScore]:
-        """Each of the author's pull requests as a multiple of the typical pull request, with the group split.
+        """Each of the author's pull requests as a multiple of the typical pull request.
 
         The typical pull request pools every pull request in the window, not only those of scored authors,
         so a repository where nobody has enough pull requests to score still has a baseline."""
@@ -382,11 +376,9 @@ _TITLES_SELECT = """
 
 
 def _query_pull_requests(curated: CuratedGitHubSource) -> list[PullRequestFriction] | None:
-    """The view's rows for the curated source's repository, or None when the team has no friction view.
-
-    The view unions every GitHub source of the team, so the read keeps to the one source the caller is
-    authorized for. A legacy single-repo source has no repository name, so the source id is the filter
-    that always holds."""
+    """Return None when the team has no friction view."""
+    # The view unions every GitHub source of the team, so the read filters on the one source the
+    # caller is authorized for.
     placeholders: dict[str, ast.Expr] = {"source_id": ast.Constant(value=curated.source_id)}
     repo_filter = "source_id = {source_id}"
     if "/" in curated.repository:
@@ -397,8 +389,8 @@ def _query_pull_requests(curated: CuratedGitHubSource) -> list[PullRequestFricti
     try:
         rows = curated.run_paged(
             _FRICTION_SELECT.replace("__REPO__", repo_filter),
-            # A multi-repo source read without a repository keeps several repositories under one source id,
-            # and their pull request numbers collide, so the page key carries the repository too.
+            # One source id can hold several repositories whose pull request numbers collide, so the
+            # page key carries the repository too.
             page_key=(("repo_owner", 1), ("repo_name", 2), ("number", 0)),
             query_type="engineering_analytics.author_friction",
             placeholders=placeholders,
@@ -448,7 +440,7 @@ def _query_pull_requests(curated: CuratedGitHubSource) -> list[PullRequestFricti
 
 
 def _query_memberships(curated: CuratedGitHubSource) -> dict[str, set[str]] | None:
-    """Members by GitHub team, or None when the membership table is not synced."""
+    """Lowercased member logins by GitHub team, or None when the membership table is not synced."""
     members_source = curated.members_source()
     if members_source is None:
         return None
@@ -459,8 +451,7 @@ def _query_memberships(curated: CuratedGitHubSource) -> dict[str, set[str]] | No
         placeholders={},
     )
     members: dict[str, set[str]] = {}
-    # GitHub logins are case-insensitive and the snapshots do not agree on casing, so members and authors
-    # match on the lowercased login, like the roster read.
+    # GitHub logins are case-insensitive and the snapshots do not agree on casing.
     for team_slug, member_handle in rows:
         members.setdefault(team_slug, set()).add(member_handle.lower())
     return members
@@ -501,8 +492,8 @@ def _team_friction(
 
 
 def build_author_friction(*, curated: CuratedGitHubSource, github_team: str | None = None) -> AuthorFrictionList:
-    """Every author's friction over the view's window, most first. A team keeps the repository-wide
-    scores and ranks and lists only its members, so a member's figures read the same on every page."""
+    """``github_team`` filters the list to its members and keeps their repository-wide scores and
+    ranks, so a member's figures read the same on every page."""
     window_days = pr_friction.FRICTION_WINDOW.days
     pull_requests = _query_pull_requests(curated)
     if pull_requests is None:
@@ -533,7 +524,6 @@ def build_author_friction(*, curated: CuratedGitHubSource, github_team: str | No
 
 
 def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -> AuthorFrictionDetail:
-    """One author's friction next to their teams, and the pull requests that added the most of it."""
     author = author.strip()
     if not author:
         raise ValueError("author is required")
@@ -550,7 +540,6 @@ def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -
             teams=[],
             pull_requests=[],
         )
-    # GitHub logins are case-insensitive, so a typed URL finds the author under the casing the rows store.
     author = next((pr.author for pr in pull_requests if pr.author.lower() == author.lower()), author)
     members = _query_memberships(curated)
     scorer = FrictionScorer(pull_requests)
@@ -582,10 +571,6 @@ def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -
 
 
 def build_pull_request_friction(*, curated: CuratedGitHubSource, repo: str, number: int) -> PullRequestFrictionDetail:
-    """One pull request's friction as a multiple of the typical pull request, with the counts behind it.
-
-    The score needs the whole repository as its baseline, so the read scores every pull request in the
-    window, the same way the author page does."""
     window_days = pr_friction.FRICTION_WINDOW.days
     pull_requests = _query_pull_requests(curated)
     if pull_requests is None:

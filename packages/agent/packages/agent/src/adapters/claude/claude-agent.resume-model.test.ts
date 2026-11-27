@@ -205,6 +205,23 @@ describe("ClaudeAcpAgent session creation", () => {
     return undefined;
   }
 
+  it.each(["newSession", "resumeSession", "loadSession"] as const)(
+    "disables PR attribution before %s returns",
+    async (method) => {
+      const agent = makeAgent();
+      await agent[method]({
+        sessionId: "0197a000-0000-7000-8000-000000000103",
+        cwd: permissionCwd,
+        mcpServers: [],
+        _meta: { taskRunId: "run-pr-attribution" },
+      });
+
+      expect(createdQueries[0].applyFlagSettings).toHaveBeenCalledWith({
+        attribution: { commit: "", pr: "" },
+      });
+    },
+  );
+
   it.each(["new", "resume", "load"] as const)(
     "uses the default PostHog exec permission regex for local %s sessions when metadata omits it",
     async (sessionKind) => {
@@ -381,12 +398,9 @@ describe("ClaudeAcpAgent session creation", () => {
     },
   );
 
-  it.each([
-    { isAiGateway: true, expectedSetModel: "zai-org/glm-5.2" },
-    { isAiGateway: false, expectedSetModel: "@cf/zai-org/glm-5.2" },
-  ])(
-    "resumes a run stored on @cf/zai-org/glm-5.2 as $expectedSetModel when isAiGateway is $isAiGateway",
-    async ({ isAiGateway, expectedSetModel }) => {
+  it.each([{ expectedSetModel: "zai-org/glm-5.2" }])(
+    "resumes a run stored on @cf/zai-org/glm-5.2 as $expectedSetModel on the gateway",
+    async ({ expectedSetModel }) => {
       vi.mocked(fetchGatewayModels).mockResolvedValueOnce([]);
       const client = {
         sessionUpdate: vi.fn().mockResolvedValue(undefined),
@@ -398,7 +412,6 @@ describe("ClaudeAcpAgent session creation", () => {
           anthropicAuthToken: "token",
           openaiBaseUrl: "http://gateway.test/v1",
           openaiApiKey: "token",
-          isAiGateway,
         },
       });
 
@@ -469,6 +482,40 @@ describe("ClaudeAcpAgent session creation", () => {
           description: "Context: 1,000,000 tokens",
         }),
       ],
+    });
+  });
+
+  it("reads the Django model list for an own-subscription session, ignoring plan locks", async () => {
+    const listModels = vi.fn().mockResolvedValue([
+      {
+        id: "claude-opus-5-5",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: false,
+        restriction_reason: "paid_plan_required",
+      },
+    ]);
+    const client = {
+      sessionUpdate: vi.fn().mockResolvedValue(undefined),
+      extNotification: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AgentSideConnection;
+    const agent = new ClaudeAcpAgent(client, {
+      machineAuth: { oauthToken: "subscription-token" },
+      listModels,
+    });
+
+    const response = await agent.newSession({
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-subscription", model: "claude-opus-5-5" },
+    });
+
+    expect(listModels).toHaveBeenCalledOnce();
+    expect(getModelConfigOption(response)).toMatchObject({
+      currentValue: "claude-opus-5-5",
+      options: [expect.not.objectContaining({ _meta: expect.anything() })],
     });
   });
 
@@ -905,7 +952,7 @@ describe("ClaudeAcpAgent session creation", () => {
     });
     vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
       gatewayModel("claude-opus-5-5", "anthropic"),
-      gatewayModel("moonshotai/kimi-k3", "modal"),
+      gatewayModel("moonshotai/kimi-k3.1-pro", "modal"),
     ]);
     const agent = makeAgent();
     const warnSpy = vi.spyOn(agent.logger, "warn");
@@ -921,7 +968,7 @@ describe("ClaudeAcpAgent session creation", () => {
     await agent.setSessionConfigOption({
       sessionId,
       configId: "model",
-      value: "moonshotai/kimi-k3",
+      value: "moonshotai/kimi-k3.1-pro",
     });
 
     await vi.waitFor(() => {

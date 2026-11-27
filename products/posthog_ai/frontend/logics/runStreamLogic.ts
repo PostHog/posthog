@@ -102,6 +102,7 @@ import { computeTurnTrailers } from '../utils/turnTrailers'
 import { debugLogsLogic } from './debugLogsLogic'
 import { registerHmrStreamAbort } from './devHmrStreamAbort'
 import { foregroundStreamLogic } from './foregroundStreamLogic'
+import { RunStreamFrameBuffer } from './runStreamFrameBuffer'
 import {
     RunStreamRecovery,
     type RecoveryPhase,
@@ -110,6 +111,7 @@ import {
     STREAM_HISTORY_TIMEOUT_MS,
     STREAM_IDLE_TIMEOUT_MS,
 } from './runStreamRecovery'
+import { observeRunUiPerformance } from './runUiPerformance'
 import { hasReplayListener, toolStreamEventsLogic } from './toolStreamEventsLogic'
 import type { ToolStreamSubscription } from './toolStreamEventsLogic'
 
@@ -1245,7 +1247,9 @@ function isAgentMessageEntry(entry: StoredLogEntry): boolean {
     return (
         entry.notification.method === 'session/update' &&
         isRecord(update) &&
-        (update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_message')
+        (update.sessionUpdate === 'agent_message_chunk' ||
+            update.sessionUpdate === 'agent_message' ||
+            update.sessionUpdate === 'agent_thought_chunk')
     )
 }
 
@@ -2678,6 +2682,8 @@ export interface runStreamLogicValues {
     runStarted: boolean
     sdkSession: SdkSession | null
     seenPermissionRequestIds: Set<string>
+    sessionEffort: string | null
+    sessionModel: string | null
     showThinkingIndicator: boolean
     sseStatus: RunSseStatus
     streamHasEnded: boolean
@@ -2748,13 +2754,13 @@ export interface runStreamLogicActions {
         taskRuntime?: string | null
         traceId?: string
     }) => {
-        justCreatedRun?: boolean | undefined
-        pagedHistory?: boolean | undefined
-        retainedMessage?: string | undefined
+        justCreatedRun?: boolean
+        pagedHistory?: boolean
+        retainedMessage?: string
         runId: string
         taskId: string
-        taskRuntime?: string | null | undefined
-        traceId?: string | undefined
+        taskRuntime?: string | null
+        traceId?: string
     }
     cancelPermissionDelivery: () => {
         value: true
@@ -2792,8 +2798,8 @@ export interface runStreamLogicActions {
         replayedFromHistory?: boolean
         status: RunStatus
     }) => {
-        errorMessage?: string | null | undefined
-        replayedFromHistory?: boolean | undefined
+        errorMessage?: string | null
+        replayedFromHistory?: boolean
         status: RunStatus
     }
     ingestAcpFrame: (
@@ -2849,9 +2855,9 @@ export interface runStreamLogicActions {
     }
     openSseForRun: (payload: { runId: string; startLatest?: boolean; taskId: string; traceId?: string }) => {
         runId: string
-        startLatest?: boolean | undefined
+        startLatest?: boolean
         taskId: string
-        traceId?: string | undefined
+        traceId?: string
     }
     permissionResponseFailed: (requestId: string) => {
         requestId: string
@@ -2913,8 +2919,8 @@ export interface runStreamLogicActions {
         optionId: string
         requestId: string
     }) => {
-        answers?: Record<string, string> | undefined
-        customInput?: string | undefined
+        answers?: Record<string, string>
+        customInput?: string
         optionId: string
         requestId: string
     }
@@ -2969,6 +2975,13 @@ export interface runStreamLogicActions {
     }
     setSdkSession: (session: SdkSession) => {
         session: SdkSession
+    }
+    setSessionConfig: (
+        model: string | null,
+        effort: string | null
+    ) => {
+        effort: string | null
+        model: string | null
     }
     setStreamHasEnded: (ended: boolean) => {
         ended: boolean
@@ -3273,6 +3286,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         handleStreamError: (envelope: StreamErrorEnvelope) => envelope,
         // Value-fold side effects emitted by ingestAcpFrame (thread items are derived in the projection).
         setCurrentMode: (mode: string) => ({ mode }),
+        // The model and effort the agent confirmed, from its `config_option_update` frames.
+        setSessionConfig: (model: string | null, effort: string | null) => ({ model, effort }),
         setCurrentProgress: (progress: string | null) => ({ progress }),
         /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
         setCurrentStage: (stage: string | null) => ({ stage }),
@@ -3645,6 +3660,26 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as string | null,
             {
                 setCurrentMode: (_, { mode }) => mode,
+                prepareResumeRun: () => null,
+                reset: () => null,
+            },
+        ],
+        // A resumed run replays its ancestors' logs. Each run starts with `run_started`, and Claude reports no
+        // config at boot, so an earlier run's confirmed model must not outlive its run.
+        sessionModel: [
+            null as string | null,
+            {
+                setSessionConfig: (state, { model }) => model ?? state,
+                markRunStarted: () => null,
+                prepareResumeRun: () => null,
+                reset: () => null,
+            },
+        ],
+        sessionEffort: [
+            null as string | null,
+            {
+                setSessionConfig: (state, { effort }) => effort ?? state,
+                markRunStarted: () => null,
                 prepareResumeRun: () => null,
                 reset: () => null,
             },
@@ -4534,7 +4569,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             actions.setContextUsage(fold(values.contextUsage))
         }
-        const ingestFrame = (entry: StoredLogEntry, source: FrameSource): void => {
+        const ingestFrame = (entry: StoredLogEntry, source: FrameSource, append = true): void => {
             const notification = entry?.notification
             if (!notification) {
                 return
@@ -4576,7 +4611,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // deduped (see `bootstrapRun`) and steady-state live frames resume exclusively, so the
             // side effects below run exactly once per frame without a per-frame key; the
             // run-started/permission/tool-completion guards enforce fire-once on their own.
-            if (!cache.rebuildingHistory) {
+            if (!cache.rebuildingHistory && append) {
                 actions.appendEntries([{ entry, source }])
             }
 
@@ -4803,6 +4838,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
                 return
             }
+            if (update.sessionUpdate === 'config_option_update') {
+                const currentValue = (id: string): string | null => {
+                    const value = update.configOptions?.find((option) => option?.id === id)?.currentValue
+                    return typeof value === 'string' && value ? value : null
+                }
+                actions.setSessionConfig(currentValue('model'), currentValue('effort'))
+                return
+            }
             if (update.sessionUpdate === 'tool_call') {
                 // A fresh tool call — the tracker folded it in above, so resolve its name off the
                 // merged invocation and publish a `started` event on the bus.
@@ -5017,6 +5060,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 session.buffering = !skipHistory
                 actions.sseConnecting()
                 const controller = new AbortController()
+                const frames = new RunStreamFrameBuffer<StoredLogEntry>((entries) => {
+                    if (
+                        cache.recoverySession !== session ||
+                        cache.disposables.isDisposed ||
+                        values.currentProjectId !== session.projectId
+                    ) {
+                        return
+                    }
+                    actions.appendEntries(entries.map((entry) => ({ entry, source: 'live' as const })))
+                    for (const entry of entries) {
+                        ingestFrame(entry, 'live', false)
+                    }
+                })
+                let measuring = false
+                const stopMeasuring = (): void => {
+                    cache.disposables.dispose('run-ui-performance')
+                    measuring = false
+                }
                 let backlogRunId = session.committedBacklogRunId ?? (values.isBootstrapResumeRun ? undefined : runId)
                 const ownsStream = (): boolean => session.owns() && !controller.signal.aborted && !hasEnded(session)
                 const drop = (error?: StreamErrorEnvelope): void => {
@@ -5034,10 +5095,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         return
                     }
                     if (event === STREAM_END_EVENT) {
+                        frames.flush()
+                        stopMeasuring()
                         actions.streamEnded()
                         return
                     }
                     if (event === 'error') {
+                        frames.flush()
+                        stopMeasuring()
                         try {
                             const envelope: SseErrorFrameData = JSON.parse(data)
                             drop({
@@ -5051,6 +5116,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         return
                     }
                     if (event === 'end') {
+                        frames.flush()
                         let control: unknown
                         try {
                             control = JSON.parse(data)
@@ -5113,7 +5179,30 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             !(cache.eventCoverage as RunEventCoverage).covers(entry)
                         ) {
                             ;(cache.eventCoverage as RunEventCoverage).add(entry)
-                            if (entry.first_event_id) {
+                            const update = entry.notification?.params?.update
+                            const isTextChunk =
+                                isRecord(update) &&
+                                (update.sessionUpdate === 'agent_message_chunk' ||
+                                    update.sessionUpdate === 'agent_thought_chunk')
+                            if (!id?.startsWith('log-') && !measuring) {
+                                measuring = true
+                                cache.disposables.add(
+                                    () =>
+                                        observeRunUiPerformance((metrics) =>
+                                            posthog.capture('sandbox_run_ui_performance', {
+                                                ...metrics,
+                                                run_id: runId,
+                                                task_id: taskId,
+                                                conversation_id: props.conversationId,
+                                            })
+                                        ),
+                                    'run-ui-performance'
+                                )
+                            }
+                            if (isTextChunk && !entry.first_event_id) {
+                                frames.push(entry)
+                            } else if (entry.first_event_id) {
+                                frames.flush()
                                 const log = mergeCoalescedRunLog(values.log, entry)
                                 cache.rebuildingHistory = true
                                 try {
@@ -5123,10 +5212,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
                                 }
                                 actions.replaceLog(log)
                             } else {
+                                frames.flush()
                                 actions.ingestAcpFrame(entry, 'live')
+                            }
+                            if (entry.notification?.method === '_posthog/turn_complete') {
+                                stopMeasuring()
                             }
                         }
                     } else if (isPermissionRequestFrame(parsed)) {
+                        frames.flush()
                         if (session.buffering) {
                             session.buffer.push({
                                 type: 'notification',
@@ -5148,6 +5242,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             actions.routePermissionRequest(record)
                         }
                     } else if (isTaskRunStateFrame(parsed)) {
+                        frames.flush()
+                        if (isTerminalRunStatus(parsed.status as RunStatus)) {
+                            stopMeasuring()
+                        }
                         if (parsed.stage !== undefined) {
                             actions.setCurrentStage(parsed.stage ?? null)
                         }
@@ -5274,6 +5372,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         liveStreamControllers.add(entry)
                         void streamRun()
                         return () => {
+                            frames.flush()
+                            stopMeasuring()
                             liveStreamControllers.delete(entry)
                             controller.abort()
                             cache.disposables.dispose('stream-reader')

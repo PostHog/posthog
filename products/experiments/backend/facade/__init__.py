@@ -10,12 +10,12 @@ from typing import TYPE_CHECKING, Any
 from .contracts import CreateExperimentInput, Experiment, FeatureFlag
 
 if TYPE_CHECKING:
-    from .api import count_running_experiments_on_feature_flag_called, create_experiment
+    from .api import count_running_experiments_needing_flag_calls_in_events, create_experiment
 
 # Loaded on first use (PEP 562): light submodules such as `launch_signals` load in every process at
 # startup, and importing one runs this file first, so an eager `api` import would drag the whole
 # experiments service onto the startup path.
-_LAZY_API_NAMES = frozenset({"count_running_experiments_on_feature_flag_called", "create_experiment"})
+_LAZY_API_NAMES = frozenset({"count_running_experiments_needing_flag_calls_in_events", "create_experiment"})
 
 
 def __getattr__(name: str) -> Any:
@@ -27,7 +27,7 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "count_running_experiments_on_feature_flag_called",
+    "count_running_experiments_needing_flag_calls_in_events",
     "create_experiment",
     "CreateExperimentInput",
     "Experiment",

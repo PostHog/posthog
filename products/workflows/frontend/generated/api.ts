@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AdventCalendarAnswerApi,
+    AdventCalendarResultsApi,
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
     ApplyUtmDefaultsRequestApi,
@@ -87,6 +89,8 @@ import type {
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowEmailSandboxProvisionApi,
+    WorkflowEmailSandboxStatusApi,
     WorkflowImportRecordApi,
     WorkflowImportRequestApi,
     WorkflowImportResponseApi,
@@ -1636,6 +1640,43 @@ export const pushTokenImportsLatestRetrieve = async (
     })
 }
 
+export const getWorkflowAdventCalendarAnswerUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/answer/`
+}
+
+/**
+ * How people answer the questions of the Workflows advent calendar.
+ */
+export const workflowAdventCalendarAnswer = async (
+    projectId: string,
+    adventCalendarAnswerApi: AdventCalendarAnswerApi,
+    options?: RequestInit
+): Promise<AdventCalendarResultsApi> => {
+    return apiMutator<AdventCalendarResultsApi>(getWorkflowAdventCalendarAnswerUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(adventCalendarAnswerApi),
+    })
+}
+
+export const getWorkflowAdventCalendarResultsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/results/`
+}
+
+/**
+ * How people answer the questions of the Workflows advent calendar.
+ */
+export const workflowAdventCalendarResults = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AdventCalendarResultsApi> => {
+    return apiMutator<AdventCalendarResultsApi>(getWorkflowAdventCalendarResultsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_data_suggestions/build/`
 }
@@ -1732,6 +1773,40 @@ export const workflowEmailDraftsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailDraftRequestApi),
+    })
+}
+
+export const getWorkflowEmailSandboxProvisionUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/provision/`
+}
+
+/**
+ * The PostHog test sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxProvision = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxProvisionApi> => {
+    return apiMutator<WorkflowEmailSandboxProvisionApi>(getWorkflowEmailSandboxProvisionUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWorkflowEmailSandboxStatusUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/status/`
+}
+
+/**
+ * The PostHog test sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxStatus = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxStatusApi> => {
+    return apiMutator<WorkflowEmailSandboxStatusApi>(getWorkflowEmailSandboxStatusUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1878,6 +1953,46 @@ export const internalHogFlowsAccountAudienceCreate = async (teamId: string, opti
     })
 }
 
+export const getInternalHogFlowsBatchJobsAudiencePageCreateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/audience_page`
+}
+
+/**
+ * Internal endpoint for the Node batch resolver: one page of a run's stored audience, cursor-paginated
+ * in person id order. Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsBatchJobsAudiencePageCreate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsAudiencePageCreateUrl(teamId, batchJobId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getInternalHogFlowsBatchJobsAudienceSnapshotCreateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/audience_snapshot`
+}
+
+/**
+ * Internal endpoint for the Node batch resolver: resolve the run's whole audience once, in the
+ * background. The first call starts it; later calls report its status. The resolver pages the
+ * stored audience through internal_batch_job_audience_page once the status is ready.
+ * Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsBatchJobsAudienceSnapshotCreate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsAudienceSnapshotCreateUrl(teamId, batchJobId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batchJobId: string) => {
     return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status`
 }
@@ -1912,24 +2027,6 @@ export const getInternalHogFlowsUserBlastRadiusCreateUrl = (teamId: string) => {
  */
 export const internalHogFlowsUserBlastRadiusCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getInternalHogFlowsUserBlastRadiusCreateUrl(teamId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getInternalHogFlowsUserBlastRadiusPersonsCreateUrl = (teamId: string) => {
-    return `/api/projects/${teamId}/internal/hog_flows/user_blast_radius_persons`
-}
-
-/**
- * Internal endpoint for Node.js services to query user blast radius persons with pagination.
- * Requires Bearer token authentication via INTERNAL_API_SECRET.
- */
-export const internalHogFlowsUserBlastRadiusPersonsCreate = async (
-    teamId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInternalHogFlowsUserBlastRadiusPersonsCreateUrl(teamId), {
         ...options,
         method: 'POST',
     })

@@ -148,6 +148,7 @@ export function humanize(
         if (description !== null) {
             const workload = parseWorkloadAttribution(logItem)
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
+            const projectKeyName = projectKeyActorName(logItem)
             logLines.push({
                 id: logItem.id,
                 email: actorEmailForLogItem(logItem),
@@ -156,8 +157,8 @@ export function humanize(
                     ? workloadActorLabel(workload)
                     : logItem.was_impersonated
                       ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
-                      : impersonatedUserName,
-                isSystem: logItem.is_system,
+                      : (projectKeyName ?? impersonatedUserName),
+                isSystem: logItem.is_system && !projectKeyName,
                 wasImpersonated: logItem.was_impersonated,
                 client: logItem.client,
                 description,
@@ -173,7 +174,21 @@ export function humanize(
     return logLines
 }
 
+function projectKeyActorName(logItem: ActivityLogItem): string | undefined {
+    if (
+        logItem.credential_type === 'project_secret_key' &&
+        (logItem.scope === ActivityScope.SCORE_DEFINITION || logItem.scope === ActivityScope.TRACE_REVIEW)
+    ) {
+        return logItem.credential_id ? `Project key ${logItem.credential_id}` : 'Project key'
+    }
+    return undefined
+}
+
 export function userNameForLogItem(logItem: ActivityLogItem): string {
+    const keyName = projectKeyActorName(logItem)
+    if (keyName) {
+        return keyName
+    }
     if (logItem.is_system) {
         return 'PostHog'
     }
@@ -243,6 +258,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
     [ActivityScope.CANVAS]: { singular: 'Canvas', plural: 'Canvases' },
+    [ActivityScope.PLATFORM_ALERT_CONFIGURATION]: { singular: 'Platform alert', plural: 'Platform alerts' },
     [ActivityScope.WORKLOAD_TRUST_POLICY]: { singular: 'Trusted workload', plural: 'Trusted workloads' },
     [ActivityScope.WORKLOAD_TRUST_POLICY_REQUEST]: {
         singular: 'Trusted workload request',
@@ -320,7 +336,9 @@ function describeComment(
         ),
         extendedDescription: commentContent ? (
             <div className="border rounded bg-surface-primary p-4">
-                <LazyLemonMarkdown lowKeyHeadings>{commentContent}</LazyLemonMarkdown>
+                <LazyLemonMarkdown lowKeyHeadings disableImages>
+                    {commentContent}
+                </LazyLemonMarkdown>
             </div>
         ) : undefined,
     }

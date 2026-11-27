@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -45,12 +45,22 @@ export const externalDataDestinationsCreateBodyNameMax = 400
 
 export const ExternalDataDestinationsCreateBody = () => zod.object({
     type: zod
-        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum([
+            'PostHogWarehouse',
+            'Redshift',
+            'Snowflake',
+            'BigQuery',
+            'Postgres',
+            'Databricks',
+            'AzureBlob',
+            'S3',
+            'MotherDuck',
+        ])
         .describe(
-            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         )
         .describe(
-            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         ),
     name: zod
         .string()
@@ -97,6 +107,53 @@ export const ExternalDataDestinationsRetrieveParams = () => zod.object({
  * A destination can be attached to several sources, or to a single table on a source.
  * Credentials come from an integration, so one connection can be reused across syncs.
  */
+export const ExternalDataDestinationsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data destination.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const externalDataDestinationsPartialUpdateBodyNameMax = 400
+
+export const ExternalDataDestinationsPartialUpdateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(externalDataDestinationsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name shown when picking destinations for a source or table.'),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration.'
+        ),
+})
+
+/**
+ * Soft-delete, and detach it from everything that syncs to it.
+ *
+ * Runs already in flight keep their own snapshot of the destination, so deleting one
+ * never strands a run part-way through. The next run of each affected table resolves
+ * without it.
+ */
+export const ExternalDataDestinationsDestroyParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data destination.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
 export const ExternalDataDestinationsAddSourcesCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data destination.'),
     project_id: zod
@@ -119,6 +176,18 @@ export const ExternalDataDestinationsAddSourcesCreateBody = () => zod.object({
         .boolean()
         .default(externalDataDestinationsAddSourcesCreateBodyResyncDefault)
         .describe('Start a full resync for each enabled table newly attached.'),
+})
+
+/**
+ * List recent sync runs that could not deliver to this destination, with the error of each one.
+ */
+export const ExternalDataDestinationsDeliveryFailuresRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data destination.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 /**
@@ -150,9 +219,9 @@ export const ExternalDataDestinationsConnectLinkRetrieveParams = () => zod.objec
 
 export const ExternalDataDestinationsConnectLinkRetrieveQueryParams = () => zod.object({
     destination_type: zod
-        .enum(['Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum(['Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3', 'MotherDuck'])
         .describe(
-            "The destination type to connect, e.g. 'Snowflake' or 'S3'.\n\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3"
+            "The destination type to connect, e.g. 'Snowflake' or 'S3'.\n\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck"
         ),
     integration_kind: zod
         .string()
@@ -190,4 +259,27 @@ export const ExternalDataDestinationsConnectLinkStatusRetrieveQueryParams = () =
         .min(1)
         .max(externalDataDestinationsConnectLinkStatusRetrieveQueryConnectTokenMax)
         .describe('The connect_token that the connect link returned.'),
+})
+
+/**
+ * Read or replace this table's destination override.
+ *
+ * Send `destination_ids: null` to clear the override so the table follows its source again.
+ */
+export const ExternalDataSchemasDestinationsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSchemasDestinationsPartialUpdateBody = () => zod.object({
+    destination_ids: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Destinations to sync to. On a table, null clears the override so the table follows its source again.'
+        ),
 })

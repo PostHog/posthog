@@ -93,9 +93,7 @@ def _get_async_openai_client(*, team: Team | None, delivery_id: str | None, user
         properties["team_id"] = str(team.id)
     else:
         headers["X-PostHog-Billable"] = "false"
-    client = build_async_openai_client(
-        "subscriptions", ai_product="subscriptions", properties=properties, distinct_id=user_tag
-    )
+    client = build_async_openai_client(ai_product="subscriptions", properties=properties, distinct_id=user_tag)
     return client.with_options(max_retries=0, default_headers=headers)
 
 
@@ -141,10 +139,10 @@ async def condense_query_results(
         for attempt in range(2):
             try:
                 result = await client.chat.completions.create(
-                    model="gpt-4.1-mini",
-                    temperature=0,
-                    max_tokens=1_200,
-                    timeout=20,
+                    model="gpt-6-luna",
+                    reasoning_effort="low",
+                    max_completion_tokens=4_096,
+                    timeout=30,
                     messages=cast(list[ChatCompletionMessageParam], messages),
                     user=user_tag,
                 )

@@ -1,18 +1,29 @@
-import { decodeParams, router } from 'kea-router'
+import { combineUrl, decodeParams, router } from 'kea-router'
 
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY } from '~/layout/navigation-3000/sidepanel/types'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { ActivityScope } from '~/types'
 
 import { TRACE_PAGE_HOST_ID, tracePageLogic } from './tracePageLogic'
 import { traceViewHostLogic } from './traceViewHostLogic'
+
+jest.mock('lib/utils/product-intents', () => ({
+    ...jest.requireActual('lib/utils/product-intents'),
+    addProductIntent: jest.fn(),
+}))
 
 describe('tracePageLogic', () => {
     let logic: ReturnType<typeof tracePageLogic.build>
     let host: ReturnType<typeof traceViewHostLogic.build>
 
     beforeEach(() => {
+        jest.mocked(addProductIntent).mockClear()
         initKeaTests()
         host = traceViewHostLogic({ hostId: TRACE_PAGE_HOST_ID })
         host.mount()
@@ -37,6 +48,11 @@ describe('tracePageLogic', () => {
     it.each([
         ['event', '?event=gen-1', { requestedStepId: 'gen-1', openingMode: null }],
         ['tab=summary', '?tab=summary', { requestedStepId: null, openingMode: 'summary', detailTab: 'messages' }],
+        [
+            'tab=thread',
+            '?tab=thread',
+            { requestedStepId: null, openingMode: 'thread', mode: 'thread', detailTab: 'messages' },
+        ],
         [
             'tab=evals with no event',
             '?tab=evals',
@@ -94,16 +110,20 @@ describe('tracePageLogic', () => {
         expect(host.values).toMatchObject({ mode: 'spans', detailTab: 'messages' })
     })
 
-    it('opens another trace on tab=evals, and keeps the tab the person picks when a step writes the URL', () => {
+    it.each([
+        ['evals', { detailTab: 'evals' }],
+        ['thread', { mode: 'thread' }],
+    ])('opens another trace on tab=%s, and keeps later tab choices when a step writes the URL', (tab, expected) => {
         open('')
-        open('?tab=evals', 'trace-2')
-        expect(host.values.detailTab).toBe('evals')
+        open(`?tab=${tab}`, 'trace-2')
+        expect(host.values).toMatchObject(expected)
 
         host.actions.setDetailTab('raw')
+        host.actions.setMode('spans')
         host.actions.requestStep('gen-2', 'trace-2')
 
-        expect(router.values.searchParams).toMatchObject({ tab: 'evals', event: 'gen-2' })
-        expect(host.values.detailTab).toBe('raw')
+        expect(router.values.searchParams).toMatchObject({ tab, event: 'gen-2' })
+        expect(host.values).toMatchObject({ detailTab: 'raw', mode: 'spans' })
     })
 
     it.each([
@@ -155,6 +175,57 @@ describe('tracePageLogic', () => {
         open('?back_to=reviews')
 
         expect(logic.values.backLink.label).toBe('Back to reviews')
+    })
+
+    it('names the trace in the breadcrumbs and keeps only the list filters on the links', () => {
+        open('?date_from=-7d&search=refund&event=gen-1&back_to=traces')
+
+        expect(logic.values.breadcrumbs).toEqual([
+            {
+                key: 'AIObservability',
+                name: 'AI observability',
+                path: combineUrl(urls.aiObservabilityDashboard(), { date_from: '-7d' }).url,
+                iconType: 'llm_analytics',
+            },
+            {
+                key: 'AIObservabilityTraces',
+                name: 'Traces',
+                path: combineUrl(urls.aiObservabilityTraces(), { date_from: '-7d' }).url,
+                iconType: 'llm_analytics',
+            },
+            { key: ['AIObservabilityTrace', 'trace-1'], name: 'trace-1', iconType: 'llm_analytics' },
+        ])
+    })
+
+    it('scopes discussions and activity to the trace', () => {
+        open('')
+
+        expect(logic.values[SIDE_PANEL_CONTEXT_KEY]).toEqual({
+            activity_scope: ActivityScope.LLM_TRACE,
+            activity_item_id: 'trace-1',
+            discussions_disabled: false,
+            activity_item_context: { trace_id: 'trace-1' },
+        })
+    })
+
+    it('records the trace view intent and the setup tasks once per trace, not once per step', () => {
+        globalSetupLogic.mount()
+        const markTaskAsCompleted = jest.spyOn(globalSetupLogic.actions, 'markTaskAsCompleted')
+
+        open('')
+        open('?event=gen-1')
+        open('?event=gen-2&search=refund')
+
+        expect(addProductIntent).toHaveBeenCalledTimes(1)
+        expect(addProductIntent).toHaveBeenCalledWith({
+            product_type: ProductKey.AI_OBSERVABILITY,
+            intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
+        })
+        expect(markTaskAsCompleted).toHaveBeenCalledTimes(1)
+        expect(markTaskAsCompleted).toHaveBeenCalledWith([SetupTaskId.IngestFirstLlmEvent, SetupTaskId.ViewFirstTrace])
+
+        open('', 'trace-2')
+        expect(addProductIntent).toHaveBeenCalledTimes(2)
     })
 
     // Regression: an override left behind on unmount keeps the nav collapsed on every other page.

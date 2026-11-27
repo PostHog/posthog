@@ -6,6 +6,7 @@ import { Skeleton, Text } from '@posthog/quill'
 import type { HighlightsApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
 import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { TodayPulse } from './TodayPulse'
 import { TodayPulseEditor } from './TodayPulseEditor'
@@ -50,6 +51,7 @@ function pulseView(
 
 export function TodayPulseSection(): JSX.Element | null {
     const { highlights, pulsePending, pulseTiles, pulseSlots, pulsePinsLoaded } = useValues(todayHighlightsLogic)
+    const { homeEditing } = useValues(todayHomeEditLogic)
     const titleId = useId()
     const view = pulseView(pulsePending, highlights, pulseSlots)
     const canEdit = !pulsePending && !!highlights && pulsePinsLoaded
@@ -60,7 +62,7 @@ export function TodayPulseSection(): JSX.Element | null {
         <section className="TodayHome__list" aria-labelledby={titleId}>
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading id={titleId}>At a glance</TodayHomeHeading>
-                {canEdit ? <TodayPulseEditor /> : null}
+                {canEdit && homeEditing ? <TodayPulseEditor /> : null}
             </div>
             {view === 'loading' ? <TodayPulseSkeleton /> : null}
             {view === 'numbers' ? <TodayPulse metrics={pulseTiles} slots={pulseSlots} /> : null}

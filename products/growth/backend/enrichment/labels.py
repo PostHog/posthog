@@ -1,7 +1,7 @@
 """Classifier runner for versioned AI enrichment labels.
 
 Pure functions only: no persistence, no client construction. Callers build the OpenAI
-client via `build_openai_client(product="growth", ai_product="growth", properties=...)` and pass it in —
+client via `build_openai_client(ai_product="growth", properties=...)` and pass it in —
 this module just turns an archived Harmonic payload plus a prompt config into a stamped verdict.
 """
 
@@ -849,8 +849,7 @@ def ai_processing_approved(organization_id: Any) -> bool:
 
     A full-archive run spans hours, so an admin revoking consent partway through must be honored
     for every org still queued, not just the ones enumerated after the change. Only an explicit
-    True approves: the column is nullable, and the rest of the codebase treats unset as unapproved
-    (posthog/temporal/ai/sync_vectors.py).
+    True approves: the column is nullable, and the rest of the codebase treats unset as unapproved.
     """
     return Organization.objects.filter(pk=organization_id, is_ai_data_processing_approved=True).exists()
 

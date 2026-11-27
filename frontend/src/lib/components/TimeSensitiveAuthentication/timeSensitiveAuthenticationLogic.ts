@@ -11,10 +11,9 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api, { ApiError } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { uuid } from 'lib/utils/dom'
 import { PrecheckResponseType } from 'scenes/authentication/auth/loginLogic'
@@ -28,6 +27,12 @@ import { modalInterruptionTrackingLogic } from './modalInterruptionTrackingLogic
 export interface ReauthenticationForm {
     password: string
     token?: string
+}
+
+/** Copy that names what the user is confirming, set by a scene whose writes need a recent sign-in. */
+export interface ReauthenticationPrompt {
+    title: string
+    description: string
 }
 
 export interface TwoFAMethodsResponse {
@@ -61,6 +66,7 @@ export interface timeSensitiveAuthenticationLogicValues {
     reauthenticationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
     reauthenticationHasErrors: boolean
     reauthenticationManualErrors: Record<string, any>
+    reauthenticationPrompt: ReauthenticationPrompt | null
     reauthenticationTouched: boolean
     reauthenticationTouches: Record<string, boolean>
     reauthenticationValidationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
@@ -177,6 +183,9 @@ export interface timeSensitiveAuthenticationLogicActions {
     setReauthenticationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
+    setReauthenticationPrompt: (prompt: ReauthenticationPrompt | null) => {
+        prompt: ReauthenticationPrompt | null
+    }
     setReauthenticationValue: (
         key: FieldName,
         value: any
@@ -272,6 +281,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         checkPasskeysAvailable: true,
         sendSetPasswordLink: true,
         setTotpAvailable: (available: boolean) => ({ available }),
+        setReauthenticationPrompt: (prompt: ReauthenticationPrompt | null) => ({ prompt }),
     }),
     reducers({
         dismissedReauthentication: [
@@ -286,6 +296,12 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             false,
             {
                 setRequiresTwoFactor: (_, { value }) => value,
+            },
+        ],
+        reauthenticationPrompt: [
+            null as ReauthenticationPrompt | null,
+            {
+                setReauthenticationPrompt: (_, { prompt }) => prompt,
             },
         ],
         totpAvailable: [

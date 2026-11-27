@@ -37,6 +37,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Pipeline failures',
         description: 'When a data pipeline or batch export fails',
     },
+    alert_destination_refused: {
+        label: 'Alert destination failures',
+        description: "When a destination refuses an alert's notification",
+    },
     materialization_failure: {
         label: 'Materialized view failures',
         description: 'When a materialized view in your project fails to refresh',

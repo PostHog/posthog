@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceSearchResultsApi } from '../../generated/api.schemas'
-import { makeTraceResource } from './adapter/testFixtures'
+import { makeTraceResource } from './testFixtures'
 import { SEARCH_DEBOUNCE_MS, traceSearchLogic } from './traceSearchLogic'
 import { traceViewLogic } from './traceViewLogic'
 
@@ -176,5 +176,31 @@ describe('traceSearchLogic', () => {
             matching_steps: 1,
             load_ms: expect.any(Number),
         })
+    })
+
+    it('marks the matching steps and the query to highlight once a search answers', async () => {
+        await mountWithTrace()
+
+        typeAndWait(' invoice ')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({
+            readySearchResults: resultsFor('invoice'),
+            matchingNodeIds: new Set(['gen-1']),
+            highlightQuery: 'invoice',
+        })
+    })
+
+    it('drops the previous matches when a newer search fails', async () => {
+        silenceKeaLoadersErrors()
+        searchStatuses = { refund: 504 }
+        await mountWithTrace()
+        typeAndWait('invoice')
+        await expectLogic(logic).toFinishAllListeners()
+
+        typeAndWait('refund')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({ readySearchResults: null, matchingNodeIds: null, highlightQuery: null })
     })
 })

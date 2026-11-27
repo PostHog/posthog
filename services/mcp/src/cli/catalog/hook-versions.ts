@@ -1,0 +1,29 @@
+// A catalog entry that needs a hook names it with its version, `hook:<name>@<version>`, and a hog
+// whose compiled-in hook has another version drops the entry. Each hook lists a hash of its source for
+// every version it has had, so version N is the Nth hash. tests/unit/cli-catalog-hooks.test.ts fails
+// until a changed source gets a new hash, and so a new version.
+export const HOOK_SOURCE_HASHES: Record<string, readonly string[]> = {
+    'dataWarehouse/viewGetHooks': ['6253b448a1b3'],
+    'engineeringAnalytics/redactFailureLogsHooks': ['a8555081ec4e'],
+    'experiments/createExperimentHooks': ['8d6b7735b62e'],
+    'experiments/getExperimentHooks': ['79c8b4a2e561'],
+    'experiments/launchExperimentHooks': ['9d9eb475d9af', '7d03249c12d1'],
+    'experiments/listExperimentsHooks': ['039dcb062b79'],
+    'experiments/updateExperimentHooks': ['dc26f14d64e9'],
+    'featureFlags/conditionIdHooks': ['8715ed7c6985'],
+    'featureFlags/createFeatureFlagHooks': ['d11c8de9d15f'],
+    'featureFlags/updateFeatureFlagHooks': ['f668908fbf86', '95b78e4811e6'],
+    'groups/findGroupHooks': ['73a2295afd75'],
+    'logs/groupByRedactionHooks': ['8758a390e643'],
+    'logs/queryLogsHooks': ['859c79c16211'],
+    'logs/redactCredentialsHooks': ['c9ad8c9e56a8', '95e6513df5ad'],
+    'replay/sessionRecordingGetHooks': ['c6c44d594f83'],
+    'signals/inboxMySettingsHooks': ['3a11ff810aa0'],
+    'workflows/broadcastLinkHooks': ['4ed62789d159'],
+    'workflows/dataSuggestionCreateHooks': ['7f0b14e101aa'],
+    'workflows/testSenderNoteHooks': ['aa18f0720c08'],
+}
+
+export function hookVersion(name: string): number | undefined {
+    return HOOK_SOURCE_HASHES[name]?.length
+}

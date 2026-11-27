@@ -23,11 +23,11 @@ import {
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { toolbarScopedPath } from 'lib/toolbar/toolbarProject'
+import { getToolbarRuntime } from 'lib/toolbar/toolbarRuntime'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
-import { toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { ToolbarRequestError } from '~/toolbar/shared/toolbarRequestError'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/shared/types'
 import { FilterType } from '~/types'
@@ -113,7 +113,8 @@ async function fetchHeatmapData(
     let response: Response
     try {
         response = await (props.context === 'toolbar'
-            ? toolbarFetch(apiURL, 'GET')
+            ? // Imported here so the app never ships the toolbar's request code.
+              import('~/toolbar/shared/toolbarFetch').then(({ toolbarFetch }) => toolbarFetch(apiURL, 'GET'))
             : props.exportToken
               ? fetch(apiURL, { headers: { Authorization: `Bearer ${props.exportToken}` } })
               : fetch(apiURL))
@@ -125,7 +126,7 @@ async function fetchHeatmapData(
     }
 
     if (props.context === 'toolbar' && response.status === 403 && options.authenticateOn403) {
-        toolbarConfigLogic.actions.authenticate()
+        getToolbarRuntime()?.authenticate()
     }
 
     if (response.status !== 200) {
@@ -140,6 +141,12 @@ async function fetchHeatmapData(
 }
 
 export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoint: '' | 'events/'): string {
+    if (context === 'toolbar') {
+        // The toolbar's token is scoped to one team, so pin that team. Without a session there is no team, and
+        // toolbarFetch refuses the request before it is sent.
+        const project = getToolbarRuntime()?.project()
+        return project ? toolbarScopedPath(project, 'team', `heatmaps/${endpoint}`) : `/api/heatmap/${endpoint}`
+    }
     if (context === 'in-app') {
         // The unscoped /api/heatmap/ route resolves the team from the user's *global* current
         // project, which any other tab can change, so pin the team this page was loaded for

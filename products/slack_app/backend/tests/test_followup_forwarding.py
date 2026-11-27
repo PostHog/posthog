@@ -245,11 +245,26 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         bot_id_patcher.start()
         self.addCleanup(bot_id_patcher.stop)
 
+    @parameterized.expand(
+        [
+            ("setting_unavailable", False, None, None),
+            ("never_picked", True, None, True),
+            ("turned_off", True, False, True),
+            ("turned_on", True, True, None),
+        ]
+    )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_a_codex_model_from_the_saved_default_bills_the_mentioners_plan(
-        self, mock_slack_cls, mock_execute_workflow
+        self, _name, setting_flag, apps_enabled, apps_disabled, mock_slack_cls, mock_execute_workflow
     ):
+        UserIntegration.objects.create(
+            user=self.user, kind="slack", integration_id="U_ALICE", config={"slack_team_id": "T_SLACK"}
+        )
+        if apps_enabled is not None:
+            SlackSettings.objects.create(
+                slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", chatgpt_apps_enabled=apps_enabled
+            )
         # Slack leaves the triple empty when a saved default exists, so the runtime is only
         # known once `create_run` applies that default.
         ai_run_defaults.update_user_ai_run_preferences(
@@ -271,6 +286,10 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 ),
             ),
             patch("products.slack_app.backend.feature_flags.is_slack_app_byos_enabled", return_value=True),
+            patch(
+                "products.slack_app.backend.feature_flags.is_slack_app_chatgpt_apps_setting_enabled",
+                return_value=setting_flag,
+            ),
         ):
             create_posthog_code_task_for_repo_activity(
                 inputs,
@@ -289,6 +308,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert state["runtime_adapter"] == "codex"
         assert state["codex_model_access"] == "own-subscription"
         assert state["codex_subscription_user_id"] == self.user.id
+        assert state.get("codex_apps_disabled") is apps_disabled
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -337,16 +357,72 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == task.id
         assert mapping.task_run_id == latest_run.id
 
+    @parameterized.expand([("tagged", False, True), ("untagged_question", True, False)])
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_repo_task_starts_and_warns_when_personal_github_cannot_open_the_repository(
+        self, _name, untagged_question, expect_warning, mock_slack_cls, mock_execute_workflow
+    ):
+        Integration.objects.create(
+            team=self.team, kind="github", integration_id="999", config={"account": {"name": "example"}}
+        )
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={},
+            sensitive_config={"user_access_token": "fake-user-token", "user_refresh_token": "fake-refresh-token"},
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = replace(_make_inputs(self.integration.id, self.user.id), untagged_question=untagged_question)
+        with (
+            patch(
+                "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories", return_value=[]
+            ),
+            patch("posthog.models.user_integration.UserGitHubIntegration.resolve_user_repository", return_value=None),
+        ):
+            created = create_posthog_code_task_for_repo_activity(
+                inputs,
+                "C123",
+                "1234.5678",
+                "U_ALICE",
+                self.user.id,
+                inputs.event,
+                [SlackThreadMessage(user="U_ALICE", text="fix the tests")],
+                "example/project",
+            )
+
+        assert created is True
+        assert self.Task.objects.filter(team=self.team, repository="example/project").exists()
+        mock_execute_workflow.assert_called_once()
+        posted = [c.kwargs.get("text", "") for c in mock_slack_instance.client.chat_postMessage.call_args_list]
+        assert not any("can't access `example/project`" in text for text in posted)
+        warnings = [
+            c.kwargs
+            for c in mock_slack_instance.client.chat_postEphemeral.call_args_list
+            if "can't access `example/project`" in c.kwargs.get("text", "")
+        ]
+        assert bool(warnings) is expect_warning
+        assert all(w["user"] == "U_ALICE" for w in warnings)
+
     @parameterized.expand(
         [
-            ("report_notification_thread", True, False, None, False),
-            ("report_implementation", True, True, None, False),
-            ("implementation_mapping_failure", True, True, "mapping", False),
-            ("implementation_registration_failure", True, True, "registration", False),
-            ("mapping_failure", True, False, "mapping", False),
-            ("association_failure", True, False, "association", False),
-            ("ordinary_thread", False, False, None, False),
-            ("implementation_repository_refresh", True, True, None, True),
+            ("report_notification_thread", True, False, None, False, "channel"),
+            ("report_thread_in_direct_message", True, False, None, False, "im"),
+            ("report_thread_in_private_channel", True, False, None, False, "group"),
+            ("report_implementation", True, True, None, False, "channel"),
+            ("implementation_mapping_failure", True, True, "mapping", False, "channel"),
+            ("implementation_registration_failure", True, True, "registration", False, "channel"),
+            ("mapping_failure", True, False, "mapping", False, "channel"),
+            ("association_failure", True, False, "association", False, "channel"),
+            ("ordinary_thread", False, False, None, False, "channel"),
+            ("implementation_repository_refresh", True, True, None, True, "channel"),
         ]
     )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
@@ -358,6 +434,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         implementation,
         failure_stage,
         refresh_repository,
+        channel_type,
         mock_slack_cls,
         _mock_execute_workflow,
     ):
@@ -390,6 +467,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             )
 
         inputs = _make_inputs(self.integration.id, self.user.id)
+        inputs = replace(inputs, event={**inputs.event, "channel_type": channel_type})
         if implementation:
             inputs = replace(inputs, report_implementation_message_ts="1234.5678")
         if refresh_repository:
@@ -447,10 +525,20 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 admission.assert_not_called()
                 return [{"full_name": "example/project"}]
 
-            with patch(
-                "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories",
-                side_effect=refresh_repositories,
-            ) as refresh:
+            with (
+                patch(
+                    "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories",
+                    side_effect=refresh_repositories,
+                ) as refresh,
+                patch(
+                    "posthog.models.user_integration.UserGitHubIntegration.resolve_user_repository",
+                    return_value="example/project",
+                ),
+                patch(
+                    "posthog.models.github_integration_base.GitHubIntegrationBase.installation_can_access_repository",
+                    return_value=True,
+                ),
+            ):
                 assert create_posthog_code_task_for_repo_activity(*args) is True
             if refresh_repository:
                 refresh.assert_called_once()
@@ -467,6 +555,13 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task.id
         )
         assert work_log.count() == int(from_report_thread)
+        if from_report_thread and not implementation and failure_stage is None:
+            action = SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id)
+            if channel_type != "channel":
+                assert action.metadata == {}
+            else:
+                assert action.metadata["task_id"] == str(task.id)
+                assert "do something" in action.metadata["question"]
         from products.signals.backend.scout_harness.inactivity import _engaged_report_ids
 
         assert (
@@ -520,7 +615,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 assert run is not None
                 run.state.pop("billing_product", None)
                 run.output = {"pr_url": "https://github.com/example/project/pull/2"}
-                run.save(update_fields=["state", "output"])
+                run.status = run.Status.COMPLETED
+                run.save(update_fields=["state", "output", "status"])
                 restarted_run = task.create_run()
                 assert restarted_run.state["billing_product"] == "posthog_ai"
                 OrganizationMembership.objects.create(organization=self.org, user=self.user)
@@ -1080,6 +1176,24 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
 
+    @patch(
+        "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload",
+        return_value={"slack": "enforce"},
+    )
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_followup_to_a_done_task_is_refused_before_delivery(self, mock_slack_cls, mock_signal, _mock_payload):
+        self._create_mapping()
+        self.Task.objects.filter(pk=self.task.pk).update(profile="slack", status="done", status_reason="closed")
+        mock_slack_cls.return_value = MagicMock()
+
+        result = forward_posthog_code_followup_activity(
+            _make_inputs(self.integration.id, self.user.id), "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
+        )
+
+        assert result is True
+        mock_signal.assert_not_called()
+
     @parameterized.expand(
         [
             ("ordinary", None, False),
@@ -1203,6 +1317,61 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert SignalReportTask.objects.filter(report=report, task=self.task).exists() is allowed
         assert mock_prompt.called is prompted
 
+    @parameterized.expand(
+        [
+            ("reply_in_converted_channel", "public_channel", {"channel_type": "group"}, None, "private_channel"),
+            (
+                "mention_in_converted_channel",
+                "public_channel",
+                {},
+                {"channel": {"is_private": True}},
+                "private_channel",
+            ),
+            (
+                "mention_with_failed_lookup",
+                "public_channel",
+                {},
+                SlackApiError("ratelimited", {"error": "ratelimited"}),
+                "unknown",
+            ),
+            ("mention_in_public_channel", "public_channel", {}, {"channel": {"is_private": False}}, "public_channel"),
+            ("channel_made_public", "private_channel", {}, {"channel": {"is_private": False}}, "public_channel"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_resumed_run_refreshes_the_conversation_type(
+        self,
+        _name,
+        stored_type,
+        event_fields,
+        conversations_info,
+        expected_type,
+        mock_slack_cls,
+        _mock_execute_workflow,
+    ):
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        mapping = self._create_mapping()
+        mapping.conversation_type = stored_type
+        mapping.save()
+        mock_slack_instance = MagicMock()
+        if isinstance(conversations_info, Exception):
+            mock_slack_instance.client.conversations_info.side_effect = conversations_info
+        else:
+            mock_slack_instance.client.conversations_info.return_value = conversations_info
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        inputs = replace(inputs, event={**inputs.event, **event_fields})
+        assert forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
+        )
+
+        mapping.refresh_from_db()
+        assert mapping.conversation_type == expected_type
+        assert self.TaskRun.objects.filter(task=self.task).count() == 2
+
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_resumes_with_slack_attachment(self, mock_slack_cls, mock_execute_workflow) -> None:
@@ -1290,6 +1459,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         # flag (the "PR opened" card is deduped on the Task).
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("pending_user_message", "")
+        assert "Except for a security fix" in new_run.state.get("initial_prompt_override", "")
         assert "slack_pr_opened_notified" not in new_run.state
         assert "slack_notified_pr_url" not in new_run.state
 
@@ -1532,6 +1702,13 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self.task_run.save()
         self._create_mapping(mentioning_user="U_ALICE")
         bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        # The plan owner's linked Slack user decides. The joiner and the thread's original mentioner, who
+        # differ from the owner after a handoff, both allowed apps, and neither may turn on the owner's.
+        UserIntegration.objects.create(
+            user=self.user, kind="slack", integration_id="U_OWNER", config={"slack_team_id": "T_SLACK"}
+        )
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", chatgpt_apps_enabled=True)
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_BOB", chatgpt_apps_enabled=True)
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
         preference_patch: AbstractContextManager[object]
@@ -1557,6 +1734,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
                 ),
             ),
             patch("products.slack_app.backend.feature_flags.is_slack_app_byos_enabled", return_value=True),
+            patch(
+                "products.slack_app.backend.feature_flags.is_slack_app_chatgpt_apps_setting_enabled", return_value=True
+            ),
         ):
             forward_posthog_code_followup_activity(
                 inputs=_make_inputs(self.integration.id, self.user.id),
@@ -1572,6 +1752,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state["codex_model_access"] == "own-subscription"
         assert new_run.state["codex_subscription_user_id"] == self.user.id
         assert new_run.state["slack_actor_user_id"] == bob.id
+        assert new_run.state["codex_apps_disabled"] is True
 
     @parameterized.expand(
         [

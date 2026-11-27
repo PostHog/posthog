@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import {
     Button,
@@ -18,6 +18,8 @@ import {
 const SCROLL_END_THRESHOLD_PX = 64
 
 type TagsComboboxProps = {
+    /** Id of the text input, so a field label can point at it. */
+    id?: string
     value: string[]
     onChange: (next: string[]) => void
     onOpen?: () => void
@@ -33,10 +35,14 @@ type TagsComboboxProps = {
     placeholder?: string
     autoFocus?: boolean
     disabled?: boolean
+    /** Disables the input and says why in a tooltip. */
+    disabledReason?: React.ReactNode
     /** When true (default), typing a value not in options surfaces a "Create X" entry. */
     allowCustomValues?: boolean
     /** Label used in the "Create X" placeholder, e.g. "tag" → "Create new tag "foo"". */
     customValueNoun?: string
+    /** When true, leaving the input adds the typed custom value, like `LemonInputSelect` does. */
+    commitOnBlur?: boolean
     /** data-attr applied to the input */
     dataAttr?: string
     className?: string
@@ -52,6 +58,7 @@ export function TagsCombobox(props: TagsComboboxProps): JSX.Element {
 }
 
 function TagsComboboxInner({
+    id,
     value,
     onChange,
     onOpen,
@@ -66,12 +73,15 @@ function TagsComboboxInner({
     placeholder,
     autoFocus,
     disabled,
+    disabledReason,
     allowCustomValues = true,
     customValueNoun = 'tag',
+    commitOnBlur = false,
     dataAttr,
     className,
 }: TagsComboboxProps): JSX.Element {
     const [inputValue, setInputValue] = useState('')
+    const createPrefix = `__create__${useId()}:`
     const trimmed = inputValue.trim()
     // While matches load, Enter would pick "Create" over an existing tag that hasn't arrived yet.
     // After a failed search, the Create row would hide the error and its retry.
@@ -85,9 +95,16 @@ function TagsComboboxInner({
 
     // Synthetic items list: existing options + (optionally) the "Create X" sentinel at the bottom.
     const items: string[] = [...options]
-    const createSentinel = `__create__:${trimmed}`
+    const createSentinel = `${createPrefix}${trimmed}`
     if (showCreateItem) {
         items.push(createSentinel)
+    }
+
+    const commitTypedValue = (): void => {
+        if (commitOnBlur && showCreateItem) {
+            onChange([...value, trimmed])
+            setInputValue('')
+        }
     }
 
     return (
@@ -102,9 +119,7 @@ function TagsComboboxInner({
                     return
                 }
                 // Convert any sentinel selection into the real typed value, dedupe.
-                const cleaned = (next ?? []).map((v) =>
-                    v.startsWith('__create__:') ? v.slice('__create__:'.length) : v
-                )
+                const cleaned = (next ?? []).map((v) => (v === createSentinel ? trimmed : v))
                 onChange(Array.from(new Set(cleaned)))
                 setInputValue('')
             }}
@@ -113,21 +128,28 @@ function TagsComboboxInner({
                 setInputValue(v)
                 onInputChange?.(v)
             }}
-            onOpenChange={(open) => {
+            onOpenChange={(open, eventDetails) => {
                 if (open) {
                     onOpen?.()
                 } else {
+                    // A click outside clears the typed text before the input blurs, so commit it while closing.
+                    if (eventDetails.reason === 'outside-press') {
+                        commitTypedValue()
+                    }
                     onClose?.()
                 }
             }}
         >
             <TagsComboboxBody
+                id={id}
                 placeholder={placeholder}
                 autoFocus={autoFocus}
                 disabled={disabled}
+                disabledReason={disabledReason}
                 dataAttr={dataAttr}
                 className={className}
                 createSentinel={showCreateItem ? createSentinel : null}
+                onInputBlur={commitTypedValue}
                 customValueNoun={customValueNoun}
                 trimmed={trimmed}
                 loading={loading}
@@ -141,12 +163,15 @@ function TagsComboboxInner({
 }
 
 function TagsComboboxBody({
+    id,
     placeholder,
     autoFocus,
     disabled,
+    disabledReason,
     dataAttr,
     className,
     createSentinel,
+    onInputBlur,
     customValueNoun,
     trimmed,
     loading,
@@ -155,12 +180,15 @@ function TagsComboboxBody({
     onScrollEnd,
     loadingMore,
 }: {
+    id?: string
     placeholder?: string
     autoFocus?: boolean
     disabled?: boolean
+    disabledReason?: React.ReactNode
     dataAttr?: string
     className?: string
     createSentinel: string | null
+    onInputBlur?: () => void
     customValueNoun: string
     trimmed: string
     loading?: boolean
@@ -172,22 +200,24 @@ function TagsComboboxBody({
     const anchor = useComboboxAnchor()
     return (
         <>
-            <ComboboxChips ref={anchor} className={className}>
+            <ComboboxChips ref={anchor} className={className} disabledReason={disabledReason}>
                 <ComboboxValue>
                     {(values) => (
                         <>
                             {(values as string[])
-                                .filter((v) => !v.startsWith('__create__:'))
+                                .filter((v) => v !== createSentinel)
                                 .map((v) => (
                                     <ComboboxChip key={v} title={v}>
                                         {v}
                                     </ComboboxChip>
                                 ))}
                             <ComboboxChipsInput
+                                id={id}
                                 placeholder={placeholder}
                                 autoFocus={autoFocus}
                                 disabled={disabled}
                                 data-attr={dataAttr}
+                                onBlur={onInputBlur}
                             />
                         </>
                     )}

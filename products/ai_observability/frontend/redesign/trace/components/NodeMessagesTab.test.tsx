@@ -2,16 +2,16 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, render, within } from '@testing-library/react'
 
-import { makeMessage } from '../adapter/testFixtures'
-import { MessageRole, MessagesOpening, NodeContent, ThreadMessage } from '../types'
+import type { TraceNodeContentApi } from '../../../generated/api.schemas'
+import { makeMessage, makeNodeDetail } from '../testFixtures'
+import { MessageRole, MessagesOpening, ThreadMessage } from '../types'
 import { NodeMessagesTab } from './NodeMessagesTab'
 
 function message(id: string, role: MessageRole): ThreadMessage {
     return makeMessage({ id, role })
 }
 
-const content: NodeContent = {
-    kind: 'loaded',
+const content: TraceNodeContentApi = {
     input: {
         kind: 'messages',
         messages: [message('ask-1', 'user'), message('answer-1', 'assistant'), message('ask-2', 'user')],
@@ -28,13 +28,12 @@ function openStates(container: HTMLElement): string {
 function renderTab(
     opening: MessagesOpening,
     onOpeningChange: jest.Mock,
-    shown: NodeContent = content
+    shown: TraceNodeContentApi = content
 ): ReturnType<typeof render> {
     return render(
         <NodeMessagesTab
             stepId="gen-1"
-            content={shown}
-            error={null}
+            load={{ status: 'ready', node: makeNodeDetail({ id: 'gen-1', content: shown }) }}
             onViewInThread={null}
             opening={opening}
             onOpeningChange={onOpeningChange}
@@ -60,7 +59,6 @@ describe('NodeMessagesTab', () => {
 
     it('renders a conversation beside JSON input without the opening switch, which only moves the input', () => {
         const { container } = renderTab('everything', jest.fn(), {
-            kind: 'loaded',
             input: { kind: 'json', value: { question: 'Why did my invoice go up?' } },
             output: { kind: 'messages', messages: [message('answer-2', 'assistant')] },
         })
@@ -73,8 +71,7 @@ describe('NodeMessagesTab', () => {
     })
 
     it('keeps a JSON side as it was when the opening changes', () => {
-        const mixed: NodeContent = {
-            kind: 'loaded',
+        const mixed: TraceNodeContentApi = {
             input: content.input,
             output: { kind: 'json', value: { question: 'Why did my invoice go up?' } },
         }
@@ -91,7 +88,6 @@ describe('NodeMessagesTab', () => {
 
     it('hides the opening switch when neither side is messages', () => {
         const { container } = renderTab('lastTurn', jest.fn(), {
-            kind: 'loaded',
             input: { kind: 'json', value: { question: 'Why did my invoice go up?' } },
             output: { kind: 'json', value: { hits: 3 } },
         })

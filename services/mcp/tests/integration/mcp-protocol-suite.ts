@@ -1378,10 +1378,10 @@ export function defineCatalogFilterTests(
             const { tools } = await listToolsWithQuery(harness, '?features=this-feature-does-not-exist')
             expect(Array.isArray(tools)).toBe(true)
             // `always_available` utility tools (e.g. agent-feedback, gated by its
-            // own feature flag) bypass feature filtering by design, so an unknown
-            // feature yields only those — assert no feature-gated tool leaked,
-            // rather than a hard-empty list.
-            const featureGated = tools.filter((t) => t.name !== 'agent-feedback')
+            // own feature flag) and the tools-mode `learn` tool bypass feature
+            // filtering by design, so an unknown feature yields only those — assert
+            // no feature-gated tool leaked, rather than a hard-empty list.
+            const featureGated = tools.filter((t) => !['agent-feedback', 'learn'].includes(t.name))
             expect(featureGated).toHaveLength(0)
         })
 
@@ -1541,6 +1541,33 @@ export function defineResourceCatalogTests(
             expect(malformed).toEqual([])
         })
 
+        it.each([
+            ['?resources=none', {}, []],
+            ['', { 'x-posthog-mcp-resources': 'docs' }, []],
+            ['?resources=apps', {}, ['ui://']],
+        ])(
+            'lists resources for %s with headers %j by URI scheme %j and still reads apps',
+            async (search, headers, schemes) => {
+                const url = new URL('/mcp', harness.baseUrl)
+                url.search = search
+                const transport = new StreamableHTTPClientTransport(url, {
+                    fetch: harness.fetch,
+                    requestInit: { headers: { Authorization: `Bearer ${harness.token}`, ...headers } },
+                })
+                const filtered = new Client({ name: 'resource-filter-test', version: '0.0.0' }, { capabilities: {} })
+                try {
+                    await filtered.connect(transport as ConnectableTransport)
+                    const { resources } = await filtered.listResources()
+                    const read = await filtered.readResource({ uri: 'ui://posthog/debug.html' })
+
+                    expect([...new Set(resources.map((r) => r.uri.split('//')[0] + '//'))]).toEqual(schemes)
+                    expect(read.contents[0]?.uri).toBe('ui://posthog/debug.html')
+                } finally {
+                    await safeClose(filtered)
+                }
+            }
+        )
+
         // Reading two different resources in sequence — catches a regression
         // where one read mutates shared catalog state and corrupts the next
         // lookup.
@@ -1555,6 +1582,55 @@ export function defineResourceCatalogTests(
             const cmRead = await client.readResource({ uri: cm.uri })
             expect(uiRead.contents[0]?.uri).toBe(ui.uri)
             expect(cmRead.contents[0]?.uri).toBe(cm.uri)
+        })
+
+        const emailImageSources = [
+            'https://us-media.posthog.com/uploaded_media/',
+            'https://eu-media.posthog.com/uploaded_media/',
+            'https://us.posthog.com/uploaded_media/',
+            'https://eu.posthog.com/uploaded_media/',
+            'https://assets.unlayer.com/projects/275430/',
+            'https://cdn.tools.unlayer.com/social/icons/',
+        ]
+
+        const resourceSources = (meta: unknown): { ui: string[]; openai: string[] } => {
+            const csp = meta as {
+                ui: { csp: { resourceDomains: string[] } }
+                'openai/widgetCSP': { resource_domains: string[] }
+            }
+            return { ui: csp.ui.csp.resourceDomains, openai: csp['openai/widgetCSP'].resource_domains }
+        }
+
+        it.each(['ui://posthog/email-template.html', 'ui://posthog/render-ui.html'])(
+            'lets %s load every image the email editor stores',
+            async (uri) => {
+                const { resources } = await client.listResources()
+                const read = await client.readResource({ uri })
+
+                for (const meta of [resources.find((r) => r.uri === uri)?._meta, read.contents[0]?._meta]) {
+                    const { ui, openai } = resourceSources(meta)
+                    expect(ui).toEqual(expect.arrayContaining(emailImageSources))
+                    expect(openai).toEqual(expect.arrayContaining(emailImageSources))
+                }
+            }
+        )
+
+        it('adds only the email image sources to render-ui', async () => {
+            const renderUi = await client.readResource({ uri: 'ui://posthog/render-ui.html' })
+            const debug = await client.readResource({ uri: 'ui://posthog/debug.html' })
+            const appSources = new Set(resourceSources(debug.contents[0]?._meta).ui)
+
+            const added = resourceSources(renderUi.contents[0]?._meta).ui.filter((source) => !appSources.has(source))
+
+            expect([...added].sort()).toEqual([...emailImageSources].sort())
+        })
+
+        it('keeps the email image sources out of apps that do not render emails', async () => {
+            const debug = await client.readResource({ uri: 'ui://posthog/debug.html' })
+
+            const { ui } = resourceSources(debug.contents[0]?._meta)
+
+            expect(ui.filter((source) => emailImageSources.includes(source))).toEqual([])
         })
 
         // The prompts list may be empty on some manifest revisions (the

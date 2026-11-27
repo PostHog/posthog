@@ -20,6 +20,7 @@ import * as React from 'react'
 
 import {
     Button,
+    Checkbox,
     cn,
     Empty,
     EmptyHeader,
@@ -59,6 +60,7 @@ declare module '@tanstack/react-table' {
     interface ColumnMeta<TData extends RowData, TValue> {
         align?: 'left' | 'center' | 'right'
         expand?: boolean
+        sticky?: 'left' | 'right'
         /** `data-attr` for the column's sort button. */
         sortDataAttr?: string
     }
@@ -157,13 +159,31 @@ export interface DataTableProps<TData, TValue> {
      */
     empty?: React.ReactNode
     /**
-     * Enables client-side pagination at this page size and renders a pager below
-     * the table. Omit for a single, un-paginated list.
+     * Adds a leading checkbox column so the user can select rows. Shift-click a checkbox to set every row between it
+     * and the last one clicked. The header checkbox selects or clears every selectable row on the page.
+     */
+    selectable?: boolean
+    /** Controls the selection, as `true` by row id. Pass `getRowId` so that a selection survives a change of `data`. */
+    rowSelection?: RowSelectionState
+    onRowSelectionChange?: (rowSelection: RowSelectionState) => void
+    /** The id of a row, for `rowSelection`. Defaults to the row's index in `data`. */
+    getRowId?: (row: TData, index: number) => string
+    /** The accessible name of a row's checkbox. Defaults to "Select row". */
+    rowSelectionLabel?: (row: TData) => string
+    /**
+     * Why a row can't be selected. A reason disables the row's checkbox and shows in its tooltip, and `null` lets the
+     * user select the row. A shift-click range skips the disabled rows.
+     */
+    rowSelectionDisabledReason?: (row: TData) => string | null
+    /**
+     * Enables client-side pagination at this page size. The pager below the table shows only when the rows need more
+     * than one page, so pass the same size for any number of rows. Omit for a single, un-paginated list.
      */
     pageSize?: number
     /**
      * Page-size choices shown in a selector beside the pager. Only rendered when
      * `pageSize` is set; omit to hide the selector and keep a fixed page size.
+     * The pager stays while the rows need more than one page at the smallest choice.
      */
     pageSizeOptions?: number[]
 }
@@ -301,7 +321,7 @@ function DataTableHead<TData>({
 }): React.ReactElement {
     const { column, isPlaceholder } = header
     const sorted = column.getIsSorted()
-    const { align, expand, sortDataAttr } = column.columnDef.meta ?? {}
+    const { align, expand, sticky, sortDataAttr } = column.columnDef.meta ?? {}
     const label = isPlaceholder ? null : flexRender(column.columnDef.header, header.getContext())
     const title = column.columnDef.header
     return (
@@ -309,6 +329,7 @@ function DataTableHead<TData>({
             colSpan={header.colSpan}
             align={align}
             expand={expand}
+            sticky={sticky}
             aria-sort={sorted ? ARIA_SORT[sorted] : undefined}
             // While the columns fit their content, this is what holds an expand column at its minimum.
             style={expand && resizable ? { minWidth: column.columnDef.minSize } : undefined}
@@ -355,8 +376,8 @@ function DataTableHead<TData>({
 
 // Memoized so that a resize, which ends by setting a width on the table, does not render every row again. For the same
 // reason, a caller with its own state should keep `columns`, `onRowClick`, `rowClassName` and `empty` stable between renders.
-// TanStack keeps `rows` the same array when only the selection changes, so `rowSelection` is a prop that the body never
-// reads: it is there to make the memo render the rows again.
+// TanStack keeps `rows` the same array when only the selection changes, so `rowSelection` and `rowSelectionDisabledReason`
+// are props that the body never reads: they are there to make the memo render the rows again.
 function DataTableBodyInner<TData, TValue>({
     rows,
     columns,
@@ -367,6 +388,7 @@ function DataTableBodyInner<TData, TValue>({
 }: {
     rows: Row<TData>[]
     rowSelection: RowSelectionState
+    rowSelectionDisabledReason: DataTableProps<TData, TValue>['rowSelectionDisabledReason']
     columns: ColumnDef<TData, TValue>[]
     filler: boolean
     onRowClick?: (row: TData) => void
@@ -414,6 +436,7 @@ function DataTableBodyInner<TData, TValue>({
                                 key={cell.id}
                                 align={cell.column.columnDef.meta?.align}
                                 expand={cell.column.columnDef.meta?.expand}
+                                sticky={cell.column.columnDef.meta?.sticky}
                             >
                                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableCell>
@@ -434,6 +457,100 @@ function DataTableBodyInner<TData, TValue>({
 
 const DataTableBody = React.memo(DataTableBodyInner) as typeof DataTableBodyInner
 
+const SELECTION_COLUMN_ID = '__select'
+
+function isShiftClick(event: Event | undefined): boolean {
+    return (event instanceof MouseEvent || event instanceof KeyboardEvent) && event.shiftKey
+}
+
+// Shift-click would otherwise select the page's text between the two checkboxes.
+function preventShiftTextSelection(event: React.MouseEvent): void {
+    if (event.shiftKey) {
+        event.preventDefault()
+    }
+}
+
+function selectRange<TData>(
+    current: RowSelectionState,
+    rows: Row<TData>[],
+    fromId: string,
+    toId: string,
+    checked: boolean
+): RowSelectionState {
+    const from = rows.findIndex((row) => row.id === fromId)
+    const to = rows.findIndex((row) => row.id === toId)
+    const next = { ...current }
+    for (const row of rows.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+        if (!row.getCanSelect()) {
+            continue
+        }
+        if (checked) {
+            next[row.id] = true
+        } else {
+            delete next[row.id]
+        }
+    }
+    return next
+}
+
+function useSelectionColumn<TData>(
+    selectable: boolean,
+    rowSelectionLabel: ((row: TData) => string) | undefined,
+    rowSelectionDisabledReason: ((row: TData) => string | null) | undefined
+): ColumnDef<TData, unknown> | null {
+    const anchorRowId = React.useRef<string | null>(null)
+    // Read through refs so that inline callbacks keep the column, and with it the memoized body, the same between renders.
+    const labelRef = React.useRef(rowSelectionLabel)
+    labelRef.current = rowSelectionLabel
+    const disabledReasonRef = React.useRef(rowSelectionDisabledReason)
+    disabledReasonRef.current = rowSelectionDisabledReason
+    return React.useMemo(() => {
+        if (!selectable) {
+            return null
+        }
+        return {
+            id: SELECTION_COLUMN_ID,
+            enableSorting: false,
+            enableResizing: false,
+            header: ({ table }) => (
+                <Checkbox
+                    aria-label="Select all rows"
+                    checked={table.getIsAllPageRowsSelected()}
+                    indeterminate={table.getIsSomePageRowsSelected()}
+                    disabled={!table.getRowModel().rows.some((row) => row.getCanSelect())}
+                    onCheckedChange={(checked) => {
+                        anchorRowId.current = null
+                        table.toggleAllPageRowsSelected(checked)
+                    }}
+                />
+            ),
+            cell: ({ row, table }) => (
+                <Checkbox
+                    aria-label={labelRef.current?.(row.original) ?? 'Select row'}
+                    checked={row.getIsSelected()}
+                    disabled={!row.getCanSelect()}
+                    disabledReason={disabledReasonRef.current?.(row.original)}
+                    onMouseDown={preventShiftTextSelection}
+                    onCheckedChange={(checked, details) => {
+                        const anchorId = anchorRowId.current
+                        anchorRowId.current = row.id
+                        const rows = table.getRowModel().rows
+                        if (
+                            anchorId !== null &&
+                            isShiftClick(details.event) &&
+                            rows.some((candidate) => candidate.id === anchorId)
+                        ) {
+                            table.setRowSelection((current) => selectRange(current, rows, anchorId, row.id, checked))
+                        } else {
+                            row.toggleSelected(checked)
+                        }
+                    }}
+                />
+            ),
+        }
+    }, [selectable])
+}
+
 /**
  * Headless TanStack Table wired onto the quill Table primitive — client-side
  * sorting out of the box (sortable columns render a sort button + indicator and
@@ -441,7 +558,7 @@ const DataTableBody = React.memo(DataTableBodyInner) as typeof DataTableBodyInne
  * pagination, and an empty state. Pass `enableSorting: false` on a column to opt
  * it out, `meta: { align }` to align a column's header and cells,
  * `fullWidth` + `meta: { expand: true }` to stretch one column to fill, or
- * `resizableColumns` to let the user drag a column's edge.
+ * `resizableColumns` to let the user drag a column's edge, or `selectable` to add a checkbox column for selecting rows.
  */
 function DataTable<TData, TValue>({
     columns,
@@ -463,8 +580,24 @@ function DataTable<TData, TValue>({
     pageSize,
     pageSizeOptions,
     onPageChange,
+    selectable = false,
+    rowSelection: controlledRowSelection,
+    onRowSelectionChange,
+    getRowId,
+    rowSelectionLabel,
+    rowSelectionDisabledReason,
 }: DataTableProps<TData, TValue>): React.ReactElement {
     const paginated = pageSize != null
+    const [rowSelection, setRowSelection] = useControllable<RowSelectionState>(
+        controlledRowSelection,
+        onRowSelectionChange,
+        {}
+    )
+    const selectionColumn = useSelectionColumn<TData>(selectable, rowSelectionLabel, rowSelectionDisabledReason)
+    const tableColumns = React.useMemo(
+        () => (selectionColumn ? [selectionColumn as ColumnDef<TData, TValue>, ...columns] : columns),
+        [selectionColumn, columns]
+    )
     const [sorting, setSorting] = useControllable<SortingState>(controlledSorting, onSortingChange, [])
     const [columnSizing, setColumnSizing] = useControllable<ColumnSizingState>(
         controlledColumnSizing,
@@ -472,28 +605,40 @@ function DataTable<TData, TValue>({
         {}
     )
     const [pagination, setPagination] = React.useState<PaginationState>({ pageIndex: 0, pageSize: pageSize ?? 10 })
-    // Keep the page size in sync when the prop changes at runtime — reset to the
-    // first page so the new size applies from a consistent offset.
-    React.useEffect(() => {
+    // A new page size starts again from the first page. The state changes during render, so that no render pages the
+    // rows at the old size.
+    const [syncedPageSize, setSyncedPageSize] = React.useState(pageSize)
+    if (pageSize !== syncedPageSize) {
+        setSyncedPageSize(pageSize)
         if (pageSize != null) {
-            setPagination((prev) => ({ ...prev, pageIndex: 0, pageSize }))
+            setPagination({ pageIndex: 0, pageSize })
         }
-    }, [pageSize])
+    }
     const table = useReactTable({
         data,
-        columns,
+        columns: tableColumns,
+        getRowId,
+        // TanStack merges each render's options into the last ones, so a removed callback must reset to its default.
+        enableRowSelection: rowSelectionDisabledReason
+            ? (row: Row<TData>) => rowSelectionDisabledReason(row.original) === null
+            : true,
+        onRowSelectionChange: setRowSelection,
         enableColumnResizing: resizableColumns,
         defaultColumn: { minSize: MIN_TABLE_COLUMN_WIDTH, maxSize: Infinity },
-        state: { sorting, columnSizing, ...(paginated ? { pagination } : {}) },
+        state: { sorting, columnSizing, rowSelection, pagination },
         onColumnSizingChange: setColumnSizing,
         manualSorting: controlledSorting !== undefined,
         // A list sorted on the server always has an order, so its headers have no "off" state.
         enableSortingRemoval: controlledSorting === undefined,
         onSortingChange: setSorting,
-        ...(paginated ? { onPaginationChange: setPagination } : {}),
+        onPaginationChange: setPagination,
+        // The pagination options stay set without a page size, because TanStack keeps an option that a later render
+        // leaves out, and caches the pagination row model after its first use. Manual pagination is what turns paging
+        // off: TanStack then returns every row.
+        manualPagination: !paginated,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
-        ...(paginated ? { getPaginationRowModel: getPaginationRowModel() } : {}),
+        getPaginationRowModel: getPaginationRowModel(),
     })
     const tableRef = React.useRef<HTMLTableElement>(null)
     const { columnWidths, columnWidth, fixColumnWidths } = useColumnWidths(table, tableRef, resizableColumns)
@@ -533,7 +678,8 @@ function DataTable<TData, TValue>({
             <DataTableBody
                 rows={table.getRowModel().rows}
                 rowSelection={table.getState().rowSelection}
-                columns={columns}
+                rowSelectionDisabledReason={rowSelectionDisabledReason}
+                columns={tableColumns}
                 filler={hasFiller}
                 onRowClick={onRowClick}
                 rowClassName={rowClassName}
@@ -542,9 +688,11 @@ function DataTable<TData, TValue>({
         </Table>
     )
 
-    // Nothing to paginate when the table is empty — the empty state already
-    // signals the absence of data, so a "0–0 of 0" pager is just noise.
-    if (!paginated || table.getFilteredRowModel().rows.length === 0) {
+    // The pager shows only when the rows need more than one page at the smallest page size on offer. An empty table
+    // shows only its empty state. A user who picks a larger size from the selector keeps the selector, to pick a smaller
+    // one again.
+    const smallestPageSize = Math.min(pagination.pageSize, ...(pageSizeOptions ?? []))
+    if (!paginated || table.getFilteredRowModel().rows.length <= smallestPageSize) {
         return tableElement
     }
 

@@ -7,6 +7,7 @@ account-path ``sourceSyncStatus`` UI helper works for person sources too.
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import F
@@ -44,7 +45,7 @@ _SYNC_TRIGGERS = frozenset({SyncTrigger.SCHEDULED.value, SyncTrigger.SYNC.value}
 # row created by "Sync now" keeps its own trigger when the terminal record lands on it.
 _USER_TRIGGERS = frozenset({SyncTrigger.SYNC.value, SyncTrigger.MANUAL.value})
 
-_PROGRESS_COUNTS = ("existing", "produced")
+_PROGRESS_COUNTS = ("existing", "produced", "removed")
 # A retry diffs again everything not yet delivered, so the first attempt's totals are the run's totals.
 # Missing persons are never delivered, so each attempt skips them again.
 _ATTEMPT_TOTALS = ("rows_read", "changed", "skipped_missing_person")
@@ -63,6 +64,15 @@ def _parse_iso(value: str | None) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _parse_uuid(value: str | None) -> UUID | None:
+    if not value:
+        return None
+    try:
+        return UUID(value)
     except ValueError:
         return None
 
@@ -127,9 +137,15 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
                 "changed": record.changed,
                 "existing": record.existing,
                 "produced": record.produced,
+                "removed": record.removed,
                 "skipped_missing_person": record.skipped_missing_person,
                 "error": record.error,
             }
+            # Every attempt of a run shares its workflow, and a record without ids must not clear them.
+            if record.workflow_id:
+                fields["workflow_id"] = record.workflow_id
+            if workflow_run_id := _parse_uuid(record.workflow_run_id):
+                fields["workflow_run_id"] = workflow_run_id
             if run is not None:
                 if run.trigger in _USER_TRIGGERS:
                     fields.pop("trigger")
@@ -214,6 +230,7 @@ def record_sync_progress(progress: PersonPropertySyncProgress) -> None:
                     changed=progress.changed,
                     existing=progress.existing,
                     produced=progress.produced,
+                    removed=progress.removed,
                     skipped_missing_person=progress.skipped_missing_person,
                 )
                 return
@@ -222,6 +239,7 @@ def record_sync_progress(progress: PersonPropertySyncProgress) -> None:
                 changed=Greatest(F("changed"), progress.changed, F("existing") + progress.existing),
                 existing=F("existing") + progress.existing,
                 produced=F("produced") + progress.produced,
+                removed=F("removed") + progress.removed,
                 skipped_missing_person=Greatest(F("skipped_missing_person"), progress.skipped_missing_person),
             )
     except Exception as error:

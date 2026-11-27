@@ -8,7 +8,7 @@ from django.db import transaction
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -34,8 +34,8 @@ from products.data_warehouse.backend.facade.api import (
     get_direct_query_engine,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
+    get_webhook_url,
     is_any_external_data_schema_paused,
-    is_cdc_enabled_for_team,
     pause_external_data_schedule,
     reconcile_webhook_events,
     sync_cdc_extraction_schedule,
@@ -44,7 +44,7 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
-from products.warehouse_sources.backend.facade.api import schema_needs_webhook, sources_missing_webhook
+from products.warehouse_sources.backend.facade.api import route_table_on_enabled_webhook, webhook_issues
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.contracts import (
     HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE,
@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     LegacyHistoryTableError,
     UndecryptedConfigError,
 )
+from products.warehouse_sources.backend.facade.incremental_field_model import apply_stored_suggestion
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     INCREMENTAL_HISTORY_KEY,
@@ -70,6 +71,7 @@ from products.warehouse_sources.backend.facade.models import (
     discovered_schema_finder,
     is_pinned_schema,
     mark_schema_running_unless_halted,
+    request_manual_runs,
     resolve_destinations,
     resolve_sync_type,
     self_managed_table_ref,
@@ -133,13 +135,14 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
-    SettableSyncFrequency,
     WarehouseColumnSensitivity,
+    WebhookIssue,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import (
     report_history_change,
     report_history_table_deleted,
 )
+from products.warehouse_sources.backend.presentation.sync_frequency_field import SyncFrequencyField
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -192,7 +195,8 @@ def source_syncs_on_demand(source_type: str) -> bool:
 
 
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
-WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY = "webhook_missing_by_source"
+WEBHOOK_ISSUES_CONTEXT_KEY = "webhook_issues"
+WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY = "webhook_event_reconciles"
 
 
 def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
@@ -219,18 +223,36 @@ def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dic
     return {schema_id: table_id for schema_id, table_id in pins.items() if table_id in live}
 
 
-def webhook_not_registered(schema: ExternalDataSchema, context: dict[str, Any]) -> bool:
-    """Whether the schema syncs by webhook but its source has no enabled webhook.
+def _enabled_webhook_table_names(schema: ExternalDataSchema) -> list[str]:
+    """Every enabled webhook-sync table of the schema's source.
 
-    A list fills `WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY` up front with `sources_missing_webhook`. Without it,
-    the first schema of each source looks the source up and keeps the answer for the rest.
+    A provider's event sync takes the full set it should subscribe to; some replace the subscription
+    with it, so passing only the table just enabled would drop the events of the others.
     """
-    if not schema_needs_webhook(schema):
-        return False
-    missing_by_source: dict[uuid.UUID, bool] = context.setdefault(WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY, {})
-    if schema.source_id not in missing_by_source:
-        missing_by_source.update(sources_missing_webhook(schema.team_id, [schema]))
-    return missing_by_source[schema.source_id]
+    return list(
+        ExternalDataSchema.objects.filter(
+            team_id=schema.team_id,
+            source_id=schema.source_id,
+            deleted=False,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+        .order_by("name")
+        .values_list("name", flat=True)
+    )
+
+
+def webhook_not_registered(schema: ExternalDataSchema, context: dict[str, Any]) -> bool:
+    """Whether the schema syncs by webhook but its source has no enabled webhook. Kept for API compatibility."""
+    return webhook_issue(schema, context) == WebhookIssue.NOT_REGISTERED
+
+
+def webhook_issue(schema: ExternalDataSchema, context: dict[str, Any]) -> WebhookIssue | None:
+    """A list fills `WEBHOOK_ISSUES_CONTEXT_KEY` up front with `webhook_issues`; otherwise each schema looks itself up."""
+    issues: dict[uuid.UUID, WebhookIssue | None] = context.setdefault(WEBHOOK_ISSUES_CONTEXT_KEY, {})
+    if schema.id not in issues:
+        issues.update(webhook_issues(schema.team_id, [schema]))
+    return issues[schema.id]
 
 
 def linked_table_id(schema: ExternalDataSchema, context: dict[str, Any]) -> uuid.UUID | None:
@@ -497,6 +519,27 @@ def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
         sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
 
 
+def _sync_now_for_shorter_cadence(instance: ExternalDataSchema) -> None:
+    """Start a sync after the user shortened the cadence, with the same guards as a manual sync.
+
+    The new cadence is already saved and scheduled, so a failed start, including a failed Temporal
+    connection, is logged and does not fail the request. The next scheduled run then syncs the table.
+
+    The status is not set to Running here. A run in failure backoff exits before it creates a job,
+    so only the job-creation activity knows that a sync started.
+    """
+    if manual_sync_refusal(instance.source) is not None or is_any_external_data_schema_paused(instance.team_id):
+        return
+    try:
+        trigger_external_data_workflow(instance)
+    except Exception as e:
+        logger.exception(
+            "Could not start a sync after the sync frequency got shorter",
+            schema_id=str(instance.id),
+            exc_info=e,
+        )
+
+
 def resync_schema(instance: ExternalDataSchema) -> Response:
     refusal = manual_sync_refusal(instance.source)
     if refusal is not None:
@@ -613,6 +656,53 @@ def unsupported_row_filter_reason(*, is_direct_query: bool, is_cdc: bool) -> str
     return None
 
 
+def live_query_unavailable_reason(
+    *,
+    source_serves_live_queries: bool,
+    engine_supports_live_tables: bool,
+    has_row_filters: bool,
+    has_masked_columns: bool,
+    has_column_metadata: bool,
+) -> str | None:
+    """Why a table can't be made queryable live without syncing it, or None when it can.
+
+    A live query reads the upstream table directly, so it can't apply the row filters or masks a
+    sync would. The live table is built from the stored column metadata, so it needs some.
+    """
+    if not source_serves_live_queries:
+        return "Live queries are only available on synced sources that have live queries turned on."
+    if not engine_supports_live_tables:
+        return "Unsynced tables can't be queried live on this type of source yet."
+    if has_row_filters:
+        return "Tables with row filters can't be queried live, because a live query reads every row."
+    if has_masked_columns:
+        return "Tables with masked columns can't be queried live, because a live query reads the original values."
+    if not has_column_metadata:
+        return 'This table has no column information yet. Run "Pull new schemas" on the source, then try again.'
+    return None
+
+
+def schema_live_query_unavailable_reason(
+    schema: ExternalDataSchema, *, row_filters: object, masked_columns: object
+) -> str | None:
+    # Function-local: these modules pull the direct-SQL drivers and engine helpers.
+    from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
+    from products.data_warehouse.backend.facade.direct_query import LIVE_TABLE_ENGINES  # noqa: PLC0415
+
+    source = schema.source
+    metadata = schema.schema_metadata
+    return live_query_unavailable_reason(
+        source_serves_live_queries=(
+            source.access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_direct_capable(source)
+        ),
+        engine_supports_live_tables=source.direct_engine in LIVE_TABLE_ENGINES,
+        has_row_filters=bool(row_filters),
+        has_masked_columns=bool(masked_columns),
+        has_column_metadata=isinstance(metadata, dict) and bool(metadata.get("columns")),
+    )
+
+
 def _apply_primary_key_columns(
     data: dict[str, Any],
     payload: dict[str, Any],
@@ -621,7 +711,8 @@ def _apply_primary_key_columns(
 ) -> None:
     """Apply primary_key_columns from request data to the sync_type_config payload.
 
-    Raises ValidationError if an established PK changed after data has been synced, or if no PK is set.
+    Raises ValidationError if an established PK changed after data has been synced, or if a switch to
+    this sync type leaves no PK set.
     """
     new_pk = data.get("primary_key_columns")
     if new_pk:
@@ -634,7 +725,9 @@ def _apply_primary_key_columns(
                 "Delete the synced data first, then change the primary key."
             )
         payload["primary_key_columns"] = new_pk
-    elif not payload.get("primary_key_columns"):
+    # A table already on this sync type keeps taking edits without a key: the sync resolves one
+    # from the source, or fails with its own error when the table has none.
+    elif not payload.get("primary_key_columns") and data.get("sync_type") != instance.sync_type:
         raise ValidationError(
             f"{label} requires a primary key on table '{instance.name}'. "
             "Select its primary key columns when you choose the sync method, "
@@ -928,6 +1021,19 @@ class RowFilterColumnSerializer(serializers.Serializer):
     )
 
 
+LAST_CHECKED_AT_HELP_TEXT = (
+    "When the last successful sync of the source started, including runs that found no new rows. Use this, "
+    "not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every "
+    "run succeeds because the source has nothing new. Null until the first successful sync."
+)
+
+
+def last_checked_at_field() -> serializers.DateTimeField:
+    return serializers.DateTimeField(
+        source="last_check_started_at", read_only=True, allow_null=True, help_text=LAST_CHECKED_AT_HELP_TEXT
+    )
+
+
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
@@ -946,6 +1052,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     )
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
+    live_query_unavailable_reason = serializers.SerializerMethodField(
+        help_text="Why this table can't be made queryable live without syncing it, or null when it can.",
+    )
     sync_type = serializers.ChoiceField(
         choices=ExternalDataSchema.SyncType.choices,
         required=False,
@@ -973,15 +1082,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Maximum 5184000 (60 days)."
         ),
     )
-    sync_frequency = serializers.ChoiceField(
-        choices=SettableSyncFrequency.choices,
-        required=False,
-        allow_null=True,
-        help_text="How often to sync. The fastest sync frequency is 5 minutes.",
-        error_messages={
-            "invalid_choice": '"{input}" is not a valid sync frequency. The fastest sync frequency is 5 minutes.'
-        },
-    )
+    sync_frequency = SyncFrequencyField(required=False, allow_null=True)
     sync_time_of_day = serializers.TimeField(
         required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
     )
@@ -1042,12 +1143,23 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "or fails for another reason, not when an update lands."
         ),
     )
+    last_checked_at = last_checked_at_field()
     webhook_not_registered = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
             "Whether this table uses webhook sync, but its source has no enabled webhook. Such a table "
             "gets no webhook updates. Each sync polls the source API instead, which is slower and can read "
             "the whole table. Set up the webhook on the source, or change `sync_type`."
+        ),
+    )
+    webhook_issue = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the "
+            "source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing "
+            "secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops "
+            "the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info"
+            "-retrieve` lists the missing inputs; creating the webhook again adds the route)."
         ),
     )
     enabled_columns = serializers.ListField(
@@ -1166,7 +1278,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "table",
             "table_id",
             "should_sync",
+            "live_query_enabled",
+            "live_query_unavailable_reason",
             "last_synced_at",
+            "last_checked_at",
             "latest_error",
             "incremental",
             "status",
@@ -1186,6 +1301,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "copy_access_rules_to_history",
             "incremental_sync_blocked",
             "webhook_not_registered",
+            "webhook_issue",
             "enabled_columns",
             "masked_columns",
             "row_filters",
@@ -1208,11 +1324,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "table",
             "table_id",
             "last_synced_at",
+            "last_checked_at",
             "latest_error",
             "status",
             "pending_self_managed_table",
+            "live_query_unavailable_reason",
             "incremental_sync_blocked",
             "webhook_not_registered",
+            "webhook_issue",
             "next_full_refresh_at",
             "description",
             "row_filter_columns",
@@ -1290,6 +1409,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
                 "access_method": {"type": "string"},
+                "direct_query_enabled": {"type": "boolean"},
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
                 "requires_exact_column_metadata": {"type": "boolean"},
@@ -1297,6 +1417,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "api_version": {"type": "string", "nullable": True},
                 "supported_api_versions": {"type": "array", "items": {"type": "string"}},
                 "file_name": {"type": "string", "nullable": True},
+                "supports_table_discovery": {"type": "boolean"},
             },
         }
     )
@@ -1326,6 +1447,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "source_type": source.source_type,
             # The schema page hides sync-history UI for direct-query sources, which have no jobs.
             "access_method": source.access_method,
+            # The schema page offers the live query switch only on a synced source that also serves live queries.
+            "direct_query_enabled": source.direct_query_enabled,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
             "requires_exact_column_metadata": source_requires_exact_column_metadata(source.source_type),
@@ -1333,6 +1456,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "api_version": source_api_version,
             "supported_api_versions": supported_api_versions,
             "file_name": file_name,
+            # A source rooted at a whole bucket refuses schema discovery, so the schema page hides "Pull new schemas".
+            "supports_table_discovery": not source.is_self_managed_migration,
         }
 
     def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
@@ -1360,16 +1485,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not schema.api_version:
             return None
         return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
-
-    def validate_sync_frequency(self, value: str | None) -> str | None:
-        # "never" maps to a null interval, which the schedule builder cannot turn into a cadence.
-        # The choices still list it, so callers do send it. The message names should_sync because
-        # that is what stops a sync.
-        if value == "never":
-            raise ValidationError(
-                '"never" is not a sync frequency. To stop syncing this table, set should_sync to false.'
-            )
-        return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
@@ -1404,6 +1519,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
         return attrs
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_live_query_unavailable_reason(self, schema: ExternalDataSchema) -> str | None:
+        return schema_live_query_unavailable_reason(
+            schema, row_filters=schema.row_filters, masked_columns=schema.masked_columns
+        )
+
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
 
@@ -1418,6 +1539,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     @extend_schema_field(serializers.BooleanField())
     def get_webhook_not_registered(self, schema: ExternalDataSchema) -> bool:
         return webhook_not_registered(schema, self.context)
+
+    @extend_schema_field(serializers.ChoiceField(choices=WebhookIssue.choices, allow_null=True))
+    def get_webhook_issue(self, schema: ExternalDataSchema) -> WebhookIssue | None:
+        return webhook_issue(schema, self.context)
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_table_id(self, schema: ExternalDataSchema) -> uuid.UUID | None:
@@ -1508,6 +1633,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         removed = [key for key in original_sync_type_config if key not in intended]
         with transaction.atomic():
             locked = ExternalDataSchema.objects.select_for_update().get(pk=instance.pk)
+            if (
+                validated_data.get("live_query_enabled") is True
+                and not locked.live_query_enabled
+                and locked.table_id != instance.table_id
+            ):
+                # The table changed after the request was checked, e.g. a concurrent data delete took its access rules.
+                raise ValidationError(
+                    {"live_query_enabled": "This table changed while saving. Reload the page and try again."}
+                )
             merged = locked.sync_type_config or {}
             merged.update(changed)
             for key in removed:
@@ -1529,6 +1663,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Each scheduled run of such a table would bill the same rows again.
         if validated_data.get("should_sync") is True and source_syncs_on_demand(instance.source.source_type):
             raise ValidationError({"should_sync": ON_DEMAND_SYNC_ERROR})
+
+        if validated_data.get("live_query_enabled") is True and not instance.live_query_enabled:
+            if reason := schema_live_query_unavailable_reason(
+                instance,
+                row_filters=validated_data.get("row_filters", instance.row_filters),
+                masked_columns=validated_data.get("masked_columns", instance.masked_columns),
+            ):
+                raise ValidationError({"live_query_enabled": reason})
+        elif instance.live_query_enabled and (
+            validated_data.get("row_filters") or validated_data.get("masked_columns")
+        ):
+            # A live query can't apply row filters or masks, so the table leaves live queries instead of keeping a hidden flag.
+            validated_data["live_query_enabled"] = False
 
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
@@ -1559,7 +1706,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Pop non-model fields from validated_data so super().update() doesn't try to set them
         validated_data.pop("sync_type", None)
-        validated_data.pop("sync_frequency", None)
+        # The validated value is canonical; the raw payload can carry a synonym such as "daily".
+        sync_frequency = validated_data.pop("sync_frequency", None)
         validated_data.pop("sync_time_of_day", None)
         validated_data.pop("incremental_field", None)
         validated_data.pop("incremental_field_type", None)
@@ -1604,6 +1752,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     else set()
                 )
                 if known:
+                    # Discovery keeps a stored column that left the source when dropping it would empty the
+                    # selection, and the column picker sends it back unseen. Drop it here, but never save an
+                    # empty selection, which would read every column.
+                    stored = set(instance.enabled_columns or [])
+                    stale = [c for c in enabled_columns if c not in known and c in stored]
+                    if stale:
+                        enabled_columns = [c for c in enabled_columns if c not in stale]
+                        if not enabled_columns:
+                            raise ValidationError(
+                                f"These columns no longer exist in the source: {', '.join(sorted(stale))}. "
+                                "Select at least one column to sync."
+                            )
+                        validated_data["enabled_columns"] = enabled_columns
+                        enabled_columns_changed = enabled_columns != instance.enabled_columns
                     unknown = [c for c in enabled_columns if c not in known]
                     if unknown:
                         raise ValidationError(
@@ -1667,12 +1829,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if not source_type_supports_cdc(instance.source.source_type):
                 raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
 
-            from posthog.models import Team
-
-            team = Team.objects.get(id=self.context["team_id"])
-            if not is_cdc_enabled_for_team(team):
-                raise ValidationError("CDC is not enabled for this team")
-
         # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts
         # "xmin" the moment the foundation lands. Reject it unless the source is Postgres and the table
         # actually advertises xmin support — otherwise a raw PATCH would persist an xmin schema that
@@ -1698,7 +1854,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if self._webhook_only_check_applies():
             if self._is_webhook_only_schema_cached(instance):
                 raise ValidationError(
-                    f"{instance.name} can only be synced via webhooks — pick the Webhook sync method."
+                    f"{instance.name} can only be synced via webhooks. Pick the Webhook sync method for it."
                 )
 
         # Only update sync_type if it was explicitly provided in the request
@@ -1963,7 +2119,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         )
 
         should_sync = validated_data.get("should_sync", None)
-        sync_frequency = data.get("sync_frequency", None)
         sync_time_of_day_in_payload = "sync_time_of_day" in data
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
@@ -1987,11 +2142,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ):
             sync_frequency = FLOOR_SYNC_FREQUENCY
 
+        sync_frequency_shortened = False
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
 
             if sync_frequency_interval != instance.sync_frequency_interval:
                 was_sync_frequency_updated = True
+                sync_frequency_shortened = (
+                    sync_frequency_interval is not None
+                    and instance.sync_frequency_interval is not None
+                    and sync_frequency_interval < instance.sync_frequency_interval
+                )
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 instance.sync_frequency_interval = sync_frequency_interval
 
@@ -2218,6 +2379,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         elif adds_a_mask:
             self._purge_history_staging_for_mask(instance)
 
+        if should_sync is False:
+            # The customer chose to keep the schema off, so it no longer counts as stopped by PostHog.
+            # Staff tools re-enable only stopped schemas, and the failure digest reports only those.
+            # Cleared whatever this request loaded, because a stop can commit after the load.
+            validated_data["auto_disabled_at"] = None
+
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(
@@ -2263,6 +2430,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
                 self._run_temporal_side_effect(cancel_running_import)
                 import_cancelled = True
+
+        # A refresh, a mask rebuild, a CDC re-snapshot or an API version change in the same request already
+        # decides when the table syncs next, so a shorter cadence does not start a second sync.
+        sync_now_for_shorter_cadence = sync_frequency_shortened and not (
+            trigger_refresh
+            or masked_columns_changed
+            or api_version_changed
+            or (
+                is_cdc
+                and "cdc_table_mode" in data
+                and _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, data.get("cdc_table_mode"))
+            )
+        )
 
         if source.supports_scheduled_sync and (
             should_sync is not None
@@ -2322,16 +2502,23 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         sync_external_data_job_workflow(
                             updated_instance, create=False, should_sync=should_sync_value and not reset_pending
                         )
+                        # The re-issued schedule first fires at the next slot of the new cadence, so without
+                        # a trigger a user who shortens the cadence waits up to a full new interval.
+                        if sync_now_for_shorter_cadence and should_sync_value and not reset_pending:
+                            _sync_now_for_shorter_cadence(updated_instance)
 
             self._run_temporal_side_effect(update_schedule)
 
         if trigger_refresh:
+            request_manual_runs([updated_instance.id], updated_instance.team_id)
             self._run_temporal_side_effect(
                 lambda: trigger_external_data_workflow(updated_instance, buffer_one=import_cancelled)
             )
 
         if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)
+        elif should_sync is True and updated_instance.sync_type == ExternalDataSchema.SyncType.WEBHOOK:
+            self._route_enabled_webhook_table(updated_instance)
 
         # Sync CDC extraction schedule after any CDC schema change
         if is_cdc or leaving_cdc:
@@ -2596,6 +2783,54 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self.__dict__["_webhook_support_error_result"] = self._webhook_support_error(schema)
         return self.__dict__["_webhook_support_error_result"]
 
+    def _route_enabled_webhook_table(self, schema: ExternalDataSchema) -> None:
+        """Add the route of a table that already syncs by webhook to its source's webhook.
+
+        Enabling such a table sends only `should_sync`, and without its route the webhook drops the table's
+        events. Without a webhook the table reports `not_registered`, and enabling it must not register one.
+        """
+        source = schema.source
+        try:
+            source_impl = SourceRegistry.get_source(known_source_key(source.source_type))
+        except ValueError:
+            return
+        if not isinstance(source_impl, WebhookSource):
+            return
+        hog_function_id = route_table_on_enabled_webhook(
+            schema.team_id, schema.source_id, source_impl.webhook_mapping_key(schema.name), schema.id
+        )
+        if hog_function_id is None:
+            return
+
+        # A bulk request shares one map, so the first reconciliation of a source covers every table the
+        # request enabled there and the rest find nothing left to do.
+        pending: dict[uuid.UUID, list[str]] | None = self.context.get(WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY)
+        if pending is not None:
+            pending.setdefault(schema.source_id, []).append(schema.name)
+
+        def reconcile() -> None:
+            if pending is not None and pending.pop(schema.source_id, None) is None:
+                return
+            names = _enabled_webhook_table_names(schema)
+            if not names:
+                return
+            # Non-fatal: the route is already saved, and data flows once the provider sends the events.
+            try:
+                config = source_impl.parse_config(SourceInputsStore.load(source))
+                result = source_impl.sync_webhook_events(
+                    config,
+                    get_webhook_url(hog_function_id),
+                    schema.team_id,
+                    names,
+                    api_version=source_impl.resolve_api_version(source.api_version),
+                )
+                if not result.success:
+                    logger.warning("Failed to reconcile webhook events on schema enable", error=result.error)
+            except Exception as e:
+                logger.warning("Error reconciling webhook events on schema enable", error=str(e))
+
+        self._run_temporal_side_effect(reconcile)
+
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
         source_inputs = SourceInputsStore.load(source)
@@ -2663,7 +2898,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             config,
                             hog_fn_result,
                             schema.team_id,
-                            [schema.name],
+                            _enabled_webhook_table_names(schema),
                             api_version=effective_api_version,
                         )
                         if not reconcile_result.success:
@@ -2788,6 +3023,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     sync_frequency = serializers.SerializerMethodField(
         read_only=True, help_text="How often this table is scheduled to sync, or null if no interval is set."
     )
+    last_checked_at = last_checked_at_field()
 
     class Meta:
         model = ExternalDataSchema
@@ -2799,6 +3035,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             "status",
             "sync_type",
             "last_synced_at",
+            "last_checked_at",
             "sync_frequency",
             "latest_error",
             "table",
@@ -2850,6 +3087,98 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
         return ret
 
 
+COMPACT_ERROR_MAX_LENGTH = 500
+ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY = "error_redaction_values_by_source"
+
+
+def truncate_error(message: str | None, max_length: int = COMPACT_ERROR_MAX_LENGTH) -> str | None:
+    if message is None or len(message) <= max_length:
+        return message
+    return f"{message[:max_length]}… [truncated, {len(message)} characters]"
+
+
+class ExternalDataSchemaSummarySerializer(serializers.ModelSerializer):
+    """One summary row per table, for the compact source responses that agents read.
+
+    It reads only stored schema columns, so it adds no query per row. The error is redacted, then truncated.
+    """
+
+    status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this table.")
+    last_checked_at = last_checked_at_field()
+    latest_error = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            f"The latest sync error with secrets redacted, cut to {COMPACT_ERROR_MAX_LENGTH} characters. "
+            "Null when the last sync did not fail."
+        ),
+    )
+
+    class Meta:
+        model = ExternalDataSchema
+        fields = ["id", "name", "should_sync", "status", "last_synced_at", "last_checked_at", "latest_error"]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_status(self, schema: ExternalDataSchema) -> str | None:
+        return schema_display_status(schema)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_error(self, schema: ExternalDataSchema) -> str | None:
+        if not schema.latest_error:
+            return schema.latest_error
+        by_source: dict[uuid.UUID, frozenset[str]] = self.context.get(ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY, {})
+        secret_values = by_source.get(schema.source_id)
+        if secret_values is not None:
+            redacted = source_helpers.redact_error_message(schema.latest_error, secret_values)
+        else:
+            redacted = redact_schema_error(schema, self.context)
+        return truncate_error(redacted)
+
+
+class ExternalDataSchemaCompactSerializer(ExternalDataSchemaSummarySerializer):
+    """The compact row of the schemas list: the summary row plus the source it belongs to and its sync type."""
+
+    class Meta(ExternalDataSchemaSummarySerializer.Meta):
+        fields = [
+            "id",
+            "name",
+            "source_id",
+            "should_sync",
+            "live_query_enabled",
+            "sync_type",
+            "status",
+            "last_synced_at",
+            "last_checked_at",
+            "latest_error",
+        ]
+        read_only_fields = fields
+
+
+def error_redaction_values_by_source(schemas: Iterable[ExternalDataSchema]) -> dict[uuid.UUID, frozenset[str]]:
+    """The secret values of each source that has a failed table, read with one inputs query for all of them."""
+    sources = {schema.source_id: schema.source for schema in schemas if schema.latest_error}
+    if not sources:
+        return {}
+    inputs = SourceInputsStore.load_many(sources.values())
+    # A source left out of `inputs` falls back to the per-schema lookup, which handles unreadable inputs.
+    return {
+        source_id: source_helpers.get_error_redaction_values(source, inputs[source_id])
+        for source_id, source in sources.items()
+        if source_id in inputs
+    }
+
+
+class ExternalDataSchemaListQuerySerializer(serializers.Serializer):
+    compact = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, "
+            "last_checked_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health."
+        ),
+    )
+
+
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSchema
@@ -2893,6 +3222,7 @@ class WarehouseTableAccessPermission(AccessControlPermission):
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
+@extend_schema_view(list=extend_schema(parameters=[ExternalDataSchemaListQuerySerializer]))
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     permission_classes = [WarehouseTableAccessPermission]
@@ -2916,6 +3246,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # `destinations` reads on GET and writes on PATCH; the action lists can only pick one.
+        if self.action == "destinations" and request.method == "GET":
+            return ["external_data_source:read"]
+        return None
+
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         super().check_object_permissions(request, obj)
         if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSchema):
@@ -2937,19 +3273,45 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # otherwise route POST here, whose serializer create path skips the api_version guards.
         raise MethodNotAllowed("POST")
 
+    def _is_compact_list(self) -> bool:
+        if getattr(self, "action", None) != "list" or getattr(self, "swagger_fake_view", False):
+            return False
+        cached: bool | None = getattr(self, "_compact_list", None)
+        if cached is None:
+            query = ExternalDataSchemaListQuerySerializer(data=self.request.query_params)
+            query.is_valid(raise_exception=True)
+            cached = bool(query.validated_data["compact"])
+            self._compact_list = cached
+        return cached
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self._is_compact_list():
+            return ExternalDataSchemaCompactSerializer
+        return super().get_serializer_class()
+
     def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
         if "context" not in kwargs:
             kwargs["context"] = self.get_serializer_context()
         if kwargs.get("many") and args:
             context = kwargs["context"]
-            context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
-            context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
+            if self._is_compact_list():
+                schemas = list(args[0])
+                args = (schemas, *args[1:])
+                context[ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY] = error_redaction_values_by_source(schemas)
+            else:
+                context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
+                context[WEBHOOK_ISSUES_CONTEXT_KEY] = webhook_issues(self.team_id, args[0])
         serializer_class = self.get_serializer_class()
         return serializer_class(*args, **kwargs)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         if getattr(self, "swagger_fake_view", False):
+            return context
+        if self._is_compact_list():
+            # The compact row reads no columns, so it skips building the HogQL database.
+            return context
+        if self.action == "logs":
             return context
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
@@ -3112,6 +3474,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
+        request_manual_runs([instance.id], instance.team_id)
         try:
             _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:
@@ -3290,7 +3653,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if direct_engine_adapter is not None:
                 direct_engine_adapter.hide_table(instance.table)
             instance.should_sync = False
-            instance.save(update_fields=["should_sync", "updated_at"])
+            instance.auto_disabled_at = None
+            instance.save(update_fields=["should_sync", "auto_disabled_at", "updated_at"])
             return Response(status=status.HTTP_200_OK)
 
         # Turn syncing off first, or the next scheduled run rebuilds the deleted table. The serializer
@@ -3444,12 +3808,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
+        # The form keeps a configured cursor, so it needs no recommendation.
+        if not instance.incremental_field:
+            apply_stored_suggestion(schema, instance.sync_type_config, team=self.team, schema_id=str(instance.id))
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
         source_impl = SourceRegistry.get_source(source.source_type)
-        cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
+        cdc_available = schema.supports_cdc if source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
         xmin_available = schema.supports_xmin if source_impl.supports_xmin else None
 

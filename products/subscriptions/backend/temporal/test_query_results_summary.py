@@ -63,7 +63,7 @@ class TestCondenseQueryResults:
 
         assert len(summary) <= 2_000
         assert client.chat.completions.create.call_count == expected_calls
-        assert client.chat.completions.create.call_args.kwargs["timeout"] == 20
+        assert client.chat.completions.create.call_args.kwargs["timeout"] == 30
         if expected_calls == 2:
             assert summary == accepted_content
         message = client.chat.completions.create.call_args_list[0].kwargs["messages"][1]["content"]
@@ -181,12 +181,10 @@ class TestCondensationGatewayClient:
             ("missing_v1_path", "https://ai-gateway.example.com", "phs_test"),
         ]
     )
-    def test_refuses_the_python_gateway_when_go_is_unconfigured(self, _name, url, api_key) -> None:
+    def test_raises_when_the_go_gateway_is_unconfigured(self, _name, url, api_key) -> None:
         with override_settings(
             AI_GATEWAY_URL=url,
             AI_GATEWAY_API_KEY=api_key,
-            LLM_GATEWAY_URL="https://llm-gateway.example.com",
-            LLM_GATEWAY_API_KEY="phx_test",
         ):
             with pytest.raises(GatewayNotConfiguredError):
                 _get_async_openai_client(team=None, delivery_id=None, user_tag="US/subscription-summary-team-42")

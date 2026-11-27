@@ -36,16 +36,20 @@ from products.warehouse_suggestions.backend.logic.candidates.registry import CAN
 from products.warehouse_suggestions.backend.logic.job import WaitingSuggestions, surface_more, waiting_suggestions
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
 from products.warehouse_suggestions.backend.logic.reads import SubjectReads, SubjectRefreshes
+from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
 
-from .test_accept import REPORT
+from .test_api import REPORT
 
 NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
 FLAG = "products.warehouse_suggestions.backend.logic.assignment.is_warehouse_suggestions_enabled"
 CAN_TAKE = "products.warehouse_suggestions.backend.logic.assignment.can_take"
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
+SURFACING_RULES = replace(
+    RULES, lifecycle=replace(RULES.lifecycle, max_surfaced_per_day=5, max_open=15, max_open_per_kind=3)
+)
 READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12, "human_reads_per_month": 200.0}
 REFRESH_COST_BEFORE = {"refresh_seconds_per_month": 5000.0, "refresh_bytes_per_month": 5e12}
 READS_NOW = busy_reads(
@@ -93,6 +97,7 @@ class TestApplyRun(BaseTest):
             team_reads({}, recent_days_with_data=recent_days_with_data),
             views=[view(view_id, materializes=True) for view_id in view_ids],
             team_id=self.team.pk,
+            rules=SURFACING_RULES,
         )
 
     def _draft(
@@ -251,6 +256,64 @@ class TestApplyRun(BaseTest):
             reproposed,
             None,
         )
+
+    @parameterized.expand(
+        [
+            ("stopped_refreshes_only", 60, False, WarehouseSuggestionStatus.PROPOSED),
+            ("stopped_refreshes_only_inside_the_cooldown", 10, False, WarehouseSuggestionStatus.ACCEPTED),
+            ("marked_deprecated", 60, True, WarehouseSuggestionStatus.ACCEPTED),
+        ]
+    )
+    def test_an_accepted_deprecate_returns_after_the_cooldown_only_when_the_view_was_not_marked_deprecated(
+        self, _name: str, accepted_days_ago: int, marked_deprecated: bool, expected_status: WarehouseSuggestionStatus
+    ) -> None:
+        view_id = uuid4()
+        ctx = self._context(view_id)
+        deprecate = self._draft(ctx, WarehouseSuggestionKind.DEPRECATE, view_id, 1)
+        apply_run(ctx, self.team, [deprecate], NOW - timedelta(days=accepted_days_ago), surface=True)
+        created_asset = (
+            {"certification_id": str(uuid4()), "stopped_materialization": False}
+            if marked_deprecated
+            else {"saved_query_id": str(view_id)}
+        )
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            reviewed_at=NOW - timedelta(days=accepted_days_ago),
+            created_asset=created_asset,
+        )
+
+        apply_run(ctx, self.team, [deprecate], NOW, surface=False)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        reproposed = expected_status == WarehouseSuggestionStatus.PROPOSED
+        assert (row.status, row.reproposed_count, row.surfaced_at is None) == (
+            expected_status,
+            int(reproposed),
+            reproposed,
+        )
+
+    @parameterized.expand(
+        [
+            ("still_computed_on_read", False, WarehouseSuggestionAssetOutcome.LIVE),
+            ("materialized_again", True, WarehouseSuggestionAssetOutcome.UNUSED),
+        ]
+    )
+    def test_records_what_became_of_a_deprecate_that_only_stopped_refreshes(
+        self, _name: str, materialized_now: bool, expected: WarehouseSuggestionAssetOutcome
+    ) -> None:
+        view_id = uuid4()
+        ctx = self._context(view_id)
+        apply_run(ctx, self.team, [self._draft(ctx, WarehouseSuggestionKind.DEPRECATE, view_id, 1)], NOW, surface=False)
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            reviewed_at=NOW - timedelta(days=2),
+            created_asset={"saved_query_id": str(view_id)},
+        )
+        later = context(team_reads({}), views=[view(view_id, materializes=materialized_now)], team_id=self.team.pk)
+
+        apply_run(later, self.team, [], NOW, surface=False)
+
+        assert WarehouseSuggestion.objects.for_team(self.team.pk).get().asset_outcome == expected
 
     @parameterized.expand(
         [("expired", WarehouseSuggestionStatus.EXPIRED), ("auto_resolved", WarehouseSuggestionStatus.AUTO_RESOLVED)]
@@ -449,9 +512,20 @@ class TestApplyRun(BaseTest):
             team_id=self.team.pk,
         )
 
-        apply_run(later, self.team, [], NOW, surface=False)
+        with patch(REPORT) as report, self.captureOnCommitCallbacks(execute=True):
+            apply_run(later, self.team, [], NOW, surface=False)
+        with patch(REPORT) as unchanged_report, self.captureOnCommitCallbacks(execute=True):
+            apply_run(later, self.team, [], NOW, surface=False)
 
         assert WarehouseSuggestion.objects.for_team(self.team.pk).get().asset_outcome == expected
+        assert [
+            call.args[1]["asset_outcome"]
+            for call in report.call_args_list
+            if call.args[0] == "warehouse suggestion asset outcome changed"
+        ] == [expected]
+        assert "warehouse suggestion asset outcome changed" not in [
+            call.args[0] for call in unchanged_report.call_args_list
+        ]
 
     @parameterized.expand(
         [
@@ -618,7 +692,12 @@ class TestSurfaceMore(BaseTest):
             )
             for index in range(sum(counts.values()))
         ]
-        ctx = context(team_reads({}), views=[view(saved_query.id) for saved_query in views], team_id=self.team.pk)
+        ctx = context(
+            team_reads({}),
+            views=[view(saved_query.id) for saved_query in views],
+            team_id=self.team.pk,
+            rules=SURFACING_RULES,
+        )
         view_ids = iter(saved_query.id for saved_query in views)
         drafts = [
             CANDIDATES[kind].draft(ctx, view_subject(next(view_ids)), PAYLOADS[kind], score=1, score_inputs={})
@@ -647,7 +726,7 @@ class TestSurfaceMore(BaseTest):
         self.notify.reset_mock()
 
         with self.captureOnCommitCallbacks(execute=True):
-            surfaced = surface_more(self.team, surface_q(surface), now=NOW + timedelta(hours=1))
+            surfaced = surface_more(self.team, surface_q(surface), now=NOW + timedelta(hours=1), rules=SURFACING_RULES)
 
         assert (Counter(row.kind for row in surfaced), {row.assignee_id for row in surfaced}, self.notify.called) == (
             expected,
@@ -671,9 +750,12 @@ class TestSurfaceMore(BaseTest):
         WarehouseSuggestionTeamConfig.objects.filter(team=self.team).update(**config)
         waiting = surface_q(WarehouseSuggestionSurface.MODELS)
 
-        surfaced = surface_more(self.team, waiting, now=NOW + timedelta(hours=1))
+        surfaced = surface_more(self.team, waiting, now=NOW + timedelta(hours=1), rules=SURFACING_RULES)
 
-        assert (surfaced, waiting_suggestions(self.team.pk, waiting, now=NOW + timedelta(hours=1))) == (
+        assert (
+            surfaced,
+            waiting_suggestions(self.team.pk, waiting, now=NOW + timedelta(hours=1), rules=SURFACING_RULES),
+        ) == (
             [],
             WaitingSuggestions(count=0, can_show_more=False),
         )
@@ -682,7 +764,10 @@ class TestSurfaceMore(BaseTest):
         self._seed({WarehouseSuggestionKind.MATERIALIZE: 4})
 
         waiting = waiting_suggestions(
-            self.team.pk, surface_q(WarehouseSuggestionSurface.MODELS), now=NOW + timedelta(hours=1)
+            self.team.pk,
+            surface_q(WarehouseSuggestionSurface.MODELS),
+            now=NOW + timedelta(hours=1),
+            rules=SURFACING_RULES,
         )
 
         assert waiting == WaitingSuggestions(count=1, can_show_more=False)
@@ -691,7 +776,7 @@ class TestSurfaceMore(BaseTest):
         ctx, drafts = self._seed(
             {WarehouseSuggestionKind.CERTIFY: 6, WarehouseSuggestionKind.MATERIALIZE: 6}, surface=False
         )
-        surface_more(self.team, surface_q(WarehouseSuggestionSurface.MODELS), now=NOW)
+        surface_more(self.team, surface_q(WarehouseSuggestionSurface.MODELS), now=NOW, rules=SURFACING_RULES)
         self._close_surfaced()
 
         daily = apply_run(ctx, self.team, drafts, NOW + timedelta(hours=1), surface=True)

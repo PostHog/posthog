@@ -25,11 +25,13 @@ import { SceneTitleSettingsButton } from './SceneTitleSettingsButton'
 export function QuillSceneTitleSection({
     name,
     nameSuffix,
+    nameAction,
     description,
     resourceType,
     markdown = false,
     isLoading = false,
     onNameChange,
+    nameError,
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
@@ -60,6 +62,7 @@ export function QuillSceneTitleSection({
         [releaseStageSceneId, name]
     )
     const staticName = name !== null && !titleInPhoneHeader && !(onNameChange && canEdit) && !forceEdit && !isLoading
+    const nameField = name !== null && !titleInPhoneHeader && !staticName
     const descriptionForceEdit = forceEdit && !descriptionIgnoresForceEdit
     const hasDescription = description != null && (description || canEdit)
     const descriptionShown =
@@ -104,6 +107,7 @@ export function QuillSceneTitleSection({
                     'px-4',
                     !noPadding && '-mt-4'
                 )}
+                rigidTitle={!nameField}
                 back={
                     <QuillSceneTrail
                         lead={sidebarBreadcrumbShown && <TodaySidebarBreadcrumb />}
@@ -121,12 +125,18 @@ export function QuillSceneTitleSection({
                 }
                 title={
                     <>
-                        {staticName && nameSuffixes}
-                        {name !== null && !titleInPhoneHeader && !staticName && (
+                        {staticName && (
+                            <>
+                                {nameAction}
+                                {nameSuffixes}
+                            </>
+                        )}
+                        {nameField && (
                             <QuillSceneName
                                 name={name}
                                 isLoading={isLoading}
                                 onChange={onNameChange}
+                                error={nameError}
                                 canEdit={canEdit}
                                 forceEdit={forceEdit}
                                 renameDebounceMs={renameDebounceMs}
@@ -136,6 +146,7 @@ export function QuillSceneTitleSection({
                                 fieldSuffix={descriptionIgnoresForceEdit && descriptionToggle}
                                 suffix={
                                     <>
+                                        {nameAction}
                                         {nameSuffixes}
                                         {descriptionToggle}
                                     </>

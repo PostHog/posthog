@@ -9,6 +9,7 @@ import { FAKE_WORKLOAD_PROVIDER, fakeRuntime, type FakeRuntimeOptions } from '@/
 import { PostHogApi } from './api'
 import { resolveCredentials } from './credentials'
 import { parseHost } from './host'
+import { parseProjectId } from './ids'
 import { KeySession } from './key-session'
 
 const OIDC_TOKEN = 'eyJoZWFkZXIi.eyJwYXlsb2FkIi.c2lnbmF0dXJl'
@@ -22,7 +23,7 @@ const STORED_LOGIN = {
             'https://us.posthog.com': {
                 store: 'file',
                 type: 'personal_api_key',
-                projectId: '9',
+                projectId: '42',
                 host: 'https://us.posthog.com',
             },
         },
@@ -44,8 +45,16 @@ const FAKE_PROVIDER: WorkloadProvider = {
 
 const IN_CI = { FAKE_CI: 'true', FAKE_CI_TOKEN: OIDC_TOKEN, HOG_PROJECT_ID: '42' }
 
-function exchanged(token: string, expiresIn = 600): { status: number; body: unknown } {
-    return { status: 200, body: { access_token: token, expires_in: expiresIn, scope: 'insight:read' } }
+function exchanged(token: string, expiresIn = 600): { status: number; body: Record<string, unknown> } {
+    return {
+        status: 200,
+        body: { access_token: token, token_type: 'Bearer', expires_in: expiresIn, scope: 'insight:read' },
+    }
+}
+
+function exchangedAs(tokenType: string | undefined): { status: number; body: Record<string, unknown> } {
+    const reply = exchanged(WORKLOAD_TOKEN)
+    return { ...reply, body: { ...reply.body, token_type: tokenType } }
 }
 
 function runtimeWith(options: FakeRuntimeOptions): ReturnType<typeof fakeRuntime> {
@@ -82,7 +91,7 @@ describe('workload credentials', () => {
 
         const credentials = await resolveCredentials(runtime, {
             workloadProviders: [FAKE_PROVIDER],
-            configProjectId: '42',
+            configProjectId: parseProjectId('42'),
         })
 
         expect(credentials.source).toBe('workload')
@@ -163,6 +172,56 @@ describe('workload credentials', () => {
         expect((error as HogError).hint).toContain(hint)
     })
 
+    test.each([['Bearer'], ['bearer'], ['BEARER']])('accepts a %s token', async (tokenType) => {
+        const runtime = runtimeWith({ env: IN_CI, respond: () => exchangedAs(tokenType) })
+
+        const credentials = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] })
+
+        expect(credentials.source).toBe('workload')
+        expect(String(credentials.key.token)).toBe(WORKLOAD_TOKEN)
+    })
+
+    test.each([
+        ['no token type', undefined],
+        ['a DPoP token', 'DPoP'],
+        ['an unknown token type', 'N_A'],
+    ])('refuses an exchange that returns %s', async (_name, tokenType) => {
+        const runtime = runtimeWith({ env: IN_CI, respond: () => exchangedAs(tokenType) })
+
+        const error = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] }).catch((e) => e)
+
+        expect(error).toBeInstanceOf(HogError)
+        expect((error as HogError).code).toBe('unexpected_response')
+        expect((error as HogError).message).toContain('token_type')
+    })
+
+    test.each([[301], [302], [303], [307], [308]])(
+        'refuses an HTTP %d and never sends the OIDC token to where it points',
+        async (status) => {
+            const runtime = runtimeWith({
+                env: IN_CI,
+                respond: (url) =>
+                    url === 'https://us.posthog.com/oauth/token/'
+                        ? { status, body: '', headers: { Location: 'https://us.posthog.com/elsewhere/' } }
+                        : exchanged(WORKLOAD_TOKEN),
+            })
+            const redirectModes: (RequestRedirect | undefined)[] = []
+            const fetch = runtime.fetch
+            runtime.fetch = (input, init) => {
+                redirectModes.push(init?.redirect)
+                return fetch(input, init)
+            }
+
+            const error = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] }).catch((e) => e)
+
+            expect(error).toBeInstanceOf(HogError)
+            expect((error as HogError).code).toBe('workload_exchange_redirected')
+            expect((error as HogError).hint).toContain('HOG_HOST')
+            expect(redirectModes).toEqual(['manual'])
+            expect(runtime.requests.map((request) => request.url)).toEqual(['https://us.posthog.com/oauth/token/'])
+        }
+    )
+
     test('waits a little past the hint while the repository has used up its exchanges', async () => {
         let calls = 0
         const runtime = runtimeWith({
@@ -192,7 +251,7 @@ describe('workload credentials', () => {
             format: 'json',
             color: false,
             columns: undefined,
-            ci: true,
+            isCI: true,
         } as const
         const telemetry = new Telemetry(runtime, mode, true)
         telemetry.credentials = async () => credentials

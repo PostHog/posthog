@@ -1,4 +1,5 @@
 import io
+import re
 import json
 import base64
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from PIL import Image
 
+from posthog.api.cohort import validate_filters_and_compute_realtime_support
 from posthog.event_usage import EventSource
 from posthog.models import User
 from posthog.models.integration import Integration
@@ -36,13 +38,36 @@ from products.workflows.backend.facade.contracts import (
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
+from products.workflows.backend.presentation.views.workflow_imports import CustomerioSegmentSerializer
 from products.workflows.backend.services.customerio_import import conditions, liquid
 from products.workflows.backend.services.customerio_import.images import _file_name
+from products.workflows.backend.services.customerio_import.segments import segment_cohort_filters
 from products.workflows.backend.services.customerio_import.translator import _json_with_liquid, translate_campaign
 
 
 def _encode(condition: list[dict[str, Any]]) -> str:
     return base64.b64encode(quote(json.dumps(condition)).encode()).decode()
+
+
+def _attribute_rule(attribute: dict[str, Any]) -> dict[str, Any]:
+    check = {key: attribute[key] for key in ("operator", "value", "value2") if key in attribute}
+    check.setdefault("operator", "eq")
+    negated = bool(attribute.get("inverse"))
+    return {
+        "event": {
+            "type": "attribute_change",
+            "name": attribute["field"],
+            "filters": {
+                "and": [
+                    {"field": "to", **check, "inverse": negated},
+                    {"field": "from", **check, "inverse": not negated},
+                ]
+            },
+        },
+        "times": 1,
+        "within": 0,
+        "inverse": False,
+    }
 
 
 def _onboarding_campaign() -> CampaignSource:
@@ -378,6 +403,193 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
         assert any(step == "cio_7" and "`message`" in text for _, step, text in messages)
 
+    def test_email_keeps_copies_and_names_what_it_drops(self) -> None:
+        source = _onboarding_campaign()
+        template = {
+            **source.templates["11"],
+            "cc": "team@example.com",
+            "bcc": "{{customer.manager}}",
+            "headers": [{"name": "X-Campaign", "value": "welcome"}],
+            "body_amp": "<html amp4email></html>",
+            "layout": "Newsletter layout",
+            "languages": ["es", "fr"],
+        }
+        translated = translate_campaign(
+            CampaignSource(campaign=source.campaign, actions=source.actions, templates={"11": template}), _OPTIONS
+        )
+
+        steps = {action["id"]: action for action in translated.workflow["actions"]}
+        email = steps["cio_1"]["config"]["inputs"]["email"]["value"]
+        assert (email["cc"], email["bcc"]) == ("team@example.com", "{{person.properties.manager}}")
+        assert validated_draft(self.team, translated.workflow, EventSource.API) is not None
+        notes = " ".join(note.message for note in translated.notes if note.step_id == "cio_1")
+        for expected in ("`X-Campaign`", "AMP", "layout Newsletter layout", "es, fr"):
+            assert expected in notes
+
+    @parameterized.expand(
+        [
+            ("segments without a cohort", {}, ["false"]),
+            ("segments with a cohort", {"7": 12}, ["id", "country", "false"]),
+        ]
+    )
+    def test_conditions_it_cannot_check_let_nobody_through(
+        self, _name: str, segment_cohorts: dict[str, int], audience: list[str]
+    ) -> None:
+        source = _onboarding_campaign()
+        in_segment = {"type": "segments_negatable", "segments": [7], "negate": False}
+        campaign = {
+            **source.campaign,
+            "attribute_filters": {"or": [{"field": "plan", "operator": "eq", "value": "free"}]},
+            "filters": _encode(
+                [in_segment, {"type": "attribute", "field": "country", "operator": "eq", "value": "DE"}]
+            ),
+        }
+        changes: dict[str, dict[str, Any]] = {
+            "1": {"sending_state": "off"},
+            "4": {"multi_conditions": [_encode([{"type": "foreign_event", "event_name": "activated"}, in_segment])]},
+            "5": {"preconditions": _encode([in_segment])},
+            "6": {"conditions": _encode([in_segment])},
+            "7": {"preconditions": "!!unreadable"},
+        }
+        actions = [{**action, **changes.get(action["id"], {})} for action in source.actions]
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=actions, templates=source.templates),
+            ImportOptions(snippets={}, segment_cohorts=segment_cohorts),
+        ).workflow
+
+        steps = {action["id"]: action for action in workflow["actions"]}
+
+        def keys(filters: dict[str, Any]) -> list[str]:
+            return [item["key"] for item in filters["properties"]]
+
+        assert keys(workflow["trigger"]["filters"]["events"][0]) == ["false"]
+        assert keys(steps["cio_1"]["filters"]) == ["false"]
+        assert keys(steps["cio_4"]["config"]["events"][0]["filters"]["events"][0]) == ["false"]
+        assert keys(steps["cio_5"]["filters"]) == ["false"]
+        assert keys(steps["cio_6"]["config"]["conditions"][0]["filters"]) == (["id"] if segment_cohorts else ["false"])
+        assert keys(steps["cio_7"]["filters"]) == ["false"]
+        assert keys(steps["cio_audience"]["config"]["conditions"][0]["filters"]) == audience
+        edges = {(edge["from"], edge["to"], edge["type"]) for edge in workflow["edges"]}
+        assert {
+            ("trigger_node", "cio_audience", "continue"),
+            ("cio_audience", "cio_1", "branch"),
+            ("cio_audience", "exit_node", "continue"),
+        } <= edges
+        if not segment_cohorts:
+            assert validated_draft(self.team, workflow, EventSource.API) is not None
+
+    @parameterized.expand(
+        [
+            ("checked on the trigger", "transactional", None),
+            ("checked once in the audience step", "seg_attr", ["country", "false"]),
+        ]
+    )
+    def test_people_who_stop_matching_the_entry_filter_get_no_more_messages(
+        self, _name: str, kind: str, audience: list[str] | None
+    ) -> None:
+        source = _onboarding_campaign()
+        campaign = {
+            **source.campaign,
+            "type": kind,
+            "filters": _encode([{"type": "attribute", "field": "country", "operator": "eq", "value": "DE"}]),
+            "exit_on_trigger_or_filter_not_matched": True,
+            "exit_on_conversion_matched": False,
+        }
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        ).workflow
+
+        assert workflow["exit_condition"] == "exit_on_trigger_not_matched"
+        steps = {action["id"]: action for action in workflow["actions"]}
+        gate = steps.get("cio_audience")
+        found = gate["config"]["conditions"][0]["filters"]["properties"] if gate else None
+        assert (found and [item["key"] for item in found]) == audience
+
+    @parameterized.expand(
+        [
+            ("a person update on the path", [("1", "10"), ("10", "9")], True),
+            ("a person update no path reaches", [("1", "9")], False),
+        ]
+    )
+    def test_gate_covers_steps_that_change_what_people_get_later(
+        self, _name: str, links: list[tuple[str, str]], gated: bool
+    ) -> None:
+        source = _onboarding_campaign()
+        campaign = {
+            **source.campaign,
+            "workflow_action_ids": ["1", "9", "10"],
+            "edges": [{"from": start, "to": end, "type": "continue"} for start, end in links],
+        }
+        update = {
+            "id": "10",
+            "type": "attribute_update_action",
+            "name": "Mark paid",
+            "preconditions": _encode([{"type": "segments_negatable", "segments": [7], "negate": False}]),
+        }
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=[*source.actions, update], templates=source.templates), _OPTIONS
+        ).workflow
+
+        steps = {action["id"]: action for action in workflow["actions"]}
+        assert ("cio_audience" in steps) == gated
+        assert ("cio_10" in steps) == gated
+
+    @parameterized.expand(
+        [
+            ("unreadable", "transactional", "!!unreadable", ["false"]),
+            (
+                "on a segment trigger",
+                "seg_attr",
+                _encode([{"type": "attribute", "field": "country", "operator": "eq", "value": "DE"}]),
+                ["country"],
+            ),
+        ]
+    )
+    def test_entry_filter_is_never_dropped(self, _name: str, kind: str, filters: str, audience: list[str]) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "type": kind, "filters": filters}
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        ).workflow
+
+        steps = {action["id"]: action for action in workflow["actions"]}
+        found = steps["cio_audience"]["config"]["conditions"][0]["filters"]["properties"]
+        assert [item["key"] for item in found] == audience
+
+    @parameterized.expand(
+        [
+            ("event once", "transactional", "rematch", -1, None),
+            ("event once a day", "transactional", "rematch", 86400, 86400),
+            ("form under a minute", "form", "rematch", 5, 60),
+            ("event over three years", "transactional", "rematch", 157680000, 94608000),
+            ("segment once", "seg_attr", "none", 0, None),
+            ("segment once through the interval", "seg_attr", "rematch", -1, None),
+            ("segment at most weekly", "behavioral", "rematch", 604800, 604800),
+        ]
+    )
+    def test_re_entry_limit_becomes_trigger_masking(
+        self, _name: str, kind: str, mode: str, interval: int, ttl: int | None
+    ) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "type": kind, "restart_mode": mode, "restart_min_interval": interval}
+        translated = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        )
+
+        assert translated.workflow["trigger_masking"] == {"hash": "{person.id}", "ttl": ttl, "threshold": None}
+        assert any("can enter again" in note.message for note in translated.notes)
+        assert any("so it became" in note.message for note in translated.notes) == (interval > 0 and interval != ttl)
+        assert validated_draft(self.team, translated.workflow, EventSource.API) is not None
+
+    def test_event_automation_without_a_limit_has_no_masking(self) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "restart_mode": "rematch", "restart_min_interval": 0}
+
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        ).workflow
+        assert workflow["trigger_masking"] is None
+
     def test_language_split_keeps_only_the_default_message(self) -> None:
         campaign = {
             "id": "5",
@@ -474,6 +686,212 @@ class TestCustomerioConditions(SimpleTestCase):
         assert translated.properties == ()
         assert len(translated.skipped) == 1
 
+    def test_segment_attribute_rules_become_cohort_groups(self) -> None:
+        rules = {
+            "or": [
+                _attribute_rule({"field": "plan", "operator": "eq", "value": "trial"}),
+                {
+                    "and": [
+                        _attribute_rule({"field": "email", "operator": "exists"}),
+                        {
+                            **_attribute_rule({"field": "company", "operator": "contains", "value": "test"}),
+                            "inverse": True,
+                        },
+                        _attribute_rule({"field": "seats", "operator": "bw", "value": "1", "value2": "9"}),
+                    ]
+                },
+            ]
+        }
+
+        assert segment_cohort_filters(rules).filters == {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {"key": "plan", "operator": "regex", "type": "person", "value": "^[tT][rR][iI][aA][lL]$"}
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "email", "operator": "is_set", "type": "person", "value": "is_set"},
+                            {"key": "company", "operator": "not_icontains", "type": "person", "value": "test"},
+                            {"key": "seats", "operator": "gte", "type": "person", "value": "1"},
+                            {"key": "seats", "operator": "lte", "type": "person", "value": "9"},
+                        ],
+                    },
+                ],
+            }
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "a change from one value to another",
+                {
+                    "and": [
+                        {
+                            "event": {
+                                "type": "attribute_change",
+                                "name": "plan",
+                                "filters": {
+                                    "and": [
+                                        {"field": "to", "operator": "eq", "value": "trial", "inverse": False},
+                                        {"field": "from", "operator": "eq", "value": "free", "inverse": False},
+                                    ]
+                                },
+                            },
+                            "times": 1,
+                            "within": 0,
+                        }
+                    ]
+                },
+                ["plan changed to trial from free"],
+            ),
+            (
+                "a to rule with no from",
+                {
+                    "and": [
+                        {
+                            "event": {
+                                "type": "attribute_change",
+                                "name": "plan",
+                                "filters": {"and": [{"field": "to", "operator": "eq", "value": "trial"}]},
+                            },
+                            "times": 1,
+                            "within": 0,
+                        }
+                    ]
+                },
+                ["plan changed to trial"],
+            ),
+            (
+                "an attribute that changed more than once",
+                {"and": [{**_attribute_rule({"field": "plan", "value": "trial"}), "times": 3}]},
+                ["plan changed to trial"],
+            ),
+            (
+                "an attribute change within a time window",
+                {"and": [{**_attribute_rule({"field": "plan", "value": "trial"}), "within": 604800}]},
+                ["plan changed to trial"],
+            ),
+            (
+                "an attribute check with no exact cohort operator",
+                {"and": [_attribute_rule({"field": "plan", "operator": "one_of", "value": '["gold","silver"]'})]},
+                ['plan one_of ["gold","silver"] (an unsupported operator)'],
+            ),
+            (
+                "one translatable rule does not carry the segment",
+                {
+                    "and": [
+                        _attribute_rule({"field": "plan", "operator": "eq", "value": "trial"}),
+                        {"event": {"type": "event", "name": "signed_in"}, "times": 3, "within": 604800},
+                    ]
+                },
+                ["performed signed_in at least 3 times within 7 days"],
+            ),
+            (
+                "a relative date would keep people who aged out",
+                {"and": [_attribute_rule({"field": "created_at", "operator": "timestamp_gt", "value": "-2592000"})]},
+                ["created_at timestamp_gt -2592000 (a relative date)"],
+            ),
+            (
+                "a range inside an any-of group",
+                {"or": [_attribute_rule({"field": "seats", "operator": "bw", "value": "1", "value2": "9"})]},
+                ["seats bw 1"],
+            ),
+            (
+                "rules three levels deep",
+                {"and": [{"or": [{"and": [_attribute_rule({"field": "plan", "value": "trial"})]}]}]},
+                ["rules grouped more than two levels deep"],
+            ),
+            (
+                "message activity",
+                {"and": [{"message": {"type": "opened"}}]},
+                ["message activity, such as opened or clicked"],
+            ),
+            (
+                "an operator that is not a string",
+                {"and": [_attribute_rule({"field": "plan", "operator": ["eq"], "value": "trial"})]},
+                ["plan (an unsupported operator)"],
+            ),
+            ("no rules", {}, ["the segment has no rules"]),
+            ("an empty group", {"and": []}, ["the segment has no rules"]),
+            (
+                "a negated group",
+                {"and": [{"not": {"or": [_attribute_rule({"field": "plan", "value": "trial"})]}}]},
+                ["a negated group of rules"],
+            ),
+        ]
+    )
+    def test_segment_with_any_untranslatable_rule_makes_no_cohort(
+        self, _name: str, rules: dict[str, Any], untranslated: list[str]
+    ) -> None:
+        translated = segment_cohort_filters(rules)
+
+        assert translated.filters is None
+        assert list(translated.untranslated) == untranslated
+
+    @parameterized.expand(
+        [
+            ("outer inverse", {**_attribute_rule({"field": "plan", "value": "trial"}), "inverse": True}, "not_regex"),
+            ("inner inverse", _attribute_rule({"field": "plan", "value": "trial", "inverse": True}), "not_regex"),
+            ("not wrapper", {"not": _attribute_rule({"field": "plan", "value": "trial"})}, "not_regex"),
+            (
+                "not wrapper around an inner inverse",
+                {"not": _attribute_rule({"field": "plan", "value": "trial", "inverse": True})},
+                "regex",
+            ),
+        ]
+    )
+    def test_negated_segment_rules_keep_their_audience(self, _name: str, rule: dict[str, Any], operator: str) -> None:
+        filters = segment_cohort_filters({"and": [rule]}).filters
+
+        assert filters is not None
+        assert filters["properties"]["values"][0]["values"] == [
+            {"key": "plan", "type": "person", "operator": operator, "value": "^[tT][rR][iI][aA][lL]$"}
+        ]
+
+    @parameterized.expand(
+        [
+            ("country code", "de", ["DE", "de", "De"], ["DEU", "d"]),
+            ("accents and emoji", "zoë 🚀", ["Zoë 🚀", "ZOË 🚀"], ["Zoe 🚀"]),
+            ("sharp s", "straße", ["STRAẞE", "Straße"], ["STRASSE"]),
+            (
+                "regex characters",
+                "a.b+(c) #1 & ~x-y",
+                ["A.B+(C) #1 & ~X-Y"],
+                ["aXb+(c) #1 & ~x-y", "a.bb(c) #1 & ~x-y"],
+            ),
+        ]
+    )
+    def test_segment_values_match_without_case(
+        self, _name: str, value: str, matching: list[str], not_matching: list[str]
+    ) -> None:
+        filters = segment_cohort_filters({"and": [_attribute_rule({"field": "country", "value": value})]}).filters
+
+        assert filters is not None
+        pattern = filters["properties"]["values"][0]["values"][0]["value"]
+        assert [bool(re.search(pattern, candidate)) for candidate in matching + not_matching] == [True] * len(
+            matching
+        ) + [False] * len(not_matching)
+
+    @parameterized.expand(
+        [
+            ("conditions that are not an object", {"conditions": ["plan"]}, "conditions"),
+            ("conditions over the size limit", {"conditions": {"and": [{"x": "y" * 100_000}]}}, "conditions"),
+            ("an id over 200 characters", {"id": "9" * 201}, "id"),
+        ]
+    )
+    def test_rejects_malformed_segments(self, _name: str, change: dict[str, Any], field: str) -> None:
+        segment = {"id": "16", "name": "Active trials", "type": "dynamic", **change}
+        serializer = CustomerioSegmentSerializer(data=segment)
+
+        assert not serializer.is_valid()
+        assert list(serializer.errors) == [field]
+
     def test_decodes_url_encoded_and_plain_base64(self) -> None:
         condition = [{"type": "attribute", "field": "url", "operator": "eq", "value": "https://example.com/a%20b&c"}]
         plain = base64.b64encode(json.dumps(condition).encode()).decode()
@@ -527,6 +945,22 @@ class TestCustomerioLiquid(SimpleTestCase):
     def test_rewrites_globals(self, _name: str, source: str, expected: str) -> None:
         assert liquid.rewrite(source, {}).text == expected
 
+    def test_removes_tags_that_would_stop_the_email(self) -> None:
+        rewritten = liquid.rewrite(
+            '<a href="{% view_in_browser_url %}">View</a> {{ customer.name | titlecase }} {% unsubscribe %} '
+            '<a href="{%- cio_link track:true url:https://example.com/a%20b -%}">Go</a>{% countdown "50% off" %}'
+            '{% cio_link url:"https://example.com/{{ customer.id }}" %}{% cio_link url: customer.link %}',
+            {},
+        )
+
+        assert rewritten.text == (
+            '<a href="">View</a> {{ person.properties.name | titlecase }} '
+            '<a href="{{ unsubscribe_url }}">unsubscribe</a> <a href="https://example.com/a%20b">Go</a>'
+            "https://example.com/{{ event.distinct_id }}"
+        )
+        assert rewritten.removed_tags == ("cio_link", "countdown", "view_in_browser_url")
+        assert rewritten.ignored_filters == ("titlecase",)
+
     def test_reports_globals_and_snippets_it_cannot_resolve(self) -> None:
         rewritten = liquid.rewrite('{{ journey.code }}{% snippet "legal" %}', {})
         assert rewritten.unsupported_globals == ("journey",)
@@ -567,13 +1001,6 @@ class TestWorkflowImportAPI(APIBaseTest):
         flag.start()
         self.addCleanup(flag.stop)
 
-    def test_import_needs_the_feature_flag(self) -> None:
-        with patch("posthoganalytics.feature_enabled", return_value=False):
-            response = self._post({"source": "customerio", "campaigns": [], "dry_run": False})
-
-        assert response.status_code == 403
-        assert response.json()["code"] == "feature_flag_required"
-
     def _post(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
 
@@ -610,6 +1037,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             team=self.team,
             name="Beta list",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
             last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),
             filters={
@@ -621,14 +1049,246 @@ class TestWorkflowImportAPI(APIBaseTest):
         )
         source = _onboarding_campaign()
         campaign = {**source.campaign, "type": "seg_attr", "trigger": {"and": [{"segment": {"id": 7}}]}}
-        result = self._import(
-            campaigns=[{"campaign": campaign, "actions": source.actions, "templates": list(source.templates.values())}],
-            segment_cohorts={"7": cohort.id},
+        rules = {"and": [_attribute_rule({"field": "plan", "operator": "eq", "value": "pro"})]}
+        response = self._post(
+            {
+                "source": "customerio",
+                "campaigns": [
+                    {"campaign": campaign, "actions": source.actions, "templates": list(source.templates.values())}
+                ],
+                "segment_cohorts": {"7": cohort.id},
+                "segments": [{"id": "7", "name": "Beta list", "type": "dynamic", "conditions": rules}],
+            }
         )
 
+        assert response.status_code == 200, response.json()
+        result = response.json()["results"][0]
         assert result["status"] == "created", result["validation_errors"]
         trigger = HogFlow.objects.get(pk=result["workflow_id"]).trigger
         assert trigger["cohort_id"] == cohort.id
+        assert response.json()["segment_cohorts"] == []
+        assert self._imported_cohorts() == []
+
+    def _segment_import(self, key: str | None = None, **overrides: Any) -> dict[str, Any]:
+        source = _onboarding_campaign()
+        segment_trigger = {
+            **source.campaign,
+            "id": "50",
+            "type": "seg_attr",
+            "trigger": {"and": [{"segment": {"id": 16}}]},
+        }
+        branch_on_segment = [
+            {**action, "conditions": _encode([{"type": "segments", "segments": [16]}])}
+            if action["id"] == "6"
+            else action
+            for action in source.actions
+        ]
+        templates = list(source.templates.values())
+        body = {
+            "source": "customerio",
+            "campaigns": [
+                {"campaign": segment_trigger, "actions": source.actions, "templates": templates},
+                {"campaign": source.campaign, "actions": branch_on_segment, "templates": templates},
+            ],
+            "segments": [
+                {
+                    "id": "16",
+                    "name": "Active trials",
+                    "type": "dynamic",
+                    "conditions": {"and": [_attribute_rule({"field": "plan", "operator": "eq", "value": "trial"})]},
+                }
+            ],
+            **overrides,
+        }
+        headers = {"authorization": f"Bearer {key}"} if key else {}
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST=str(self.team.id)):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/workflow_imports/", body, format="json", headers=headers
+            )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    def _imported_cohorts(self) -> list[Cohort]:
+        return list(Cohort.objects.filter(team=self.team, description__startswith="Imported from Customer.io"))
+
+    def test_segment_rules_become_one_realtime_cohort_that_reimports_reuse(self) -> None:
+        # Segment 1's cohort must not stand in for segment 16.
+        Cohort.objects.create(team=self.team, name="Other", description="Imported from Customer.io segment 1.")
+
+        preview = self._segment_import(dry_run=True)
+        assert [item["status"] for item in preview["segment_cohorts"]] == ["would_create"]
+        assert [result["status"] for result in preview["results"]] == ["preview", "preview"]
+        assert len(self._imported_cohorts()) == 1
+        preview_notes = [note["message"] for result in preview["results"] for note in result["notes"]]
+        assert any("Importing for real creates the realtime cohort" in note for note in preview_notes)
+        assert not any("Create a realtime cohort with these conditions" in note for note in preview_notes)
+
+        first = self._segment_import()
+        second = self._segment_import()
+
+        cohort = Cohort.objects.get(team=self.team, description__startswith="Imported from Customer.io segment 16.")
+        assert (cohort.name, cohort.cohort_type, cohort.is_static) == ("Active trials", CohortType.REALTIME, False)
+        assert [(item["status"], item["cohort_id"]) for item in first["segment_cohorts"]] == [("created", cohort.id)]
+        assert [(item["status"], item["cohort_id"]) for item in second["segment_cohorts"]] == [("reused", cohort.id)]
+        assert len(self._imported_cohorts()) == 2
+        trigger_flow, branch_flow = (HogFlow.objects.get(pk=result["workflow_id"]) for result in second["results"])
+        assert trigger_flow.trigger == {"type": "cohort", "cohort_id": cohort.id, "transition": "entered"}
+        branch = next(action for action in branch_flow.actions if action["type"] == "conditional_branch")
+        assert {"key": "id", "type": "cohort", "operator": "in", "value": cohort.id} in branch["config"]["conditions"][
+            0
+        ]["filters"]["properties"]
+
+        # A caller without cohort access must not learn a teammate's name for the cohort.
+        Cohort.objects.filter(pk=cohort.pk).update(name="Renamed by a teammate")
+        renamed = self._segment_import()
+        Cohort.objects.filter(pk=cohort.pk).update(is_static=True)
+        made_static = self._segment_import()
+
+        assert [item["status"] for item in renamed["segment_cohorts"]] == ["reused"]
+        assert [item["status"] for item in made_static["segment_cohorts"]] == ["not_converted"]
+        notes = [note["message"] for run in (renamed, made_static) for r in run["results"] for note in r["notes"]]
+        assert notes and not any("Renamed by a teammate" in note for note in notes)
+
+        Cohort.objects.filter(pk=cohort.pk).update(deleted=True)
+        after_delete = self._segment_import()
+
+        assert [item["status"] for item in after_delete["segment_cohorts"]] == ["created"]
+        assert after_delete["segment_cohorts"][0]["cohort_id"] not in (None, cohort.id)
+
+    @parameterized.expand([("preview", True, "would_create"), ("import", False, "created")])
+    def test_one_import_creates_at_most_the_cohort_budget(self, _name: str, dry_run: bool, first: str) -> None:
+        source = _onboarding_campaign()
+        templates = list(source.templates.values())
+        rules = {"and": [_attribute_rule({"field": "plan", "operator": "eq", "value": "trial"})]}
+        campaigns: list[dict[str, Any]] = [
+            {
+                "campaign": {
+                    **source.campaign,
+                    "id": f"5{segment}",
+                    "type": "seg_attr",
+                    "trigger": {"and": [{"segment": {"id": segment}}]},
+                },
+                "actions": source.actions,
+                "templates": templates,
+            }
+            for segment in (16, 17)
+        ]
+        segments = [{"id": str(segment), "name": "", "type": "dynamic", "conditions": rules} for segment in (16, 17)]
+        with patch(
+            "products.workflows.backend.presentation.views.workflow_import_drafts.MAX_NEW_COHORTS_PER_IMPORT", 1
+        ):
+            response = self._segment_import(campaigns=campaigns, segments=segments, dry_run=dry_run)
+
+        assert [item["status"] for item in response["segment_cohorts"]] == [first, "not_converted"]
+        assert "creates at most 1 cohorts" in response["segment_cohorts"][1]["reason"]
+
+    def test_segment_cohort_refused_at_the_plan_limit_reports_the_limit(self) -> None:
+        with (
+            self.settings(REALTIME_COHORT_DEFAULT_MAX_COHORTS=0),
+            patch("posthog.event_usage.report_user_action") as report_user_action,
+        ):
+            response = self._segment_import()
+
+        assert [item["status"] for item in response["segment_cohorts"]] == ["not_converted"]
+        assert [
+            {key: call.args[2][key] for key in ("limit", "allowed", "used", "source")}
+            for call in report_user_action.call_args_list
+            if call.args[1] == "cohort realtime limit reached"
+        ] == [{"limit": "cohorts", "allowed": 0, "used": 0, "source": "workflow_import"}]
+
+    def test_segment_only_in_an_exit_condition_makes_no_cohort(self) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "global_exit_conditions": {"and": [{"segment": {"id": 16}}]}}
+        response = self._segment_import(
+            campaigns=[{"campaign": campaign, "actions": source.actions, "templates": list(source.templates.values())}]
+        )
+
+        assert response["segment_cohorts"] == []
+        assert self._imported_cohorts() == []
+
+    @parameterized.expand(
+        [
+            ("eq", {"field": "plan", "operator": "eq", "value": "trial"}),
+            ("not eq", {"field": "plan", "operator": "!eq", "value": "trial"}),
+            ("contains", {"field": "email", "operator": "contains", "value": "@example.com"}),
+            ("not contains", {"field": "email", "operator": "!contains", "value": "@example.com"}),
+            ("greater than", {"field": "seats", "operator": "gt", "value": "5"}),
+            ("less than", {"field": "seats", "operator": "lt", "value": "5"}),
+            ("exists", {"field": "email", "operator": "exists"}),
+            ("does not exist", {"field": "email", "operator": "!exists"}),
+            ("between", {"field": "seats", "operator": "bw", "value": "1", "value2": "9"}),
+            ("after a date", {"field": "created_at", "operator": "timestamp_gta", "value": "1767225600"}),
+            ("before a date", {"field": "created_at", "operator": "timestamp_lta", "value": "1767225600"}),
+            (
+                "between dates",
+                {"field": "created_at", "operator": "timestamp_bw", "value": "1767225600", "value2": "1769904000"},
+            ),
+        ]
+    )
+    def test_each_translated_operator_makes_a_realtime_cohort(self, _name: str, attribute: dict[str, Any]) -> None:
+        filters = segment_cohort_filters({"and": [_attribute_rule(attribute)]}).filters
+        assert filters is not None
+
+        _, cohort_type, errors = validate_filters_and_compute_realtime_support(filters, self.team)
+        assert (cohort_type, errors) == (CohortType.REALTIME, None)
+
+    def test_segment_name_longer_than_a_cohort_name_is_cut(self) -> None:
+        rules = {"and": [_attribute_rule({"field": "plan", "operator": "eq", "value": "trial"})]}
+        segment = {"id": "16", "name": "x" * 450, "type": "dynamic", "conditions": rules}
+
+        response = self._segment_import(segments=[segment])
+
+        assert [item["status"] for item in response["segment_cohorts"]] == ["created"]
+        assert [cohort.name for cohort in self._imported_cohorts()] == ["x" * 400]
+
+    @parameterized.expand(
+        [
+            ("a rule with no cohort equivalent", {"untranslatable": True}, "plan changed"),
+            ("an API key without the cohort scope", {"scopes": ["hog_flow:write"]}, "cohort:write"),
+            ("a user without cohort access", {"cohort_access": False}, "edit access to cohorts"),
+            ("a project without realtime cohorts", {"realtime": False}, "Realtime cohorts aren't available"),
+            ("an organization without cohort triggers", {"cohort_triggers": False}, "Cohort triggers aren't available"),
+        ]
+    )
+    def test_segment_that_cannot_become_a_cohort_keeps_the_note(
+        self, _name: str, case: dict[str, Any], reason: str
+    ) -> None:
+        key = None
+        if "scopes" in case:
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="key", user=self.user, secure_value=hash_key_value(key), scopes=case["scopes"]
+            )
+            self.client.logout()
+        overrides: dict[str, Any] = {}
+        if case.get("untranslatable"):
+            rules = {"and": [{"event": {"type": "attribute_change", "name": "plan"}, "times": 1, "within": 0}]}
+            overrides["segments"] = [{"id": "16", "name": "Active trials", "type": "dynamic", "conditions": rules}]
+        cohort_access = case.get("cohort_access", True)
+        cohort_triggers = case.get("cohort_triggers", True)
+        with (
+            patch(
+                "products.workflows.backend.presentation.views.workflow_import_drafts.UserAccessControl.check_access_level_for_resource",
+                side_effect=lambda resource, *_args, **_kwargs: cohort_access or resource != "cohort",
+            ),
+            patch(
+                "products.workflows.backend.presentation.views.workflow_import_drafts.realtime_cohorts_available",
+                return_value=case.get("realtime", True),
+            ),
+            patch(
+                "products.workflows.backend.presentation.views.workflow_import_drafts.cohort_conditions_rolled_out",
+                return_value=cohort_triggers,
+            ),
+        ):
+            response = self._segment_import(key=key, **overrides)
+
+        assert [item["status"] for item in response["segment_cohorts"]] == ["not_converted"]
+        assert reason in response["segment_cohorts"][0]["reason"]
+        assert self._imported_cohorts() == []
+        trigger_result = response["results"][0]
+        assert trigger_result["status"] == "created", trigger_result["validation_errors"]
+        assert any(reason in note["message"] for note in trigger_result["notes"])
+        assert HogFlow.objects.get(pk=trigger_result["workflow_id"]).trigger["type"] == "event"
 
     def test_reimport_leaves_a_workflow_the_user_cannot_edit(self) -> None:
         first = self._import()
@@ -645,6 +1305,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         [
             ("templates not a container", {"templates": "invalid"}),
             ("campaign id too long", {"campaign_id": "9" * 201}),
+            ("resend source", {"source": "resend"}),
         ]
     )
     def test_rejects_malformed_campaigns_before_saving(self, _name: str, change: dict[str, Any]) -> None:
@@ -653,7 +1314,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         entry: dict[str, Any] = {"campaign": campaign, "actions": source.actions}
         if "templates" in change:
             entry["templates"] = change["templates"]
-        body = {"source": "customerio", "campaigns": [entry]}
+        body = {"source": change.get("source", "customerio"), "campaigns": [entry]}
         response = self._post(body)
 
         assert response.status_code == 400
@@ -713,7 +1374,15 @@ class TestWorkflowImportAPI(APIBaseTest):
                 "body": "<p>Fetched {{customer.first_name}}</p>{{ snippets.signature }}",
                 "from_id": 4,
             },
-            {"id": 5, "type": "email", "subject": "Tips", "body": "<p>Tips</p>"},
+            {"id": 5, "type": "email", "subject": "Consejos", "body": "<p>Consejos</p>", "language": "es"},
+            {
+                "id": 5,
+                "type": "email",
+                "subject": "Tips",
+                "body": "<p>Tips</p>",
+                "language": "",
+                "bcc": "a@example.com",
+            },
         ]
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
@@ -754,7 +1423,10 @@ class TestWorkflowImportAPI(APIBaseTest):
         )
         assert welcome["inputs"]["email"]["value"]["from"]["email"] == "team@example.com"
         assert welcome["message_category_type"] == "marketing"
-        assert flow_actions["cio_5"]["config"]["inputs"]["email"]["value"]["subject"] == "Tips"
+        tips = flow_actions["cio_5"]["config"]["inputs"]["email"]["value"]
+        assert (tips["subject"], tips["bcc"]) == ("Tips", "a@example.com")
+        assert any(note["step_id"] == "cio_5" and "in es." in note["message"] for note in result["notes"])
+        assert any("plain text" in note["message"] for note in result["notes"])
         # Template 13 has no App API action with its step's id, so it still asks for content.
         assert any(note["step_id"] == "cio_7" and "content" in note["message"] for note in result["notes"])
         assert all(call.kwargs["headers"]["Authorization"] == "Bearer k" for call in mock_get.call_args_list)
@@ -779,14 +1451,14 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert result["status"] == "created", result["validation_errors"]
         assert any("could not read this automation's messages" in note["message"] for note in result["notes"])
 
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_copies_customerio_email_images_into_the_media_library(self, mock_get: MagicMock) -> None:
         png = io.BytesIO()
         Image.new("RGB", (3, 2)).save(png, "PNG")
         hero = "https://userimg-assets.customeriomail.com/images/client-env-1/hero.png"
         gone = "https://userimg-assets.customeriomail.com/images/client-env-1/gone.png"
         # A longer URL that starts with `hero`, and one whose query the HTML escapes.
-        hero_webp, sized = f"{hero}.webp", f"{hero}?w=1&amp;h=2"
+        hero_webp, sized = f"{hero}.webp", f"{hero}?w=1(2&amp;h=2"
         logo = "https://userimg-assets.customeriomail.com/images/client-env-1/logo(1).png"
         # Neither may be requested: one only has an address at send time, one unescapes to another host.
         templated = "https://userimg-assets.customeriomail.com/images/client-env-1/v.png?v={{ person.properties.v }}"
@@ -794,7 +1466,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         lookalike = "https://userimg-assets.customeriomaİl.com/a.png"
         guide = "https://userimg-assets.customeriomail.com/files/client-env-1/guide.pdf"
         stalled = "https://userimg-assets.customeriomail.com/images/client-env-1/stalled.png"
-        served = {hero, hero_webp, f"{hero}?w=1&h=2", logo}
+        served = {hero, hero_webp, f"{hero}?w=1(2&h=2", logo}
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
             response = MagicMock(status_code=200 if url in served or url == stalled else 404)
@@ -811,9 +1483,9 @@ class TestWorkflowImportAPI(APIBaseTest):
             "11": {
                 **source.templates["11"],
                 "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
-                f'<img src="{hero_webp}"><img src="{sized}"><div style="background: url({logo})"></div>'
+                f'<img src="{hero_webp}"><img src="{sized}"><style>.a{{background:url({logo})}}.b{{background:url(&quot;{logo}&quot;)}}</style>'
                 f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-                f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2"><img src="{stalled}">',
+                f'<a href="{guide}">Guide</a><img src="{hero}?w=1(2&h=2"><img src="{stalled}">',
             },
         }
         campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
@@ -842,14 +1514,14 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert html == (
             '<div style="font-family: Arial, Helvetica, sans-serif;">'
             f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
-            f'<img src="{urls[1]}"><img src="{urls[2]}"><div style="background: url({urls[3]})"></div>'
+            f'<img src="{urls[1]}"><img src="{urls[2]}"><style>.a{{background:url({urls[3]})}}.b{{background:url(&quot;{urls[3]}&quot;)}}</style>'
             f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
             f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}"></div>'
         )
         requested = [call.args[0] for call in mock_get.call_args_list]
         assert "evil.example.com" not in " ".join(requested)
         assert guide not in requested
-        assert requested.count(f"{hero}?w=1&h=2") == 1
+        assert requested.count(f"{hero}?w=1(2&h=2") == 1
         assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
         design = json.dumps(
             next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
@@ -874,7 +1546,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_no_image_downloads_start_after_the_deadline(self, mock_get: MagicMock) -> None:
         source = _onboarding_campaign()
         image = "https://userimg-assets.customeriomail.com/images/client-env-1/late.png"
@@ -893,7 +1565,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             ("a user without media access", ["*"], False),
         ]
     )
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_no_images_are_copied_without_media_access(
         self, _name: str, scopes: list[str], media_access: bool, mock_get: MagicMock
     ) -> None:

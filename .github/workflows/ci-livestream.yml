@@ -6,10 +6,14 @@ on:
             - master
         paths:
             - '.github/workflows/ci-livestream.yml'
+            - '.github/workflows/ci-livestream-tui.yml'
+            - '.golangci.*'
             - 'livestream/**'
     pull_request:
         paths:
             - '.github/workflows/ci-livestream.yml'
+            - '.github/workflows/ci-livestream-tui.yml'
+            - '.golangci.*'
             - 'livestream/**'
 
 concurrency:
@@ -29,7 +33,9 @@ jobs:
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
               uses: actions/checkout@v6.0.2
               with:
-                  sparse-checkout: livestream
+                  sparse-checkout: |
+                      livestream
+                      .golangci.*
                   sparse-checkout-cone-mode: false
 
             - name: Set up Go

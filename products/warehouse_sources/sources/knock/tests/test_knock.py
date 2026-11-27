@@ -6,13 +6,16 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.knock._config import KnockSourceConfig
 from products.warehouse_sources.sources.knock.knock import (
     NO_AUDIENCE_KEYS_ERROR,
+    NO_FEED_CHANNEL_IDS_ERROR,
     NO_OBJECT_COLLECTIONS_ERROR,
+    NO_SERVICE_TOKEN_ERROR,
     KnockResumeConfig,
     get_resource,
     validate_credentials,
 )
 from products.warehouse_sources.sources.knock.settings import ENDPOINTS_CONFIG
 from products.warehouse_sources.sources.knock.source import KnockSource
+from products.warehouse_sources.sources.sdk import Resource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
@@ -45,10 +48,23 @@ class TestGetResource:
 
 class TestKnockSourceTransport:
     @staticmethod
-    def _driver(object_collections: str | None = None, audience_keys: str | None = None) -> SourceDriver:
+    def _driver(
+        object_collections: str | None = None,
+        audience_keys: str | None = None,
+        in_app_feed_channel_ids: str | None = None,
+        service_token: str | None = "knock_st_test",
+        management_environment: str | None = None,
+    ) -> SourceDriver:
         return SourceDriver(
             KnockSource(),
-            KnockSourceConfig(api_key="sk_test", object_collections=object_collections, audience_keys=audience_keys),
+            KnockSourceConfig(
+                api_key="sk_test",
+                object_collections=object_collections,
+                audience_keys=audience_keys,
+                in_app_feed_channel_ids=in_app_feed_channel_ids,
+                service_token=service_token,
+                management_environment=management_environment,
+            ),
         )
 
     @parameterized.expand(
@@ -113,6 +129,11 @@ class TestKnockSourceTransport:
             ("message_events", ["inserted_at"], ["message_id", "id"]),
             ("message_delivery_logs", ["inserted_at"], ["message_id", "id"]),
             ("objects", None, ["collection", "id"]),
+            ("audit_logs", ["inserted_at"], ["id"]),
+            ("channels", None, ["id"]),
+            # Workflow and audience keys repeat across environments.
+            ("workflows", None, ["environment", "key"]),
+            ("audiences", None, ["environment", "key"]),
         ]
     )
     def test_source_response_partitioning_and_sort_mode(
@@ -307,26 +328,143 @@ class TestKnockSourceTransport:
 
     @parameterized.expand(
         [
-            ("objects", None, NO_OBJECT_COLLECTIONS_ERROR),
-            ("objects", "", NO_OBJECT_COLLECTIONS_ERROR),
-            ("objects", " , ", NO_OBJECT_COLLECTIONS_ERROR),
-            ("audience_members", None, NO_AUDIENCE_KEYS_ERROR),
-            ("audience_members", " , ", NO_AUDIENCE_KEYS_ERROR),
+            ("objects", "object_collections", None, NO_OBJECT_COLLECTIONS_ERROR),
+            ("objects", "object_collections", "", NO_OBJECT_COLLECTIONS_ERROR),
+            ("objects", "object_collections", " , ", NO_OBJECT_COLLECTIONS_ERROR),
+            ("audience_members", "audience_keys", None, NO_AUDIENCE_KEYS_ERROR),
+            ("audience_members", "audience_keys", " , ", NO_AUDIENCE_KEYS_ERROR),
+            ("user_feed_items", "in_app_feed_channel_ids", None, NO_FEED_CHANNEL_IDS_ERROR),
+            ("user_feed_items", "in_app_feed_channel_ids", " , ", NO_FEED_CHANNEL_IDS_ERROR),
         ]
     )
     def test_keyed_table_without_keys_fails_with_actionable_error(
-        self, endpoint: str, keys: str | None, expected_error: str
+        self, endpoint: str, field: str, keys: str | None, expected_error: str
     ) -> None:
-        # Each table reads its own field, so the other field's keys must not stand in for it.
-        driver = (
-            self._driver(object_collections=keys, audience_keys="beta")
-            if endpoint == "objects"
-            else self._driver(object_collections="accounts", audience_keys=keys)
-        )
-        result = driver.run(endpoint, [])
+        # Each table reads its own field, so the other fields' keys must not stand in for it.
+        fields: dict[str, str | None] = {
+            "object_collections": "accounts",
+            "audience_keys": "beta",
+            "in_app_feed_channel_ids": "chan-1",
+        }
+        fields[field] = keys
+        result = self._driver(**fields).run(endpoint, [])
 
         assert isinstance(result.raised, ValueError)
         assert str(result.raised) == expected_error
+
+    def test_feed_items_walk_users_per_configured_channel(self) -> None:
+        feed_page = ScriptedResponse(
+            json={"entries": [{"id": "msg_1"}], "meta": {"total_count": 1}, "page_info": {"after": None}}
+        )
+        result = self._driver(in_app_feed_channel_ids="chan-1, chan/2").run(
+            "user_feed_items",
+            [
+                _page("users", [{"id": "team/jane"}], after=None),
+                feed_page,
+                _page("users", [{"id": "team/jane"}], after=None),
+                feed_page,
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/users",
+            "/v1/users/team%2Fjane/feeds/chan-1",
+            "/v1/users",
+            "/v1/users/team%2Fjane/feeds/chan%2F2",
+        ]
+        # The feed hides archived items unless asked, which a full refresh would drop.
+        assert [request.param("archived") for request in result.requests[1::2]] == ["include", "include"]
+        assert [request.param("page_size") for request in result.requests] == ["50"] * 4
+        assert [(row["channel_id"], row["user_id"], row["id"]) for row in result.rows] == [
+            ("chan-1", "team/jane", "msg_1"),
+            ("chan/2", "team/jane", "msg_1"),
+        ]
+        # A checkpoint would resume as an append and repeat a half-read channel, so a hand-off
+        # must restart the run as a fresh full refresh.
+        assert result.saved_states == []
+        # Only a framework `Resource` gets per-page safe points through users with empty feeds.
+        assert result.response is not None
+        assert isinstance(result.response.items(), Resource)
+
+    def test_feed_items_fail_on_unknown_channel(self) -> None:
+        # An unknown user gets an empty feed, so a 404 can only mean a wrong channel id. Ignoring
+        # it would sync an empty table with no error.
+        result = self._driver(in_app_feed_channel_ids="not-a-channel").run(
+            "user_feed_items",
+            [
+                _page("users", [{"id": "u1"}], after=None),
+                ScriptedResponse(status=404, json={"code": "resource_missing", "message": "Not found"}),
+            ],
+        )
+
+        assert result.raised is not None
+        assert result.rows == []
+
+    @parameterized.expand(
+        [
+            # The configured environment only applies to the environment-scoped tables.
+            ("workflows", "production", {"limit", "after", "environment", "hide_uncommitted_changes"}),
+            ("audiences", " production ", {"limit", "after", "environment", "hide_uncommitted_changes"}),
+            ("workflows", None, {"limit", "after", "hide_uncommitted_changes"}),
+            ("workflows", "  ", {"limit", "after", "hide_uncommitted_changes"}),
+            ("channels", "production", {"limit", "after"}),
+            ("audit_logs", "production", {"limit", "after"}),
+        ]
+    )
+    def test_management_tables_page_the_management_api_with_the_service_token(
+        self, endpoint: str, environment: str | None, expected_params: set[str]
+    ) -> None:
+        result = self._driver(management_environment=environment).run(
+            endpoint,
+            [
+                _page(endpoint, [{"id": "a", "key": "a"}], after="cursor-1"),
+                _page(endpoint, [{"id": "b", "key": "b"}], after=None),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a", "b"]
+        assert all(request.origin == "https://control.knock.app" for request in result.requests)
+        assert all(request.headers["authorization"] == "Bearer knock_st_test" for request in result.requests)
+        assert result.paths == [f"/v1/{endpoint}"] * 2
+        assert set(result.requests[1].query) == expected_params
+        assert result.params("limit") == ["100", "100"]
+        assert result.params("after") == [None, "cursor-1"]
+        if "environment" in expected_params:
+            assert result.params("environment") == ["production", "production"]
+        if "hide_uncommitted_changes" in expected_params:
+            assert result.params("hide_uncommitted_changes") == ["true", "true"]
+        assert result.saved_states == [KnockResumeConfig(after="cursor-1")]
+
+    @parameterized.expand(
+        [
+            ("incremental", "inserted_at", datetime(2026, 5, 1, 12, 30), "2026-05-01T12:30:00"),
+            ("full_refresh", None, None, None),
+        ]
+    )
+    def test_audit_logs_send_watermark_as_since(
+        self, _name: str, incremental_field: str | None, last_value: datetime | None, expected_since: str | None
+    ) -> None:
+        result = self._driver().run(
+            "audit_logs",
+            [_page("audit_logs", [{"id": "a1", "inserted_at": "2026-06-01T00:00:00Z"}], after=None)],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("since") == expected_since
+
+    @parameterized.expand([("none", None), ("empty", "")])
+    def test_management_table_without_service_token_fails_with_actionable_error(
+        self, _name: str, service_token: str | None
+    ) -> None:
+        result = self._driver(service_token=service_token).run("workflows", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == NO_SERVICE_TOKEN_ERROR
+        assert result.requests == []
 
 
 class TestValidateCredentials:
@@ -342,3 +480,28 @@ class TestValidateCredentials:
             assert validate_credentials("sk_test") == expected
         assert network.requests_log[0].path == "/v1/users"
         assert network.requests_log[0].param("page_size") == "1"
+
+    @parameterized.expand(
+        [
+            ("token_valid", 200, {}, (True, None)),
+            ("token_invalid", 401, {"message": "Invalid service token"}, (False, "Invalid service token")),
+            ("token_forbidden_no_body", 403, {}, (False, "Invalid Knock service token")),
+            ("server_error", 404, {}, (False, "Knock Management API returned an unexpected response (HTTP 404)")),
+        ]
+    )
+    def test_service_token_probed_after_api_key(
+        self, _name: str, status_code: int, body: dict[str, Any], expected: tuple[bool, str | None]
+    ) -> None:
+        responses = [ScriptedResponse(json={"entries": []}), ScriptedResponse(status=status_code, json=body)]
+        with scripted_network(responses) as network:
+            assert validate_credentials("sk_test", "knock_st_test") == expected
+        assert [(request.origin, request.path) for request in network.requests_log] == [
+            ("https://api.knock.app", "/v1/users"),
+            ("https://control.knock.app", "/v1/whoami"),
+        ]
+        assert network.requests_log[1].headers["authorization"] == "Bearer knock_st_test"
+
+    def test_invalid_api_key_skips_service_token_probe(self) -> None:
+        with scripted_network([ScriptedResponse(status=401, json={"message": "Invalid API key"})]) as network:
+            assert validate_credentials("sk_bad", "knock_st_test") == (False, "Invalid API key")
+        assert len(network.requests_log) == 1

@@ -1,179 +1,220 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, cn } from '@posthog/quill'
 
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
-import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
-import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityCard } from './AiVisibilityCard'
+import { AiVisibilitySetupWizard } from './AiVisibilitySetupWizard'
+import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
+import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
+import { ContentAutopilotEngineTopicHeatmap } from './ContentAutopilotEngineTopicHeatmap'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
+import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
+import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotMovers } from './ContentAutopilotMovers'
+import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
-import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
-import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
+import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
+import { ContentAutopilotPromptsOverviewSkeleton } from './ContentAutopilotPromptsOverviewSkeleton'
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
-import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
+import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
+import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { POSITION_DESCRIPTION } from './promptReport'
-import { promptSourcesContext } from './promptReportColumns'
-import { engineLabel } from './utils'
+import { engineTopicGrid, overviewTiles } from './promptsOverview'
+import { brandedAnswersNote, segmentPrompts, sortEngines, windowRange } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
-    const { overview, overviewLoading, overviewError, overviewKpis, hasChecks, citationQuery, sourcesQuery } =
-        useValues(contentAutopilotPromptsOverviewLogic)
-    const { loadPromptSetOverview, selectOverviewTopic, openOverviewSearchPrompt } = useActions(
+    const {
+        overview,
+        overviewLoading,
+        overviewError,
+        hasChecks,
+        chartMetric,
+        visibilityChart,
+        visibilityQuery,
+        sourcesQuery,
+    } = useValues(contentAutopilotPromptsOverviewLogic)
+    const { loadPromptSetOverview, selectOverviewTopic, openOverviewSearchPrompt, setChartMetric } = useActions(
         contentAutopilotPromptsOverviewLogic
     )
-    const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
-    const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { topic } = useValues(contentAutopilotFiltersLogic)
+    const { setupContext, wizardStep } = useValues(contentAutopilotSetupLogic)
 
     if (overviewError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
     }
     if (overviewError === 'failed') {
         return (
-            <LemonBanner
+            <AiVisibilityBanner
                 type="error"
                 action={{ children: 'Try again', onClick: loadPromptSetOverview, loading: overviewLoading }}
             >
                 Couldn't load the overview. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
-    if (!overview || !overviewKpis || !citationQuery || !sourcesQuery) {
-        return <LemonSkeleton className="h-32 w-full" />
+    if (wizardStep) {
+        return <AiVisibilitySetupWizard step={wizardStep} />
+    }
+    if (!setupContext || !overview || !visibilityChart || !visibilityQuery || !sourcesQuery) {
+        return <ContentAutopilotPromptsOverviewSkeleton />
+    }
+    const narrowed = overview.engine !== null || overview.topic !== null
+    if (!hasChecks && (narrowed || overview.branded_answers + overview.non_branded_answers > 0)) {
+        return (
+            <section className="flex flex-col gap-4" data-attr="content-autopilot-prompts-overview">
+                <Empty data-attr="content-autopilot-prompts-overview-segment-empty">
+                    <EmptyHeader>
+                        <EmptyTitle>
+                            No answers to {segmentPrompts(overview.branded)} {windowRange(overview)}
+                            {narrowed ? ' that match these filters' : ''}
+                        </EmptyTitle>
+                        <EmptyDescription>Choose other filters above to see the other answers.</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </section>
+        )
     }
     if (!hasChecks) {
-        return overview.prompts_tracked === 0 ? (
-            <LemonCard
-                hoverEffect={false}
-                className="p-6 text-center"
-                data-attr="content-autopilot-prompts-overview-no-prompts"
-            >
-                <h3 className="m-0">No prompts yet</h3>
-                <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                    Add the questions your buyers ask AI assistants. Claude can suggest them from your site, or you can
-                    write your own. PostHog checks them once a day and shows the results here.
-                </p>
-                <div className="mt-4 flex justify-center gap-2">
-                    <ContentAutopilotPromptSuggestButton type="primary" />
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlusSmall />}
-                        onClick={openAddPrompts}
-                        data-attr="content-autopilot-prompts-overview-add"
-                    >
-                        Add my own
-                    </LemonButton>
-                </div>
-            </LemonCard>
-        ) : (
-            <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-prompts-overview-empty">
-                <h4 className="m-0">No checks yet</h4>
-                <p className="m-0 mt-1 text-muted">The daily run fills this in.</p>
-            </LemonCard>
-        )
+        const paused = setupContext?.paused_prompts ?? 0
+        // The filter bar can hide every prompt from the overview's count, so the project's own count decides.
+        if ((setupContext?.active_prompts ?? overview.prompts_tracked) > 0) {
+            return <ContentAutopilotFirstRunCard prompts={setupContext?.active_prompts ?? overview.prompts_tracked} />
+        }
+        return <ContentAutopilotFirstRunCard prompts={paused} paused />
     }
 
-    const engineTotals = overview.engines.filter((engine) => engine.checks - engine.failed > 0)
+    const tiles = overviewTiles(overview)
+    // The tiles show only their value, so the answers they come from are in each rate's tooltip.
+    const base = [
+        brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed),
+        overview.current.failed
+            ? `${pluralize(overview.current.failed, 'check')} failed and ${overview.current.failed === 1 ? 'is' : 'are'} left out.`
+            : '',
+    ]
+        .filter(Boolean)
+        .join(' ')
+
+    // The chart's legend order, so an engine sits in the same place in the chart and the table.
+    const engineOrder = sortEngines(overview.engines.map(({ engine }) => engine))
+    const engines = overview.engines
+        .filter((engine) => engine.checks - engine.failed > 0)
+        .sort((a, b) => engineOrder.indexOf(a.engine) - engineOrder.indexOf(b.engine))
 
     return (
         <section
-            className="@container/prompts-overview flex flex-col gap-4"
+            className={cn(
+                '@container/prompts-overview flex flex-col gap-4 transition-opacity motion-reduce:transition-none',
+                // The numbers on screen belong to the previous filters until the new overview arrives.
+                overviewLoading && 'opacity-50'
+            )}
+            aria-busy={overviewLoading}
             data-attr="content-autopilot-prompts-overview"
         >
-            <div>
-                <h4 className="m-0">Last {OVERVIEW_DAYS} days, all engines</h4>
-                <p className="m-0 text-xs text-muted">Each number is compared with the {OVERVIEW_DAYS} days before.</p>
-            </div>
-            <div className="grid grid-cols-2 @3xl/prompts-overview:grid-cols-3 @7xl/prompts-overview:grid-cols-5 gap-3">
-                <ContentAutopilotPromptKpiCard
+            <ContentAutopilotStatStrip
+                className="grid-cols-2 @3xl/prompts-overview:grid-cols-4"
+                data-attr="content-autopilot-prompts-overview-kpis"
+            >
+                <ContentAutopilotKpiStat
                     label="Prompts tracked"
-                    description="Prompts that are on and not archived. The next daily run checks them."
-                    {...overviewKpis.promptsTracked}
+                    description="Paused and archived prompts don't count."
+                    value={tiles.prompts}
+                    onClick={() => setWorkspaceTab('prompts')}
                     data-attr="content-autopilot-prompts-overview-kpi-prompts"
                 />
-                <ContentAutopilotPromptKpiCard
-                    label="Checks run"
-                    description="One check is one prompt sent to one engine. Failed checks are counted here and left out of the rates."
-                    {...overviewKpis.checks}
-                    data-attr="content-autopilot-prompts-overview-kpi-checks"
-                />
-                <ContentAutopilotPromptKpiCard
-                    label="Mentioned in answers"
-                    description="Share of answers that name your brand, with or without a link. An answer that cites your site always counts as a mention."
-                    {...overviewKpis.mentionRate}
+                <ContentAutopilotKpiStat
+                    label="Visibility"
+                    description={`Share of answers that name your brand or link to your site. ${base}`}
+                    value={tiles.visibility}
+                    onClick={() => setChartMetric('mentioned')}
                     data-attr="content-autopilot-prompts-overview-kpi-mentioned"
                 />
-                <ContentAutopilotPromptKpiCard
+                <ContentAutopilotKpiStat
                     label="Cited as a source"
-                    description="Share of answers that link to a page on your site as a source, so people can click through to it."
-                    {...overviewKpis.citationRate}
+                    description={`Share of answers that link to a page on your site. ${base}`}
+                    value={tiles.cited}
+                    onClick={() => setChartMetric('cited')}
                     data-attr="content-autopilot-prompts-overview-kpi-cited"
                 />
-                <ContentAutopilotPromptKpiCard
+                <ContentAutopilotKpiStat
                     label="Average position"
-                    description={POSITION_DESCRIPTION}
-                    {...overviewKpis.position}
+                    description={`${POSITION_DESCRIPTION} ${base}`}
+                    value={tiles.position}
+                    onClick={() => setChartMetric('position')}
                     data-attr="content-autopilot-prompts-overview-kpi-position"
                 />
-            </div>
+            </ContentAutopilotStatStrip>
 
-            <ContentAutopilotPromptQueryTile
-                title="Cited as a source over time"
-                query={citationQuery}
-                uniqueKey="aeo-prompt-set-citations"
-                bodyClassName="h-72 p-2"
-                footer={
-                    engineTotals.length ? (
-                        <span className="flex flex-wrap gap-x-4 gap-y-1">
-                            {engineTotals.map((engine) => (
-                                <span key={engine.engine} className="whitespace-nowrap">
-                                    {engineLabel(engine.engine)}:{' '}
-                                    <span className="tabular-nums">
-                                        {engine.citation_rate === null ? '-' : percentage(engine.citation_rate, 0)}
-                                    </span>{' '}
-                                    of {pluralize(engine.checks - engine.failed, 'answer')}
-                                </span>
-                            ))}
-                        </span>
-                    ) : undefined
-                }
-                data-attr="content-autopilot-prompts-overview-citations-tile"
+            <ContentAutopilotVisibilityChart
+                chart={visibilityChart}
+                metric={chartMetric}
+                onMetricChange={setChartMetric}
+                query={visibilityQuery}
+                data-attr="content-autopilot-prompts-overview-visibility"
             />
 
+            <ContentAutopilotMovers />
+
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader title="Mentions by topic" />
+                <AiVisibilityCard title="By engine">
+                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-engines">
+                        <ContentAutopilotEngineTable engines={engines} />
+                    </div>
+                </AiVisibilityCard>
+                <AiVisibilityCard title="Visibility by topic">
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
                         <ContentAutopilotPromptsTopicTable
                             rows={overview.topics}
-                            selectedTopic={promptsTopic}
+                            selectedTopic={topic}
                             onSelect={selectOverviewTopic}
                         />
                     </div>
-                </PagePerformanceCard>
-                <ContentAutopilotPromptQueryTile
-                    title="Sites the engines cite most"
-                    query={sourcesQuery}
-                    uniqueKey="aeo-prompt-set-sources"
-                    context={promptSourcesContext}
-                    footer={`Your site: ${overview.target_domains.join(', ')}`}
-                    data-attr="content-autopilot-prompts-overview-sources-tile"
-                />
+                </AiVisibilityCard>
             </div>
 
-            <PagePerformanceCard className="min-w-0">
-                <PagePerformanceCardHeader title="What the engines searched for" />
-                <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
-                    <ContentAutopilotPromptsSearchTable
-                        rows={overview.top_searches}
-                        onOpenPrompt={openOverviewSearchPrompt}
-                    />
-                </div>
-            </PagePerformanceCard>
+            <ContentAutopilotEngineTopicHeatmap
+                grid={engineTopicGrid(overview)}
+                selectedTopic={topic}
+                onSelectTopic={selectOverviewTopic}
+            />
+
+            <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
+                <AiVisibilityCard
+                    title="Sites the engines cite most"
+                    actions={
+                        <ContentAutopilotOpenInsightButton
+                            query={sourcesQuery}
+                            data-attr="content-autopilot-prompts-overview-sources-tile-open-insight"
+                        />
+                    }
+                >
+                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-sources-tile">
+                        <ContentAutopilotCitedSitesTable
+                            domains={overview.top_domains}
+                            dateFrom={overview.window_from}
+                            dateTo={overview.window_to}
+                            branded={overview.branded}
+                        />
+                    </div>
+                </AiVisibilityCard>
+                <AiVisibilityCard title="What the engines searched for">
+                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
+                        <ContentAutopilotPromptsSearchTable
+                            rows={overview.top_searches}
+                            dateFrom={overview.window_from}
+                            dateTo={overview.window_to}
+                            branded={overview.branded}
+                            onOpenPrompt={openOverviewSearchPrompt}
+                        />
+                    </div>
+                </AiVisibilityCard>
+            </div>
         </section>
     )
 }

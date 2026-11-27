@@ -209,7 +209,9 @@ def _manager(*, deletion_floor: int | None = None, proof: ListingProof | None = 
     inputs.team_id = _TEAM_ID
     inputs.schema_id = _SCHEMA_ID
     inputs.reset_pipeline = False
-    return CDCSourceManager(inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor, proof=proof)
+    return CDCSourceManager(
+        inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor, proof=proof, generation_seen=0
+    )
 
 
 async def _collect(

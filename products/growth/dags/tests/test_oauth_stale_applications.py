@@ -10,6 +10,7 @@ import dagster
 from parameterized import parameterized
 
 from posthog.models import Organization, User
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthDeviceGrant, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization_provisioning import OrganizationProvisioning
 
@@ -138,6 +139,7 @@ class TestClearStaleOAuthApplications(TestCase):
             ("verified", {"is_verified": True}),
             ("provisioning_partner", {"is_provisioning_partner": True}),
             ("has_provisioning_config", {"_provisioning_config": {"signing": "required"}}),
+            ("manages_ema_issuers", {"can_manage_ema_issuer": True}),
         ]
     )
     def test_apps_outside_the_cleanup_scope_are_kept(self, _name, fields):
@@ -154,10 +156,18 @@ class TestClearStaleOAuthApplications(TestCase):
             partner=OrganizationProvisioning.Partner.PROVISIONING_API,
             application=referenced,
         )
+        ema_issuer_registrar = self._app()
+        IdentityProviderConfig.objects.create(
+            organization=organization,
+            config_scope="xaa",
+            id_jag_issuer_url="https://identity.example.com/issuers/1",
+            id_jag_registered_by_application=ema_issuer_registrar,
+        )
 
         self._run()
 
-        assert self._remaining(org_linked, referenced) == {org_linked.pk, referenced.pk}
+        kept = [org_linked, referenced, ema_issuer_registrar]
+        assert self._remaining(*kept) == {a.pk for a in kept}
 
     def test_dry_run_reports_without_deleting(self):
         app = self._app()

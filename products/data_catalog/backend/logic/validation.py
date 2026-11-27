@@ -36,6 +36,7 @@ _NODE_MODELS: dict[str, type[BaseModel]] = {
 }
 _INSIGHT_MODELS: dict[str, type[BaseModel]] = {"TrendsQuery": TrendsQuery, "FunnelsQuery": FunnelsQuery}
 _SUPPORTED_KINDS = {HOGQL_DEFINITION_KIND, *_NODE_MODELS, *_INSIGHT_MODELS}
+_INSIGHT_WRAPPER_KINDS = {"InsightVizNode", "DataVisualizationNode"}
 
 # A markdown definition is a bounded blob; keep it small so it stays a definition, not a document.
 MAX_MARKDOWN_DEFINITION_LENGTH = 20_000
@@ -125,10 +126,10 @@ def validate_metric_definition(definition: dict, team: Team, user: Optional[User
         # Agent-calculated definition: prose steps, not a query. Never upgrade()/schema-validate it.
         return _validate_markdown(definition)
 
-    if kind == "InsightVizNode":
+    if kind in _INSIGHT_WRAPPER_KINDS:
         source = definition.get("source")
         if not isinstance(source, dict):
-            _fail("InsightVizNode has no source query.", "Use the insight's inner query as the definition.")
+            _fail(f"{kind} has no source query.", "Use the insight's inner query as the definition.")
         return validate_metric_definition(source, team, user)
 
     # Reject unsupported kinds before upgrade() — upgrade runs kind-specific migrations that assume a
@@ -195,16 +196,16 @@ def _parse_hogql_definition(definition: dict) -> ast.SelectQuery | ast.SelectSet
         _fail("Could not parse the query.", "Check the SQL syntax.")
 
 
-def table_names_as_written(definition: dict) -> list[str]:
+def table_names_as_written(definition: dict, *, keep_table_functions: bool = False) -> list[str]:
     """The tables and views a HogQL definition names in its own query text.
 
     Collected before resolution, which replaces a non-materialized view with its body: a metric that
-    reads a view depends on the view, not on the view's own sources. Table functions are dropped:
-    they generate rows rather than read them, so they are not upstream of the metric. Not a
-    substitute for ``referenced_table_names``, which the catalog's denied-table filter needs
-    resolved.
+    reads a view depends on the view, not on the view's own sources. Table functions are dropped by
+    default: they generate rows rather than read them, so they are not upstream of the metric. An
+    access check keeps them, because a call such as ``a_view()`` reads that view. Not a substitute
+    for ``referenced_table_names``, which the catalog's denied-table filter needs resolved.
     """
-    collector = _TableReferenceCollector(skip_table_functions=True)
+    collector = _TableReferenceCollector(skip_table_functions=not keep_table_functions)
     collector.visit(_parse_hogql_definition(definition))
     return sorted(collector.tables)
 

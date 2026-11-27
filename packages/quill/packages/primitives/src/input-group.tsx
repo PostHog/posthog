@@ -1,9 +1,10 @@
+import './input-group.css'
+
 import { NumberField } from '@base-ui/react/number-field'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
 import { Button } from './button'
-import './input-group.css'
 import { Input } from './input'
 import { cn } from './lib/utils'
 import { Textarea } from './textarea'
@@ -65,7 +66,12 @@ const InputGroupAddon = React.forwardRef<
                 if ((e.target as HTMLElement).closest('button')) {
                     return
                 }
-                e.currentTarget.parentElement?.querySelector('input')?.focus()
+                // A rich text editor is a contenteditable, not an input, but it is the group's control all the same.
+                e.currentTarget.parentElement
+                    ?.querySelector<HTMLElement>(
+                        "[data-slot='input-group-control'], [contenteditable='true'], input:not([type='hidden'], [type='file'])"
+                    )
+                    ?.focus()
             }}
             {...props}
         />
@@ -113,21 +119,50 @@ const InputGroupText = React.forwardRef<HTMLSpanElement, React.ComponentProps<'s
     return <span ref={ref} className={cn('quill-input-group__text flex items-end gap-2', className)} {...props} />
 })
 
-const InputGroupInput = React.forwardRef<HTMLInputElement, Omit<React.ComponentProps<'input'>, 'size'>>(
-    ({ className, ...props }, ref) => {
+type InputGroupInputProps = Omit<React.ComponentProps<'input'>, 'size' | 'placeholder'> & {
+    /**
+     * A string is the native placeholder. A node renders in the input's own box, so it starts where the
+     * caret sits, and can hold markup or animation a native placeholder cannot. It is visual only, so give
+     * the input an `aria-label` too.
+     */
+    placeholder?: React.ReactNode
+    /** Disables the field and says why in a tooltip. Takes the place of `disabled` while set. */
+    disabledReason?: React.ReactNode
+}
+
+// The input always sits in the field, whatever the placeholder is, so changing the placeholder never
+// remounts the input and drops its focus.
+const InputGroupInput = React.forwardRef<HTMLInputElement, InputGroupInputProps>(
+    ({ className, placeholder, ...props }, ref) => {
+        const nativePlaceholder = typeof placeholder === 'string' ? placeholder : undefined
+        const richPlaceholder = placeholder != null && nativePlaceholder === undefined ? placeholder : null
         return (
-            <Input
-                ref={ref}
-                data-slot="input-group-control"
-                className={cn('quill-input-group__control', className)}
-                {...props}
-            />
+            <span data-slot="input-group-field" className="quill-input-group__field">
+                <Input
+                    ref={ref}
+                    data-slot="input-group-control"
+                    className={cn('quill-input-group__control', className)}
+                    // `:placeholder-shown` needs a native placeholder, so a rich one sets a blank string.
+                    placeholder={richPlaceholder ? ' ' : nativePlaceholder}
+                    {...props}
+                />
+                {richPlaceholder && (
+                    <span aria-hidden className="quill-input-group__placeholder">
+                        {richPlaceholder}
+                    </span>
+                )}
+            </span>
         )
     }
 )
 InputGroupInput.displayName = 'InputGroupInput'
 
-const InputGroupTextarea = React.forwardRef<React.ComponentRef<typeof Textarea>, React.ComponentProps<'textarea'>>(
+type InputGroupTextareaProps = React.ComponentProps<'textarea'> & {
+    /** Disables the field and says why in a tooltip. Takes the place of `disabled` while set. */
+    disabledReason?: React.ReactNode
+}
+
+const InputGroupTextarea = React.forwardRef<React.ComponentRef<typeof Textarea>, InputGroupTextareaProps>(
     function InputGroupTextarea({ className, ...props }, ref) {
         return (
             <Textarea
@@ -164,4 +199,12 @@ const InputGroupNumberInput = React.forwardRef<React.ComponentRef<typeof NumberF
     }
 )
 
-export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupInput, InputGroupNumberInput, InputGroupTextarea }
+export {
+    InputGroup,
+    InputGroupAddon,
+    InputGroupButton,
+    InputGroupText,
+    InputGroupInput,
+    InputGroupNumberInput,
+    InputGroupTextarea,
+}

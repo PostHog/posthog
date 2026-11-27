@@ -120,7 +120,6 @@ from posthog.session_recordings.session_recording_v2_service import list_blocks,
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
     filter_from_params_to_query,
-    gate_replay_relevance,
     query_as_params_to_dict,
     recordings_query_has_event_filters,
 )
@@ -1136,8 +1135,6 @@ class SessionRecordingViewSet(
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(params)
 
-                gate_replay_relevance(query, cast(User, request.user))
-
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
                         comment_session_ids = _get_session_ids_from_comment_search(self.team, query.comment_text)
@@ -2029,7 +2026,6 @@ class SessionRecordingViewSet(
 
         distinct_id = self._distinct_id_from_request(request)
         client = build_openai_client(
-            "django",
             ai_product="session_replay",
             distinct_id=distinct_id,
             properties={"ai_feature": "ai_regex", "team_id": str(self.team.id)},

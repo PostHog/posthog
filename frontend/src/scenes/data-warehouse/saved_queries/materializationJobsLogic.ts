@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import type { DataWarehouseSavedQueryUpdate } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import type { DataWarehouseSavedQuery } from '~/types'
 import { DataModelingSyncInterval, DataWarehouseSavedQueryIncrementalCheck } from '~/types'
@@ -158,20 +159,16 @@ export interface materializationJobsLogicActions {
     runDataWarehouseSavedQuerySuccess: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
-    updateDataWarehouseSavedQuery: (
-        view: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
-    ) => import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
+    updateDataWarehouseSavedQuery: (view: DataWarehouseSavedQueryUpdate) => DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailed: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
-        payload?:
-            | import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
-            | undefined
+        payload?: DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
-        payload?: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+        payload?: DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     clearSyncFrequencyDraft: () => {
         value: true

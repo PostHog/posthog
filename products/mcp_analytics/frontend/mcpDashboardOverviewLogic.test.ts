@@ -11,28 +11,25 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { MCPDashboardQuery, MCPDashboardSection } from '~/queries/schema/schema-general'
+import { MCPDashboardQuery, MCPDashboardSection, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { HARNESS_BY_LABEL, harnessMark } from './dashboard/harnessRegistry'
 import { mcpLeaderboardHomeLogic } from './leaderboardHome/mcpLeaderboardHomeLogic'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import {
-    type ActivityRow,
     type BucketRow,
-    buildDailyActivity,
     buildKPIs,
     rankToolsByErrorRate,
-    buildToolDailySeries,
-    type DashboardLayout,
+    rankToolsByP95,
+    toolRowsFromRankings,
     deltaPct,
     mcpDashboardOverviewLogic,
-    pickNotableSessions,
-    type SessionRow,
     type ToolRow,
-    type ToolDailyRow,
 } from './mcpDashboardOverviewLogic'
 
 jest.mock('lib/api')
@@ -67,10 +64,17 @@ function sectionResponse(sections: MCPDashboardSection[], respond: (section: MCP
     }
 }
 
+function isDashboardQuery(node: unknown): node is MCPDashboardQuery {
+    return (node as MCPDashboardQuery).kind === NodeKind.MCPDashboardQuery
+}
+
+// The shared filters load their facet lists through api.query too, so only dashboard queries reach `answer`.
+function mockDashboardQueries(answer: (query: MCPDashboardQuery) => Promise<unknown>): void {
+    mockApi.query.mockImplementation(async (node: any) => (isDashboardQuery(node) ? answer(node) : { results: [] }))
+}
+
 function mockSections(respond: (section: MCPDashboardSection) => Answer = () => []): void {
-    mockApi.query.mockImplementation(async (node: any) =>
-        sectionResponse((node as MCPDashboardQuery).sections, respond)
-    )
+    mockDashboardQueries(async ({ sections }) => sectionResponse(sections, respond))
 }
 
 interface PendingQueries {
@@ -81,10 +85,9 @@ interface PendingQueries {
 
 function deferQueries(): PendingQueries {
     const pending: { sections: MCPDashboardSection[]; resolve: (rows: unknown[]) => void }[] = []
-    mockApi.query.mockImplementation(
-        (node: any) =>
+    mockDashboardQueries(
+        ({ sections }) =>
             new Promise((resolve) => {
-                const { sections } = node as MCPDashboardQuery
                 pending.push({ sections, resolve: (rows) => resolve(sectionResponse(sections, () => rows)) })
             })
     )
@@ -96,14 +99,16 @@ function deferQueries(): PendingQueries {
 }
 
 function queriesSince(callIndex: number): MCPDashboardQuery[] {
-    return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as MCPDashboardQuery)
+    return mockApi.query.mock.calls
+        .slice(callIndex)
+        .map((call) => call[0])
+        .filter(isDashboardQuery)
 }
 
-function useLayout(layout: DashboardLayout, batched = true): void {
-    const flags: Record<string, boolean> = {
-        [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME]: layout === 'leaderboard',
-        [FEATURE_FLAGS.MCP_ANALYTICS_DASHBOARD_BATCH]: batched,
-    }
+const SECTION_COUNT = 11
+
+function useBatched(batched = true): void {
+    const flags: Record<string, boolean> = { [FEATURE_FLAGS.MCP_ANALYTICS_DASHBOARD_BATCH]: batched }
     featureFlagLogic.actions.setFeatureFlags(
         Object.keys(flags).filter((flag) => flags[flag]),
         flags
@@ -114,18 +119,6 @@ function timeToSeeDataEvents(): Record<string, any>[] {
     return (posthog.capture as jest.Mock).mock.calls
         .filter(([event]) => event === 'time to see data')
         .map(([, payload]) => payload)
-}
-
-function session(overrides: Partial<SessionRow> & { session_id: string }): SessionRow {
-    return {
-        tool_calls: 0,
-        errors: 0,
-        error_rate_pct: 0,
-        duration_seconds: 0,
-        distinct_tools: 0,
-        last_seen: '',
-        ...overrides,
-    }
 }
 
 describe('mcpDashboardOverviewLogic', () => {
@@ -142,6 +135,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Anthropic API',
             'Cowork',
             'Claude Design',
+            'Claude Artifacts',
             'ChatGPT',
             'OpenAI Agent Builder',
             'OpenAI Responses API',
@@ -159,6 +153,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Linear',
             'LibreChat',
             'Pi',
+            'Oh My Pi',
             'Kimchi',
             'Antigravity',
             'Poke',
@@ -166,6 +161,24 @@ describe('mcpDashboardOverviewLogic', () => {
             'Kiro',
             'Desktop Commander',
             'PostHog CLI',
+            'PostHog Wizard',
+            'PostHog WebMCP',
+            'PostHog Harness',
+            'Devin',
+            'Amp',
+            'Copilot CLI',
+            'Gemini CLI',
+            'OpenClaw',
+            'Hermes Agent',
+            'MCPorter',
+            'Executor',
+            'Paperclip',
+            'Perplexity',
+            'Cloudflare MCP Portal',
+            'Vercel AI SDK',
+            'LangChain',
+            'Python MCP SDK',
+            'Rust MCP SDK',
         ]
 
         it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
@@ -226,105 +239,12 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('buildToolDailySeries', () => {
-        it('pivots flat rows into sorted day labels and per-tool series ordered by volume', () => {
-            const rows: ToolDailyRow[] = [
-                { day: '2024-01-02', tool: 'a', calls: 5 },
-                { day: '2024-01-01', tool: 'a', calls: 3 },
-                { day: '2024-01-01', tool: 'b', calls: 10 },
-            ]
-            expect(buildToolDailySeries(rows)).toEqual({
-                labels: ['2024-01-01', '2024-01-02'],
-                tools: [
-                    { tool: 'b', data: [10, 0] },
-                    { tool: 'a', data: [3, 5] },
-                ],
-            })
-        })
-
-        it('keeps the top 8 tools and folds the rest into a single "Other" series', () => {
-            // 10 tools on one day, each with a distinct volume (tool-0 busiest … tool-9 quietest).
-            const rows: ToolDailyRow[] = Array.from({ length: 10 }, (_, i) => ({
-                day: '2024-01-01',
-                tool: `tool-${i}`,
-                calls: 100 - i,
-            }))
-            const { tools } = buildToolDailySeries(rows)
-            expect(tools).toHaveLength(9) // 8 named + Other
-            expect(tools.slice(0, 8).map((t) => t.tool)).toEqual([
-                'tool-0',
-                'tool-1',
-                'tool-2',
-                'tool-3',
-                'tool-4',
-                'tool-5',
-                'tool-6',
-                'tool-7',
-            ])
-            // Other = tool-8 (92) + tool-9 (91)
-            expect(tools[8]).toEqual({ tool: 'Other', data: [183] })
-        })
-
-        it('spans the supplied bucket keys and zero-fills days without calls', () => {
-            const rows: ToolDailyRow[] = [{ day: '2024-01-02', tool: 'a', calls: 5 }]
-            const bucketKeys = ['2024-01-01', '2024-01-02', '2024-01-03']
-            expect(buildToolDailySeries(rows, bucketKeys)).toEqual({
-                labels: bucketKeys,
-                tools: [{ tool: 'a', data: [0, 5, 0] }],
-            })
-        })
-
-        it('returns empty tools with the supplied labels when there are no rows', () => {
-            expect(buildToolDailySeries([], ['2024-01-01'])).toEqual({ labels: ['2024-01-01'], tools: [] })
-        })
-    })
-
-    describe('buildDailyActivity', () => {
-        it('projects rows onto the bucket keys, defaulting missing buckets to zero', () => {
-            const rows: ActivityRow[] = [
-                { day: '2024-01-01 00:00:00', successes: 10, errors: 2 },
-                { day: '2024-01-03 00:00:00', successes: 4, errors: 1 },
-            ]
-            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
-            expect(buildDailyActivity(rows, bucketKeys)).toEqual({
-                labels: bucketKeys,
-                successes: [10, 0, 4],
-                errors: [2, 0, 1],
-            })
-        })
-
-        it('returns all-zero series when there are no rows', () => {
-            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
-            expect(buildDailyActivity([], bucketKeys)).toEqual({
-                labels: bucketKeys,
-                successes: [0, 0, 0],
-                errors: [0, 0, 0],
-            })
-        })
-
-        // The in-progress-tail dash applies `fromIndex = successes.length - 1` to line up with the
-        // last bucket key, so the series must stay exactly bucketKeys-length — including when rows
-        // fall outside the window. If this drifts, the dashed segment lands on the wrong point.
-        it('keeps series length equal to bucketKeys, ignoring rows outside the window', () => {
-            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
-            const rows: ActivityRow[] = [
-                { day: '2024-01-02 00:00:00', successes: 5, errors: 1 },
-                { day: '2023-12-31 00:00:00', successes: 9, errors: 9 }, // outside bucketKeys — must be dropped
-            ]
-            const result = buildDailyActivity(rows, bucketKeys)
-            expect(result.labels).toHaveLength(bucketKeys.length)
-            expect(result.successes).toHaveLength(bucketKeys.length)
-            expect(result.errors).toHaveLength(bucketKeys.length)
-            expect(result.successes).toEqual([0, 5, 0])
-        })
-    })
-
     describe('buildKPIs', () => {
         it('splits current vs prior buckets and computes values, deltas, and sparklines', () => {
             const rows: BucketRow[] = [
-                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300 },
-                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200 },
-                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150 },
+                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300, users: 12 },
+                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200, users: 9 },
+                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150, users: 4 },
             ]
             const kpis = buildKPIs(rows, '2024-01-08')
 
@@ -343,6 +263,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 sparkline: [100, 200],
             })
             expect(kpis.p95LatencyMs).toMatchObject({ sparkline: [200, 300], goodDirection: 'down' })
+            expect(kpis.users).toMatchObject({ value: 0, sparkline: [9, 12], goodDirection: 'up' })
             expect(kpis.errorRatePct).toMatchObject({
                 value: (20 / 300) * 100,
                 previousValue: 10,
@@ -351,118 +272,64 @@ describe('mcpDashboardOverviewLogic', () => {
         })
 
         it('returns null deltas when there is no prior-period data', () => {
-            const rows: BucketRow[] = [{ bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200 }]
+            const rows: BucketRow[] = [
+                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200, users: 3 },
+            ]
             expect(buildKPIs(rows, '2024-01-08').sessions.deltaPct).toBeNull()
         })
     })
 
-    describe('rankToolsByErrorRate', () => {
-        const tool = (name: string, total_calls: number, error_rate_pct: number): ToolRow => ({
+    describe('ranking tools', () => {
+        it('reads rows cached before the rankings existed', () => {
+            expect(toolRowsFromRankings([['search_docs', 4, 1, 25, 120]])).toEqual([
+                { tool: 'search_docs', total_calls: 4, errors: 1, error_rate_pct: 25, p95_duration_ms: 120 },
+            ])
+        })
+
+        it('keeps one row per tool when a tool tops several rankings', () => {
+            const rows = toolRowsFromRankings([
+                ['search_docs', 400, 40, 10, 2500, 'calls'],
+                ['list_flags', 300, 0, 0, 80, 'calls'],
+                ['search_docs', 400, 40, 10, 2500, 'error_rate'],
+                ['search_docs', 400, 40, 10, 2500, 'p95'],
+            ])
+
+            expect(rows).toEqual([
+                { tool: 'search_docs', total_calls: 400, errors: 40, error_rate_pct: 10, p95_duration_ms: 2500 },
+                { tool: 'list_flags', total_calls: 300, errors: 0, error_rate_pct: 0, p95_duration_ms: 80 },
+            ])
+        })
+
+        const tool = (name: string, total_calls: number, error_rate_pct: number, p95_duration_ms = 0): ToolRow => ({
             tool: name,
             total_calls,
             errors: Math.round((total_calls * error_rate_pct) / 100),
             error_rate_pct,
-            p95_duration_ms: 0,
+            p95_duration_ms,
         })
 
         it.each([
             ['skips a tool with too few calls to rank', [tool('one-call', 1, 100), tool('busy', 500, 4)], ['busy']],
             ['ranks qualifying tools by error rate', [tool('a', 20, 5), tool('b', 40, 10)], ['b', 'a']],
             ['returns nothing when no tool qualifies', [tool('a', 19, 50)], []],
-        ])('%s', (_name, rows, expected) => {
+        ])('by error rate %s', (_name, rows, expected) => {
             expect(rankToolsByErrorRate(rows).map((r) => r.tool)).toEqual(expected)
         })
-    })
 
-    describe('pickNotableSessions', () => {
-        it('returns nothing for an empty set', () => {
-            expect(pickNotableSessions([])).toEqual([])
-        })
-
-        it('picks one session per rule', () => {
-            const rows: SessionRow[] = [
-                session({
-                    session_id: 'A',
-                    tool_calls: 20,
-                    errors: 10,
-                    error_rate_pct: 50,
-                    duration_seconds: 100,
-                    distinct_tools: 2,
-                }),
-                session({
-                    session_id: 'B',
-                    tool_calls: 5,
-                    errors: 5,
-                    error_rate_pct: 100,
-                    duration_seconds: 30,
-                    distinct_tools: 1,
-                }),
-                session({
-                    session_id: 'C',
-                    tool_calls: 8,
-                    errors: 1,
-                    error_rate_pct: 12,
-                    duration_seconds: 40,
-                    distinct_tools: 9,
-                }),
-                session({
-                    session_id: 'D',
-                    tool_calls: 15,
-                    errors: 0,
-                    error_rate_pct: 0,
-                    duration_seconds: 5,
-                    distinct_tools: 3,
-                }),
-                session({
-                    session_id: 'E',
-                    tool_calls: 12,
-                    errors: 1,
-                    error_rate_pct: 8,
-                    duration_seconds: 60,
-                    distinct_tools: 2,
-                }),
-            ]
-            // A is the busiest, but it is already listed under worst_error_rate, so no high_activity row.
-            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
-                { id: 'A', rule: 'worst_error_rate' },
-                { id: 'B', rule: 'all_fail' },
-                { id: 'C', rule: 'most_exploratory' },
-                { id: 'D', rule: 'exemplar' },
-            ])
-        })
-
-        it('lists a session that satisfies two rules once, under the first that matched', () => {
-            const rows: SessionRow[] = [
-                session({ session_id: 'both', tool_calls: 50, distinct_tools: 8, duration_seconds: 100 }),
-                session({ session_id: 'filler-a', tool_calls: 2, distinct_tools: 1 }),
-                session({ session_id: 'filler-b', tool_calls: 2, distinct_tools: 1 }),
-            ]
-            // 'both' is the most exploratory session and the volume outlier. Two rows would mean a
-            // duplicate session_id, which is the table's React key.
-            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
-                { id: 'both', rule: 'most_exploratory' },
-            ])
-        })
-
-        it('returns nothing when every session is small, rather than reaching for a filler row', () => {
-            const rows: SessionRow[] = [
-                session({ session_id: 'errored', tool_calls: 2, errors: 1, error_rate_pct: 50, distinct_tools: 2 }),
-                session({ session_id: 'clean', tool_calls: 2, distinct_tools: 2 }),
-            ]
-            expect(pickNotableSessions(rows)).toEqual([])
-        })
-
-        it('flags a genuine volume outlier and leaves unremarkable sessions out entirely', () => {
-            const rows: SessionRow[] = [
-                session({ session_id: 'firehose', tool_calls: 40, distinct_tools: 2, duration_seconds: 100 }),
-                session({ session_id: 'explorer', tool_calls: 4, distinct_tools: 6, duration_seconds: 10 }),
-                session({ session_id: 'single-a', tool_calls: 1, distinct_tools: 1 }),
-                session({ session_id: 'single-b', tool_calls: 1, distinct_tools: 1 }),
-            ]
-            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
-                { id: 'explorer', rule: 'most_exploratory' },
-                { id: 'firehose', rule: 'high_activity' },
-            ])
+        it.each([
+            [
+                'skips a tool with too few calls to rank',
+                [tool('one-call', 1, 0, 90_000), tool('busy', 500, 0, 800)],
+                ['busy'],
+            ],
+            ['ranks qualifying tools by p95', [tool('a', 20, 0, 300), tool('b', 40, 0, 2500)], ['b', 'a']],
+            [
+                'skips a tool whose calls carry no duration',
+                [tool('untimed', 500, 0, 0), tool('timed', 30, 0, 50)],
+                ['timed'],
+            ],
+        ])('by p95 %s', (_name, rows, expected) => {
+            expect(rankToolsByP95(rows).map((r) => r.tool)).toEqual(expected)
         })
     })
 
@@ -470,7 +337,7 @@ describe('mcpDashboardOverviewLogic', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            useLayout('overview')
+            useBatched()
             mockSections()
         })
 
@@ -482,50 +349,43 @@ describe('mcpDashboardOverviewLogic', () => {
             return logic
         }
 
-        // The leaderboard renders its own protocol and tool facets, so it must not pay for the
-        // overview-only breakdowns. It keeps modelRows as the model chart's fallback.
-        it.each([
-            {
-                layout: 'overview' as const,
-                includes: [
-                    MCPDashboardSection.Kpis,
-                    MCPDashboardSection.PeriodTotals,
-                    MCPDashboardSection.ToolDailyRows,
-                ],
-                excludes: [MCPDashboardSection.Reliability, MCPDashboardSection.Model],
-            },
-            {
-                layout: 'leaderboard' as const,
-                includes: [MCPDashboardSection.Kpis, MCPDashboardSection.ModelRows, MCPDashboardSection.Reliability],
-                excludes: [MCPDashboardSection.ProtocolVersionRows, MCPDashboardSection.ToolDailyRows],
-            },
-        ])('loads the $layout layout in one request', async ({ layout, includes, excludes }) => {
-            useLayout(layout)
+        // The leaderboard renders its own facets, so it must not pay for the standalone breakdowns.
+        it('loads the dashboard in one request', async () => {
             await mountDashboard()
 
             const queries = queriesSince(0)
             expect(queries).toHaveLength(1)
-            expect(queries[0].sections).toEqual(expect.arrayContaining(includes))
-            expect(queries[0].sections.filter((section) => excludes.includes(section))).toEqual([])
+            expect(queries[0].sections).toEqual(
+                expect.arrayContaining([
+                    MCPDashboardSection.Kpis,
+                    MCPDashboardSection.Model,
+                    MCPDashboardSection.Harness,
+                ])
+            )
+            for (const breakdown of [
+                MCPDashboardSection.ProtocolVersionRows,
+                MCPDashboardSection.ToolDailyRows,
+                MCPDashboardSection.ModelRows,
+                MCPDashboardSection.HarnessRows,
+            ]) {
+                expect(queries[0].sections).not.toContain(breakdown)
+            }
         })
 
-        it.each([
-            { layout: 'overview' as const, requests: 9 },
-            { layout: 'leaderboard' as const, requests: 14 },
-        ])('sends one request per section in the $layout baseline arm', async ({ layout, requests }) => {
-            useLayout(layout, false)
+        it('sends one request per section in the baseline arm', async () => {
+            useBatched(false)
             mockSections((section) => (section === MCPDashboardSection.PeriodTotals ? [[42, 30, 900, 600]] : []))
             const logic = await mountDashboard()
 
             const queries = queriesSince(0)
-            expect(queries).toHaveLength(requests)
+            expect(queries).toHaveLength(SECTION_COUNT)
             expect(queries.every((query) => query.sections.length === 1)).toBe(true)
             expect(logic.values.periodTotals.users.value).toBe(42)
             expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success'])
         })
 
         it('shows a section in the baseline arm while slower sections are still loading', async () => {
-            useLayout('overview', false)
+            useBatched(false)
             const pending = deferQueries()
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
@@ -551,45 +411,50 @@ describe('mcpDashboardOverviewLogic', () => {
         ])('maps the period totals columns to the users and p95 metrics: $rows', async ({ rows, users, p95 }) => {
             mockSections((section) => (section === MCPDashboardSection.PeriodTotals ? rows : []))
             const logic = await mountDashboard()
+            logic.actions.sectionsLoaded({
+                [MCPDashboardSection.Kpis]: {
+                    results: [
+                        ['2024-01-08', 10, 100, 5, 700, 9],
+                        ['2024-01-09', 20, 200, 15, 800, 12],
+                    ],
+                    currentStartBucket: '2024-01-08',
+                },
+            })
 
             const [value, previousValue, delta] = users
-            expect(logic.values.periodTotals.users).toMatchObject({
+            expect(logic.values.headlineKpis.users).toMatchObject({
                 value,
                 previousValue,
                 deltaPct: delta,
+                sparkline: [9, 12],
                 goodDirection: 'up',
             })
             expect(logic.values.headlineKpis.p95LatencyMs).toMatchObject({
                 value: p95[0],
                 previousValue: p95[1],
                 deltaPct: p95[2],
+                sparkline: [700, 800],
                 goodDirection: 'down',
             })
         })
 
         it.each(
             [
-                { failing: MCPDashboardSection.Kpis, toasts: false },
-                { failing: MCPDashboardSection.PeriodTotals, toasts: false },
-                { failing: MCPDashboardSection.ToolRows, toasts: false },
-                { failing: MCPDashboardSection.SessionRows, toasts: false },
-                { failing: MCPDashboardSection.HarnessRows, toasts: false },
-                { failing: MCPDashboardSection.ModelRows, toasts: true },
-                { failing: MCPDashboardSection.ProtocolVersionRows, toasts: true },
-                { failing: MCPDashboardSection.ActivityRows, toasts: false },
-                { failing: MCPDashboardSection.ToolDailyRows, toasts: false },
+                { failing: MCPDashboardSection.Kpis },
+                { failing: MCPDashboardSection.PeriodTotals },
+                { failing: MCPDashboardSection.ToolRows },
             ].flatMap((row) => [
                 { ...row, batched: true, captured: 0 },
                 { ...row, batched: false, captured: 1 },
             ])
         )(
             'flags and retries only the $failing card when its section fails (batched $batched)',
-            async ({ failing, toasts, batched, captured }) => {
-                useLayout('overview', batched)
+            async ({ failing, batched, captured }) => {
+                useBatched(batched)
                 const toastError = jest.spyOn(lemonToast, 'error')
                 const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                     [MCPDashboardSection.PeriodTotals]: [[42, 30, 900, 600]],
-                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120, 'calls']],
                 }
                 mockSections((section) => (section === failing ? new Error('Query failed') : (answers[section] ?? [])))
                 const logic = await mountDashboard()
@@ -599,7 +464,7 @@ describe('mcpDashboardOverviewLogic', () => {
                     failing === MCPDashboardSection.PeriodTotals ? 0 : 42
                 )
                 expect(logic.values.toolRows).toHaveLength(failing === MCPDashboardSection.ToolRows ? 0 : 1)
-                expect(toastError).toHaveBeenCalledTimes(toasts ? 1 : 0)
+                expect(toastError).not.toHaveBeenCalled()
                 expect(posthog.captureException).toHaveBeenCalledTimes(captured)
 
                 const callsBefore = mockApi.query.mock.calls.length
@@ -618,35 +483,19 @@ describe('mcpDashboardOverviewLogic', () => {
         )
 
         it.each([
-            { layout: 'overview' as const, batched: true, error: new Error('Failed to fetch'), failed: 9 },
-            {
-                layout: 'overview' as const,
-                batched: true,
-                error: { status: 403, detail: 'You do not have access.' },
-                failed: 9,
-            },
-            { layout: 'overview' as const, batched: true, error: { status: 500, detail: 'Server error' }, failed: 9 },
-            { layout: 'overview' as const, batched: false, error: new Error('Failed to fetch'), failed: 9 },
-            {
-                layout: 'overview' as const,
-                batched: false,
-                error: { status: 403, detail: 'You do not have access.' },
-                failed: 9,
-            },
-            {
-                layout: 'leaderboard' as const,
-                batched: true,
-                error: { status: 500, detail: 'Server error' },
-                failed: 14,
-            },
+            { batched: true, error: new Error('Failed to fetch') },
+            { batched: true, error: { status: 403, detail: 'You do not have access.' } },
+            { batched: true, error: { status: 500, detail: 'Server error' } },
+            { batched: false, error: new Error('Failed to fetch') },
+            { batched: false, error: { status: 403, detail: 'You do not have access.' } },
         ])(
-            'clears the previous rows without a toast when the $layout request fails: batched $batched, $error',
-            async ({ layout, batched, error, failed }) => {
-                useLayout(layout, batched)
+            'clears the previous rows without a toast when the request fails: batched $batched, $error',
+            async ({ batched, error }) => {
+                useBatched(batched)
                 const toastError = jest.spyOn(lemonToast, 'error')
                 const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
-                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
-                    [MCPDashboardSection.Tool]: [['search_docs', 4, 1, 0]],
+                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120, 'calls']],
+                    [MCPDashboardSection.ToolShare]: [['2026-11-01', 'search_docs', 4]],
                 }
                 mockSections((section) => answers[section] ?? [])
                 const logic = await mountDashboard()
@@ -657,7 +506,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
                 expect(logic.values.toolRows).toEqual([])
                 expect(mcpLeaderboardHomeLogic.values.facets.tool).toEqual([])
-                expect(Object.keys(logic.values.failedLoads)).toHaveLength(failed)
+                expect(Object.keys(logic.values.failedLoads)).toHaveLength(SECTION_COUNT)
                 expect(toastError).not.toHaveBeenCalled()
                 expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success', 'failure'])
             }
@@ -665,38 +514,28 @@ describe('mcpDashboardOverviewLogic', () => {
 
         it.each(
             [
-                { failing: MCPDashboardSection.Model, failedFacets: ['model'], reliabilityFailed: false },
-                {
-                    failing: MCPDashboardSection.ProtocolVersion,
-                    failedFacets: ['protocolVersion'],
-                    reliabilityFailed: false,
-                },
-                { failing: MCPDashboardSection.Tool, failedFacets: ['tool'], reliabilityFailed: false },
-                { failing: MCPDashboardSection.ErrorType, failedFacets: ['errorType'], reliabilityFailed: false },
-                { failing: MCPDashboardSection.LabUsers, failedFacets: ['labUsers'], reliabilityFailed: false },
-                {
-                    failing: MCPDashboardSection.NamedModelUsers,
-                    failedFacets: ['namedModelUsers'],
-                    reliabilityFailed: false,
-                },
-                { failing: MCPDashboardSection.Reliability, failedFacets: [], reliabilityFailed: true },
+                { failing: MCPDashboardSection.Model, failedFacets: ['model'] },
+                { failing: MCPDashboardSection.ProtocolVersion, failedFacets: ['protocolVersion'] },
+                { failing: MCPDashboardSection.ToolShare, failedFacets: ['tool'] },
+                { failing: MCPDashboardSection.Harness, failedFacets: ['harness'] },
+                { failing: MCPDashboardSection.ErrorTypeShare, failedFacets: ['errorType'] },
+                { failing: MCPDashboardSection.User, failedFacets: ['user'] },
             ].flatMap((row) => [
                 { ...row, batched: true },
                 { ...row, batched: false },
             ])
         )('flags only the leaderboard $failing card when its section fails (batched $batched)', async (row) => {
-            useLayout('leaderboard', row.batched)
+            useBatched(row.batched)
             const toastError = jest.spyOn(lemonToast, 'error')
             const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                 [MCPDashboardSection.Model]: [['2026-11-01', 'claude-sonnet-5', 4]],
-                [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120, 'calls']],
             }
             mockSections((section) => (section === row.failing ? new Error('Query failed') : (answers[section] ?? [])))
             const logic = await mountDashboard()
 
-            const { facets, reliabilityFailed } = mcpLeaderboardHomeLogic.values
+            const { facets } = mcpLeaderboardHomeLogic.values
             expect(facets.failedFacets).toEqual(row.failedFacets)
-            expect(reliabilityFailed).toBe(row.reliabilityFailed)
             expect(facets.model).toHaveLength(row.failing === MCPDashboardSection.Model ? 0 : 1)
             expect(logic.values.toolRows.map((toolRow) => toolRow.tool)).toEqual(['search_docs'])
             expect(toastError).not.toHaveBeenCalled()
@@ -704,13 +543,13 @@ describe('mcpDashboardOverviewLogic', () => {
 
         it.each([
             { batched: true, requests: 1 },
-            { batched: false, requests: 9 },
+            { batched: false, requests: SECTION_COUNT },
         ])(
             'ignores the failure of a request a newer load replaced (batched $batched)',
             async ({ batched, requests }) => {
-                useLayout('overview', batched)
+                useBatched(batched)
                 const rejects: ((error: Error) => void)[] = []
-                mockApi.query.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)))
+                mockDashboardQueries(() => new Promise((_, reject) => rejects.push(reject)))
                 const logic = mcpDashboardOverviewLogic()
                 logic.mount()
                 logic.actions.reloadAll()
@@ -724,29 +563,6 @@ describe('mcpDashboardOverviewLogic', () => {
                 expect(timeToSeeDataEvents()).toEqual([])
             }
         )
-
-        it('reloads with the leaderboard sections when its flag resolves after mount', async () => {
-            await mountDashboard()
-
-            await expectLogic(mcpDashboardOverviewLogic, () => useLayout('leaderboard')).toFinishAllListeners()
-
-            const queries = queriesSince(1)
-            expect(queries).toHaveLength(1)
-            expect(queries[0].sections).toContain(MCPDashboardSection.Reliability)
-        })
-
-        it('stops counting the sections of a replaced layout as loading', async () => {
-            const pending = deferQueries()
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-
-            useLayout('leaderboard')
-            pending.answerAt(1)
-            await expectLogic(logic).delay(0)
-
-            expect(logic.values.loadingSections).toEqual({})
-            expect(logic.values.dashboardLoading).toBe(false)
-        })
 
         it.each([{ searchParams: {} }, { searchParams: { date_from: '-30d' } }])(
             'reports a load the dashboard leaves unfinished as cancelled: $searchParams',
@@ -768,18 +584,18 @@ describe('mcpDashboardOverviewLogic', () => {
         // The time to see data event carries the flag's value when it is sent, so the load it measures must
         // be the batched one, not the baseline load the late flag replaced.
         it('reloads in one request when the batch flag resolves after mount', async () => {
-            useLayout('overview', false)
+            useBatched(false)
             const pending = deferQueries()
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
-            expect(queriesSince(0)).toHaveLength(9)
+            expect(queriesSince(0)).toHaveLength(SECTION_COUNT)
 
-            useLayout('overview', true)
-            const reload = queriesSince(9)
+            useBatched(true)
+            const reload = queriesSince(0).slice(SECTION_COUNT)
             expect(reload).toHaveLength(1)
-            expect(reload[0].sections).toHaveLength(9)
+            expect(reload[0].sections).toHaveLength(SECTION_COUNT)
 
-            pending.answerAt(9)
+            pending.answerAt(SECTION_COUNT)
             await expectLogic(logic).delay(0)
             expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success'])
 
@@ -790,11 +606,11 @@ describe('mcpDashboardOverviewLogic', () => {
 
         it.each([
             { batched: true, failing: null, status: 'success' },
-            { batched: true, failing: MCPDashboardSection.HarnessRows, status: 'failure' },
+            { batched: true, failing: MCPDashboardSection.Harness, status: 'failure' },
             { batched: false, failing: null, status: 'success' },
-            { batched: false, failing: MCPDashboardSection.HarnessRows, status: 'failure' },
+            { batched: false, failing: MCPDashboardSection.Harness, status: 'failure' },
         ])('reports time to see data as $status once per load (batched $batched)', async (row) => {
-            useLayout('overview', row.batched)
+            useBatched(row.batched)
             mockSections((section) => (section === row.failing ? new Error('Query failed') : []))
             await mountDashboard()
 
@@ -825,38 +641,13 @@ describe('mcpDashboardOverviewLogic', () => {
             load([row(3), row(2)], bucket(3))
             expect(logic.values.kpiIncompleteTail).toBe(false)
         })
-
-        it.each([
-            { section: MCPDashboardSection.ModelRows, rows: [], visible: false },
-            { section: MCPDashboardSection.ModelRows, rows: [{ model: 'Unknown', total_calls: 12 }], visible: true },
-            {
-                section: MCPDashboardSection.ModelRows,
-                rows: [{ model: 'claude-sonnet-5', total_calls: 0 }],
-                visible: false,
-            },
-            { section: MCPDashboardSection.ProtocolVersionRows, rows: [], visible: false },
-            {
-                section: MCPDashboardSection.ProtocolVersionRows,
-                rows: [{ protocol_version: 'Unknown', is_current: false, total_calls: 12 }],
-                visible: true,
-            },
-        ])('shows $section coverage only when calls exist: $rows', async ({ section, rows, visible }) => {
-            mockSections((requested) => (requested === section ? rows : []))
-            const logic = await mountDashboard()
-
-            const shown =
-                section === MCPDashboardSection.ModelRows
-                    ? logic.values.hasModelData
-                    : logic.values.hasProtocolVersionData
-            expect(shown).toBe(visible)
-        })
     })
 
     describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            useLayout('overview')
+            useBatched()
             mockSections()
         })
 
@@ -872,7 +663,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             const queries = queriesSince(callsBefore)
             expect(queries).toHaveLength(1)
-            expect(queries[0].sections).toHaveLength(9)
+            expect(queries[0].sections).toHaveLength(SECTION_COUNT)
             expect(queries[0].dateRange).toEqual({ date_from: '-30d', date_to: null })
             // The KPI tiles compare against an absolute window one period earlier.
             expect(dayjs(queries[0].comparison.dateFrom).isValid()).toBe(true)
@@ -937,7 +728,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             if (enabled) {
                 await expectLogic(logic, () => {
-                    logic.actions.setFilterTestAccounts(true)
+                    mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)
                 }).toFinishAllListeners()
             }
 
@@ -962,6 +753,57 @@ describe('mcpDashboardOverviewLogic', () => {
             operator: PropertyOperator.Exact,
             type: PropertyFilterType.Event,
         }
+
+        const TOGGLE = (): void => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)
+        const TEAM_DEFAULT = (): void =>
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                test_account_filters_default_checked: true,
+            })
+        it.each([
+            ['the test-account toggle', TOGGLE, urls.mcpAnalyticsDashboard(), {}],
+            ["the team's test-account default", TEAM_DEFAULT, urls.mcpAnalyticsDashboard(), {}],
+            [
+                'the test-account toggle on a route with another date',
+                TOGGLE,
+                urls.mcpAnalyticsToolQuality(),
+                { date_from: '-30d' },
+            ],
+            [
+                "the team's test-account default on a route with another date",
+                TEAM_DEFAULT,
+                urls.mcpAnalyticsToolQuality(),
+                { date_from: '-30d' },
+            ],
+        ])('reloads the dashboard once on %s', async (_label, change, path, searchParams) => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            router.actions.push(path, searchParams)
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            expect(queriesSince(callsBefore).map((query) => query.filterTestAccounts)).toEqual([true])
+        })
+
+        it.each([
+            ['no URL params', {}],
+            ['shared filters', { filter_test_accounts: true, properties: [EVENT_FILTER] }],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [EVENT_FILTER], date_from: '-30d' },
+            ],
+        ])('loads the dashboard once when mounting with %s', async (_label, searchParams) => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), searchParams)
+
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(queriesSince(0)).toHaveLength(1)
+        })
 
         it.each([
             { label: 'shared filters', params: {}, dateFrom: '-7d' },
@@ -990,26 +832,6 @@ describe('mcpDashboardOverviewLogic', () => {
             ])
         })
 
-        it('opens a tool report on the dashboard window with the shared filters', async () => {
-            router.actions.push(urls.mcpAnalyticsDashboard(), {
-                properties: [EVENT_FILTER],
-                filter_test_accounts: true,
-            })
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.openToolReport('search docs')
-
-            const { pathname, searchParams } = router.values.currentLocation
-            expect(pathname.endsWith(urls.mcpAnalyticsTool('search docs'))).toBe(true)
-            expect(searchParams).toEqual({
-                date_from: '-7d',
-                properties: [EVENT_FILTER],
-                filter_test_accounts: true,
-            })
-        })
-
         // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
         const FLAG_FILTER: AnyPropertyFilter = {
             key: '$feature/mcp-new-thing',
@@ -1028,7 +850,7 @@ describe('mcpDashboardOverviewLogic', () => {
             const callsBefore = mockApi.query.mock.calls.length
 
             await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([filter])
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([filter])
             }).toFinishAllListeners()
 
             expect(queriesSince(callsBefore).map((query) => query.properties)).toEqual([[filter]])
@@ -1061,9 +883,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 const previousContext = logic.values.feedbackContextKey
 
                 mockSections((section) =>
-                    section === MCPDashboardSection.HarnessRows
-                        ? new Error('Example query failure')
-                        : populated(section)
+                    section === MCPDashboardSection.Harness ? new Error('Example query failure') : populated(section)
                 )
                 await expectLogic(logic, () => logic.actions.setDateFilter('-7d', null)).toFinishAllListeners()
                 expect(logic.values.feedbackContextKey).toBe(previousContext)

@@ -2,8 +2,8 @@ import { ReactNode } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
-import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { EvalsState, MessagesOpening, NodeContent, NodeDetailTab, NodeProperties, RawLoad } from '../types'
+import type { TraceApi, TraceEvaluationResultApi, TraceNodeApi } from '../../../generated/api.schemas'
+import { MessagesOpening, NodeDetailTab, NodeLoad, RawLoad } from '../types'
 import { EvalResultList } from './EvalResultList'
 import { NodeContentGate } from './NodeContentGate'
 import { NodeDetailHeader } from './NodeDetailHeader'
@@ -17,10 +17,12 @@ export interface NodeDetailProps {
     node: TraceNodeApi
     tab: NodeDetailTab
     onTabChange: (tab: NodeDetailTab) => void
-    content: NodeContent
-    error: string | null
-    properties: NodeProperties
-    evals: EvalsState
+    load: NodeLoad
+    trace: Pick<TraceApi, 'createdAt' | 'sessionId' | 'person'>
+    /** Every result on the trace, null until they have loaded. */
+    evaluationResults: TraceEvaluationResultApi[] | null
+    evaluationResultsFailed: boolean
+    stepLabels: ReadonlyMap<string, string>
     raw: RawLoad | undefined
     onViewInThread: (() => void) | null
     messagesOpening: MessagesOpening
@@ -34,7 +36,8 @@ export interface NodeDetailProps {
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
     const highlightRef = useSearchHighlight(props.highlightQuery ?? null, props.matchStepCount)
-    const propertyList = <NodePropertyList node={props.node} properties={props.properties} />
+    const detail = props.load.status === 'ready' ? props.load.node : null
+    const propertyList = <NodePropertyList node={props.node} detail={detail} trace={props.trace} />
     return (
         <div className="flex min-w-0 flex-col gap-2" ref={highlightRef}>
             <NodeDetailHeader node={props.node} actions={props.actions} stepFeedback={props.stepFeedback} />
@@ -51,8 +54,7 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         content: (
                             <NodeMessagesTab
                                 stepId={props.node.id}
-                                content={props.content}
-                                error={props.error}
+                                load={props.load}
                                 onViewInThread={props.onViewInThread}
                                 opening={props.messagesOpening}
                                 onOpeningChange={props.onMessagesOpeningChange}
@@ -69,14 +71,22 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                             props.node.kind === 'trace' ? (
                                 propertyList
                             ) : (
-                                <NodeContentGate content={props.content}>{() => propertyList}</NodeContentGate>
+                                <NodeContentGate load={props.load}>{() => propertyList}</NodeContentGate>
                             ),
                     },
                     {
                         key: 'evals',
                         label: 'Evals',
                         'data-attr': 'trace-view-detail-tab-evals',
-                        content: <EvalResultList evals={props.evals} onSelectNode={props.onSelectNode} />,
+                        content: (
+                            <EvalResultList
+                                results={props.evaluationResults}
+                                failed={props.evaluationResultsFailed}
+                                viewedNode={props.node}
+                                stepLabels={props.stepLabels}
+                                onSelectNode={props.onSelectNode}
+                            />
+                        ),
                     },
                     {
                         key: 'raw',

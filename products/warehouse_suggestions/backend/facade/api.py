@@ -95,7 +95,7 @@ def list_suggestions(
         surface=surface,
         subject_kinds=subject_kinds,
     )
-    rows = select_page(visible, page)
+    rows = select_page(visible.filter(access.decided_or_editable_q()), page)
     return Page(results=_to_contracts(team_id, user_access_control, rows.results, access), count=rows.count)
 
 
@@ -107,11 +107,7 @@ def suggestion_status(
     surface: WarehouseSuggestionSurface | None = None,
 ) -> SuggestionStatus:
     config = WarehouseSuggestionTeamConfig.objects.filter(team_id=team_id).first() or WarehouseSuggestionTeamConfig()
-    waiting = (
-        job.waiting_suggestions(team_id, actionable_waiting(team_id, user_access_control, surface, subject_kinds))
-        if surface is not None
-        else job.NOTHING_WAITING
-    )
+    waiting = job.waiting_suggestions(team_id, actionable_waiting(team_id, user_access_control, surface, subject_kinds))
     return SuggestionStatus(
         enabled=config.enabled,
         eligible=config.eligible,
@@ -128,7 +124,7 @@ def surface_more(
     team: "Team",
     user_access_control: "UserAccessControl",
     *,
-    surface: WarehouseSuggestionSurface,
+    surface: WarehouseSuggestionSurface | None,
     subject_kinds: SubjectKinds,
 ) -> SurfaceMoreResult:
     surfaced = job.surface_more(team, actionable_waiting(team.pk, user_access_control, surface, subject_kinds))
@@ -156,6 +152,7 @@ def dismiss_suggestion(
     note: str | None,
     subject_kinds: SubjectKinds,
     surface: WarehouseSuggestionSurface | None = None,
+    bulk: bool = False,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     dismissed = suggestions.transition_to(
@@ -167,7 +164,13 @@ def dismiss_suggestion(
         note=note,
         transitions=suggestions.HUMAN_TRANSITIONS,
     )
-    report_outcomes(SuggestionOutcome.DISMISSED, [dismissed], team=team, user=user, properties={"surface": surface})
+    report_outcomes(
+        SuggestionOutcome.DISMISSED,
+        [dismissed],
+        team=team,
+        user=user,
+        properties={"surface": surface, "bulk": bulk},
+    )
     return _single_contract(team.pk, user_access_control, dismissed, access)
 
 
@@ -219,9 +222,10 @@ def accept_suggestion(
     was_impersonated: bool,
     subject_kinds: SubjectKinds,
     surface: WarehouseSuggestionSurface | None = None,
+    bulk: bool = False,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
-    if not options.delete_view:
+    if _writes_the_catalog(options):
         _require_catalog_edit_access(row, user_access_control)
     outcome = accept.accept(
         team.pk,
@@ -234,7 +238,12 @@ def accept_suggestion(
             [outcome.suggestion],
             team=team,
             user=user,
-            properties={"changed_fields": list(outcome.changed_fields), "surface": surface, **asdict(outcome.savings)},
+            properties={
+                "changed_fields": list(outcome.changed_fields),
+                "surface": surface,
+                "bulk": bulk,
+                **asdict(outcome.savings),
+            },
         )
     return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 
@@ -249,6 +258,10 @@ def _actionable_suggestion(
     if not access.can_act_on(row):
         raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind(row.subject_kind))
     return row, access
+
+
+def _writes_the_catalog(options: AcceptOptions) -> bool:
+    return not options.delete_view and options.mark_deprecated is not False
 
 
 def _require_catalog_edit_access(row: WarehouseSuggestion, user_access_control: "UserAccessControl") -> None:

@@ -1,12 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.facade import api, contracts, testing
@@ -223,6 +224,78 @@ class TestActionWrites(APIBaseTest):
         assert updated.get_step_events() == ["$autocapture"]
         assert updated.updated_at == backdated
         assert testing.get_action_bytecode(action).bytecode != before
+
+
+class TestActionDetails(APIBaseTest):
+    @parameterized.expand(
+        [
+            # Resource-level "none": only granted actions and the viewer's own come back.
+            ("only_allowed", True, {"granted"}, set(), {"granted", "own"}),
+            # Otherwise blocked actions drop out, except the viewer's own.
+            ("blocked", False, set(), {"blocked", "own"}, {"granted", "own", "open"}),
+        ]
+    )
+    def test_the_list_keeps_what_the_access_rules_let_the_viewer_see(
+        self, _name, only_allowed, allowed, blocked, expected
+    ):
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "")
+        actions = {
+            "granted": Action.objects.create(team=self.team, name="granted", created_by=other),
+            "blocked": Action.objects.create(team=self.team, name="blocked", created_by=other),
+            "open": Action.objects.create(team=self.team, name="open", created_by=other),
+            "own": Action.objects.create(team=self.team, name="own", created_by=self.user),
+        }
+        access = contracts.ActionListAccess(
+            viewer_id=self.user.id,
+            only_allowed=only_allowed,
+            allowed_ids=frozenset(str(actions[name].id) for name in allowed),
+            blocked_ids=frozenset(str(actions[name].id) for name in blocked),
+        )
+
+        page = api.list_action_details(
+            team_id=self.team.id, filters=contracts.ActionListFilters(), access=access, limit=10
+        )
+
+        assert {action.name for action in page.results} == expected
+        assert page.count == len(expected)
+
+    @parameterized.expand(
+        [
+            ("pins_an_unpinned_action_now", None, datetime(2021, 1, 1, tzinfo=UTC), datetime(2022, 2, 2, tzinfo=UTC)),
+            (
+                "keeps_the_time_of_a_pinned_action",
+                datetime(2020, 5, 5, tzinfo=UTC),
+                datetime(2021, 1, 1, tzinfo=UTC),
+                datetime(2020, 5, 5, tzinfo=UTC),
+            ),
+            ("unpins", datetime(2020, 5, 5, tzinfo=UTC), None, None),
+        ]
+    )
+    def test_an_update_decides_the_pin_time_itself(self, _name, stored, requested, expected):
+        action = Action.objects.create(team=self.team, name="Pinned", pinned_at=stored)
+
+        with time_machine.travel(datetime(2022, 2, 2, tzinfo=UTC), tick=False):
+            result = api.edit_action(
+                team_id=self.team.id,
+                action_id=action.id,
+                write=contracts.ActionWrite(
+                    fields_set=frozenset({contracts.ActionWriteField.PINNED_AT}), pinned_at=requested
+                ),
+            )
+
+        assert result.action.pinned_at == expected
+        action.refresh_from_db()
+        assert action.pinned_at == expected
+
+    def test_details_by_id_keep_the_requested_order(self):
+        first = Action.objects.create(team=self.team, name="first")
+        deleted = Action.objects.create(team=self.team, name="deleted", deleted=True)
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        theirs = Action.objects.create(team=other_team, name="theirs")
+
+        details = api.get_action_details(team_id=self.team.id, action_ids=[deleted.id, theirs.id, first.id])
+
+        assert [action.name for action in details] == ["deleted", "first"]
 
 
 class TestActionSummariesAndEmbeddings(APIBaseTest):

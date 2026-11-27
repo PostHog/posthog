@@ -2,13 +2,18 @@
 
 Online LLM-as-a-judge evaluations apply fixed character budgets to the text sent as the user prompt.
 These budgets include transcript headers and line numbers, but exclude the evaluation's system prompt.
-They do not change with the selected judge model.
 
 | Target     | Character budget |
 | ---------- | ---------------: |
 | Generation |          150,000 |
-| Trace      |          150,000 |
+| Trace      |          300,000 |
 | Session    |          500,000 |
+
+The budgets do not depend on the selected judge model, with one exception.
+When a judge model rejects a trace transcript that is longer than 150,000 characters because it exceeds the model's context window, the evaluation renders the trace again with a 150,000-character budget and sends that instead.
+When the rejected prompt carried images or files, the shorter transcript keeps them, so a judge asked about a screenshot still sees it. Only a rejection of that shorter prompt falls back to the text without attachments.
+The run is skipped with `context_window_exceeded` only when the shorter transcript is also rejected.
+The `LLMA_JUDGE_TRACE_MAX_CHARS` environment variable sets the trace budget on the evaluation workers, and must be at least 150,000.
 
 ## Trace and session formatting
 
@@ -21,6 +26,16 @@ Trace evaluations skip the LLM judge when a trace has no child events and no rea
 Message role headers, empty OpenTelemetry parts, and whitespace-only message bodies do not count as readable content.
 Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
 Root-only traces with readable state still reach the judge, and Hog evaluations can grade root-only traces from their metadata.
+
+Judge transcripts number each generation, as `[GEN 1]`, `[GEN 2]` and so on.
+A generation whose input starts with the same messages as an earlier generation's input shows those messages as one line that names the latest such generation, such as `[1-17] Same as messages 1-17 of the input to [GEN 4] above`.
+Its other messages keep their original numbers.
+Agent loops send the whole conversation again on every call, so without this a trace with seven generations repeats its first prompt seven times.
+The match is against every earlier generation, so sub-agent calls between two steps of an orchestrator do not break it.
+A session evaluation matches across all of the session's traces, so a chat that resends its history in every trace shows it once.
+The last fallback samples lines, so it shows every message in full and never points at an earlier one, because the sample could drop the message a reference points at.
+Messages must be equal in every field except `cache_control`, `signature` and `caller` on the message or its typed content blocks, which callers change between calls without changing the message. Tool results and other payloads keep those keys.
+A message that differs in any other field renders in full.
 
 Trace and session evaluations first render a text representation with message truncation and line sampling disabled.
 This attempt stops when the text exceeds the budget, before assembling the complete oversized transcript in memory.
@@ -36,6 +51,9 @@ If the transcript still exceeds its budget, the evaluation also truncates genera
 This final fallback can omit parts of an answer. It is used only when complete outputs and shortened inputs cannot fit.
 In this fallback, sessions divide their budget evenly across traces, with a minimum allocation of 2,000 characters per trace.
 If the assembled fallback session still exceeds 500,000 characters, the evaluation skips it with `session_too_long_to_judge`.
+
+When a trace evaluation's judge gets a truncated or sampled transcript, its `$ai_evaluation` event carries `$ai_evaluation_input_truncated: true`, so an analysis of pass rates can exclude those runs.
+Session evaluations do not set this property.
 
 ## Generation formatting
 
@@ -54,7 +72,7 @@ Attachments a judge can't read take none of its 20 slots, and one summary line n
 Media the event never carried, such as an SDK's `[base64 image redacted]` placeholder, becomes `[image, not attached]`.
 When any attachment is left out, the judge is told it can't see it and not to guess what it contains.
 
-Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
+Generation evaluation user prompts repair UTF-16 surrogate sequences after sampling.
 Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
@@ -68,7 +86,7 @@ Responses, including errors and streamed completions, are limited to 1 MiB.
 The endpoint must return uncompressed responses; compressed responses are rejected before decoding.
 Expired requests, rejected responses, and streams closed by the caller close their underlying connection.
 
-The OpenAI SDK does not retry custom-provider requests. Online evaluations and taggers use their existing Temporal retry policies for transient failures, and worker cancellation propagates to Temporal.
+The OpenAI SDK does not retry custom-provider requests. Online evaluations use their existing Temporal retry policies for transient failures, and worker cancellation propagates to Temporal.
 Rate-limit responses retry without disabling the evaluation or marking its connection invalid, honoring `Retry-After` up to one minute. Quota and authentication errors keep their existing terminal behavior.
 Models without native structured-output support retain the JSON fallback, which can make one additional bounded request.
 Oversized or compressed completion responses skip the evaluation as a rejected request without disabling the connection.
@@ -104,7 +122,7 @@ The picker does not exclude individual decision models. Listed models may not su
 The catalogue does not expose supported question types. If a model rejects a request, the run is skipped without retrying, with a reason to check output-type and criteria compatibility.
 Support added by a provider works on subsequent runs without a PostHog code change.
 Chat models such as Jev Router keep using chat completions.
-Models without text output are excluded from the playground and tagger model pickers. Models supporting both text and decisions remain available for both judge methods and for chat.
+Models without text output are excluded from the playground and evaluation model pickers. Models supporting both text and decisions remain available for both judge methods and for chat.
 The catalogue refreshes hourly and keeps its last successful response when a refresh fails, retrying refreshes after one minute.
 For projects with this flag enabled, an unavailable catalogue makes automatically routed OpenRouter runs retry only when no successful response is cached.
 Automatic routing and explicit decision selection also need the catalogue when changing a model or output configuration, changing the evaluation type, enabling an evaluation, or changing the judge method.
@@ -222,10 +240,13 @@ Existing backfills keep their stored windows; **Retry remaining** applies the bo
 
 Generation references get up to three lookup attempts.
 A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
-Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
+Live references marked `awaiting_ingestion` wait 30 seconds after the first miss and 90 seconds after the second, and still report the final miss.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
+A running backfill with no reported dispatches or outcomes shows **Waiting for progress** below its progress count.
+The tooltip explains that evaluations may already be running before progress appears.
+The label disappears when the run reports progress or leaves the running state.
 Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
 A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
 A run that fails because the provider stayed rate limited or unavailable through every retry halves that backfill's cap, down to 1.
@@ -247,6 +268,9 @@ An interrupted backfill preserves completed results.
 **Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
 It preserves usable existing results and retries units without usable results.
 It is not available for a backfill that re-ran existing results.
+Runs stopped because the evaluation was disabled or deleted count as failed, so **Retry remaining** runs them again.
+Older workers recorded those runs as skips, and an error that disables the evaluation, such as an invalid provider key, still records a skip.
+Those units stay blocked for **Retry remaining**, so recover them with a new backfill that includes units that already have a result.
 A cancelled backfill still counts the runs it started before the cancel, because they finish and are billed.
 Persistent failures can still interrupt a backfill after its recovery budget; recovery does not guarantee a verdict for invalid or permanently rejected inputs.
 
@@ -326,6 +350,8 @@ Source-property rules do not automatically apply to evaluation outputs. To keep 
 User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
 results even when the project's default rules hide those result properties from users.
 Report agents also read complete source conversations when inspecting trace or session evaluation results.
+Evaluation reports require organization approval for third-party AI processing.
+If an admin withdraws approval during a run, the agent stops before its next model request, including a retry.
 
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.

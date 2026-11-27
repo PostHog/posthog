@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 import type { MouseEvent } from 'react'
 
-import { LemonBanner, LemonButton, LemonCard, LemonModal, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonModal,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    LemonTable,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
@@ -26,10 +34,10 @@ export function OfflineItemInspector({
 }): JSX.Element {
     const logic = offlineItemInspectorLogic(props)
     const drawerLogic = traceDrawerLogic({ listId: 'offline-experiment' })
-    const { isEnabled, openTraceId } = useValues(drawerLogic)
+    const { openTraceId } = useValues(drawerLogic)
     const { openRow } = useActions(drawerLogic)
     const openTrace = (event: MouseEvent<HTMLElement>, traceId: string): void => {
-        if (isEnabled && opensTraceDrawer(event, 'a', false)) {
+        if (opensTraceDrawer(event, 'a', false)) {
             event.preventDefault()
             openRow({ traceId, timestamp: null, stepId: null })
         }
@@ -49,10 +57,12 @@ export function OfflineItemInspector({
         selectedResult,
         selectedResultLoading,
         selectedResultError,
+        payloadFormat: storedPayloadFormat,
         resultPayload,
         resultPayloadLoading,
         resultPayloadError,
     } = useValues(logic)
+    const payloadFormat = storedPayloadFormat === 'raw' ? 'raw' : 'pretty'
     const {
         refreshItem,
         loadOfflineItemPayload,
@@ -61,9 +71,10 @@ export function OfflineItemInspector({
         previousResults,
         loadOfflineSelectedResult,
         loadOfflineResultPayload,
+        setPayloadFormat,
     } = useActions(logic)
     return (
-        <LemonModal isOpen={!isEnabled || !openTraceId} onClose={onClose} width="64rem" simple>
+        <LemonModal isOpen={!openTraceId} onClose={onClose} width="64rem" simple>
             <LemonModalHeader>
                 <h3 className="break-words pr-8">
                     {item?.case_key || item?.dataset_item_identifier || 'Experiment item'}
@@ -79,23 +90,40 @@ export function OfflineItemInspector({
                         </LemonBanner>
                     ) : (
                         item && (
-                            <div className="flex flex-wrap items-center gap-2 text-muted text-xs">
-                                <span className="font-mono break-all" translate="no">
-                                    {item.id}
-                                </span>
-                                {item.trial && <span>{`Trial ${item.trial}`}</span>}
-                                {item.model_version && <span>{`Model: ${item.model_version}`}</span>}
-                                {item.application_trace_id && availableTraceIds.includes(item.application_trace_id) && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        to={urls.aiObservabilityTrace(item.application_trace_id)}
-                                        onClick={(event) => openTrace(event, item.application_trace_id!)}
-                                        data-attr="offline-item-application-trace"
-                                    >
-                                        Application trace
-                                    </LemonButton>
-                                )}
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-muted text-xs">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-mono break-all" translate="no">
+                                        {item.id}
+                                    </span>
+                                    {item.trial && <span>{`Trial ${item.trial}`}</span>}
+                                    {item.model_version && <span>{`Model: ${item.model_version}`}</span>}
+                                    {item.application_trace_id &&
+                                        availableTraceIds.includes(item.application_trace_id) && (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
+                                                to={urls.aiObservabilityTrace(item.application_trace_id)}
+                                                onClick={(event) => openTrace(event, item.application_trace_id!)}
+                                                data-attr="offline-item-application-trace"
+                                            >
+                                                Application trace
+                                            </LemonButton>
+                                        )}
+                                </div>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={payloadFormat}
+                                    onChange={setPayloadFormat}
+                                    options={[
+                                        // Pinned: these data attributes are selectors for analytics and Playwright.
+                                        {
+                                            value: 'pretty',
+                                            label: 'Pretty',
+                                            'data-attr': 'offline-item-payload-pretty',
+                                        },
+                                        { value: 'raw', label: 'Raw', 'data-attr': 'offline-item-payload-raw' },
+                                    ]}
+                                />
                             </div>
                         )
                     )}
@@ -114,6 +142,11 @@ export function OfflineItemInspector({
                             ) : (
                                 selectedResult && (
                                     <div className="flex flex-col gap-3">
+                                        {selectedResult.is_stale && (
+                                            <LemonBanner type="warning">
+                                                The item’s input, output, or expected output changed after this score.
+                                            </LemonBanner>
+                                        )}
                                         <LemonCard hoverEffect={false} className="p-4 space-y-3">
                                             <div className="flex flex-wrap items-start justify-between gap-3">
                                                 <div className="min-w-0">
@@ -155,6 +188,28 @@ export function OfflineItemInspector({
                                             {selectedResult.error_code && (
                                                 <LemonBanner type="warning">{`Evaluator error: ${selectedResult.error_code}`}</LemonBanner>
                                             )}
+                                            {selectedResult.scorer.composition && (
+                                                <details className="text-xs border-t pt-3">
+                                                    <summary className="cursor-pointer font-medium">
+                                                        Composite calculation
+                                                    </summary>
+                                                    <code className="block mt-2 break-words">
+                                                        {selectedResult.scorer.composition.expression}
+                                                    </code>
+                                                    <ul className="mt-2 space-y-1">
+                                                        {selectedResult.scorer.composition.inputs.map(
+                                                            (input, index) => (
+                                                                <li key={input.alias} className="break-all">
+                                                                    <span>{`${input.alias}: scorer version ${input.scorer_version_id}`}</span>
+                                                                    {selectedResult.input_result_ids?.[index] && (
+                                                                        <span className="block text-muted">{`Input result ${selectedResult.input_result_ids[index]}`}</span>
+                                                                    )}
+                                                                </li>
+                                                            )
+                                                        )}
+                                                    </ul>
+                                                </details>
+                                            )}
                                             <details className="text-xs border-t pt-3">
                                                 <summary className="cursor-pointer font-medium">
                                                     Result metadata
@@ -192,6 +247,7 @@ export function OfflineItemInspector({
                                                 <OfflinePayload
                                                     payload={resultPayload}
                                                     fields={['reasoning', 'error_message', 'metadata']}
+                                                    format={payloadFormat}
                                                 />
                                             )
                                         )}
@@ -216,6 +272,7 @@ export function OfflineItemInspector({
                                 <OfflinePayload
                                     payload={itemPayload}
                                     fields={['input', 'output', 'expected_output', 'metadata']}
+                                    format={payloadFormat}
                                 />
                             )
                         )}

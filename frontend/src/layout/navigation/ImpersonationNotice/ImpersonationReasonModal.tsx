@@ -1,6 +1,8 @@
 import { ReactNode, useEffect, useId, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, SideAction } from '@posthog/lemon-ui'
+import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 export interface ImpersonationReasonModalCancelButton {
     label: string
@@ -59,6 +61,9 @@ export function ImpersonationReasonModal({
     }
 
     const handleClose = (): void => {
+        if (loading) {
+            return
+        }
         setReason(initialReason)
         onClose?.()
     }
@@ -72,7 +77,7 @@ export function ImpersonationReasonModal({
         <LemonModal
             isOpen={isOpen}
             onClose={handleClose}
-            closable={closable}
+            closable={closable && !loading}
             inline={inline}
             title={title}
             footer={
@@ -83,6 +88,7 @@ export function ImpersonationReasonModal({
                             status={cancel.status}
                             onClick={cancel.onClick}
                             sideAction={cancel.sideAction}
+                            disabledReason={loading ? 'Wait for the request to finish.' : undefined}
                         >
                             {cancel.label}
                         </LemonButton>

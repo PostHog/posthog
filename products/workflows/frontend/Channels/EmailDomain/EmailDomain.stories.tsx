@@ -4,7 +4,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -12,6 +11,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeDnsHost, FakeEmailDomainBackend, FakeRecord } from './__mocks__/fakeEmailDomainBackend'
 import { emailDomainAgentLogic } from './emailDomainAgentLogic'
+import { emailDomainAutoConfigureLogic } from './emailDomainAutoConfigureLogic'
 import { emailDomainManualSetupLogic } from './emailDomainManualSetupLogic'
 import { EmailDomainScene } from './EmailDomainScene'
 import { emailDomainStatusLogic } from './emailDomainStatusLogic'
@@ -132,7 +132,6 @@ const meta: Meta<DomainPageArgs> = {
     title: 'Scenes-App/Workflows/Email domain setup',
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD],
         testOptions: { waitForLoadersToDisappear: true },
     },
     render: (args) => <DomainPage {...args} />,
@@ -161,6 +160,14 @@ export const SettingsCloudflareRecordsRevealed: Story = {
         host: 'cloudflare',
         stage: (_, id) => emailDomainManualSetupLogic.findMounted({ id })?.actions.revealRecords(),
     },
+}
+
+export const SettingsCloudflareWaiting: Story = {
+    args: {
+        host: 'cloudflare',
+        stage: (_, id) => emailDomainAutoConfigureLogic.findMounted({ id })?.actions.autoConfigureTabOpened(),
+    },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }
 
 export const SettingsRoute53: Story = { args: { host: 'route53' } }
@@ -244,8 +251,5 @@ export const AgentHandoff: Story = {
     args: {
         host: 'route53',
         stage: (_, id) => emailDomainAgentLogic.findMounted({ id })?.actions.openAgentModal(),
-    },
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD, FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP],
     },
 }

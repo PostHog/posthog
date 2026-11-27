@@ -212,6 +212,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_from=params.get("date_from") or None,
             date_to=params.get("date_to") or None,
             has_errors=params["has_errors"],
+            feedback_only=params["feedback_only"],
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
             user=cast(User, request.user),
@@ -374,7 +375,9 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: MCPIntentClusterSnapshotSerializer},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        snapshot = api.get_intent_cluster_snapshot(self.team, tool=request.query_params.get("tool") or None)
+        snapshot = api.get_intent_cluster_snapshot(
+            self.team, user=cast(User, request.user), tool=request.query_params.get("tool") or None
+        )
         serializer = self.get_serializer(snapshot)
         return Response(serializer.data)
 
@@ -390,7 +393,7 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["post"], url_path="recompute")
     def recompute(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         api.trigger_intent_cluster_recompute(self.team, cast(User, request.user))
-        snapshot = api.get_intent_cluster_snapshot(self.team)
+        snapshot = api.get_intent_cluster_snapshot(self.team, user=cast(User, request.user))
         serializer = self.get_serializer(snapshot)
         return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
 

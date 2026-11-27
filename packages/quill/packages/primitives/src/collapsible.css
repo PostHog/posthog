@@ -46,12 +46,19 @@
         display: inline;
     }
 
-    /* Inside a header the trigger overlays the row's start, so a full-width
-       sibling button can own the entire row's hover surface (give it
-       padding-inline-start to clear the chevron). Centered via auto margins,
-       not translate — the Button :active translate would displace it. */
+    /* Inside a header the trigger overlays the row's start. The header reserves
+       that space by default, so plain row content (text, badges) cannot cover
+       the chevron and take its clicks. To let a full-width sibling button own
+       the entire row's hover surface, set ps-0 on the header and give the
+       sibling the padding-inline-start instead. The trigger is centered via
+       auto margins, not translate, because the Button :active translate would
+       displace it. */
     .quill-collapsible__header {
         position: relative;
+    }
+
+    .quill-collapsible__header:has(> .quill-collapsible__trigger--icon) {
+        padding-inline-start: 2rem;
     }
 
     .quill-collapsible__header > .quill-collapsible__trigger--icon {

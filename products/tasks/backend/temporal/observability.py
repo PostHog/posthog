@@ -79,20 +79,6 @@ def log_with_activity_context(message: str, **extra_context: Any) -> None:
     bound_logger.info(message)
 
 
-def log_with_workflow_context(message: str, **extra_context: Any) -> None:
-    bound_logger = logger.bind(**extra_context)
-
-    if workflow.in_workflow():
-        info = workflow.info()
-        bound_logger = bound_logger.bind(
-            workflow_id=info.workflow_id,
-            workflow_run_id=info.run_id,
-            workflow_type=info.workflow_type,
-        )
-
-    bound_logger.info(message)
-
-
 @contextmanager
 def log_activity_execution(
     activity_name: str,

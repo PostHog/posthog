@@ -6,7 +6,7 @@ from typing import Any, Optional, cast
 from django.apps import apps
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import BigIntegerField, CharField, F, QuerySet, Value
+from django.db.models import BigIntegerField, CharField, F, IntegerField, QuerySet, Value
 from django.db.models.functions import Cast
 
 from drf_spectacular.utils import extend_schema_field
@@ -19,7 +19,7 @@ from posthog.api.file_system.deletion import (
     is_pk_keyed_file_system_type,
 )
 from posthog.models import Team
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
 from products.access_control.backend.facade.user_access_control import (
@@ -114,6 +114,34 @@ def _coerce_refs_for_lookup(model: Any, lookup_field: str, refs: list[str]) -> l
         except (DjangoValidationError, ValueError, TypeError):
             continue
     return coerced
+
+
+def _canonical_ref(registration: ModelRegistration, ref: str) -> str:
+    model = apps.get_model(registration.app_label, registration.model_name)
+    coerced = _coerce_refs_for_lookup(model, registration.lookup_field, [ref])
+    return str(coerced[0]) if coerced else ref
+
+
+def canonical_file_system_ref(entry_type: str, ref: str) -> str:
+    registration = get_file_system_registration(entry_type)
+    return _canonical_ref(registration, ref) if registration else ref
+
+
+def file_system_ref_alternate_spellings(entry_type: str, ref: str) -> set[str]:
+    """Other spellings of an integer-keyed ref."""
+    registration = get_file_system_registration(entry_type)
+    if registration is None:
+        return set()
+    field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(registration.lookup_field)
+    if isinstance(field, IntegerField):
+        try:
+            int_value = int(ref)
+        except ValueError:
+            return set()
+        signs = ("-",) if int_value < 0 else ("", "+")
+        padded = {f"{sign}{'0' * zeros}{abs(int_value)}" for sign in signs for zeros in range(4)}
+        return padded - {ref}
+    return set()
 
 
 def _ref_translation_queryset(
@@ -240,7 +268,7 @@ def bulk_file_system_access_levels(
         if not pk_keyed and not needs_creator:
             cached_pks = _get_cached_ref_pks(project_id, entry_type, refs)
             for ref, pk in cached_pks.items():
-                translated[(entry_type, ref, team_id)] = (pk, None)
+                translated[(entry_type, _canonical_ref(registration, ref), team_id)] = (pk, None)
             refs = [ref for ref in refs if ref not in cached_pks]
             if not refs:
                 continue
@@ -280,22 +308,27 @@ def bulk_file_system_access_levels(
                 results[(entry_type, ref, team_id)] = None
             continue
 
-        objects: list[tuple[str, Optional[int]]] = []
-        ref_by_pk: dict[str, str] = {}
+        registration = registrations_by_type.get(entry_type)
+        creator_by_pk: dict[str, Optional[int]] = {}
+        refs_by_pk: dict[str, list[str]] = {}
         for ref, provided_creator in creator_by_provided_ref.items():
-            row = translated.get((entry_type, ref, team_id))
+            lookup_ref = _canonical_ref(registration, ref) if registration else ref
+            row = translated.get((entry_type, lookup_ref, team_id))
             # Unresolved refs keep the ref as a pk stand-in: it matches no AccessControl rows,
             # so they resolve at resource level exactly like an existing object without object
             # rows, making guessed refs indistinguishable from real-but-ungranted ones
-            pk = row[0] if row else ref
-            ref_by_pk[pk] = ref
-            objects.append((pk, provided_creator if provided_creator is not None else (row[1] if row else None)))
+            pk = row[0] if row else lookup_ref
+            creator = provided_creator if provided_creator is not None else (row[1] if row else None)
+            if creator_by_pk.get(pk) is None or creator == user_id:
+                creator_by_pk[pk] = creator
+            refs_by_pk.setdefault(pk, []).append(ref)
 
         # Resolved against the entry's own team - resolves from that team's in-memory access
         # control preload, no extra query beyond the one bulk fetch per distinct team
-        levels = access_controls_by_team[team_id].bulk_object_access_levels(resource, objects)
+        levels = access_controls_by_team[team_id].bulk_object_access_levels(resource, list(creator_by_pk.items()))
         for pk, level in levels.items():
-            results[(entry_type, ref_by_pk[pk], team_id)] = level
+            for ref in refs_by_pk[pk]:
+                results[(entry_type, ref, team_id)] = level
 
     return results
 

@@ -14,6 +14,7 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { getCapacityRetryAt, getRetryCooldown } from 'lib/insights/sharedUtils'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -89,6 +90,17 @@ export function shouldRenderInsightCardViz({
 
 const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
+)
+
+const DashboardResultFilterStatus = lazyWithRetry(() =>
+    import('products/dashboards/frontend/components/DashboardResultFilterStatus').then(
+        ({ DashboardResultFilterStatus }) => ({ default: DashboardResultFilterStatus })
+    )
+)
+const DashboardResultInsight = lazyWithRetry(() =>
+    import('products/dashboards/frontend/components/DashboardResultInsight').then(({ DashboardResultInsight }) => ({
+        default: DashboardResultInsight,
+    }))
 )
 
 type AlertModalState = {
@@ -256,6 +268,7 @@ function InsightCardInternal(
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
     const { theme } = useValues(themeLogic)
+    const quillSurface = useQuillSurface()
 
     const canEditInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
@@ -427,7 +440,7 @@ function InsightCardInternal(
                 />
             )
         }
-        return (
+        const defaultInsight = (
             <Query
                 query={insight.query}
                 cachedResults={insight}
@@ -447,6 +460,24 @@ function InsightCardInternal(
                 editMode={false}
             />
         )
+        if (resultMenuEnabled && dashboardId && tile) {
+            return (
+                <React.Suspense fallback={<SpinnerOverlay />}>
+                    <DashboardResultInsight
+                        dashboardId={dashboardId}
+                        tileId={tile.id}
+                        insight={insight}
+                        insightProps={insightLogicProps}
+                        filtersOverride={filtersOverride}
+                        variablesOverride={variablesOverride}
+                        loadPriority={loadPriority}
+                        fallback={defaultInsight}
+                        onDateRangeZoom={onDateRangeZoom}
+                    />
+                </React.Suspense>
+            )
+        }
+        return defaultInsight
     }, [
         BlockingEmptyState,
         insight,
@@ -456,6 +487,8 @@ function InsightCardInternal(
         renderVizWhenMounted,
         resultMenuEnabled,
         biDashboardTileId,
+        tile,
+        filtersOverride,
         dashboardId,
         loadPriority,
         onDateRangeZoom,
@@ -465,7 +498,9 @@ function InsightCardInternal(
         <div className="InsightCard__viz">
             <div className="InsightCard__vizInner">
                 {resultMenuEnabled && (!isBIVisualizationNode(insight.query) || insight.query.config.querySnapshot) ? (
-                    <DashboardInsightResultMenu insight={insight}>{vizInner}</DashboardInsightResultMenu>
+                    <DashboardInsightResultMenu insight={insight} dashboardId={dashboardId} tileId={tile?.id}>
+                        {vizInner}
+                    </DashboardInsightResultMenu>
                 ) : (
                     vizInner
                 )}
@@ -478,12 +513,14 @@ function InsightCardInternal(
     return (
         <div
             className={clsx(
-                'DashboardTileCard InsightCard border',
+                'DashboardTileCard InsightCard',
+                quillSurface ? 'InsightCard--quill' : 'border',
                 highlighted && 'InsightCard--highlighted',
                 areDetailsShown && 'InsightCard--details-shown',
                 className
             )}
             data-attr="insight-card"
+            data-not-quill={quillSurface || undefined}
             {...{ [INSIGHT_CARD_KEY_ATTR]: insightCardKey(insight, tile) }}
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
@@ -495,7 +532,15 @@ function InsightCardInternal(
                     <InsightMeta
                         headerStatus={
                             biDashboardTileId !== undefined && dashboardId ? (
-                                <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                                <>
+                                    <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                                    <React.Suspense fallback={null}>
+                                        <DashboardResultFilterStatus
+                                            dashboardId={dashboardId}
+                                            tileId={biDashboardTileId}
+                                        />
+                                    </React.Suspense>
+                                </>
                             ) : undefined
                         }
                         tile={tile}

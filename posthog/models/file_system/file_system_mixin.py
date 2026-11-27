@@ -1,6 +1,7 @@
 import dataclasses
 from typing import TYPE_CHECKING, Any, Optional
 
+from django.db import transaction
 from django.db.models import CharField, Exists, F, Model, OuterRef, Q, QuerySet
 from django.db.models.functions import Cast
 from django.db.models.signals import post_delete, post_save
@@ -25,7 +26,7 @@ class FileSystemSyncMixin(Model):
     class Meta:
         abstract = True
 
-    def __init__(self, *args, _create_in_folder: Optional[str] = None, **kwargs):
+    def __init__(self, *args: Any, _create_in_folder: object = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._create_in_folder = _create_in_folder
 
@@ -45,7 +46,8 @@ class FileSystemSyncMixin(Model):
             fs_data = instance.get_file_system_representation()
             try:
                 team = instance.team  # type: ignore
-                delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
+                with transaction.atomic():
+                    delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
             except Team.DoesNotExist:
                 # Team was already deleted
                 pass
@@ -58,22 +60,23 @@ class FileSystemSyncMixin(Model):
 
         fs_data = self.get_file_system_representation()
         try:
-            team = self.team  # type: ignore
-            if fs_data.should_delete:
-                delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
-            else:
-                create_or_update_file(
-                    team=team,
-                    base_folder=fs_data.base_folder,
-                    name=fs_data.name,
-                    file_type=fs_data.type,
-                    ref=fs_data.ref,
-                    href=fs_data.href,
-                    meta=fs_data.meta,
-                    created_at=fs_data.meta.get("created_at") or getattr(self, "created_at", None),
-                    created_by_id=fs_data.meta.get("created_by") or getattr(self, "created_by_id", None),
-                    surface=fs_data.surface,
-                )
+            with transaction.atomic():
+                team = self.team  # type: ignore
+                if fs_data.should_delete:
+                    delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
+                else:
+                    create_or_update_file(
+                        team=team,
+                        base_folder=fs_data.base_folder,
+                        name=fs_data.name,
+                        file_type=fs_data.type,
+                        ref=fs_data.ref,
+                        href=fs_data.href,
+                        meta=fs_data.meta,
+                        created_at=fs_data.meta.get("created_at") or getattr(self, "created_at", None),
+                        created_by_id=fs_data.meta.get("created_by") or getattr(self, "created_by_id", None),
+                        surface=fs_data.surface,
+                    )
         except Exception as e:
             # Don't raise exceptions in signals
             capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
@@ -125,8 +128,4 @@ class FileSystemSyncMixin(Model):
         else:
             raise ValueError("Either 'type' or 'type__startswith' must be provided")
 
-        # Annotate a 'ref_id' from the chosen model field (e.g. 'id', 'short_id')
-        annotated_qs = qs.annotate(ref_id=Cast(F(ref_field), output_field=CharField())).annotate(
-            already_saved=Exists(already_saved)
-        )
-        return annotated_qs.filter(already_saved=False)
+        return qs.annotate(ref_id=Cast(F(ref_field), output_field=CharField())).filter(~Exists(already_saved))

@@ -27,6 +27,7 @@ from posthog.test.authentication_checks import covers_authentication
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -632,6 +633,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         response = self._post({"skills": ["error-triage"]})
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
+        task.runs.update(status=TaskRun.Status.COMPLETED)
 
         later_run = task.create_run(mode="background")
 
@@ -643,6 +645,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         response = self._post({"connectors": ["server-1"]})
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
+        task.runs.update(status=TaskRun.Status.COMPLETED)
 
         later_run = task.create_run(mode="background")
 
@@ -696,7 +699,12 @@ class TestWorkflowTasksAPI(APIBaseTest):
         resume.assert_not_called()
 
     def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
-        response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
+        response = self._post(
+            {
+                "output_fields": {"verdict": "string", "score": "number", "tags": "json"},
+                "output_field_descriptions": {"score": "1 (urgent) to 4 (low)", "tags": "Product areas, as a list"},
+            }
+        )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
@@ -704,12 +712,19 @@ class TestWorkflowTasksAPI(APIBaseTest):
             "type": "object",
             "properties": {
                 "verdict": {"type": "string", "maxLength": RESULT_STRING_CAP},
-                "score": {"type": "number"},
+                "score": {"type": "number", "description": "1 (urgent) to 4 (low)"},
+                "tags": {
+                    "type": ["object", "array"],
+                    "additionalProperties": True,
+                    "description": "Product areas, as a list",
+                },
             },
-            "required": ["verdict", "score"],
+            "required": ["verdict", "score", "tags"],
         }
         prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
-        assert "verdict (string), score (number)" in prompt
+        assert (
+            "verdict (string); score (number): 1 (urgent) to 4 (low); tags (json): Product areas, as a list" in prompt
+        )
         assert f"Keep each text field within {RESULT_STRING_CAP} characters" in prompt
 
     def test_rejects_output_fields_the_step_result_cannot_carry(self) -> None:
@@ -844,14 +859,16 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # The run must keep executing as the workflow owner, not switch to Slack-actor
         # resolution, and its dispatch must carry the thread so status updates post there.
         assert run.state["interaction_origin"] == "workflow"
-        assert run.state["pending_dispatch"]["slack_thread_context"] == {
-            "team_id": self.team.id,
-            "integration_id": integration.id,
-            "channel": "C0ALERTS",
-            "thread_ts": "1700000000.000100",
-            "user_message_ts": "1700000000.000100",
-            "mentioning_slack_user_id": "U123",
-        }
+        assert SlackThreadContext.from_dict(
+            run.state["pending_dispatch"]["slack_thread_context"]
+        ) == SlackThreadContext(
+            team_id=self.team.id,
+            integration_id=integration.id,
+            channel="C0ALERTS",
+            thread_ts="1700000000.000100",
+            user_message_ts="1700000000.000100",
+            mentioning_slack_user_id="U123",
+        )
 
     def test_resolves_the_integration_by_workspace_when_the_stamped_id_is_stale(self) -> None:
         integration = self._slack_integration()

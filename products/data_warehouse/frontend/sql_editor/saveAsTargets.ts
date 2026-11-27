@@ -1,8 +1,8 @@
 import type { ComponentType } from 'react'
 
-import { IconCalculator, IconDatabase, IconEndpoints, IconGraph } from '@posthog/icons'
+import { IconCalculator, IconDatabase, IconEndpoints, IconGraph, IconPeople } from '@posthog/icons'
 
-export type SaveAsTargetId = 'insight' | 'view' | 'endpoint' | 'metric'
+export type SaveAsTargetId = 'insight' | 'view' | 'endpoint' | 'metric' | 'cohort'
 
 export interface SaveAsTargetMetadata {
     label: string
@@ -53,4 +53,50 @@ export const SAVE_AS_TARGETS: Record<SaveAsTargetId, SaveAsTargetMetadata> = {
         docsUrl: 'https://posthog.com/docs/semantic-layer/metrics',
         icon: IconCalculator,
     },
+    cohort: {
+        label: 'Cohort',
+        description: 'Save the matching people as a static cohort.',
+        helpText: 'Create a snapshot of the people who match this query when you save it.',
+        docsUrl: 'https://posthog.com/docs/data/cohorts',
+        icon: IconPeople,
+    },
+}
+
+export type CohortIdentifier = 'person_id' | 'actor_id' | 'distinct_id' | 'id'
+
+export function getCohortIdentifier(
+    columns?: readonly unknown[] | null,
+    tables?: readonly string[]
+): CohortIdentifier | undefined {
+    const candidates: CohortIdentifier[] = ['person_id', 'actor_id', 'distinct_id']
+    if (tables?.length && tables.every((table) => table === 'persons' || table === 'posthog.persons')) {
+        candidates.push('id')
+    }
+    return candidates.find((candidate) => columns?.filter((column) => column === candidate).length === 1)
+}
+
+export function getCohortSaveDisabledReason({
+    isDirectConnection,
+    isMultiQuery,
+    hasCurrentResults,
+    identifier,
+}: {
+    isDirectConnection: boolean
+    isMultiQuery: boolean
+    hasCurrentResults: boolean
+    identifier?: CohortIdentifier
+}): string | undefined {
+    if (isDirectConnection) {
+        return 'Switch to PostHog (ClickHouse) to save a cohort'
+    }
+    if (isMultiQuery) {
+        return 'Use a single SQL query to save a cohort'
+    }
+    if (!hasCurrentResults) {
+        return 'Run the current query successfully before saving a cohort'
+    }
+
+    if (!identifier) {
+        return 'Return person_id, actor_id, distinct_id, or id from persons'
+    }
 }

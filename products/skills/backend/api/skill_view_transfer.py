@@ -20,7 +20,7 @@ from posthog.models import User
 from posthog.permissions import posthog_feature_flag_value
 from posthog.renderers import SafeJSONRenderer
 
-from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.skills.backend.api.metrics import skills_track_latency
 
 from ..marketplace.adapters import (
     SANDBOX_SKILLS_FEATURE_FLAG,
@@ -81,7 +81,7 @@ class SkillTransferActionsMixin(SkillAccessMixin):
         responses={(200, "application/zip"): OpenApiTypes.BINARY},
     )
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)/export")
-    @llma_track_latency("llma_skills_export")
+    @skills_track_latency("llma_skills_export")
     @monitor(feature=None, endpoint="llma_skills_export", method="GET")
     def export(self, request: Request, skill_name: str = "", **kwargs) -> Response | HttpResponse:
         version_params = self._validated_query(LLMSkillFetchQuerySerializer, request)
@@ -115,7 +115,7 @@ class SkillTransferActionsMixin(SkillAccessMixin):
         responses={(200, "application/zip"): OpenApiTypes.BINARY},
     )
     @action(methods=["GET"], detail=False, url_path="bundle", required_scopes=["llm_skill:read"])
-    @llma_track_latency("llma_skills_bundle")
+    @skills_track_latency("llma_skills_bundle")
     @monitor(feature=None, endpoint="llma_skills_bundle", method="GET")
     def bundle(self, request: Request, **kwargs) -> Response | HttpResponse:
         """One zip of the requesting user's store skills, for unpacking into a skills directory."""
@@ -176,7 +176,7 @@ class SkillTransferActionsMixin(SkillAccessMixin):
         required_scopes=["llm_skill:write"],
         parser_classes=[MultiPartParser, FormParser],
     )
-    @llma_track_latency("llma_skills_import")
+    @skills_track_latency("llma_skills_import")
     @monitor(feature=None, endpoint="llma_skills_import", method="POST")
     def import_skill(self, request: Request, **kwargs) -> Response:
         auth_error = self._ensure_web_authenticated(request)

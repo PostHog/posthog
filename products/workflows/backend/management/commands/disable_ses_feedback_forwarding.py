@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 
 from products.workflows.backend.providers import SESProvider
 
@@ -18,10 +18,10 @@ THROTTLE_BACKOFF_SECONDS = [2, 4, 8, 16, 32, 64]
 
 
 def ses_email_domains(domains: list[str]) -> list[str]:
-    query = Integration.objects.filter(kind="email", config__provider="ses")
-    if domains:
-        query = query.filter(config__domain__in=domains)
-    return sorted({domain for domain in query.values_list("config__domain", flat=True) if domain})
+    rows = IntegrationManager.email.any.list_across_teams(
+        CrossTeamFilter(where={"provider": "ses"}, where_in={"domain": tuple(domains)} if domains else {})
+    )
+    return sorted({domain for row in rows if (domain := row.config.get("domain"))})
 
 
 class Command(BaseCommand):

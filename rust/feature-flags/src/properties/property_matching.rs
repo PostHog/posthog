@@ -25,6 +25,10 @@ pub fn person_metadata_key(field: &str) -> String {
     format!("{}{}", PERSON_METADATA_KEY_PREFIX, field)
 }
 
+pub fn is_person_metadata_key(key: &str) -> bool {
+    key.starts_with(PERSON_METADATA_KEY_PREFIX)
+}
+
 /// Resolve the lookup key for a property filter, applying the PersonMetadata prefix when
 /// the filter targets a top-level persons-table column rather than the properties JSON.
 ///
@@ -4678,5 +4682,41 @@ mod test_match_properties {
         let metadata_only =
             HashMap::from([(person_metadata_key("created_at"), json!("2025-06-01"))]);
         assert!(match_property(&filter, &metadata_only, false).expect("filter evaluated"));
+    }
+
+    #[rstest::rstest]
+    #[case::is_not(OperatorType::IsNot, json!("value"), true)]
+    #[case::not_between(OperatorType::NotBetween, json!([1, 2]), true)]
+    #[case::between(OperatorType::Between, json!([1, 2]), false)]
+    #[case::semver_eq(OperatorType::SemverEq, json!("1.2.3"), false)]
+    #[case::semver_neq(OperatorType::SemverNeq, json!("1.2.3"), false)]
+    #[case::semver_gte(OperatorType::SemverGte, json!("1.2.3"), false)]
+    #[case::semver_lt(OperatorType::SemverLt, json!("1.2.3"), false)]
+    #[case::semver_lte(OperatorType::SemverLte, json!("1.2.3"), false)]
+    #[case::semver_tilde(OperatorType::SemverTilde, json!("1.2.3"), false)]
+    #[case::semver_caret(OperatorType::SemverCaret, json!("1.2.3"), false)]
+    #[case::semver_wildcard(OperatorType::SemverWildcard, json!("1.2.*"), false)]
+    #[case::is_date_exact(OperatorType::IsDateExact, json!("2024-01-01"), false)]
+    #[case::is_date_after(OperatorType::IsDateAfter, json!("2024-01-01"), false)]
+    fn test_known_absent_key_with_full_props(
+        #[case] operator: OperatorType,
+        #[case] value: Value,
+        #[case] expected: bool,
+    ) {
+        let filter = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(value),
+            operator: Some(operator),
+            prop_type: PropertyType::Person,
+            ..Default::default()
+        };
+
+        let result = match_property(
+            &filter,
+            &HashMap::from([("other_key".to_string(), json!("1.2.3"))]),
+            false,
+        );
+
+        assert_eq!(result, Ok(expected));
     }
 }

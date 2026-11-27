@@ -35,14 +35,29 @@ from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LEN
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct, SignalSourceType
-from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalGroupingRecord,
+    SignalReport,
+    SignalReportArtefact,
+)
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import forks_recurrence
-from products.signals.backend.report_merge import signal_target_report
+from products.signals.backend.report_merge import merge_survivor, signal_target_report
 from products.signals.backend.report_monitoring_signals import current_research_attempt
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.source_issues import open_report_for_source_issue, schedule_source_issue_writeback
-from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
+from products.signals.backend.source_issues import (
+    append_source_issues,
+    open_report_for_source_issue,
+    parse_source_issue_url,
+    schedule_source_issue_writeback,
+)
+from products.signals.backend.spend import (
+    SignalSpendSummary,
+    begin_report_spend,
+    complete_signal_pipeline,
+    signal_spend_summaries,
+)
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -68,9 +83,8 @@ from products.signals.backend.temporal.signal_queries import (
     soft_delete_report_signals,
     wait_for_signal_in_clickhouse_activity,
 )
-from products.signals.backend.temporal.summary import RESEARCH_SANDBOX_RETRY_BUDGET, SignalReportSummaryWorkflow
+from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow, summary_execution_timeout
 from products.signals.backend.temporal.types import (
-    IMPLEMENTATION_DEBOUNCE_SECONDS,
     RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
     ExistingReportMatch,
@@ -851,6 +865,7 @@ class AssignAndEmitDbResult:
     report_signals_researched: int = 0
     report_title: Optional[str] = None
     triggering_signal_id: str | None = None
+    replayed: bool = False
 
 
 def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
@@ -885,6 +900,22 @@ def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, 
         )
 
 
+def _record_source_issue(input: "AssignAndEmitSignalInput", report_id: str) -> None:
+    """Record the GitHub issue of an issue signal as a `source_issue` on the report it joins or opens.
+
+    A scout that files a report about an issue finds an earlier report through this record. Without
+    it, a report that grouping opened from the issue's signal is invisible to the scout, and the scout
+    files a second report for the same issue.
+    """
+    url = source_issue_url_for_signal(input.source_product, input.source_type, input.extra)
+    issue = parse_source_issue_url(url) if url else None
+    if issue is None:
+        return
+    append_source_issues(
+        team_id=input.team_id, report_id=report_id, issues=[issue], attribution=ArtefactAttribution.system()
+    )
+
+
 async def _schedule_writeback_for_source_issue_signal(input: "AssignAndEmitSignalInput", report_id: str) -> None:
     # The report names this issue as its source, and the issue only now reached the pipeline, so this
     # is the first moment the writeback may comment on it. Best-effort, like the writeback itself.
@@ -902,6 +933,69 @@ async def _schedule_writeback_for_source_issue_signal(input: "AssignAndEmitSigna
         logger.exception("Failed to schedule source issue writeback", report_id=report_id, team_id=input.team_id)
 
 
+def _emit_signal_document(
+    input: AssignAndEmitSignalInput,
+    *,
+    report_id: str,
+    spend: Optional[SignalSpendSummary],
+    timestamp: datetime,
+    deleted: bool = False,
+) -> None:
+    metadata = {
+        "source_product": input.source_product,
+        "source_type": input.source_type,
+        "source_id": input.source_id,
+        "weight": input.weight,
+        "report_id": report_id,
+        "total_spend": spend.total_spend if spend else 0,
+        "spend_accounting_failed_stages": spend.failed_stages if spend else [],
+        "extra": input.extra,
+        "remediation": input.remediation,
+        "match_metadata": asdict(input.match_result.match_metadata),
+    }
+    if deleted:
+        metadata["deleted"] = True
+    emit_embedding_request(
+        content=input.description,
+        team_id=input.team_id,
+        product=SIGNAL_DOCUMENT_PRODUCT,
+        document_type=SIGNAL_DOCUMENT_TYPE,
+        rendering=SIGNAL_DOCUMENT_RENDERING,
+        document_id=input.signal_id,
+        models=[m.value for m in EmbeddingModelName],
+        timestamp=timestamp,
+        metadata=metadata,
+    )
+
+
+def _replay_assignment(
+    input: AssignAndEmitSignalInput, record: SignalGroupingRecord, spend: Optional[SignalSpendSummary]
+) -> AssignAndEmitDbResult:
+    report = SignalReport.objects.select_for_update().get(id=record.report_id, team_id=input.team_id)
+    report = merge_survivor(report, lock=True)
+    report_id = str(report.id)
+    _emit_signal_document(
+        input,
+        report_id=report_id,
+        spend=spend,
+        timestamp=record.emitted_at,
+        deleted=report.status == SignalReport.Status.DELETED,
+    )
+    return AssignAndEmitDbResult(
+        report_id=report_id,
+        promoted=report.status == SignalReport.Status.CANDIDATE,
+        triggering_signal_id=str(report.triggering_signal_id) if report.triggering_signal_id else None,
+        timestamp=record.emitted_at,
+        matched_deleted_report=False,
+        run_count=report.run_count,
+        reresearch_capped=False,
+        report_status=report.status,
+        report_signal_count=report.signal_count,
+        report_title=report.title,
+        replayed=True,
+    )
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -911,6 +1005,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
     def do_assign_and_emit() -> AssignAndEmitDbResult:
         spend = signal_spend_summaries(team_id=input.team_id, signal_ids=[input.signal_id]).get(input.signal_id)
         with transaction.atomic():
+            grouping_record = (
+                SignalGroupingRecord.objects.for_team(input.team_id).filter(signal_id=input.signal_id).first()
+            )
+            if grouping_record is not None:
+                return _replay_assignment(input, grouping_record, spend)
+
             promoted = False
             monitoring_billing_exemption = None
             if (
@@ -1116,34 +1216,14 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 source_product=input.source_product,
                 extra=input.extra,
             )
-
-            metadata = {
-                "source_product": input.source_product,
-                "source_type": input.source_type,
-                "source_id": input.source_id,
-                "weight": input.weight,
-                "report_id": report_id,
-                "total_spend": spend.total_spend if spend else 0,
-                "spend_accounting_failed_stages": spend.failed_stages if spend else [],
-                "extra": input.extra,
-                "remediation": input.remediation,
-            }
-
-            metadata["match_metadata"] = asdict(match_result.match_metadata)
+            _record_source_issue(input, report_id)
 
             ts = input.timestamp or timezone.now()
-
-            emit_embedding_request(
-                content=input.description,
-                team_id=input.team_id,
-                product=SIGNAL_DOCUMENT_PRODUCT,
-                document_type=SIGNAL_DOCUMENT_TYPE,
-                rendering=SIGNAL_DOCUMENT_RENDERING,
-                document_id=input.signal_id,
-                models=[m.value for m in EmbeddingModelName],
-                timestamp=ts,
-                metadata=metadata,
+            # The unique constraint rejects a concurrent attempt for the same signal, which rolls back its count.
+            SignalGroupingRecord.objects.for_team(input.team_id).create(
+                team_id=input.team_id, signal_id=input.signal_id, report_id=report.id, emitted_at=ts
             )
+            _emit_signal_document(input, report_id=report_id, spend=spend, timestamp=ts)
             return AssignAndEmitDbResult(
                 report_id=report_id,
                 promoted=promoted,
@@ -1199,7 +1279,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     team_id=input.team_id,
                     source_id=input.source_id,
                 )
-        else:
+        elif not db_result.replayed:
             try:
                 posthoganalytics.capture(
                     event="signal_assigned_to_report",
@@ -1273,7 +1353,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         source_id=input.source_id,
                     )
 
-        if not db_result.matched_deleted_report:
+        if not db_result.matched_deleted_report and not db_result.replayed:
             metrics.increment_funnel(metrics.FUNNEL_STAGE_GROUPED, input.source_product)
             if db_result.promoted:
                 metrics.increment_funnel(metrics.FUNNEL_STAGE_PROMOTED, input.source_product)
@@ -1489,7 +1569,10 @@ async def _process_signal_batch(
                     get_embedding_activity,
                     GenerateEmbeddingInput(team_id=team_id, content=s.description),
                     start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    schedule_to_close_timeout=timedelta(hours=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=5), maximum_interval=timedelta(minutes=1)
+                    ),
                 )
                 for s in batch
             ],
@@ -1542,7 +1625,10 @@ async def _process_signal_batch(
                         get_embedding_activity,
                         GenerateEmbeddingInput(team_id=team_id, content=q_text),
                         start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        schedule_to_close_timeout=timedelta(hours=1),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(seconds=5), maximum_interval=timedelta(minutes=1)
+                        ),
                     )
                     for _, q_text in all_queries_flat
                 ]
@@ -1831,14 +1917,7 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                # The hour covers the research work; the two terms after it cover the workflow's own
-                # sleeps, which the hour was never sized for — the research debounce at entry and the
-                # implementation buffer at settle. A run that loops through several buffers can still
-                # outlive this; it's a backstop, and the report stays READY and re-promotes.
-                execution_timeout=timedelta(
-                    hours=1, seconds=report_input.debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS
-                )
-                + RESEARCH_SANDBOX_RETRY_BUDGET,
+                execution_timeout=summary_execution_timeout(report_input.debounce_seconds),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             metrics.increment_research_run_collapsed()

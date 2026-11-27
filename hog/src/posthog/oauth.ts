@@ -7,11 +7,12 @@ import { HogError } from '@/core/errors'
 import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
+import { itemName, type LoginTarget } from '@/posthog/credential-store/item-name'
 import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
 import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
 import { sendRequest, type HttpResponse } from './api'
-import { hostKey, hostUrl, type Host } from './host'
+import { hostUrl, type Host } from './host'
 import { ProjectIdSchema, type ProjectId } from './ids'
 import type { LoginRecord } from './settings'
 import {
@@ -55,6 +56,8 @@ export const OAuthErrorBody = z.object({
     error_description: z.string().optional().catch(undefined),
 })
 
+// Every OAuth request carries a credential, such as a refresh token, a device code or an OIDC token. A
+// followed redirect would send it again to an address hog didn't choose, so a 3xx comes back as an answer.
 export function oauthPost(
     runtime: Runtime,
     host: Host,
@@ -66,6 +69,8 @@ export function oauthPost(
         method: 'POST',
         form,
         timeoutMs,
+        posthog: true,
+        redirect: 'manual',
     })
 }
 
@@ -82,10 +87,10 @@ interface OAuthLoginFields {
     loginId: string
 }
 
-// Serializes the processes that renew or remove the login to one host.
-export function withLoginLock<T>(runtime: Runtime, host: Host, work: () => Promise<T>): Promise<T> {
+// Serializes the processes that renew or remove the login to one host and project.
+export function withLoginLock<T>(runtime: Runtime, target: LoginTarget, work: () => Promise<T>): Promise<T> {
     // By origin, so `https://eu.posthog.com/` and `https://eu.posthog.com` take the same lock.
-    const name = createHash('sha256').update(hostKey(host)).digest('hex').slice(0, 16)
+    const name = createHash('sha256').update(itemName(target.host, target.projectId)).digest('hex').slice(0, 16)
     return withFileLock(runtime, `refresh-${name}.lock`, work)
 }
 
@@ -169,7 +174,7 @@ export class OAuthLogin implements AccessKey {
         if (!needsRenewal(this)) {
             return this
         }
-        return withLoginLock(runtime, this.host, async () => {
+        return withLoginLock(runtime, this, async () => {
             const current = await storage.reread()
             if (!(current instanceof OAuthLogin)) {
                 throw new HogError(
@@ -178,8 +183,8 @@ export class OAuthLogin implements AccessKey {
                     'Run `hog auth login` to log in again.'
                 )
             }
-            // A new login, possibly to another project, replaced this one. Using it would send the
-            // rest of the command to a project it didn't plan against.
+            // A new login to this project replaced this one. It can have other scopes than the ones
+            // the command planned against, so the command stops instead of switching to it.
             if (current.loginId !== this.loginId) {
                 throw new HogError(
                     'login_changed',

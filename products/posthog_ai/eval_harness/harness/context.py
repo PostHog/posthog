@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from posthoganalytics import Posthog
 
 from ..engines.base import EvalEngine
-from .cli import SkillDelivery
+from .cli import DEFAULT_EVAL_SURFACE, EvalSurface, SkillDelivery
 from .demo_data import SandboxedDemoData
 from .providers import SandboxProvider, SandboxProviderStrategy
 from .reporting import ProgressReporter
@@ -90,6 +90,9 @@ class EvalContext:
     git_dirty: bool | None
     """Whether tracked files differed from ``git_sha``; ``None`` when unknown."""
 
+    preparation_slots: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(4))
+    """Bounds cases preparing or waiting for a sandbox across all suites."""
+
     offline_delivery: OfflineEvalDelivery | None = None
     """Run-owned delivery worker, drained after infrastructure teardown."""
 
@@ -103,3 +106,6 @@ class EvalContext:
 
     service_tier: str | None = None
     """OpenAI request tier for the sandboxed agent; ``None`` sends the request untiered."""
+
+    surface: EvalSurface = DEFAULT_EVAL_SURFACE
+    """``app`` runs cases without their own interaction origin as PostHog AI in the app."""

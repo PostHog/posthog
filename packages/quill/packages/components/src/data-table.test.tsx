@@ -3,6 +3,11 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { DataTable } from './data-table'
 
+// Base UI's Checkbox constructs PointerEvents, which jsdom doesn't implement.
+if (typeof window.PointerEvent === 'undefined') {
+    window.PointerEvent = class extends MouseEvent {} as typeof window.PointerEvent
+}
+
 interface TestRow {
     name: string
 }
@@ -10,6 +15,8 @@ interface TestRow {
 const data: TestRow[] = [{ name: 'Ada' }]
 
 describe('DataTable', () => {
+    afterEach(cleanup)
+
     it.each([
         ['label', <label key="label">Toggle</label>],
         ['contenteditable element', <span key="editable" contentEditable />],
@@ -59,6 +66,67 @@ describe('DataTable', () => {
         expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
     })
 
+    it.each([
+        ['selects', [], ['Ada', 'Grace', 'Linus', 'Margaret']],
+        ['clears', ['Ada', 'Grace', 'Linus', 'Margaret', 'Ken'], ['Ken']],
+    ])('shift-click %s the selectable rows between two checkboxes', (_name, initial, expected) => {
+        const people: TestRow[] = ['Ada', 'Grace', 'Barbara', 'Linus', 'Margaret', 'Ken'].map((name) => ({ name }))
+        const onRowSelectionChange = jest.fn()
+        const { container } = render(
+            <DataTable
+                columns={[{ accessorKey: 'name', header: 'Name' }]}
+                data={people}
+                selectable
+                rowSelectionDisabledReason={(row) => (row.name === 'Barbara' ? 'Not selectable' : null)}
+                getRowId={(row) => row.name}
+                rowSelectionLabel={(row) => `Select ${row.name}`}
+                rowSelection={Object.fromEntries(initial.map((name) => [name, true]))}
+                onRowSelectionChange={onRowSelectionChange}
+            />
+        )
+
+        const checkbox = (name: string): Element =>
+            container.querySelector(`[role="checkbox"][aria-label="Select ${name}"]`)!
+        fireEvent.click(checkbox('Ada'))
+        onRowSelectionChange.mockClear()
+        fireEvent.click(checkbox('Margaret'), { shiftKey: true })
+
+        const next = onRowSelectionChange.mock.calls[0][0]
+        expect(Object.keys(next).sort()).toEqual([...expected].sort())
+    })
+
+    it.each([
+        ['disables a row when a reason appears', () => null, () => 'Not selectable', true],
+        ['enables a row again when the reason callback is removed', () => 'Not selectable', undefined, false],
+    ] as const)('%s', (_name, before, after, disabledAfter) => {
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        const people: TestRow[] = [{ name: 'Ada' }]
+        const rowSelection = {}
+        const { container, rerender } = render(
+            <DataTable
+                columns={columns}
+                data={people}
+                selectable
+                rowSelectionDisabledReason={before}
+                rowSelection={rowSelection}
+            />
+        )
+        const checkbox = (): Element => container.querySelector('tbody [role="checkbox"]')!
+        expect(checkbox().hasAttribute('data-disabled')).toBe(!disabledAfter)
+
+        rerender(
+            <DataTable
+                columns={columns}
+                data={people}
+                selectable
+                rowSelectionDisabledReason={after}
+                rowSelection={rowSelection}
+            />
+        )
+
+        expect(checkbox().hasAttribute('data-disabled')).toBe(disabledAfter)
+    })
+
     it('applies a row class name per row', () => {
         const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
         const { container } = render(
@@ -89,6 +157,28 @@ describe('DataTable', () => {
         fireEvent.click(screen.getByLabelText('Go to page 2'))
 
         expect(onPageChange).toHaveBeenCalledWith(1, 2)
+    })
+
+    it('shows every row once a mounted table drops its page size', () => {
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        const rows = (count: number): TestRow[] => Array.from({ length: count }, (_, i) => ({ name: `Row ${i}` }))
+        const { container, rerender } = render(<DataTable columns={columns} data={rows(30)} pageSize={25} />)
+
+        rerender(<DataTable columns={columns} data={rows(20)} />)
+
+        expect(container.querySelectorAll('tbody tr')).toHaveLength(20)
+    })
+
+    it.each([
+        ['every row fits on one page', 3, 3, undefined, false],
+        ['the rows need a second page', 4, 3, undefined, true],
+        ['every row fits, but a smaller page size is on offer', 4, 10, [2, 10], true],
+    ])('shows the pager only when it is needed: %s', (_name, rowCount, pageSize, pageSizeOptions, pagerShown) => {
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        const rows = Array.from({ length: rowCount }, (_, i) => ({ name: `Row ${i}` }))
+        render(<DataTable columns={columns} data={rows} pageSize={pageSize} pageSizeOptions={pageSizeOptions} />)
+
+        expect(screen.queryByLabelText('Go to page 1') !== null).toBe(pagerShown)
     })
 
     describe('resizable columns', () => {

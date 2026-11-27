@@ -5,12 +5,16 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.conf import settings
 
 import jwt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+from posthog.dataclasses import frozen
 
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.sandbox_config import SANDBOX_TTL_SECONDS
@@ -28,6 +32,10 @@ SANDBOX_EVENT_INGEST_TOKEN_TTL = timedelta(seconds=SANDBOX_TTL_SECONDS) + SANDBO
 SANDBOX_CODEX_SUBSCRIPTION_AUDIENCE = "posthog:sandbox_codex_subscription"
 
 SANDBOX_JWT_STATE_KID_KEY = "sandbox_jwt_kid"
+
+AGENT_EGRESS_AUDIENCE = "posthog:agent_egress"
+AGENT_EGRESS_ISSUER = "posthog:tasks"
+AGENT_EGRESS_TOKEN_TTL = timedelta(minutes=5)
 
 STREAM_READ_AUDIENCE = "posthog:stream_read"
 # Short-lived on purpose: the agent-proxy validates these tokens statelessly, so the TTL bounds
@@ -52,7 +60,7 @@ class SandboxEventIngestTokenPayload:
 @dataclass(frozen=True)
 class _SandboxJwtKey:
     kid: str
-    private_key_pem: str = field(repr=False)
+    private_key: rsa.RSAPrivateKey = field(repr=False)
     public_key_pem: str
 
 
@@ -74,13 +82,20 @@ class StreamReadTokenPayload:
     origin_product: str | None = None
 
 
+@frozen
+class AgentEgressTokenPayload:
+    actor_id: int
+    actor_epoch: int
+    execution_id: UUID
+    relay_key_sha256: str
+
+
 def _normalize_pem_key(key: str) -> str:
     """Convert escaped newlines to actual newlines in PEM keys from env vars."""
     return key.replace("\\n", "\n")
 
 
-def _derive_public_key_pem(private_key_pem: str) -> str:
-    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None, backend=default_backend())
+def _derive_public_key_pem(private_key: rsa.RSAPrivateKey) -> str:
     return (
         private_key.public_key()
         .public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -102,9 +117,13 @@ def _compute_kid(public_key_pem: str) -> str:
 
 
 def _build_key(private_key_pem: str) -> _SandboxJwtKey:
-    normalized = _normalize_pem_key(private_key_pem)
-    public_key_pem = _derive_public_key_pem(normalized)
-    return _SandboxJwtKey(kid=_compute_kid(public_key_pem), private_key_pem=normalized, public_key_pem=public_key_pem)
+    private_key = serialization.load_pem_private_key(
+        _normalize_pem_key(private_key_pem).encode(), password=None, backend=default_backend()
+    )
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise ValueError("Sandbox JWT signing keys must be RSA")
+    public_key_pem = _derive_public_key_pem(private_key)
+    return _SandboxJwtKey(kid=_compute_kid(public_key_pem), private_key=private_key, public_key_pem=public_key_pem)
 
 
 @lru_cache(maxsize=1)
@@ -189,6 +208,58 @@ def _verification_public_keys() -> list[str]:
     return [key.public_key_pem for key in registry.values()]
 
 
+def get_sandbox_jwt_public_key_bundle() -> dict[str, str]:
+    pems = [
+        _normalize_pem_key(pem)
+        for pem in (settings.SANDBOX_JWT_PUBLIC_KEY, settings.SANDBOX_JWT_PUBLIC_KEY_SECONDARY)
+        if pem
+    ]
+    if settings.SANDBOX_JWT_PRIVATE_KEY:
+        _, registry = _key_registry()
+        pems.extend(key.public_key_pem for key in registry.values())
+    if not pems:
+        raise ValueError("No sandbox JWT verification keys configured")
+    bundle: dict[str, str] = {}
+    for pem in pems:
+        key = serialization.load_pem_public_key(pem.encode())
+        if not isinstance(key, rsa.RSAPublicKey) or key.key_size < 2048:
+            raise ValueError("Sandbox JWT verification keys must be RSA with at least 2048 bits")
+        public_pem = key.public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+        kid = _compute_kid(public_pem)
+        if kid in bundle and bundle[kid] != public_pem:
+            raise ValueError("Conflicting sandbox JWT verification key IDs")
+        bundle[kid] = public_pem
+    return bundle
+
+
+def _encode_agent_egress_token(task_run: TaskRun, payload: AgentEgressTokenPayload) -> str:
+    _, registry = _key_registry()
+    kid = (task_run.state or {}).get(SANDBOX_JWT_STATE_KID_KEY)
+    if not isinstance(kid, str) or kid not in registry:
+        raise ValueError("The run's sandbox JWT signing key is unavailable")
+    key = registry[kid]
+    now = datetime.now(tz=UTC)
+    return jwt.encode(
+        {
+            "iss": AGENT_EGRESS_ISSUER,
+            "aud": AGENT_EGRESS_AUDIENCE,
+            "sub": str(task_run.id),
+            "team_id": task_run.team_id,
+            "actor_id": payload.actor_id,
+            "actor_epoch": payload.actor_epoch,
+            "execution_id": str(payload.execution_id),
+            "relay_key_sha256": payload.relay_key_sha256,
+            "iat": now,
+            "exp": now + AGENT_EGRESS_TOKEN_TTL,
+        },
+        key.private_key,
+        algorithm="RS256",
+        headers={"kid": key.kid},
+    )
+
+
 def _decode_sandbox_token(token: str, audience: str) -> dict[str, Any]:
     """Verify a sandbox JWT against every trusted public key, returning the first that validates.
 
@@ -233,7 +304,7 @@ def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id
         "aud": SANDBOX_CONNECTION_AUDIENCE,
     }
 
-    return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
+    return jwt.encode(payload, key.private_key, algorithm="RS256", headers={"kid": key.kid})
 
 
 def _encode_run_scoped_token(
@@ -260,7 +331,7 @@ def _encode_run_scoped_token(
     if extra_claims:
         payload.update(extra_claims)
     key = _signing_key_for_run(task_run)
-    return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
+    return jwt.encode(payload, key.private_key, algorithm="RS256", headers={"kid": key.kid})
 
 
 def create_sandbox_event_ingest_token(

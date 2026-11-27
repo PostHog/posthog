@@ -8,7 +8,7 @@ import hashlib
 import logging
 import traceback
 from collections.abc import Callable, Sequence
-from contextlib import suppress
+from contextlib import AsyncExitStack, suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
@@ -28,6 +28,7 @@ from psycopg import OperationalError as PsycopgOperationalError
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
+from products.posthog_ai.backend.message_routing import POSTHOG_AI_INTERACTION_ORIGIN
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext, TurnPollTimeout
 
@@ -43,6 +44,7 @@ from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .offline_results import OfflineEvalPublisher, OfflineEvalSettings, OfflineEvalSuite, OfflineUploadError
 from .runner import AgentNeverRanError, EvalCaseResult, SandboxedCaseRunner, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
+from .tool_chain import build_tool_chain, summarize_tool_chain
 from .trace_events import RunMetadata, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
@@ -593,9 +595,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     )
                     if original_case is not None and original_case.interaction_origin:
                         sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
+                    elif self.ctx.surface == "app":
+                        sandbox_context = replace(sandbox_context, interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN)
                     elif self.ctx.skill_delivery == "exec":
                         sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
-                    if sandbox_context.interaction_origin == "posthog_ai":
+                    if sandbox_context.interaction_origin == POSTHOG_AI_INTERACTION_ORIGIN:
                         prompt = PromptService.build()
                         sandbox_context = replace(
                             sandbox_context,
@@ -642,19 +646,15 @@ class _SandboxedEvalRun(_BaseEvalRun):
     async def _run_sandbox_window(
         self, eval_case: SandboxedEvalCase, original_case: SandboxedEvalCase | None, hooks: CaseHooks | None = None
     ) -> tuple[EvalCaseResult, dict[str, Any]]:
-        """Run the sandbox-owning window and return its result plus the seed data.
-
-        Holds a global sandbox slot for only this window: demo-data copy, setup
-        hook, and the agent run. Everything after — log parsing, span building,
-        trace emission, scoring — runs once the slot is freed, so a live sandbox
-        never waits on post-processing.
-        """
+        """Keep a bounded number of cases ready while all live sandboxes are occupied."""
         ctx = self.ctx
-        async with self._sandbox_slots:
-            prepared = await self._prepare_case(eval_case, original_case, hooks)
-            # Start the agent budget after team setup, so neither semaphore wait
-            # nor the ClickHouse copy can consume it.
+        async with AsyncExitStack() as sandbox:
+            prepared = None
             try:
+                async with ctx.preparation_slots:
+                    prepared = await self._prepare_case(eval_case, original_case, hooks)
+                    await self._set_case_phase(hooks, "queued")
+                    await sandbox.enter_async_context(self._sandbox_slots)
                 with suppress(Exception):
                     await self._set_case_phase(hooks, "agent")
                 result = await asyncio.wait_for(
@@ -679,10 +679,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # kernel sandbox of its own, and nothing else reclaims it. A timed-out
                 # case is exactly the one most likely to have left one running. One
                 # indexed query for every case that never touched a notebook.
-                await reclaim_kernels(
-                    prepared.context.team_id,
-                    keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
-                )
+                if prepared is not None:
+                    await reclaim_kernels(
+                        prepared.context.team_id,
+                        keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
+                    )
         return result, prepared.seed
 
     async def _post_process(
@@ -733,6 +734,21 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 except Exception:
                     logger.exception("Failed to emit trace events for '%s'", eval_case.name)
 
+        tool_chain: list[dict[str, Any]] | None = None
+        try:
+            steps = build_tool_chain(
+                {
+                    "raw_log": result.raw_log,
+                    "prompt": eval_case.prompt,
+                    "turn_logs": result.turn_logs,
+                    "turn_prompts": [eval_case.prompt, *eval_case.followups],
+                }
+            )
+            hooks.metadata["tool_chain"] = summarize_tool_chain(steps)
+            tool_chain = [step.model_dump() for step in steps]
+        except Exception:
+            logger.exception("Failed to build the tool chain for '%s'", eval_case.name)
+
         try:
             write_case_logs(
                 case_dir=self.run_log_dir,
@@ -745,6 +761,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 token_usage=self.case_trace_meta.get(trial_id, {}).get("token_usage"),
                 trial_id=hooks.metadata.get("trial_id"),
                 trace_id=result.trace_id,
+                tool_chain=tool_chain,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
@@ -791,6 +808,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "skill_delivery": self.ctx.skill_delivery,
             "reasoning_effort": self.ctx.reasoning_effort,
             "service_tier": self.ctx.service_tier,
+            "eval_surface": self.ctx.surface,
         }
 
 

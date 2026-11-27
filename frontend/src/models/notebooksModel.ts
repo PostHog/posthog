@@ -3,9 +3,9 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { retryImport } from 'lib/utils/retryImport'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
@@ -56,7 +56,7 @@ export const openNotebook = async (
     if (thePanelLogic && target === NotebookTarget.Popover) {
         thePanelLogic.actions.selectNotebook(notebookId)
     } else {
-        if (router.values.location.pathname === urls.notebook('new')) {
+        if (removeProjectIdIfPresent(router.values.location.pathname) === urls.notebook('new')) {
             router.actions.replace(withBackLink(urls.notebook(notebookId)))
         } else {
             router.actions.push(withBackLink(urls.notebook(notebookId)))
@@ -221,12 +221,23 @@ export const notebooksModel = kea<notebooksModelType>([
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
                     const notebooks = values.notebooks
-                    const notebook = await api.notebooks.create({
+                    const projectId = String(values.currentProjectId)
+                    const { notebooksCreate, notebooksRetrieve } = await retryImport(
+                        () => import('products/notebooks/frontend/generated/api')
+                    )
+                    let created = true
+                    const notebook = (await notebooksCreate(projectId, {
                         title,
                         content: defaultNotebookContent(title, content),
                         _create_in_folder: getLastNewFolder(),
                         ...(shortId ? { short_id: shortId } : {}),
-                    })
+                    }).catch((error) => {
+                        if (shortId && error.code === 'unique' && error.attr === 'short_id') {
+                            created = false
+                            return notebooksRetrieve(projectId, shortId)
+                        }
+                        throw error
+                    })) as unknown as NotebookListItemType
 
                     await openNotebook(notebook.short_id, location, (logic) => {
                         onCreate?.(logic)
@@ -236,17 +247,19 @@ export const notebooksModel = kea<notebooksModelType>([
                     // (emitted for every creation path) is the source of truth for counts. This
                     // one keeps the browser/session context for UI-funnel analysis without
                     // double-counting UI creations.
-                    posthog.capture(`notebook created (client)`, {
-                        short_id: notebook.short_id,
-                        is_markdown: true,
-                    })
+                    if (created) {
+                        posthog.capture(`notebook created (client)`, {
+                            short_id: notebook.short_id,
+                            is_markdown: true,
+                        })
+                    }
 
                     void addProductIntent({
                         product_type: ProductKey.NOTEBOOKS,
                         intent_context: ProductIntentContext.NOTEBOOK_CREATED,
                     })
 
-                    return [notebook, ...notebooks]
+                    return [notebook, ...notebooks.filter((existing) => existing.short_id !== notebook.short_id)]
                 },
 
                 deleteNotebook: async ({ shortId, title }) => {

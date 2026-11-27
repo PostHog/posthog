@@ -4,6 +4,8 @@ from typing import Any
 
 from django.db import models, transaction
 
+from posthog.models.scoping.manager import EnvironmentScopedManager
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -19,6 +21,14 @@ class StaleScoreDefinitionVersion(Exception):
 
 
 class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+    class Scope(models.TextChoices):
+        ITEM = "item", "Item"
+        EXPERIMENT = "experiment", "Experiment"
+
+    class Calculation(models.TextChoices):
+        REPORTED = "reported", "Reported"
+        COMPOSITE = "composite", "Composite"
+
     class Kind(models.TextChoices):
         CATEGORICAL = "categorical", "categorical"
         NUMERIC = "numeric", "numeric"
@@ -29,10 +39,16 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
     short_name = models.CharField(max_length=40, blank=True, default="", db_default="")
     description = models.TextField(blank=True, default="")
     kind = models.CharField(max_length=32, choices=Kind)
+    scope = models.CharField(max_length=16, choices=Scope, default=Scope.ITEM, db_default="item")
+    calculation = models.CharField(
+        max_length=16, choices=Calculation, default=Calculation.REPORTED, db_default="reported"
+    )
     archived = models.BooleanField(default=False)
     updated_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    created_by_project_key_id = models.CharField(max_length=50, null=True)
+    updated_by_project_key_id = models.CharField(max_length=50, null=True)
     current_version = models.ForeignKey(
         "ScoreDefinitionVersion",
         null=True,
@@ -52,7 +68,9 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
         *,
         config: dict[str, Any],
         created_by: User | None,
+        created_by_project_key_id: str | None = None,
         base_version: int | None = None,
+        composition: dict[str, Any] | None = None,
     ) -> ScoreDefinitionVersion:
         definition = (
             ScoreDefinition.objects.select_for_update(of=("self",)).select_related("current_version").get(pk=self.pk)
@@ -68,22 +86,44 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
             definition=definition,
             version=current_version_number + 1,
             config=config,
+            composition=composition,
             created_by=created_by,
+            created_by_project_key_id=created_by_project_key_id,
         )
+        if composition is not None:
+            ScoreDefinitionInput.objects.for_team(definition.team_id, canonical=True).bulk_create(
+                [
+                    ScoreDefinitionInput(
+                        team_id=definition.team_id,
+                        composite_version=version,
+                        input_version_id=dependency["scorer_version_id"],
+                        alias=dependency["alias"],
+                    )
+                    for dependency in composition["inputs"]
+                ]
+            )
 
         definition.current_version = version
         definition.updated_by = created_by
-        definition.save(update_fields=["current_version", "updated_at", "updated_by"])
+        definition.updated_by_project_key_id = created_by_project_key_id
+        definition.save(update_fields=["current_version", "updated_at", "updated_by", "updated_by_project_key_id"])
 
         self.current_version = version
         self.updated_by = created_by
+        self.updated_by_project_key_id = created_by_project_key_id
         return version
 
 
 class ScoreDefinitionVersion(UUIDModel, CreatedMetaFields):
+    created_by_project_key_id = models.CharField(max_length=50, null=True)
     definition = models.ForeignKey(ScoreDefinition, on_delete=models.CASCADE, related_name="versions")
     version = models.PositiveIntegerField()
     config = models.JSONField(default=dict)
+    composition = models.JSONField(null=True, blank=True)
+
+    @property
+    def formula_inputs(self) -> list[dict[str, Any]]:
+        return self.composition["inputs"] if self.composition is not None else []
 
     class Meta:
         db_table = "llm_analytics_scoredefinitionversion"
@@ -97,4 +137,30 @@ class ScoreDefinitionVersion(UUIDModel, CreatedMetaFields):
         indexes = [
             models.Index(fields=["definition", "-version"], name="llma_score_def_ver_def_idx"),
             models.Index(fields=["created_at"], name="llma_score_def_ver_created_idx"),
+        ]
+
+
+class ScoreDefinitionInput(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    composite_version = models.ForeignKey(ScoreDefinitionVersion, on_delete=models.CASCADE, related_name="inputs")
+    input_version = models.ForeignKey(ScoreDefinitionVersion, on_delete=models.RESTRICT, related_name="dependents")
+    alias = models.CharField(max_length=32)
+
+    class Meta:
+        db_table = "llm_analytics_scoredefinitioninput"
+        constraints = [
+            models.UniqueConstraint(fields=["composite_version", "alias"], name="aio_composite_input_alias_uniq"),
+        ]
+
+
+class ExperimentScoreSuiteDefault(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    suite_key = models.CharField(max_length=255)
+    scorer_version = models.ForeignKey(ScoreDefinitionVersion, on_delete=models.RESTRICT, related_name="suite_defaults")
+
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "suite_key"], name="aio_experiment_score_suite_uniq"),
         ]

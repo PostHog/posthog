@@ -34,8 +34,7 @@ pub async fn handle_request(
         log_and_return_header_error(err, &headers, &ip, raw_query.as_deref(), &method, &path)
     })?;
 
-    // TODO: purposely chatty, for now
-    ctx_log!(Level::INFO, context, "handle_request called");
+    ctx_log!(Level::DEBUG, context, "handle_request called");
 
     let skew_seconds = context.clock_skew().num_milliseconds().saturating_abs() as f64 / 1000.0;
     metrics::histogram!(CAPTURE_V1_CLOCK_SKEW_SECONDS).record(skew_seconds);

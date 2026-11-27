@@ -32,6 +32,7 @@ from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
 SANDBOX_COMPUTE_RESOURCE_KEYS = (
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+    "teams_with_ai_compute_credits_used_in_period",
 )
 
 
@@ -167,6 +168,7 @@ class TestUsageCounterReport(SimpleTestCase):
             ],
             "get_teams_with_survey_responses_count_in_period": self.legacy[UsageCounter.SURVEY_RESPONSES],
             "get_teams_with_ai_event_count_in_period": self.legacy[UsageCounter.AI_EVENTS],
+            "get_teams_with_ai_overage_bytes_in_period": self.legacy[UsageCounter.AI_OVERAGE_BYTES],
             "get_teams_with_exceptions_captured_in_period": self.exceptions,
             "get_teams_with_cdp_billable_invocations_in_period": self.legacy[UsageCounter.CDP_INVOCATIONS],
             "get_teams_with_feature_flag_requests_count_in_period": Mock(
@@ -472,6 +474,7 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.MOBILE_BILLABLE_RECORDINGS: ("mobile_replay_recordings", 104),
             UsageCounter.SURVEY_RESPONSES: ("survey_responses", 105),
             UsageCounter.AI_EVENTS: ("ai_events", 106),
+            UsageCounter.AI_OVERAGE_BYTES: ("ai_overage_bytes", 116),
             UsageCounter.EXCEPTIONS: ("exceptions", 107),
             UsageCounter.CDP_INVOCATIONS: ("cdp_billable_invocations", 111),
             UsageCounter.FEATURE_FLAG_REQUESTS: ("feature_flag_requests", 108),
@@ -493,7 +496,7 @@ class TestUsageCounterReport(SimpleTestCase):
         for index, counter in enumerate(counter_keys):
             self.legacy[counter].return_value = [("1" if counter in flag_counters else 1, index + 1)]
         self.exceptions.side_effect = None
-        self.exceptions.return_value = ({"web": [[1, 3]], "web_lite": [[1, 5]]}, [[1, 8]])
+        self.exceptions.return_value = ({"web": [[1, 3]], "web_lite": [[1, 5]]}, [[1, 9]])
         self.records.return_value = UsageRecordTotals(
             totals=[
                 UsageRecordTotal(team_id=1, organization_id="org-a", usage_key=key, quantity=quantity)
@@ -658,6 +661,7 @@ class TestUsageCounterReport(SimpleTestCase):
             credits=expected[UsageCounter.SANDBOX_COMPUTE_CREDITS],
             cpu_millicore_seconds=[(1, 29)],
             memory_mib_seconds=[(2, 31)],
+            ai_credits=[(1, 37)],
         )
         expected.update(
             {
@@ -665,6 +669,7 @@ class TestUsageCounterReport(SimpleTestCase):
                 "teams_with_logs_retention_90d_bytes_in_period": [(2, 23)],
                 "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": [(1, 29)],
                 "teams_with_sandbox_compute_memory_mib_seconds_in_period": [(2, 31)],
+                "teams_with_ai_compute_credits_used_in_period": [(1, 37)],
             }
         )
         with patch("posthoganalytics.get_feature_flag", return_value=flag_mode) as flag:

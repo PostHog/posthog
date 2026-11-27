@@ -1,7 +1,7 @@
 import uuid
 import dataclasses
 from collections.abc import Callable, Sequence
-from typing import ClassVar, Optional, cast
+from typing import Any, ClassVar, Optional, cast
 
 from django.http import Http404
 
@@ -33,7 +33,7 @@ from posthog.api.pagination import (
     facade_page_response,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import ImageSizeSerializer, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX, INTEGER_FIELD_MIN
@@ -205,6 +205,10 @@ class AIPromptConfigSerializer(serializers.Serializer):
 class DeliveryConfigSerializer(serializers.Serializer):
     """Typed view over the Subscription.delivery_config JSON blob."""
 
+    image_size = ImageSizeSerializer(
+        required=False,
+        help_text="PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.",
+    )
     post_all_insights_in_main_message = serializers.BooleanField(
         required=False,
         default=False,
@@ -686,6 +690,31 @@ class SubscriptionSummaryCursorPagination(FacadeCursorPagination):
     ordering = "-created_at"
 
 
+class SubscriptionTransferOwnershipSerializer(serializers.Serializer):
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text="New owner's user UUID. Must be an active organization member. Defaults to yourself.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        requester = self.context["request"].user
+        owner_uuid = attrs.get("user_uuid", requester.uuid)
+        if owner_uuid != requester.uuid and not self.context["view"].user_access_control.is_organization_admin:
+            raise exceptions.PermissionDenied(
+                "Only an organization admin can assign a subscription to another person. "
+                "Take ownership yourself or ask an admin to transfer it."
+            )
+        owner = User.objects.filter(
+            uuid=owner_uuid,
+            is_active=True,
+            organization_membership__organization=self.context["get_organization"](),
+        ).first()
+        if owner is None:
+            raise ValidationError({"user_uuid": "Choose an active member of this organization."})
+        attrs["owner"] = owner
+        return attrs
+
+
 _SUBSCRIPTION_ID_PARAMETER = OpenApiParameter(
     "id",
     OpenApiTypes.INT,
@@ -975,10 +1004,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
-        request=None,
+        request=SubscriptionTransferOwnershipSerializer,
         responses={200: SubscriptionSerializer},
         description=(
-            "Make the requesting user the owner of this subscription and enable it. Deliveries run with "
+            "Take ownership of this subscription and enable it. Only organization admins can assign another member. The new owner needs access to its content. Deliveries run with "
             "the owner's access, so this is how a subscription continues after its owner left."
         ),
     )
@@ -990,11 +1019,15 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         subscription = self._get_subscription()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = SubscriptionTransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        owner = serializer.validated_data["owner"]
         updated = _raise_for_refusal(
             lambda: api.take_subscription_ownership(
+                owner=owner,
                 team=self.team,
                 organization=self.organization,
-                user=cast(User, request.user),
+                actor=cast(User, request.user),
                 viewer=self.user_access_control,
                 subscription_id=subscription.id,
                 analytics_props=get_request_analytics_properties(request),

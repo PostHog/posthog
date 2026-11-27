@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import field
 from functools import reduce
 from operator import or_
@@ -12,6 +15,7 @@ from posthog.schema import (
     EntityType,
     FunnelsDataWarehouseNode,
     HogQLQuery,
+    HogQLQueryModifiers,
     LifecycleDataWarehouseNode,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
@@ -28,7 +32,7 @@ if TYPE_CHECKING:
 
 # `system.information_schema` tables whose rows/columns are gated behind `data_catalog` read access
 # (see `_can_read_catalog` in information_schema.py): `tables` carries the certification mark,
-# `relationships` carries proposal confidence/reasoning, `metrics` is entirely catalog-governed, and
+# `relationships` carries proposal reasoning, `metrics` is entirely catalog-governed, and
 # `certifications` / `relationship_proposals` are the fully catalog-governed review queues. A query
 # touching any of these must partition the cache by `data_catalog` access, or an allowed user's cached
 # rows would be served to a denied user on a cache hit.
@@ -73,9 +77,15 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system._ticket_assignee_roles": frozenset({"ticket"}),
     "system._event_definition_tagged_items": frozenset({"event_definition"}),
     "system._property_definition_tagged_items": frozenset({"property_definition"}),
-    # Task predicates need these public channel IDs even under object-only task grants.
+    # Task predicates need these public channel and Slack task IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
+    "system._task_public_slack_tasks": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
+    # Insight alerts are readable only with their insight, so the reader's insight rules decide their rows.
+    "system.alerts": frozenset({"insight"}),
+    "system._insight_alert_rows": frozenset({"insight"}),
+    "system._platform_insight_alerts": frozenset({"insight"}),
+    "system._platform_insight_alert_instances": frozenset({"insight"}),
 }
 
 
@@ -102,6 +112,18 @@ class _WarehouseCatalog:
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
+
+    def for_next_fingerprint(self) -> "_WarehouseCatalog":
+        """A catalog that reuses these name lookups but walks views afresh. Walked views must not carry
+        over: a later query that reads an already walked view would skip it and drop the scopes it reads
+        from its cache key."""
+        return _WarehouseCatalog(
+            team_id=self.team_id,
+            table_names=self.table_names,
+            looked_up_table_names=self.looked_up_table_names,
+            view_queries=self.view_queries,
+            looked_up_names=self.looked_up_names,
+        )
 
     def has_table(self, names: set[str]) -> bool:
         # Deferred to break the query_runner -> this module -> hogql import cycle.
@@ -174,11 +196,41 @@ class _WarehouseCatalog:
         return [(name, self.view_queries[name]) for name in sorted(names) if name in self.view_queries]
 
 
+# Catalogs per team for the queries fingerprinted inside `shared_warehouse_lookups`. None outside it,
+# so nothing outside an explicit scope, such as a long-lived worker, reuses a lookup.
+_shared_catalogs: ContextVar[dict[int, _WarehouseCatalog] | None] = ContextVar(
+    "shared_warehouse_catalogs", default=None
+)
+
+
+@contextmanager
+def shared_warehouse_lookups() -> Iterator[None]:
+    """Share warehouse name lookups between the queries fingerprinted inside the block.
+
+    A dashboard fingerprints every tile's query to find its cached result, and each raw HogQL tile
+    otherwise looks up the names it reads in Postgres again. Inside the block a name is looked up once."""
+    token = _shared_catalogs.set({})
+    try:
+        yield
+    finally:
+        _shared_catalogs.reset(token)
+
+
+def _catalog_for_fingerprint(team_id: int) -> _WarehouseCatalog:
+    shared = _shared_catalogs.get()
+    if shared is None:
+        return _WarehouseCatalog(team_id=team_id)
+    if team_id not in shared:
+        shared[team_id] = _WarehouseCatalog(team_id=team_id)
+    return shared[team_id].for_next_fingerprint()
+
+
 def queried_access_controlled_resources(
     query: BaseModel,
     team: "Team",
     *,
     bypassed_scopes: frozenset[str] = frozenset(),
+    modifiers: HogQLQueryModifiers | None = None,
     _catalog: Optional[_WarehouseCatalog] = None,
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
@@ -205,7 +257,14 @@ def queried_access_controlled_resources(
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
-    catalog = _catalog or _WarehouseCatalog(team_id=team.pk)
+    catalog = _catalog or _catalog_for_fingerprint(team.pk)
+
+    # The macro can read tables through encoded actor queries, actions, and cohorts. Until those
+    # references are expanded here, conservatively partition on every access-control scope.
+    if _contains_insight_selection(
+        [query, modifiers if modifiers is not None else team.modifiers], team.test_account_filters
+    ):
+        return None
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"}, bypassed_scopes)
@@ -318,6 +377,7 @@ def queried_access_controlled_resources(
                     HogQLQuery(query=view_sql),
                     team,
                     bypassed_scopes=bypassed_scopes,
+                    modifiers=modifiers,
                     _catalog=catalog,
                 )
                 if nested is None:
@@ -334,6 +394,76 @@ def queried_access_controlled_resources(
         if _references_data_warehouse(query)
         else set()
     )
+
+
+def _contains_insight_selection(value, test_account_filters=None) -> bool:
+    if isinstance(value, BaseModel):
+        value = value.__dict__
+    if isinstance(value, (list, tuple)):
+        return any(_contains_insight_selection(field, test_account_filters) for field in value)
+    if not isinstance(value, dict):
+        return False
+
+    if (value.get("filterTestAccounts") or value.get("filter_test_accounts")) and _contains_insight_selection(
+        test_account_filters
+    ):
+        return True
+
+    expressions = []
+    if value.get("kind") == "HogQLQuery":
+        expressions.append(value.get("query"))
+    if value.get("type") in ("hogql", "event_metadata"):
+        expressions.extend(value.get(field) for field in ("key", "property"))
+    if value.get("breakdown_type") in ("hogql", "event_metadata"):
+        expressions.append(value.get("breakdown"))
+    # These query fields contain expressions; property values and request metadata are literals.
+    expressions.extend(
+        value.get(field)
+        for field in (
+            "select",
+            "orderBy",
+            "groupBy",
+            "where",
+            "having",
+            "filterExpression",
+            "metrics",
+            "formula",
+            "math_hogql",
+            "pathsHogQLExpression",
+            "funnelAggregateByHogQL",
+            "id_field",
+            "timestamp_field",
+            "distinct_id_field",
+            "aggregation_target_field",
+            "created_at_field",
+            "hogql",
+        )
+    )
+    return any(_hogql_contains_insight_selection(expr) for expr in expressions) or any(
+        _contains_insight_selection(field, test_account_filters)
+        for name, field in value.items()
+        if name not in ("tags", "name", "value")
+    )
+
+
+def _hogql_contains_insight_selection(value) -> bool:
+    from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
+    from posthog.hogql.functions.insight_selection import InsightSelectionFinder  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select  # noqa: PLC0415
+
+    if isinstance(value, (list, tuple)):
+        return any(_hogql_contains_insight_selection(field) for field in value)
+    if not isinstance(value, str) or ("(" not in value and "<" not in value):
+        return False
+    # Quoted function names use the same decoding as execution. Unknown syntax fails closed.
+    for parser in (parse_expr, parse_select, parse_order_expr):
+        try:
+            finder = InsightSelectionFinder(parser(value))
+            # Query tags expand structured queries and saved filters outside the outer table scan.
+            return finder.found or finder.has_query_tags
+        except BaseHogQLError:
+            pass
+    return True
 
 
 def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) -> set[str]:

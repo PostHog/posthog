@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
 import { Button, Skeleton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { TodayAiRow } from './TodayAiRow'
@@ -15,7 +17,13 @@ import { TodayHomeHeading } from './TodayHomeHeading'
 import { todayLogic } from './todayLogic'
 import { TodayNewProjectForYou } from './TodayNewProjectForYou'
 import { reportWorkKind } from './todayNextStep'
+import { TodayProductPushRow } from './TodayProductPushRow'
+import { todayPromptsLogic } from './todayPromptsLogic'
 import { TodayReportRow } from './TodayReportRow'
+
+const TodaySelfDrivingRow = lazyWithRetry(() =>
+    import('./TodaySelfDrivingRow').then(({ TodaySelfDrivingRow }) => ({ default: TodaySelfDrivingRow }))
+)
 
 function TodayRowsSkeleton(): JSX.Element {
     return (
@@ -39,6 +47,8 @@ function renderRow(row: TodayForYouRow): JSX.Element {
             return <TodayReportRow key={row.key} report={row.report} source={row.source} done={row.done} />
         case 'highlight':
             return <TodayHighlightRow key={row.key} item={row.item} position={row.position} done={row.done} />
+        case 'product_push':
+            return <TodayProductPushRow key={row.key} campaign={row.campaign} />
     }
 }
 
@@ -48,6 +58,7 @@ function countFixes(rows: TodayForYouRow[]): number {
 
 function TodayForYouBody(): JSX.Element | null {
     const { forYouReady, forYouRows, forYouVisibleRows, forYouFailedNote } = useValues(todayLogic)
+    const { canOfferSelfDriving } = useValues(todayPromptsLogic)
 
     if (!forYouReady) {
         return <TodayRowsSkeleton />
@@ -57,11 +68,16 @@ function TodayForYouBody(): JSX.Element | null {
     }
     const fixCount = countFixes(forYouRows.rows)
     return (
-        <>
+        <ol className="TodayRows">
             <TodayAiRow />
+            {canOfferSelfDriving ? (
+                <Suspense fallback={null}>
+                    <TodaySelfDrivingRow />
+                </Suspense>
+            ) : null}
             {fixCount > 0 ? <TodayGitHubRow fixCount={fixCount} /> : null}
-            <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
-        </>
+            {forYouVisibleRows.map(renderRow)}
+        </ol>
     )
 }
 

@@ -10,9 +10,11 @@ from posthog.utils import get_instance_region
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+    GITLAB_TASKS_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
+    PROMPT_MODEL_SWITCH_FEATURE_FLAG,
     get_required_model_flag,
 )
 
@@ -79,6 +81,8 @@ def own_subscription_cloud_enabled(adapter: str, *, distinct_id: str | None, org
     """
     if not distinct_id:
         return False
+    if adapter == "codex":
+        return True
     try:
         return bool(
             posthoganalytics.feature_enabled(
@@ -95,17 +99,13 @@ def own_subscription_cloud_enabled(adapter: str, *, distinct_id: str | None, org
         return False
 
 
-def pi_cloud_runtime_enabled(team: "Team", user: "User") -> bool:
-    """Whether this user may run the Pi harness in the cloud; fail-closed when evaluation fails.
-
-    Lives here rather than in the facade so the run-defaults service can gate a stored Pi
-    preference without importing the facade, which imports this module's own callers.
-    """
+def _user_flag_enabled(flag: str, team: "Team", user: "User") -> bool:
+    """Evaluate a per-user flag with the user's organization as its group; fail-closed when evaluation fails."""
     organization_id = str(team.organization_id)
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                PI_CLOUD_RUNTIME_FEATURE_FLAG,
+                flag,
                 user.distinct_id or f"user_{user.id}",
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -114,8 +114,27 @@ def pi_cloud_runtime_enabled(team: "Team", user: "User") -> bool:
             )
         )
     except Exception:
-        logger.exception("pi-harness flag check failed; treating as disabled")
+        logger.exception("%s flag check failed; treating as disabled", flag)
         return False
+
+
+def pi_cloud_runtime_enabled(team: "Team", user: "User") -> bool:
+    """Whether this user may run the Pi harness in the cloud; fail-closed when evaluation fails.
+
+    Lives here rather than in the facade so the run-defaults service can gate a stored Pi
+    preference without importing the facade, which imports this module's own callers.
+    """
+    return _user_flag_enabled(PI_CLOUD_RUNTIME_FEATURE_FLAG, team, user)
+
+
+def gitlab_tasks_enabled(team: "Team", user: "User") -> bool:
+    """Whether this user may start coding tasks in GitLab projects; fail-closed when evaluation fails."""
+    return _user_flag_enabled(GITLAB_TASKS_FEATURE_FLAG, team, user)
+
+
+def prompt_model_switch_enabled(team: "Team", user: "User") -> bool:
+    """Whether a message from this user may switch the model of its run; fail-closed when evaluation fails."""
+    return _user_flag_enabled(PROMPT_MODEL_SWITCH_FEATURE_FLAG, team, user)
 
 
 def get_model_access_error(model: str | None, *, distinct_id: str | None) -> str | None:

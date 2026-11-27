@@ -1,21 +1,34 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useLayoutEffect, useRef } from 'react'
+import { Suspense, useLayoutEffect, useRef } from 'react'
 
-import { Text } from '@posthog/quill'
+import { Button, Text } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { organizationLogic } from 'scenes/organizationLogic'
+
+import { useTodayHomePaneEnabled } from '~/layout/today/useTodayHomePaneEnabled'
+
+import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
 
 import { TodayExplore } from './TodayExplore'
 import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeComposer } from './TodayHomeComposer'
+import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { reportIdFromPath, todayLogic } from './todayLogic'
+import { TodayPrimaryDashboard } from './TodayPrimaryDashboard'
+import { TodayPromoBanner } from './TodayPromoBanner'
 import { TodayPulseSection } from './TodayPulseSection'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
+
+// Its pickers bring in the PostHog AI 1.0 context and mode logic, so only people on 1.0 load them.
+const TodayHomeClassicComposer = lazyWithRetry(() =>
+    import('./TodayHomeClassicComposer').then((m) => ({ default: m.TodayHomeClassicComposer }))
+)
 
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
 
@@ -42,6 +55,8 @@ export function TodayHomePage(): JSX.Element {
         useSampleData,
     } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
+    const { homeEditing } = useValues(todayHomeEditLogic)
+    const { toggleHomeEditing } = useActions(todayHomeEditLogic)
     const {
         currentProjectId,
         highlights,
@@ -56,7 +71,9 @@ export function TodayHomePage(): JSX.Element {
     const rootRef = useRef<HTMLDivElement>(null)
     const { currentOrganization } = useValues(organizationLogic)
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
-    const homeComposer = postHogAiTasks && !!currentOrganization?.is_ai_data_processing_approved
+    // The Home pane lists recents and pins for the whole project, so the page drops its own recents.
+    const recentsInSidebar = useTodayHomePaneEnabled()
+    const homeComposer = !!currentOrganization?.is_ai_data_processing_approved
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -105,19 +122,43 @@ export function TodayHomePage(): JSX.Element {
     return (
         <div ref={rootRef} className="TodayHome Today__page" data-quill>
             <TodaySampleBanner />
+            <TodayPromoBanner />
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
                         {greeting}
                     </Text>
+                    <Button
+                        variant={homeEditing ? 'primary' : 'outline'}
+                        size="sm"
+                        className="ms-auto"
+                        onClick={toggleHomeEditing}
+                        data-attr={homeEditing ? 'today-home-edit-save' : 'today-home-edit'}
+                    >
+                        {homeEditing ? 'Save' : 'Edit'}
+                    </Button>
                 </div>
                 <TodayMetaLine />
-                {homeComposer ? <TodayHomeComposer /> : null}
+                {homeComposer &&
+                    (postHogAiTasks ? (
+                        <TodayHomeComposer />
+                    ) : (
+                        <Suspense
+                            fallback={
+                                <div className="TodayHome__composer">
+                                    <QuillTaskComposerSkeleton />
+                                </div>
+                            }
+                        >
+                            <TodayHomeClassicComposer />
+                        </Suspense>
+                    ))}
             </section>
             <div className="TodayHome__body">
                 {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}
                 {isNewProject ? <TodayForYou /> : null}
-                {recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
+                {isNewProject ? null : <TodayPrimaryDashboard />}
+                {recentsInSidebar ? null : recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
                     <TodayExplore />
                 ) : (
                     <TodayRecents />

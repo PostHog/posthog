@@ -31,19 +31,22 @@ class JsonArrayMapRecipe(CatalogSchema):
     value_path: Path
 
 
+CatalogFieldType = Literal[
+    "string",
+    "integer",
+    "number",
+    "boolean",
+    "datetime",
+    "array<string>",
+    "array<integer>",
+    "array<number>",
+    "array<boolean>",
+]
+
+
 class CatalogField(CatalogSchema):
     name: Identifier
-    type: Literal[
-        "string",
-        "integer",
-        "number",
-        "boolean",
-        "datetime",
-        "array<string>",
-        "array<integer>",
-        "array<number>",
-        "array<boolean>",
-    ]
+    type: CatalogFieldType
     description: Annotated[str, Field(min_length=1, max_length=2048)]
     binding: Annotated[ColumnRecipe | JsonPathRecipe | JsonArrayMapRecipe, Field(discriminator="kind")]
     missing_value: Literal["null", "empty_array"]

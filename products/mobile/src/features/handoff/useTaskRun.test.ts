@@ -367,6 +367,7 @@ describe('report run connection lifecycle', () => {
             expect.objectContaining({ lastEventId: 'log-0' })
         )
         expect(useHandoffStore.getState().reports[REPORT]?.live?.pending).toBeUndefined()
+        expect(useHandoffStore.getState().reports[REPORT]?.live?.connection).not.toBe('reconnecting')
         controller.abort()
         await followed
         const nextController = new AbortController()

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import requests
 from parameterized import parameterized
 
@@ -24,6 +26,7 @@ class TestListEndpoints:
             ("redis_databases", f"{UPSTASH_API_BASE_URL}/redis/databases", "database_id"),
             ("teams", f"{UPSTASH_API_BASE_URL}/teams", "team_id"),
             ("vector_indexes", f"{UPSTASH_API_BASE_URL}/vector/index", "id"),
+            ("search_indexes", f"{UPSTASH_API_BASE_URL}/search", "id"),
             # Audit logs are served from the unversioned host, not api.upstash.com/v2.
             ("audit_logs", f"{UPSTASH_ROOT_BASE_URL}/auditlogs", "log_id"),
         ]
@@ -41,8 +44,103 @@ class TestListEndpoints:
 
         assert isinstance(result.raised, ValueError)
 
+    @parameterized.expand([("vector_indexes",), ("search_indexes",)])
+    def test_index_tokens_are_stripped_from_rows(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=[{"id": "i1", "name": "idx", "token": "secret", "read_only_token": "ro"}])],
+        )
+
+        assert result.rows == [{"id": "i1", "name": "idx"}]
+
+
+def _fan_out_responder(
+    parent_path: str, parent_rows: list[dict], child_body_by_path: dict[str, object]
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == f"/v2{parent_path}":
+            return ScriptedResponse(json=parent_rows)
+        if request.path in child_body_by_path:
+            return ScriptedResponse(json=child_body_by_path[request.path])
+        return ScriptedResponse(status=404, json={"error": "not found"})
+
+    return respond
+
 
 class TestStatsFanOut:
+    @parameterized.expand(
+        [
+            (
+                "redis_stats",
+                "/redis/databases",
+                [{"database_id": "db1"}, {"database_id": "db2"}],
+                {"/v2/redis/stats/db1": {"daily_net_commands": 1}, "/v2/redis/stats/db2": {"daily_net_commands": 2}},
+                [{"daily_net_commands": 1, "database_id": "db1"}, {"daily_net_commands": 2, "database_id": "db2"}],
+            ),
+            (
+                # Member lists are arrays: every member of every team becomes its own row.
+                "team_members",
+                "/teams",
+                [{"team_id": "t1"}, {"team_id": "t2"}],
+                {
+                    "/v2/teams/t1": [
+                        {"team_id": "t1", "member_email": "a@example.com"},
+                        {"team_id": "t1", "member_email": "b@example.com"},
+                    ],
+                    "/v2/teams/t2": [{"team_id": "t2", "member_email": "a@example.com"}],
+                },
+                [
+                    {"team_id": "t1", "member_email": "a@example.com"},
+                    {"team_id": "t1", "member_email": "b@example.com"},
+                    {"team_id": "t2", "member_email": "a@example.com"},
+                ],
+            ),
+            (
+                "vector_index_stats",
+                "/vector/index",
+                [{"id": "v1", "token": "secret"}, {"id": "v2", "token": "secret"}],
+                {
+                    "/v2/vector/index/v1/stats": {"monthly_cost": 0.5},
+                    "/v2/vector/index/v2/stats": {"monthly_cost": 1.5},
+                },
+                [{"monthly_cost": 0.5, "index_id": "v1"}, {"monthly_cost": 1.5, "index_id": "v2"}],
+            ),
+            (
+                "qstash_stats",
+                "/qstash/users",
+                [{"id": "q1", "token": "secret"}, {"id": "q2", "token": "secret"}],
+                {"/v2/qstash/stats/q1": {"dlq_message_count": 3}, "/v2/qstash/stats/q2": {"dlq_message_count": 0}},
+                [{"dlq_message_count": 3, "qstash_user_id": "q1"}, {"dlq_message_count": 0, "qstash_user_id": "q2"}],
+            ),
+        ]
+    )
+    def test_fans_out_over_every_parent_and_stamps_its_id(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_rows: list[dict],
+        child_body_by_path: dict[str, object],
+        expected_rows: list[dict],
+    ) -> None:
+        result = _driver().run(endpoint, _fan_out_responder(parent_path, parent_rows, child_body_by_path))
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert [request.path for request in result.requests] == [f"/v2{parent_path}", *child_body_by_path]
+
+    def test_parent_deleted_before_its_stats_fetch_is_skipped(self) -> None:
+        result = _driver().run(
+            "qstash_stats",
+            _fan_out_responder(
+                "/qstash/users",
+                [{"id": "gone"}, {"id": "q2"}],
+                {"/v2/qstash/stats/q2": {"dlq_message_count": 0}},
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"dlq_message_count": 0, "qstash_user_id": "q2"}]
+
     def test_non_404_error_during_fan_out_propagates(self) -> None:
         # A persistent 5xx while fetching stats fails the sync (after the client's retries) rather
         # than being swallowed like a 404.
@@ -75,7 +173,19 @@ class TestStatsFanOut:
 class TestHttpSampleCapture:
     # Responses that carry secrets (vector index tokens) must be excluded from HTTP sample capture,
     # since the generic scrubber does not redact fields named `token`. Other endpoints keep capture on.
-    @parameterized.expand([("vector_indexes", False), ("teams", True)])
+    # Fan-out children whose parent listing carries tokens are excluded too, even though the child rows
+    # themselves hold no secret.
+    @parameterized.expand(
+        [
+            ("vector_indexes", False),
+            ("search_indexes", False),
+            ("vector_index_stats", False),
+            ("qstash_stats", False),
+            ("teams", True),
+            ("team_members", True),
+            ("redis_stats", True),
+        ]
+    )
     def test_capture_flag_tracks_sensitive_endpoints(self, endpoint: str, expected_capture: bool) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=[])])
 

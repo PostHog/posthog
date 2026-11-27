@@ -15,6 +15,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 
 import { NotebookChangesNotice } from 'products/notebooks/frontend/NotebookChangesNotice'
+import { NotebookPrintControls } from 'products/notebooks/frontend/NotebookPrintControls'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { getMarkdownNotebookMarkdown } from './markdownNotebookV2'
@@ -160,7 +161,9 @@ export function Notebook({
                         className
                     )}
                     ref={ref}
+                    data-notebook-short-id={shortId}
                 >
+                    <NotebookPrintControls shortId={shortId} />
                     {isTemplate && (
                         <LemonBanner
                             type="info"

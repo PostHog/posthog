@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from posthog.enums import LabeledStrEnum
+from posthog.enums import LabeledIntEnum, LabeledStrEnum
 
 
 class EmailTrackingConsentMode(StrEnum):
@@ -46,6 +46,12 @@ class HogFlowBatchJobState(LabeledStrEnum):
     FAILED = "failed"
 
 
+class HogFlowBatchJobAudienceStatus(LabeledStrEnum):
+    RESOLVING = "resolving"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class HogFlowScheduleStatus(LabeledStrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -72,6 +78,11 @@ class WorkflowIdeaSource(LabeledStrEnum):
 
 class WorkflowImportSource(LabeledStrEnum):
     CUSTOMERIO = "customerio", "Customer.io"
+    RESEND = "resend", "Resend"
+
+
+class WorkflowImportRequestSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
 
 
 class WorkflowImportNoteLevel(LabeledStrEnum):
@@ -91,10 +102,21 @@ class WorkflowImportStatus(LabeledStrEnum):
     FAILED = "failed", "Failed"
 
 
+class WorkflowImportSegmentCohortStatus(LabeledStrEnum):
+    CREATED = "created", "Created"
+    REUSED = "reused", "Reused"
+    WOULD_CREATE = "would_create", "Would create"
+    NOT_CONVERTED = "not_converted", "Not converted"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
     ARCHIVED = "archived"
+
+
+class HogFlowWarningCode(LabeledStrEnum):
+    TEST_SENDER_LIVE = "test_sender_live", "Test sender live"
 
 
 class HogFlowOriginProduct(LabeledStrEnum):
@@ -104,6 +126,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
     BROADCASTS = "broadcasts", "Broadcasts"
     TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
     TRANSACTIONAL_EMAIL_KEYS = "transactional_email_keys", "Transactional email keys"
+    TRANSACTIONAL_PUSH = "transactional_push", "Transactional push notifications"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):
@@ -182,6 +205,7 @@ class EmailDomainSetupRecordKind(LabeledStrEnum):
     MAIL_FROM_MX = "mail_from_mx", "MAIL FROM MX"
     MAIL_FROM_SPF = "mail_from_spf", "MAIL FROM SPF"
     DMARC = "dmarc", "DMARC"
+    ORGANIZATION = "organization", "Organization ownership"
 
 
 class EmailDomainSetupRecordType(LabeledStrEnum):
@@ -221,3 +245,25 @@ class PushTokenImportRowFailureReason(LabeledStrEnum):
     TOKEN_MISMATCH = "token_mismatch", "The token does not fit this channel"
     NOT_STORED = "not_stored", "The device was not stored"
     PERSON_PROCESSING_DISABLED = "person_processing_disabled", "Person processing is off for this person"
+
+
+class AdventCalendarDay(LabeledIntEnum):
+    FAVORITE_FOUNDER = 2, "Favorite founder"
+    PINEAPPLE_ON_PIZZA = 5, "Pineapple on pizza"
+    TABS_OR_SPACES = 10, "Tabs or spaces"
+    DARK_OR_LIGHT_MODE = 13, "Dark or light mode"
+    SHIP_ON_A_FRIDAY = 18, "Ship on a Friday"
+    COFFEE_OR_TEA = 21, "Coffee or tea"
+
+
+class AdventCalendarOption(LabeledStrEnum):
+    JAMES = "james", "James"
+    TIM = "tim", "Tim"
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    TABS = "tabs", "Tabs"
+    SPACES = "spaces", "Spaces"
+    DARK = "dark", "Dark mode"
+    LIGHT = "light", "Light mode"
+    COFFEE = "coffee", "Coffee"
+    TEA = "tea", "Tea"

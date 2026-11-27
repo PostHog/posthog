@@ -15,11 +15,13 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import type { ProductOnboardingCompleteProperties } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -31,6 +33,8 @@ import {
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
+    hiddenProductHrefs,
+    isHiddenProductShortcut,
     withProductShortcutHref,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -49,6 +53,7 @@ import {
     refTypeParams,
     reparentPath,
     shortcutFromEntry,
+    shortcutTelemetryName,
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
@@ -56,8 +61,10 @@ import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
+import type { TeamPublicType, TeamType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
+import type { ProductCrossSellProperties, ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { Noun } from '../../../models/groupsModel'
 import type { GroupType, GroupTypeIndex, ProjectTreeRef, UserType } from '../../../types'
 
@@ -210,6 +217,7 @@ export interface projectTreeDataLogicValues {
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     groupTypesLoading: boolean // groupsModel
     groupsAccessStatus: GroupsAccessStatus // groupsModel
+    isAdminOrOwner: boolean | null // organizationLogic
     user: UserType | null // userLogic
     currentHomeFolder: FileSystemHomeFolderApi | null
     folderLoadOffset: Record<string, number>
@@ -274,25 +282,25 @@ export interface projectTreeDataLogicActions {
         url: string
     } // router
     addProductIntentForCrossSellSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
-        payload?: import('../../../lib/utils/product-intents').ProductCrossSellProperties | undefined
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: ProductCrossSellProperties | undefined
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
-        payload?: import('../../../lib/utils/product-intents').ProductCrossSellProperties
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: ProductCrossSellProperties
     } // teamLogic
     addProductIntentSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
-        payload?: import('../../../lib/utils/product-intents').ProductIntentProperties | undefined
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: ProductIntentProperties | undefined
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
-        payload?: import('../../../lib/utils/product-intents').ProductIntentProperties
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: ProductIntentProperties
     } // teamLogic
     recordProductIntentOnboardingCompleteSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
-        payload?: import('scenes/teamLogic').ProductOnboardingCompleteProperties | undefined
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: ProductOnboardingCompleteProperties | undefined
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
-        payload?: import('scenes/teamLogic').ProductOnboardingCompleteProperties
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: ProductOnboardingCompleteProperties
     } // teamLogic
     addLoadedResults: (results: RecentResults | SearchResults) => {
         results: RecentResults | SearchResults
@@ -643,7 +651,7 @@ export interface projectTreeDataLogicMeta {
         groupItems: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             groupsAccessStatus: GroupsAccessStatus,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
             shortcutData: FileSystemEntry[],
             featureFlags: FeatureFlagsSet
         ) => FileSystemImport[]
@@ -652,12 +660,14 @@ export interface projectTreeDataLogicMeta {
             viableItems: FileSystemEntry[],
             folderStates: Record<string, FolderState>,
             users: Record<string, UserBasicType>,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            isAdminOrOwner: boolean | null
         ) => (searchTerm: string, onlyFolders: boolean) => TreeDataItem[]
         getStaticTreeItems: (
             featureFlags: FeatureFlagsSet,
             getShortcutTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[],
-            groupItems: FileSystemImport[]
+            groupItems: FileSystemImport[],
+            isAdminOrOwner: boolean | null
         ) => (searchTerm: string, onlyFolders: boolean) => TreeDataItem[]
         treeItemsNew: (
             getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[]
@@ -679,6 +689,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
+            organizationLogic,
+            ['isAdminOrOwner'],
             breadcrumbsLogic,
             ['projectTreeRef'],
             groupsModel,
@@ -1112,7 +1124,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     if (created) {
                         posthog.capture('navbar starred item added', {
                             item_type: shortcutItem.type ?? 'unknown',
-                            item_name: shortcutItem.path,
+                            item_name: shortcutTelemetryName(shortcutItem.type, shortcutItem.path),
                         })
                     }
                     lemonToast.success(successMessage ?? 'Added to starred')
@@ -1140,7 +1152,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     await api.fileSystemShortcuts.delete(id)
                     posthog.capture('navbar starred item removed', {
                         item_type: shortcut?.type ?? 'unknown',
-                        item_name: shortcut?.path ?? 'unknown',
+                        item_name: shortcutTelemetryName(shortcut?.type, shortcut?.path ?? 'unknown'),
                     })
                     lemonToast.success(successMessage ?? 'Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
@@ -1624,31 +1636,24 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
         getShortcutTreeItems: [
-            (s) => [s.shortcutData, s.viableItems, s.folderStates, s.users, s.featureFlags],
+            (s) => [s.shortcutData, s.viableItems, s.folderStates, s.users, s.featureFlags, s.isAdminOrOwner],
             (
                 shortcutData: FileSystemEntry[],
                 viableItems: FileSystemEntry[],
                 folderStates: Record<string, FolderState>,
                 users: Record<string, UserBasicType>,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                isAdminOrOwner: boolean | null
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 // Hide a starred product while its flag is off, but keep the star so it comes back with the flag.
-                const productIsEnabled = (product: FileSystemImport): boolean =>
-                    !product.flag || !!(featureFlags as Record<string, boolean>)[product.flag]
-                const products = getDefaultTreeProducts()
-                const enabledProductHrefs = new Set(products.filter(productIsEnabled).map((product) => product.href))
-                const hiddenProductHrefs = new Set(
-                    products
-                        .filter((product) => product.href && !enabledProductHrefs.has(product.href))
-                        .map((product) => product.href)
-                )
+                const hiddenHrefs = hiddenProductHrefs(featureFlags, !!isAdminOrOwner)
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
                     for (const shortcut of shortcutData.filter(
                         (shortcut) =>
                             // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
                             !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut)) &&
-                            !(shortcut.type !== 'folder' && !shortcut.ref && hiddenProductHrefs.has(shortcut.href))
+                            !isHiddenProductShortcut(shortcut, hiddenHrefs)
                     )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',
@@ -1718,11 +1723,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
         getStaticTreeItems: [
-            (s) => [s.featureFlags, s.getShortcutTreeItems, s.groupItems],
+            (s) => [s.featureFlags, s.getShortcutTreeItems, s.groupItems, s.isAdminOrOwner],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 getShortcutTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[],
-                groupItems: FileSystemImport[]
+                groupItems: FileSystemImport[],
+                isAdminOrOwner: boolean | null
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 const convert = (
                     imports: FileSystemImport[],
@@ -1733,7 +1739,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     convertFileSystemEntryToTreeDataItem({
                         root: protocol,
                         imports: imports
-                            .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
+                            .filter((f) => isFileSystemImportShown(f, featureFlags, !!isAdminOrOwner))
                             .map((i) => ({
                                 ...i,
                                 protocol,

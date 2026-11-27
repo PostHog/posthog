@@ -35,9 +35,11 @@ posthog:inbox-reports-claim
 Save the returned `assignee.claim_id` and pass it on subsequent work updates and artefact writes.
 Taking over another actor requires `takeover=true`; stale claim IDs are rejected.
 The claim is attributed to the current internal task or external MCP client. Claims do not expire, so
-release the report whenever you walk away without landing a fix — including when you dismiss it instead.
-Release clears ownership only; an attached pull request stays on the report, and release works from any
-status, so a dismissed report can be released too.
+release the report whenever you walk away without landing a fix.
+Dismissing a report releases its claim for you.
+A resolved, closed, or Monitoring report keeps its claim, because a late open pull request moves it back to ready.
+Release clears ownership only; an attached pull request stays on the report.
+An MCP client that acts for a person can release that person's own claim.
 
 ### Step 2 — Verify the diagnosis against the code (do not skip)
 
@@ -76,7 +78,9 @@ posthog:inbox-reports-claim
 
 ### Step 4 — Open the PR and attach it
 
-Open the PR following the repo's PR conventions, then attach it to the report:
+Open the PR following the repo's PR conventions.
+Put the report's `_posthogUrl` in the PR description so that reviewers can see the context.
+Then attach the PR to the report:
 
 ```json
 posthog:inbox-reports-claim
@@ -90,12 +94,35 @@ posthog:inbox-reports-claim
 PR links are additive and retries do not duplicate them. Send every known PR together so completion
 considers the entire stack. The same PR may be attached to multiple reports. Connected repositories receive immediate state
 validation and webhook updates. PRs from unconnected repositories are accepted with unknown state,
-so resolve those reports manually after the work lands. Also reference the report's `_posthogUrl`
-in the PR description so the loop is traceable from either side.
+so resolve those reports manually after the work lands.
 
 **Don't resolve a report because you opened a PR.** A report resolves when all linked PRs are closed
-or merged and at least one merged. If all closed without merging, it is suppressed. Any open, draft,
+or merged and at least one merged.
+Where the organization has Monitoring on and the report has open follow-up checks, it enters `monitoring` instead (see [Monitoring](report-state.md#monitoring)).
+If all closed without merging, it is suppressed. Any open, draft,
 or unknown PR prevents automatic completion. Resolving by hand at PR-open
 time asserts work that hasn't landed, and a reviewer looking at the inbox can't tell the difference.
 Manual resolve is for fixes a PR merge will never cover — a skill-body change, a config change, a
 `NO_REPO` report — see the [report state workflow](report-state.md).
+
+## Workflow: fix reports in a scheduled run
+
+When an agent takes reports on a schedule and there is no user to ask.
+
+1. List the reports that are free to work on:
+
+   ```json
+   inbox-reports-list
+   { "view": "actionable", "unclaimed": true, "sort": "priority", "limit": 10 }
+   ```
+
+   `unclaimed: true` leaves out each report with an active claim or a draft, open, or unknown-state pull request.
+   A suggested reviewer is routing, not a claim, so a report with suggested reviewers stays in the list.
+
+2. Claim one report before you change code, as in Step 1, and keep `assignee.claim_id`.
+   If another actor holds the claim by then, take the next report.
+   Do not pass `takeover` when there is no user to approve it.
+3. Verify the diagnosis against the code, as in Step 2.
+4. Open the pull request and attach it, as in Step 4.
+5. Release the claim if the run stops without a pull request.
+   Claims do not expire, so a claim that nobody releases keeps the report out of the free list.

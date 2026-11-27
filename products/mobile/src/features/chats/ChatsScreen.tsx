@@ -62,6 +62,7 @@ export function ChatsScreen(): ReactElement {
     const insets = useScreenInsets()
     const tabBottom = useTabBottomOffset()
     const now = useNow()
+    const listRef = useRef<SectionList<ChatListItem, ChatSection>>(null)
     const query = useChatList()
     const scope = useProjectScope()
     const queryClient = useQueryClient()
@@ -132,6 +133,7 @@ export function ChatsScreen(): ReactElement {
         void query.refetch()
     }
     useTabHeader('chats', {
+        scrollToTop: () => listRef.current?.getScrollResponder()?.scrollTo({ y: 0, animated: true }),
         refreshing: query.isRefetching,
         hint: null,
         status: null,
@@ -236,6 +238,7 @@ export function ChatsScreen(): ReactElement {
     return (
         <View style={styles.screen} testID="chats-screen">
             <SectionList
+                ref={listRef}
                 sections={sections}
                 keyExtractor={keyFor}
                 renderItem={renderItem}

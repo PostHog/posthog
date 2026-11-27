@@ -12,7 +12,6 @@ from __future__ import annotations
 import sys
 import json
 import importlib
-from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from types import ModuleType
 from typing import Any
@@ -84,6 +83,9 @@ from products.slack_app.backend.services.slack_app_home import (
     StatsState,
     TaskItem,
     TasksState,
+    _resolve_account_state,
+    _resolve_daily_focus_state,
+    _unlink_user_account,
     handle_ai_preferences_block_action,
     handle_app_home_opened,
     handle_app_home_view_submission,
@@ -92,6 +94,7 @@ from products.slack_app.backend.services.slack_app_home import (
     render_home_view,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
+from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.tasks.backend.facade.ai_run_defaults import get_user_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.models import Task, TaskRun
 
@@ -234,39 +237,21 @@ def _stub_picker_facade():
     fake.validate_model_selection = fake_validate_selection
     fake.REASONING_EFFORTS = public_efforts
 
-    @dataclass(frozen=True)
-    class _GatewayModel:
-        id: str
-        owned_by: str
-        context_window: int = 200_000
-
-    gateway_models = (
-        _GatewayModel(id="claude-opus-4-7", owned_by="anthropic"),
-        _GatewayModel(id="claude-sonnet-4-6", owned_by="anthropic"),
-        _GatewayModel(id="gpt-5", owned_by="openai"),
-        _GatewayModel(id="gpt-5.5", owned_by="openai"),
-    )
     # The catalogue reads the run-config internals directly rather than through the facade,
     # so those lookups are replaced one at a time. Standing the facade stub in for the whole
     # module would blank every other name on it — the GitHub helpers `facade.api` defers to
     # among them.
     utils_name = "products.tasks.backend.temporal.process_task.utils"
-    model_catalogue = importlib.import_module("products.tasks.backend.logic.services.model_catalogue")
 
     saved_facade = sys.modules.get(facade_name)
     sys.modules[facade_name] = fake
-    # The provider → adapter map is cached for the process, so the fake only governs once
-    # the cache is dropped on the way in and back out.
-    model_catalogue._runtime_adapter_by_provider.cache_clear()
     try:
         with (
             patch(f"{utils_name}.get_supported_reasoning_efforts", fake_get_supported),
             patch(f"{utils_name}.get_provider_for_runtime_adapter", fake_get_provider),
-            patch.object(model_catalogue, "list_gateway_models", return_value=gateway_models),
         ):
             yield
     finally:
-        model_catalogue._runtime_adapter_by_provider.cache_clear()
         if saved_facade is None:
             sys.modules.pop(facade_name, None)
         else:
@@ -715,6 +700,47 @@ class TestFeatureTipsToggle:
         assert mock_slack_client.views_publish.called
 
 
+class TestDailyFocusRelinkPrompt:
+    def test_the_prompt_replaces_the_controls(self):
+        view = render_home_view(
+            is_admin=False,
+            daily_focus=DailyFocusHomeState(enabled=False, at=time(9, 0), zone="", relink_url="https://app/link"),
+        )
+
+        assert "Link again to turn on the daily work focus" in _all_text(view)
+        assert ACTION_SET_DAILY_FOCUS not in _action_ids(view)
+        button = next(
+            element
+            for block in view["blocks"]
+            if block.get("type") == "actions"
+            for element in block["elements"]
+            if element.get("url") == "https://app/link"
+        )
+        assert button["text"]["text"] == "Link again"
+
+    @pytest.mark.parametrize(
+        "scopes, prompts",
+        [("users:read", True), ("search:read.public", False)],
+        ids=["link cannot search", "link can search"],
+    )
+    def test_both_cards_prompt_only_when_the_link_cannot_search(
+        self, slack_integration, flag_on, link_user, scopes, prompts
+    ):
+        slack_integration.config = {"scope": "users:read,users:read.email"}
+        slack_integration.save()
+        user = User.objects.create_and_join(slack_integration.team.organization, "relink@example.com", None)
+        link_user(user, slack_user_id="U001", slack_team_id=SLACK_WORKSPACE_ID, user_scopes=scopes)
+
+        account = _resolve_account_state(slack_integration, "U001")
+        daily = _resolve_daily_focus_state(slack_integration, "U001")
+
+        assert account.linked_email == "relink@example.com"
+        assert (account.relink_url is not None) is prompts
+        assert daily is not None
+        assert (daily.relink_url is not None) is prompts
+        assert daily.relink_url == account.relink_url
+
+
 class TestDailyFocusControls:
     @pytest.mark.parametrize(
         "scopes, action, stored, expected_next_run",
@@ -785,6 +811,54 @@ class TestDailyFocusControls:
         assert row.at == time(14, 30)
         assert row.next_run_at == expected_next_run
 
+    @pytest.mark.parametrize(
+        "scopes, turned_off_before, expected_next_run",
+        [
+            ("search:read.public", False, datetime(2026, 11, 10, 8, 0, tzinfo=UTC)),
+            ("search:read.public", True, None),
+            ("users:read", False, None),
+        ],
+        ids=["never chose", "turned it off", "link cannot search"],
+    )
+    def test_opening_home_turns_it_on_only_for_a_person_who_never_chose(
+        self,
+        slack_integration,
+        mock_slack_client,
+        flag_on,
+        link_user,
+        scopes,
+        turned_off_before,
+        expected_next_run,
+    ):
+        self._link(slack_integration, link_user, scopes)
+        if turned_off_before:
+            SlackDailyFocus.objects.for_team(slack_integration.team_id).create(
+                team_id=slack_integration.team_id,
+                slack_workspace_id=SLACK_WORKSPACE_ID,
+                slack_user_id="U001",
+                integration_id=slack_integration.id,
+                next_run_at=None,
+            )
+
+        with (
+            time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False),
+            patch("products.slack_app.backend.logic.daily_focus.capture_slack_event") as captured,
+        ):
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        row = (
+            SlackDailyFocus.objects.unscoped()
+            .filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+            .first()
+        )
+        assert (row.next_run_at if row else None) == expected_next_run
+        assert (captured.call_args.kwargs.get("source") if captured.called else None) == (
+            "home_default" if expected_next_run else None
+        )
+        # The checkbox shows what runs.
+        state = _resolve_daily_focus_state(slack_integration, "U001")
+        assert state is not None and state.enabled is bool(expected_next_run)
+
     def _link(self, slack_integration, link_user, scopes: str) -> None:
         user = User.objects.create_and_join(slack_integration.team.organization, "daily@example.com", None)
         link_user(user, slack_user_id="U001", slack_team_id=SLACK_WORKSPACE_ID, user_scopes=scopes)
@@ -808,6 +882,21 @@ class TestDailyFocusControls:
             patch("products.slack_app.backend.logic.daily_focus.capture_slack_event"),
         ):
             handle_ai_preferences_block_action(payload, action)
+
+
+class TestUnlinkAccount:
+    def test_unlink_revokes_and_deletes_every_link_of_the_slack_identity(self, slack_integration, link_user):
+        # One Slack identity, two PostHog accounts in the organization, both linked to it.
+        for email in ("first@example.com", "second@example.com"):
+            user = User.objects.create_and_join(slack_integration.team.organization, email, None)
+            link_user(user, slack_user_id="U001", slack_team_id=SLACK_WORKSPACE_ID)
+        integration = require_workspace_integration(slack_integration.id, SLACK_WORKSPACE_ID)
+
+        with patch("posthog.models.user_integration.SlackWebClient") as slack_client:
+            _unlink_user_account(integration, "U001")
+
+        assert slack_client.return_value.auth_revoke.call_count == 2
+        assert not UserIntegration.objects.filter(kind=UserIntegration.IntegrationKind.SLACK).exists()
 
 
 class TestChannelWelcomePicker:
@@ -912,6 +1001,15 @@ class TestLinkedAccountsCard:
         assert "`octocat`" in text
         # Installation on an org the login differs from names both sides.
         assert "`octocat` on *PostHog*" in text
+
+    def test_a_link_that_cannot_read_messages_gets_a_link_again_button_next_to_disconnect(self):
+        view = self._view(
+            account_state=AccountState(enabled=True, linked_email="user@posthog.com", relink_url="https://app/link")
+        )
+        text, button = self._row(view, "*PostHog*")
+        assert "This link is missing permissions added since you connected" in text
+        assert button is not None and button["url"] == "https://app/link"
+        assert ACTION_UNLINK_ACCOUNT in _action_ids(view)
 
     def test_each_account_carries_its_own_button(self):
         view = self._view(
@@ -1489,6 +1587,25 @@ class TestHandleAppHomeOpened:
         view = mock_slack_client.views_publish.call_args.kwargs["view"]
         assert ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)
         assert "ChatGPT plan" not in _all_text(view)
+
+    @pytest.mark.parametrize("web_settings_enabled", [True, False])
+    def test_settings_link_shows_only_behind_the_web_settings_flag(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, settings, web_settings_enabled
+    ):
+        settings.SITE_URL = "https://app.example.com"
+        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+
+        with patch(
+            "products.slack_app.backend.services.slack_app_home.is_slack_app_web_settings_enabled",
+            return_value=web_settings_enabled,
+        ):
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        view = mock_slack_client.views_publish.call_args.kwargs["view"]
+        urls = [block["accessory"].get("url") for block in view["blocks"] if "accessory" in block]
+        settings_url = f"https://app.example.com/project/{slack_integration.team_id}/settings/environment-slack-app"
+        assert (settings_url in urls) is web_settings_enabled
 
     def _github_row(self, user: User, login: str) -> UserIntegration:
         return UserIntegration.objects.create(

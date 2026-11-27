@@ -10,6 +10,40 @@
 import * as zod from 'zod'
 
 /**
+ * The same search as the GET form. The query travels in the request body, so it does not appear in request URLs or in the logs that record them.
+ * @summary Search business knowledge with the query in the request body
+ */
+export const businessKnowledgeDocumentsSearchCreateBodyQueryMax = 2000
+
+export const businessKnowledgeDocumentsSearchCreateBodyLimitDefault = 10
+export const businessKnowledgeDocumentsSearchCreateBodyRerankDefault = false
+
+export const BusinessKnowledgeDocumentsSearchCreateBody = /* @__PURE__ */ zod
+    .object({
+        query: zod
+            .string()
+            .max(businessKnowledgeDocumentsSearchCreateBodyQueryMax)
+            .describe(
+                'Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.'
+            ),
+        limit: zod
+            .number()
+            .default(businessKnowledgeDocumentsSearchCreateBodyLimitDefault)
+            .describe('Maximum number of ranked chunks to return. Defaults to 10, capped at 20.'),
+        rerank: zod
+            .boolean()
+            .default(businessKnowledgeDocumentsSearchCreateBodyRerankDefault)
+            .describe(
+                'When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.'
+            ),
+        library_id: zod
+            .uuid()
+            .nullish()
+            .describe('Limit retrieval to sources in this library. Omit to search every ready source.'),
+    })
+    .describe('Body of a search sent with POST, which keeps the query text out of the request URL.')
+
+/**
  * Surfaces topics the support AI couldn't answer from the knowledge base.
  *
  * Two list shapes controlled by the ``ticket_id`` query param:
@@ -35,6 +69,25 @@ export const BusinessKnowledgeGapSuggestionsAcceptTopicCreateBody = /* @__PURE__
 export const BusinessKnowledgeGapSuggestionsDismissTopicCreateBody = /* @__PURE__ */ zod.object({
     normalized_topic: zod.string().describe('The normalized topic key identifying the gap cluster to act on.'),
     resolved_source_id: zod.uuid().nullish().describe('Optional knowledge source to link when accepting.'),
+})
+
+/**
+ * Creates a project secret API key with the business_knowledge:read scope. The key reads one library, or all business knowledge in the project when library_id is null. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
+ * @summary Create a key that reads business knowledge
+ */
+export const businessKnowledgeKeysCreateBodyLabelMax = 40
+
+export const BusinessKnowledgeKeysCreateBody = /* @__PURE__ */ zod.object({
+    label: zod
+        .string()
+        .max(businessKnowledgeKeysCreateBodyLabelMax)
+        .describe('Name for the key. Must be unique in this project.'),
+    library_id: zod
+        .uuid()
+        .nullable()
+        .describe(
+            'The library this key reads. Send null for a key that reads all business knowledge in the project. It cannot be changed later.'
+        ),
 })
 
 /**

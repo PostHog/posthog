@@ -67,4 +67,45 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "instances": "Usage metrics for individual database instances.",
         },
     },
+    "database_instances": {
+        "description": "Primary and replica instances of each database, one per location in the database's group.",
+        "docs_url": "https://docs.turso.tech/api-reference/databases/list-instances",
+        "columns": {
+            "database_id": "Unique identifier from the parent database listing.",
+            "database_name": "Name from the parent database listing.",
+            "uuid": "Unique instance identifier, as referenced in database usage.",
+            "name": "Instance name, which is its location code.",
+            "type": "Instance role, either primary or replica.",
+            "region": "Location code of the region that hosts the instance.",
+            "hostname": "Hostname for libSQL and HTTP connections to this instance only.",
+        },
+    },
+    "database_stats": {
+        "description": "Top queries run on each database, with the rows each query read and wrote.",
+        "docs_url": "https://docs.turso.tech/api-reference/databases/stats",
+        "columns": {
+            "database_id": "Unique identifier from the parent database listing.",
+            "database_name": "Name from the parent database listing.",
+            "query": "SQL statement that was executed.",
+            "rows_read": "Number of rows the query read.",
+            "rows_written": "Number of rows the query inserted, updated, or deleted.",
+        },
+    },
+    "organization_usage": {
+        "description": "Usage for the current billing cycle of the organization, with a breakdown per database.",
+        "docs_url": "https://docs.turso.tech/api-reference/organizations/usage",
+        "columns": {
+            "uuid": "Unique organization identifier.",
+            "usage": "Organization totals for rows read, rows written, databases, locations, storage bytes, groups, and bytes synced.",
+            "databases": "Usage of each database, with totals and per-instance metrics.",
+        },
+    },
+    "locations": {
+        "description": "Locations where databases can be created or replicated.",
+        "docs_url": "https://docs.turso.tech/api-reference/locations/list",
+        "columns": {
+            "code": "Location code, as used in database, group, and instance regions.",
+            "name": "Human-readable location name.",
+        },
+    },
 }

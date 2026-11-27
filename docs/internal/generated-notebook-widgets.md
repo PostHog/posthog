@@ -12,6 +12,32 @@ Costs come from recorded gateway usage and include the same markup as PostHog AI
 Older versions and generations without available usage records do not show a cost.
 The estimate does not include separate failed or canceled generation jobs, or notebook compute.
 
+## Notebook apps and variables
+
+Drag the bottom-right corner of an app card to resize it. In **Component settings**, you can also adjust **Width** in grid columns and enter a **Height** in pixels. Clear the height to restore automatic sizing. Publishing includes these sizes in the app release.
+
+To filter on several values, add a **List of text** notebook variable, then bind an app input to it. Choose **Multi-select dropdown** and enter one option per line. The variable holds the selected strings, including an empty list when cleared. For a variable named `regions`, use `WHERE region IN {regions}` in a native SQL cell. To show all regions when the selection is empty, use `WHERE empty({regions}) OR region IN {regions}`. A Python cell receives `regions` as a list.
+
+Choose **Review and publish** to check the sources and default inputs against the draft layout. The preview lists missing sources, failed or stale calculations, and outputs still waiting to save. **Run all** refreshes the notebook's calculations. The preview checks them again after the notebook saves.
+
+Python cells can look up any notebook variable at runtime. Changing any default requires a new run for Python outputs in the app and results that depend on them. DuckDB cells need a new run when one of their bound parameters changes. Older single-cell results without an input snapshot may need one new run before publication.
+
+**Publish release** captures the layout, source markdown, title, input defaults, saved run references, and bounded previews. The oldest displayed calculation's completion time records how fresh those results were when published. A failed check keeps the previous release available. Each notebook keeps its current and previous releases. **Restore previous release** in the preview restores its sources and results while preserving the editable draft. Apps published before releases existed continue to resolve against their notebook until republished.
+
+The app builder requires `notebook-app-builder`. When the notebook API cannot resolve the flag locally, it checks the flag service and reuses the result for that user and project for 30 seconds. An app can display the notebook's generated Widget cells alongside standard charts, calculated metrics, text, and variable inputs.
+
+Generated code reads approved dataframe snapshots through `ph.readFrame`. It has no direct notebook-variable API. To expose control values, create a one-row SQL dataframe, for example `SELECT {region} AS region, {weeks} AS weeks, {target} AS target`, and ask the widget to read that frame alongside the analytical results. The analytical cells must use the same variables for filtering and calculations. Run these cells before generation so their schemas are available.
+
+SQL inputs read the completed query's cached rows, rather than only its saved preview. Follow `nextOffset` to read subsequent pages and check `truncated` before presenting totals. Reaching the SQL result-cache ceiling marks the frame as truncated; aggregate large datasets in the notebook before passing them to a widget. Expired SQL results require rerunning the source cell.
+
+Each visitor to a published app starts with its published defaults. Changing an input updates affected native HogQL outputs for that browser view using the visitor's query permissions. Selecting a point on a SQL line or bar chart can set the input named by its x-axis column. Turn off **Auto-update results** to apply several changes together. A failed refresh keeps the last successful outputs visible. Python, directly connected SQL, saved insights, and generated widgets retain their existing output or source bindings.
+
+When you publish a SQL result, the app keeps up to 300 cached rows. Published results share an 8 MiB limit per release. If the original query cache expired before publication or a result exceeds the remaining space, the viewer shows the saved first page and labels it as partial. Reading these rows requires access to the notebook, queries, and any connected data source.
+
+In the notebook editor, inputs change the shared notebook variables. A widget becomes stale when one of its SQL or Python inputs, including upstream dependencies, becomes stale. A successful notebook run refreshes the widget's preview with the latest dataframe snapshots. If Run all fails or is interrupted after one of the widget's source cells succeeds, the preview still refreshes when all its inputs are current. Individual source-cell runs refresh the widget once its dependencies are current. This does not change the selected widget version or grant preview approval for generated code.
+
+PostHog AI and MCP agents use the `building-notebook-apps` skill to compose source cells, variables, widget generation or reusable-widget bindings, and the app layout. An open app picks up the agent's source edits after the current notebook load finishes, provided the notebook has no unsaved local edits. Agents must inspect actual results, verify controls with a different value, and report unfinished runs, generation, or preview approval. Static app text is explanatory; live totals and rates belong in calculated cells or dataframe-backed widgets.
+
 ## Dashboard widgets
 
 Choose **Add to dashboard** from a generated widget's notebook menu to save its selected version, input mappings, and completed dataframe results.
@@ -132,7 +158,7 @@ New SQL cells receive a unique name beginning with `sql_df_`; Python cells recei
 You can rename a dataframe below its results while its edit, filters, or query panel is also open. Results-only views hide the name controls.
 In Jupyter mode, dataframe names use smaller text. Code cells keep the name below their output alongside their visible source editor.
 The SQL and insight dataframe name rows are available to notebook editors.
-HogQL dataframe preparation is available without a feature flag. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
+HogQL dataframe preparation, Python, kernel-backed SQL, and direct connections are available without a rollout flag.
 Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
 An editor prepares the insight's dataframe when a SQL or Python cell first references it, before generating a widget, or when rerunning a widget's data dependencies.
 Widget generation continues with the available dataframes if an embedded insight cannot be prepared.
@@ -151,10 +177,11 @@ SQL and Python cells save their run ID, column metadata, and row count in the no
 A bounded preview keeps at most five rows within 8 KiB and up to 2,048 characters per console stream in the notebook, including runs created through MCP.
 The preview helper is shared with MCP, so the MCP TypeScript CI filter covers `products/notebooks/**`.
 Full results and images load from the saved run. Older browser tabs can still display the small preview.
-Saved result reads remain available if the execution flags are disabled, subject to notebook and query permissions.
+The saved-run result endpoints require notebook and query permissions.
 Loading a saved result does not execute a cell or mark dependent cells stale. If a saved run is unavailable, the preview stays visible and the cell offers a rerun.
 
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
+Saving the same AI notebook artifact again opens the existing notebook without replacing its content, subject to the usual access checks.
 Notebook creation completes even if navigation closes the page that started it.
 Click a cell's title or choose **Edit title** from its **More actions** menu to rename it without collapsing its panels. Enter or leaving the field saves; Escape cancels. The cell-type label toggles both panels, and the pencil toggles filters or the editor.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions.
@@ -177,7 +204,7 @@ Standalone AI notebook saves preserve Markdown separators and live MDX cells, in
 Its notebook context and `create_notebook` tool share the same instructions for inserting `<Widget title="Interactive visualization" prompt="Describe the visualization" />`.
 Inline AI insertion also converts plain, `md`, or `markdown` code fences containing only valid `<Widget>` tags into widget blocks. Fences containing other code, malformed tags, or an explicit language such as `text` remain code examples.
 The user clicks **Generate widget** in the inserted block's settings to start generation.
-Widgets do not grant access to SQLV2 or PythonV2 cells; those still require `revamped-py-notebooks`.
+SQLV2 and PythonV2 cells use the notebook's access and query permissions.
 
 The MCP tools `notebooks-widget-generate`, `notebooks-widget-status`, and `notebooks-widget-cancel` are available to authenticated users with their required notebook and query scopes.
 Generation also requires the organization's AI data processing consent and the `notebook:write` and `query:read` scopes.

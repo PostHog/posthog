@@ -600,6 +600,201 @@ query PaginatedWorkflowExecutions($first: Int!, $after: String) {
     }
 }"""
 
+TIERS_QUERY = """
+query PaginatedTiers($first: Int!, $after: String) {
+    tiers(first: $first, after: $after) {
+        edges {
+            node {
+                id
+                name
+                externalId
+                color
+                isDefault
+                defaultThreadPriority
+                isMachineTier
+                createdAt {
+                    iso8601
+                }
+                createdBy {
+                    actorType: __typename
+                    ... on UserActor { userId }
+                    ... on MachineUserActor { machineUserId }
+                    ... on SystemActor { systemId }
+                }
+                updatedAt {
+                    iso8601
+                }
+                updatedBy {
+                    actorType: __typename
+                    ... on UserActor { userId }
+                    ... on MachineUserActor { machineUserId }
+                    ... on SystemActor { systemId }
+                }
+            }
+        }
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+    }
+}"""
+
+# TasksFilter has no updatedAt filter, so tasks are full refresh; createdAt order keeps the paging stable.
+TASKS_QUERY = """
+query PaginatedTasks($first: Int!, $after: String) {
+    tasks(first: $first, after: $after, sortBy: { field: CREATED_AT, direction: ASC }) {
+        edges {
+            node {
+                id
+                ref
+                title
+                description
+                status
+                priority
+                account {
+                    id
+                }
+                assignedTo {
+                    assigneeType: __typename
+                    ... on User { id }
+                    ... on MachineUser { id }
+                    ... on System { id }
+                }
+                assignedAt {
+                    iso8601
+                }
+                createdAt {
+                    iso8601
+                }
+                createdBy {
+                    actorType: __typename
+                    ... on UserActor { userId }
+                    ... on MachineUserActor { machineUserId }
+                    ... on SystemActor { systemId }
+                }
+                updatedAt {
+                    iso8601
+                }
+                updatedBy {
+                    actorType: __typename
+                    ... on UserActor { userId }
+                    ... on MachineUserActor { machineUserId }
+                    ... on SystemActor { systemId }
+                }
+            }
+        }
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+    }
+}"""
+
+THREAD_FIELD_SCHEMAS_QUERY = """
+query PaginatedThreadFieldSchemas($first: Int!, $after: String) {
+    thread_field_schemas: threadFieldSchemas(first: $first, after: $after) {
+        edges {
+            node {
+                id
+                label
+                key
+                description
+                order
+                type
+                enumValues
+                defaultStringValue
+                defaultBooleanValue
+                defaultNumberValue
+                defaultDateValue {
+                    iso8601
+                }
+                isRequired
+                isAiAutoFillEnabled
+                isAvailableToAgents
+                isClientReadonly
+                dependsOnThreadField {
+                    threadFieldSchemaId
+                    threadFieldSchemaValue
+                }
+                dependsOnLabels {
+                    labelTypeId
+                }
+                createdAt {
+                    iso8601
+                }
+                createdBy {
+                    actorType: __typename
+                    ... on UserActor { userId }
+                    ... on MachineUserActor { machineUserId }
+                    ... on SystemActor { systemId }
+                }
+                updatedAt {
+                    iso8601
+                }
+                updatedBy {
+                    actorType: __typename
+                    ... on UserActor { userId }
+                    ... on MachineUserActor { machineUserId }
+                    ... on SystemActor { systemId }
+                }
+            }
+        }
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+    }
+}"""
+
+# lastSeenAt only moves forward, so ascending order re-reads a gap that moves mid-walk instead of skipping it.
+KNOWLEDGE_GAPS_QUERY = """
+query PaginatedKnowledgeGaps($first: Int!, $after: String) {
+    knowledge_gaps: knowledgeGaps(first: $first, after: $after, sortBy: { field: LAST_SEEN_AT, direction: ASC }) {
+        edges {
+            node {
+                id
+                title
+                description
+                lastSeenAt {
+                    iso8601
+                }
+                task {
+                    id
+                }
+                labelTypes {
+                    id
+                }
+                createdAt {
+                    iso8601
+                }
+                createdBy {
+                    actorType: __typename
+                    ... on UserActor { userId }
+                    ... on MachineUserActor { machineUserId }
+                    ... on CustomerActor { customerId }
+                    ... on DeletedCustomerActor { customerId }
+                    ... on SystemActor { systemId }
+                }
+                updatedAt {
+                    iso8601
+                }
+                updatedBy {
+                    actorType: __typename
+                    ... on UserActor { userId }
+                    ... on MachineUserActor { machineUserId }
+                    ... on CustomerActor { customerId }
+                    ... on DeletedCustomerActor { customerId }
+                    ... on SystemActor { systemId }
+                }
+            }
+        }
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+    }
+}"""
+
 VIEWER_QUERY = "{ myWorkspace { id name } }"
 
 QUERIES: dict[str, str] = {
@@ -614,4 +809,8 @@ QUERIES: dict[str, str] = {
     "customer_surveys": CUSTOMER_SURVEYS_QUERY,
     "discussions": DISCUSSIONS_QUERY,
     "workflow_executions": WORKFLOW_EXECUTIONS_QUERY,
+    "tiers": TIERS_QUERY,
+    "tasks": TASKS_QUERY,
+    "thread_field_schemas": THREAD_FIELD_SCHEMAS_QUERY,
+    "knowledge_gaps": KNOWLEDGE_GAPS_QUERY,
 }

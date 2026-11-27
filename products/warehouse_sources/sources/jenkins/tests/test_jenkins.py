@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.jenkins import jenkins
 from products.warehouse_sources.sources.jenkins._config import JenkinsSourceConfig
 from products.warehouse_sources.sources.jenkins.jenkins import (
     JenkinsResumeConfig,
+    _build_change_rows,
     _discover_jobs,
     _is_job_container,
     _iter_job_builds,
@@ -21,7 +22,23 @@ from products.warehouse_sources.sources.jenkins.jenkins import (
     validate_credentials,
 )
 from products.warehouse_sources.sources.jenkins.source import JenkinsSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+
+HOST = "https://jenkins.example.com"
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(JenkinsSource(), JenkinsSourceConfig(host=HOST, username="user", api_token="token"))
+
+
+def _rows(result: DriveResult) -> list[dict[str, Any]]:
+    return [row for table in result.items for row in table.to_pylist()]
 
 
 def _resp(payload: Any) -> MagicMock:
@@ -358,3 +375,159 @@ class TestValidateCredentials:
         assert error is not None
         assert network.requests_log == []
         assert network.session_options == []
+
+
+class TestSnapshotEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "nodes",
+                "/computer/api/json",
+                {
+                    "computer": [
+                        {"displayName": "Built-In Node", "numExecutors": 2, "offline": False},
+                        {"displayName": "agent-1", "numExecutors": 4, "offline": True},
+                        {"numExecutors": 1},
+                        "not-a-node",
+                    ]
+                },
+                "displayName",
+                ["Built-In Node", "agent-1"],
+            ),
+            (
+                "queue_items",
+                "/queue/api/json",
+                {
+                    "items": [
+                        {"id": 11, "why": "Waiting for next available executor", "task": {"name": "svc"}},
+                        {"id": 12, "why": "Build #3 is already in progress", "blocked": True},
+                        {"why": "no id"},
+                    ]
+                },
+                "id",
+                [11, 12],
+            ),
+        ]
+    )
+    def test_reads_one_snapshot_and_drops_rows_without_a_key(
+        self, endpoint: str, path: str, payload: dict[str, Any], key: str, expected: list[Any]
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=payload)])
+        assert result.raised is None
+        assert result.paths == [path]
+        assert [row[key] for row in _rows(result)] == expected
+
+
+class TestBuildChangeRows:
+    @parameterized.expand(
+        [
+            (
+                "freestyle_change_set",
+                {"changeSet": {"kind": "git", "items": [{"commitId": "a1", "msg": "fix"}]}},
+                [("a1", "git")],
+            ),
+            (
+                "pipeline_change_sets_across_two_repos",
+                {
+                    "changeSets": [
+                        {"kind": "git", "items": [{"commitId": "a1"}, {"commitId": "b2"}]},
+                        {"kind": "git", "items": [{"commitId": "c3"}]},
+                    ]
+                },
+                [("a1", "git"), ("b2", "git"), ("c3", "git")],
+            ),
+            (
+                # The same repository checked out twice lists its commits twice; the key is
+                # (build_url, commitId), so a duplicate would multi-match on every merge.
+                "duplicate_commit_kept_once",
+                {
+                    "changeSets": [
+                        {"kind": "git", "items": [{"commitId": "a1"}]},
+                        {"kind": "git", "items": [{"commitId": "a1"}]},
+                    ]
+                },
+                [("a1", "git")],
+            ),
+            (
+                "items_without_commit_id_dropped",
+                {
+                    "changeSet": {
+                        "kind": "svn",
+                        "items": [{"msg": "no id"}, {"commitId": ""}, "junk", {"commitId": "r9"}],
+                    }
+                },
+                [("r9", "svn")],
+            ),
+            ("empty_change_log", {"changeSet": {"kind": None, "items": []}, "changeSets": None}, []),
+            ("no_change_fields", {}, []),
+        ]
+    )
+    def test_one_row_per_commit(
+        self, _name: str, change_fields: dict[str, Any], expected: list[tuple[str, str | None]]
+    ) -> None:
+        build = {
+            "job_url": "https://j/job/svc/",
+            "url": "https://j/job/svc/7/",
+            "number": 7,
+            "created_at": "2026-01-02T03:04:05+00:00",
+            **change_fields,
+        }
+        rows = list(_build_change_rows(MagicMock(), ("u", "t"), MagicMock(), build))
+        assert [(row["commitId"], row["kind"]) for row in rows] == expected
+        assert all(
+            row["build_url"] == "https://j/job/svc/7/"
+            and row["job_url"] == "https://j/job/svc/"
+            and row["build_number"] == 7
+            and row["created_at"] == "2026-01-02T03:04:05+00:00"
+            for row in rows
+        )
+
+
+class TestTestReports:
+    JOBS = {"jobs": [{"name": "svc", "url": f"{HOST}/job/svc/", "buildable": True}]}
+    BUILDS = {
+        "builds": [
+            # Still running: no report yet, so no request is made for it.
+            {"number": 9, "url": f"{HOST}/job/svc/9/", "timestamp": 1767323045000, "building": True},
+            # The build URL in the response points elsewhere; the report URL must be rebuilt
+            # from the pinned job URL so the credentials never leave the instance.
+            {"number": 8, "url": "http://evil.example/exfil/8/", "timestamp": 1767323044000, "building": False},
+            {"number": 7, "url": f"{HOST}/job/svc/7/", "timestamp": 1767323043000, "building": False},
+        ]
+    }
+    REPORT = {"failCount": 1, "passCount": 41, "skipCount": 2, "suites": [{"name": "s", "cases": []}]}
+
+    @parameterized.expand(
+        [
+            ("build_without_report_skipped", 404, None, [8]),
+            ("permission_error_fails_the_sync", 403, "403 Client Error", []),
+        ]
+    )
+    def test_fetches_one_report_per_finished_build(
+        self, _name: str, second_status: int, error: str | None, expected_builds: list[int]
+    ) -> None:
+        result = _driver().run(
+            "test_reports",
+            [
+                ScriptedResponse(json=self.JOBS),
+                ScriptedResponse(json=self.BUILDS),
+                ScriptedResponse(json=self.REPORT),
+                ScriptedResponse(status=second_status),
+            ],
+        )
+        assert result.paths == [
+            "/api/json",
+            "/job/svc/api/json",
+            "/job/svc/8/testReport/api/json",
+            "/job/svc/7/testReport/api/json",
+        ]
+        if error is None:
+            assert result.raised is None
+        else:
+            assert error in str(result.raised)
+        rows = _rows(result)
+        assert [row["build_number"] for row in rows] == expected_builds
+        if rows:
+            assert rows[0]["build_url"] == "http://evil.example/exfil/8/"
+            assert rows[0]["job_url"] == f"{HOST}/job/svc/"
+            assert (rows[0]["passCount"], rows[0]["failCount"], rows[0]["skipCount"]) == (41, 1, 2)

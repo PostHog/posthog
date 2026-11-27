@@ -4,7 +4,9 @@ A keyword search requires every query term in the title or the summary, and lean
 indexes on both columns. A semantic search ranks the newest `title_summary_v1` vector of each report by
 its distance to the query. A hybrid search merges both rankings with reciprocal rank fusion. A report's
 vectors expire 3 months after it was created, so an older report can match on keywords only, and a
-failed semantic read leaves a hybrid search with the keyword ranking.
+failed semantic read leaves a hybrid search with the keyword ranking. A hybrid search runs the embedding
+call and the vector read on a worker thread while the keyword query runs, so it waits for the slower side
+only.
 
 Both sides return only rows of the queryset the caller passes, which carries the team scope and the
 caller's filters, so neither side can surface a report the list endpoint would not.
@@ -14,21 +16,26 @@ import json
 import time
 import uuid
 import datetime
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import Context, copy_context
+from threading import BoundedSemaphore
 from typing import Any, cast
 
-from django.db import models
+from django.db import connections, models
 from django.db.models import Prefetch, Q, QuerySet
 from django.utils import timezone
 
 import structlog
 from opentelemetry import trace
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_random
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
@@ -64,11 +71,22 @@ SNIPPET_RADIUS = 120
 EMBEDDING_TIMEOUT_S = 10.0
 # A stalled read must end inside the MCP request deadline, so that a hybrid search can still return its keyword ranking.
 VECTOR_READ_MAX_EXECUTION_S = 10
+# All signals queries share one ClickHouse user, so its concurrent-query limit refuses reads in short bursts.
+# ClickHouse refuses such a read immediately, so the added attempts stay well inside the MCP request deadline.
+# A read that reaches its time limit gets no second attempt, because the caller already waited for the full limit.
+VECTOR_READ_ATTEMPTS = 3
+VECTOR_READ_RETRY_WAIT_S = (0.5, 2.0)
+# The hybrid searches one process can overlap at a time. A search that finds every worker busy runs its
+# semantic side after the keyword query instead, so a burst never queues behind the pool.
+SEMANTIC_WORKERS = 4
 # Quotes and sentence punctuation around a word, which would otherwise have to match literally.
 _TERM_EDGES = "\"'`.,;:!?()[]{}<>"
 
 # The same newest-row rule as `report_embedding_reader.LATEST_REPORT_VECTORS_SQL`: a report whose newest
 # row is a tombstone is dropped, and an older live row never stands in for it.
+# Every row of a report has the report's creation time as its `timestamp`, and the table sorts by
+# `(team_id, toDate(timestamp), ...)` and partitions by week. So the creation dates of the eligible reports
+# limit the read to their own parts and granules. Without them, the read opens every part the team has.
 NEAREST_REPORTS_SQL = f"""
 SELECT document_id, cosineDistance(embedding, %(embedding)s) AS distance
 FROM (
@@ -81,6 +99,8 @@ FROM (
       AND product = %(product)s
       AND document_type = %(document_type)s
       AND rendering = %(rendering)s
+      AND toDate(timestamp) >= %(first_date)s
+      AND toDate(timestamp) IN %(dates)s
       AND document_id IN %(report_ids)s
     GROUP BY document_id
 )
@@ -88,6 +108,10 @@ WHERE NOT is_tombstone AND length(embedding) = %(dimensions)s
 ORDER BY distance ASC
 LIMIT %(limit)s
 """
+
+
+_SEMANTIC_POOL = ThreadPoolExecutor(max_workers=SEMANTIC_WORKERS, thread_name_prefix="signals-report-search")
+_SEMANTIC_SLOTS = BoundedSemaphore(SEMANTIC_WORKERS)
 
 
 class ReportMatchKind(models.TextChoices):
@@ -167,20 +191,34 @@ def search_reports(
     span.set_attribute("signals.reports.search.mode", search_mode.value)
     span.set_attribute("signals.reports.search.term_count", len(terms))
 
-    keyword_ranking: list[uuid.UUID] = []
-    if search_mode != SearchMode.SEMANTIC and terms:
-        keyword_ranking = _keyword_ranking(reports, terms)
+    run_keyword = search_mode != SearchMode.SEMANTIC and bool(terms)
 
     semantic_ranking: list[uuid.UUID] = []
     semantic_available = False
+    semantic_error: Exception | None = None
+    semantic_result: Callable[[], list[uuid.UUID]] | None = None
     if search_mode != SearchMode.KEYWORD:
         try:
-            semantic_ranking = _semantic_ranking(team, query, reports)
+            semantic_result = _start_semantic_ranking(team, query, reports, in_background=run_keyword)
+        except Exception as error:
+            semantic_error = error
+
+    keyword_ranking: list[uuid.UUID] = []
+    if run_keyword:
+        started = time.monotonic()
+        keyword_ranking = _keyword_ranking(reports, terms)
+        span.set_attribute("signals.reports.search.keyword.duration_ms", _elapsed_ms(started))
+
+    if semantic_result is not None:
+        try:
+            semantic_ranking = semantic_result()
             semantic_available = True
         except Exception as error:
-            logger.exception("inbox_reports_search_semantic_failed", team_id=team.id)
-            if search_mode == SearchMode.SEMANTIC:
-                raise SemanticSearchUnavailable() from error
+            semantic_error = error
+    if semantic_error is not None:
+        logger.error("inbox_reports_search_semantic_failed", team_id=team.id, exc_info=semantic_error)
+        if search_mode == SearchMode.SEMANTIC:
+            raise SemanticSearchUnavailable() from semantic_error
     span.set_attribute("signals.reports.search.keyword_count", len(keyword_ranking))
     span.set_attribute("signals.reports.search.semantic_count", len(semantic_ranking))
     span.set_attribute("signals.reports.search.semantic_available", semantic_available)
@@ -217,27 +255,78 @@ def _keyword_ranking(reports: QuerySet[SignalReport], terms: Sequence[str]) -> l
     return [report_id for report_id, _ in rows]
 
 
-def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -> list[uuid.UUID]:
+def _start_semantic_ranking(
+    team: Team, query: str, reports: QuerySet[SignalReport], *, in_background: bool
+) -> Callable[[], list[uuid.UUID]]:
+    """Read the eligible reports, then start ranking them. Returns the call that waits for the ranking.
+
+    With `in_background`, the embedding call and the vector read run on a worker thread when one is free.
+    Otherwise they run when the caller waits for the ranking.
+    """
+    # The caller's filters apply before the vector read limits to the nearest reports. Filtering the nearest
+    # reports afterwards could drop every one of them while eligible reports with vectors exist further out.
+    eligible = list(
+        reports.filter(created_at__gte=timezone.now() - VECTOR_LIFETIME)
+        .order_by("-created_at")
+        .values_list("id", "created_at")[:MAX_SEMANTIC_REPORTS]
+    )
+    if not eligible:
+        return list
+    if not in_background or not _SEMANTIC_SLOTS.acquire(blocking=False):
+        trace.get_current_span().set_attribute("signals.reports.search.semantic_in_background", False)
+        return lambda: _nearest_reports(team, query, eligible)
+    trace.get_current_span().set_attribute("signals.reports.search.semantic_in_background", True)
+    try:
+        # The copied context carries the query tags and the current span to the worker.
+        future = _SEMANTIC_POOL.submit(_nearest_reports_in_worker, copy_context(), team, query, eligible)
+    except Exception:
+        _SEMANTIC_SLOTS.release()
+        raise
+    future.add_done_callback(lambda _: _SEMANTIC_SLOTS.release())
+    # Both steps have their own time limits, so the wait needs none.
+    return future.result
+
+
+def _nearest_reports_in_worker(
+    context: Context, team: Team, query: str, eligible: Sequence[tuple[uuid.UUID, datetime.datetime]]
+) -> list[uuid.UUID]:
+    try:
+        return context.run(_nearest_reports, team, query, eligible)
+    finally:
+        # `sync_execute` can read instance settings from Postgres. Django closes the connections of request
+        # threads only, so a pool thread that keeps its connection holds it open for the life of the process.
+        connections.close_all()
+
+
+def _nearest_reports(
+    team: Team, query: str, eligible: Sequence[tuple[uuid.UUID, datetime.datetime]]
+) -> list[uuid.UUID]:
+    """The eligible reports nearest to `query`, nearest first.
+
+    Must not query reports, because it can run on a worker thread outside the request's database connection.
+    """
     # Deferred: `posthog.api` loads the product routes, which import this module through the signals views.
     from posthog.api.embedding_worker import generate_embedding  # noqa: PLC0415
 
-    # The caller's filters apply before the vector read limits to the nearest reports. Filtering the nearest
-    # reports afterwards could drop every one of them while eligible reports with vectors exist further out.
-    eligible = [
-        str(report_id)
-        for report_id in reports.filter(created_at__gte=timezone.now() - VECTOR_LIFETIME)
-        .order_by("-created_at")
-        .values_list("id", flat=True)[:MAX_SEMANTIC_REPORTS]
-    ]
-    if not eligible:
-        return []
+    # The table stores `timestamp` in UTC, so `toDate(timestamp)` is the UTC date.
+    dates = sorted({created_at.astimezone(datetime.UTC).date() for _, created_at in eligible})
+    started = time.monotonic()
+    # Reads only `team.pk`, which the loaded team already holds.
     embedding = generate_embedding(team, query, model=EMBEDDING_MODEL.value, timeout=EMBEDDING_TIMEOUT_S).embedding
+    trace.get_current_span().set_attribute("signals.reports.search.embedding.duration_ms", _elapsed_ms(started))
     tag_queries(product=Product.SIGNALS, feature=Feature.ENRICHMENT, team_id=team.id, query_type="inbox_report_search")
     with tracer.start_as_current_span("signals.reports.search.vector_read") as span:
         started = time.monotonic()
+        read = Retrying(
+            retry=retry_if_exception_type(ClickHouseAtCapacity),
+            stop=stop_after_attempt(VECTOR_READ_ATTEMPTS),
+            wait=wait_random(*VECTOR_READ_RETRY_WAIT_S),
+            reraise=True,
+        )
         rows = cast(
             list[tuple[Any, ...]],
-            sync_execute(
+            read(
+                sync_execute,
                 NEAREST_REPORTS_SQL,
                 {
                     "embedding": embedding,
@@ -245,7 +334,9 @@ def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -
                     "product": EMBEDDING_PRODUCT,
                     "document_type": EMBEDDING_DOCUMENT_TYPE,
                     "rendering": EMBEDDING_RENDERING_TITLE_SUMMARY,
-                    "report_ids": eligible,
+                    "first_date": dates[0],
+                    "dates": dates,
+                    "report_ids": [str(report_id) for report_id, _ in eligible],
                     "dimensions": EMBEDDING_DIMENSIONS,
                     "limit": CANDIDATES,
                 },
@@ -257,10 +348,15 @@ def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -
             )
             or [],
         )
-        span.set_attribute("signals.reports.search.vector_read.duration_ms", round((time.monotonic() - started) * 1000))
+        span.set_attribute("signals.reports.search.vector_read.duration_ms", _elapsed_ms(started))
         span.set_attribute("signals.reports.search.vector_read.rows", len(rows))
         span.set_attribute("signals.reports.search.vector_read.eligible", len(eligible))
+        span.set_attribute("signals.reports.search.vector_read.attempts", read.statistics["attempt_number"])
     return [report_id for report_id in (_as_uuid(document_id) for document_id, _ in rows) if report_id is not None]
+
+
+def _elapsed_ms(started: float) -> int:
+    return round((time.monotonic() - started) * 1000)
 
 
 def _as_uuid(value: Any) -> uuid.UUID | None:

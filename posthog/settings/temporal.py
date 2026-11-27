@@ -15,6 +15,10 @@ TEMPORAL_CLIENT_CERT: str | None = os.getenv("TEMPORAL_CLIENT_CERT", None)
 TEMPORAL_CLIENT_KEY: str | None = os.getenv("TEMPORAL_CLIENT_KEY", None)
 TEMPORAL_WORKFLOW_MAX_ATTEMPTS: str = os.getenv("TEMPORAL_WORKFLOW_MAX_ATTEMPTS", "3")
 TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", False, type_cast=str_to_bool)
+# Each heartbeat that reaches Temporal Cloud is a billed action.
+TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS: float = get_from_env(
+    "TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS", 5.0, type_cast=float
+)
 
 TEMPORAL_SECRET_KEY: str = os.getenv("TEMPORAL_SECRET_KEY", SECRET_KEY)
 TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK_SECRET_KEYS", "")) or [SECRET_KEY]
@@ -93,6 +97,10 @@ SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
+AGENT_EGRESS_PROBE_CONFIG_DIR: str = get_from_env("AGENT_EGRESS_PROBE_CONFIG_DIR", "")
+AGENT_EGRESS_STAGING_PROBE_RUN_ID: str = get_from_env("AGENT_EGRESS_STAGING_PROBE_RUN_ID", "")
+AGENT_EGRESS_OBSERVATION_CONFIG: str = get_from_env("AGENT_EGRESS_OBSERVATION_CONFIG", "")
+AGENT_EGRESS_ENROLLMENT_CONFIG: str = get_from_env("AGENT_EGRESS_ENROLLMENT_CONFIG", "")
 # Hogland (Firecracker microVM sandbox service) control plane. Deliberately not
 # SANDBOX_*-prefixed: agentsh folds SANDBOX_* URL settings into the in-box egress
 # allowlist, and the box never needs to reach the hogland control plane.
@@ -101,17 +109,13 @@ HOGLAND_API_TOKEN: str | None = get_from_env("HOGLAND_API_TOKEN", None, optional
 # Projected ServiceAccount token file (rotating JWT). When set and readable it wins
 # over the static HOGLAND_API_TOKEN, which stays as a local-dev/bake-only fallback.
 HOGLAND_API_TOKEN_FILE: str | None = get_from_env("HOGLAND_API_TOKEN_FILE", None, optional=True)
-SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
-# The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
-# base URL is what selects it: no product slug on the path, attribution as one
-# X-PostHog-Properties blob. SANDBOX_AI_GATEWAY_PRODUCTS limits the switch to named
-# ai_product values so one product migrates without moving every other sandbox caller.
-# Both must be set; clearing either rolls back to the Python gateway.
+# SANDBOX_AI_GATEWAY_PRODUCTS names the ai_product values the worker mints tokens for. A gateway-billed
+# run whose product is unlisted, or with either setting unset, fails with gateway_token_unavailable.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
+SANDBOX_AI_GATEWAY_WORKER_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_WORKER_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
 # Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
-# gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them
-# on the Python gateway, so the routing allowlist above is inert without it.
+# gateway-routed sandbox runs. Unset: runs fail at provisioning like an unset URL above.
 SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
 # Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
 # runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
@@ -130,6 +134,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
     "background_agents": "50",
+    "autoresearch": "50",
     "signals_scout": "30",
     "signals_implementation": "20",
     "signals_inbox": "75",
@@ -147,6 +152,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 GATEWAY_COMPUTE_DEBIT_ENABLED: bool = get_from_env("GATEWAY_COMPUTE_DEBIT_ENABLED", False, type_cast=str_to_bool)
 GATEWAY_COMPUTE_SETTLE_SINCE: str | None = get_from_env("GATEWAY_COMPUTE_SETTLE_SINCE", None, optional=True)
+GATEWAY_COMPUTE_BILLABLE_SINCE: str | None = get_from_env("GATEWAY_COMPUTE_BILLABLE_SINCE", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 # OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
@@ -179,6 +185,9 @@ TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     False,
     type_cast=str_to_bool,
 )
+
+# Task origins whose sandbox compute bills into `ai_credits`, e.g. "posthog_ai,slack". PostHog Desktop's are ignored.
+AI_CREDITS_COMPUTE_BILLED_ORIGINS: list[str] = get_list(os.getenv("AI_CREDITS_COMPUTE_BILLED_ORIGINS", ""))
 
 TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED: bool = get_from_env(
     "TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED",
@@ -381,6 +390,11 @@ EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
 EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-precompute-task-queue"
 )
+# The build and direct-heavy queues have workers but get no calcs yet; the routing changes send calcs to them later.
+EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-build-task-queue")
+EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-recalculation-direct-heavy-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
@@ -499,18 +513,13 @@ if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
     )
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
-# The XGBoost-based session surfacing scoring sweep runs on the session-replay
-# worker (it's the only OpenMP user there; that worker sets OMP_NUM_THREADS=1).
-# Sharing the queue means start_temporal_worker aggregates its workflow +
-# activities onto the replay worker and warmup() runs on replay-worker boot —
-# no dedicated pod needed (see surfacing_scoring_sweep/README.md).
-SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 # The digest workflow's webhook in the US project, and the Authorization value it requires. Both regions post
-# there. Without both, every digest goes through Customer.io.
+# there. Without both, the send sends no digest and fails the run.
 WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL", "")
 WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET", "")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
+AEO_TASK_QUEUE = _set_temporal_task_queue("aeo-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.
 # evaluation_backfill.py clamps this to 1..1000 where it reads the setting, because the candidate
@@ -521,6 +530,9 @@ LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE
 # Evaluations one backfill runs at once. A run holds one of the shared CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES
 # slots only while it reads its unit, so most runs wait on the judge. Lower this if backfills crowd out live work.
 LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT: int = get_from_env("LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT", 16, type_cast=int)
+# Character budget for a trace judge's transcript. Every judge runs on the customer's own key, so this sets what
+# a long trace costs them. Set it to 150000 to undo the larger budget without a deploy: workers read it at boot.
+LLMA_JUDGE_TRACE_MAX_CHARS: int = get_from_env("LLMA_JUDGE_TRACE_MAX_CHARS", 300_000, type_cast=int)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.

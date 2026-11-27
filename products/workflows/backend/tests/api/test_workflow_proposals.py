@@ -1,23 +1,30 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.api.app_metrics2 import AppMetricsTotalsResponse
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import Integration
 from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -27,12 +34,47 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.notifications.backend.facade.testing import stored_notification_for_resource
 from products.signals.backend.models import SignalScoutConfig
 from products.skills.backend.models.skills import LLMSkill
+from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
+from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.hog_flow import DRAFT_CONTENT_FIELDS
+from products.workflows.backend.services.workflow_proposals import proposal_outcome, runs_settled_before
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
+
+
+CONVERSION_GOAL = {
+    "window": "7d",
+    "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}]}}],
+}
+CONVERSION_EVIDENCE = {"metric": "conversion_by_start", "current_value": 0.2, "n": 25, "unit": "rate", "guardrails": []}
+
+
+def _conversion_evidence(**overrides: Any) -> dict:
+    # A day that has settled for the 7 day window in CONVERSION_GOAL.
+    end = timezone.now().astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=8)
+    window = f"{(end - timedelta(days=1)).isoformat()}/{end.isoformat()}"
+    return {**CONVERSION_EVIDENCE, "window": window, **overrides}
+
+
+@contextmanager
+def _filed_sample(runs: int = 25, sends: int = 25) -> Iterator[None]:
+    # Every send untracked, because conversion is read whether or not the email records opens.
+    with (
+        patch(
+            "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
+            return_value=AppMetricsTotalsResponse(totals={"email_sent": sends, "email_untracked": sends}),
+        ),
+        patch(
+            "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals_by_source",
+            side_effect=lambda **kwargs: {
+                source: {"conversion_by_start": 1, "triggered": runs} for source in kwargs["app_source_ids"]
+            },
+        ),
+    ):
+        yield
 
 
 def _trigger_action() -> dict:
@@ -79,6 +121,20 @@ def _email_action() -> dict:
     }
 
 
+class TestRunsSettledBefore(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("floors_to_the_hour_after_the_queue_allowance", {"window": "5m"}, "2026-12-10T09:00:00Z"),
+            ("steps_back_one_window", {"window": "7d"}, "2026-12-03T09:00:00Z"),
+            ("a_workflow_with_no_window_gets_the_worker_default", {"events": []}, "2026-09-11T09:00:00Z"),
+            ("no_goal_gets_the_worker_default", None, "2026-09-11T09:00:00Z"),
+        ]
+    )
+    def test_runs_settled_before(self, _name: str, conversion: dict | None, expected: str) -> None:
+        now = datetime(2026, 12, 10, 10, 30, tzinfo=UTC)
+        assert runs_settled_before(conversion, now) == datetime.fromisoformat(expected)
+
+
 def _webhook_action(action_id: str = "action_1", url: str = "https://example.com") -> dict:
     return {
         "id": action_id,
@@ -108,11 +164,17 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
 
-    def _create_active_flow(self, optimize: bool = True, team_id: int | None = None) -> str:
+    def _create_active_flow(
+        self, optimize: bool = True, team_id: int | None = None, conversion: dict | None = None
+    ) -> str:
         team_id = team_id or self.team.id
         create = self.client.post(
             f"/api/projects/{team_id}/hog_flows",
-            {"name": "Proposal Flow", "actions": [_trigger_action(), _webhook_action(), _email_action()]},
+            {
+                "name": "Proposal Flow",
+                "actions": [_trigger_action(), _webhook_action(), _email_action()],
+                **({"conversion": conversion} if conversion else {}),
+            },
             format="json",
         )
         assert create.status_code == 201, create.json()
@@ -123,7 +185,7 @@ class TestWorkflowProposals(APIBaseTest):
             self._optimize(flow_id)
         return flow_id
 
-    def _propose(self, flow_id: str, **overrides) -> dict:
+    def _propose(self, flow_id: str, user_agent: str | None = None, **overrides) -> dict:
         payload = {
             "title": "Point the webhook somewhere that answers",
             "rationale": "Every call to the current URL failed over the last week.",
@@ -146,7 +208,10 @@ class TestWorkflowProposals(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
             payload,
             format="json",
-            headers={"authorization": f"Bearer {self.producer_key}"},
+            headers={
+                "authorization": f"Bearer {self.producer_key}",
+                **({"user-agent": user_agent} if user_agent else {}),
+            },
         )
         assert response.status_code == 201, response.json()
         return response.json()
@@ -783,6 +848,9 @@ class TestWorkflowProposals(APIBaseTest):
             ("a draft activated under two days ago", True, (30, 0), 72, 24, False, 30),
             ("enough sends on a settled version", True, (30, 0), 72, 72, True, 30),
             ("too few sends before suggestions are on", False, (4, 0), 72, 72, False, 4),
+            ("untracked sends count with a readable goal", True, (25, 25), 72, 72, True, 0, CONVERSION_GOAL),
+            ("a goal does not lift too few sends", True, (12, 12), 72, 72, False, 0, CONVERSION_GOAL),
+            ("a goal too long to read", True, (25, 25), 72, 72, False, 0, {**CONVERSION_GOAL, "window": "60d"}),
         ]
     )
     def test_optimization_reports_the_sample_floor_of_the_live_version(
@@ -794,8 +862,9 @@ class TestWorkflowProposals(APIBaseTest):
         hours_since_first_send: int,
         reached: bool,
         tracked_sends: int,
+        conversion: dict | None = None,
     ):
-        flow_id = self._create_active_flow(optimize=optimize)
+        flow_id = self._create_active_flow(optimize=optimize, conversion=conversion)
         flow = HogFlow.objects.get(pk=flow_id)
         now = timezone.now() + timedelta(hours=hours_since_created)
         first_send = now - timedelta(hours=hours_since_first_send)
@@ -808,9 +877,62 @@ class TestWorkflowProposals(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         sample = response.json()["sample"]
-        assert (sample["reached"], sample["tracked_sends"], sample["required_sends"]) == (reached, tracked_sends, 20)
+        assert (sample["reached"], sample["tracked_sends"], sample["sends"], sample["required_sends"]) == (
+            reached,
+            tracked_sends,
+            sends[0],
+            20,
+        )
+        assert sample["reads_conversion"] == (conversion == CONVERSION_GOAL)
         args = mock_execute.call_args.args[1]
         assert (args["app_source_id"], args["step_ids"]) == (f"{flow_id}/{flow.version}", ["email_1"])
+
+    @parameterized.expand(
+        [
+            ("a scout that never ran", None, None, None, 0, None, None),
+            ("a scout on its daily interval", 6, None, None, 0, 6, 18),
+            ("a pre-check that skipped after the last run", 30, 2, None, 0, 2, -6),
+            ("a scout on a cron schedule", 6, None, "0 9 * * *", 0, 6, None),
+            ("a scout backing off", 6, None, None, 2, 6, None),
+        ]
+    )
+    def test_optimization_reports_when_the_scout_checks(
+        self,
+        _name: str,
+        run_hours_ago: int | None,
+        precheck_hours_ago: int | None,
+        cron: str | None,
+        backoff_level: int,
+        last_checked_hours_ago: int | None,
+        next_check_in_hours: int | None,
+    ):
+        flow_id = self._create_active_flow()
+        now = timezone.now().replace(microsecond=0)
+
+        def iso(moment: datetime | None) -> str | None:
+            return moment.isoformat().replace("+00:00", "Z") if moment else None
+
+        def hours_ago(hours: int | None) -> datetime | None:
+            return None if hours is None else now - timedelta(hours=hours)
+
+        SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name="signals-scout-workflows").update(
+            last_run_at=hours_ago(run_hours_ago),
+            last_precheck_at=hours_ago(precheck_hours_ago),
+            run_cron_schedule=cron,
+            run_interval_minutes=1440,
+            background_backoff_level=backoff_level,
+        )
+
+        with patch("products.workflows.backend.services.suggestions_scout.sync_execute", return_value=[]):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization")
+
+        assert response.status_code == 200, response.json()
+        schedule = response.json()["schedule"]
+        next_check = None if next_check_in_hours is None else now + timedelta(hours=next_check_in_hours)
+        assert [schedule["last_checked_at"], schedule["next_check_at"]] == [
+            iso(hours_ago(last_checked_hours_ago)),
+            iso(next_check),
+        ]
 
     @parameterized.expand(
         [("scout in dry run", {"emit": False}), ("scout paused", {"enabled": False, "status": "paused_by_user"})]
@@ -825,7 +947,7 @@ class TestWorkflowProposals(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization")
 
         assert response.status_code == 200, response.json()
-        assert response.json()["sample"] is None
+        assert (response.json()["sample"], response.json()["schedule"]) == (None, None)
         mock_execute.assert_not_called()
 
     @parameterized.expand(
@@ -1462,6 +1584,235 @@ class TestWorkflowProposals(APIBaseTest):
             outcome["versions"]
         )
 
+    def test_a_conversion_outcome_divides_settled_workflow_runs_while_email_metrics_keep_the_step(self):
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        with _filed_sample():
+            proposal = self._propose(flow_id, step_id="email_1", evidence=_conversion_evidence())
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+
+        def run_totals(**kwargs: Any) -> dict[str, dict[str, int]]:
+            return {source: {"conversion_by_start": 5, "triggered": 25} for source in kwargs["app_source_ids"]}
+
+        with (
+            time_machine.travel("2026-12-10T10:30:00Z", tick=False),
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
+                return_value=AppMetricsTotalsResponse(totals={"email_sent": 40, "email_opened": 10}),
+            ) as mock_totals,
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals_by_source",
+                side_effect=run_totals,
+            ) as mock_run_totals,
+        ):
+            with team_scope(self.team.id):
+                outcome = proposal_outcome(team_id=self.team.id, hog_flow_id=UUID(flow_id), proposal_id=proposal["id"])
+
+        assert outcome["before"]["target"] == {
+            "metric": "conversion rate",
+            "value": 0.2,
+            "n": 25,
+            "below_minimum_sample": False,
+        }
+        assert outcome["before"]["secondary"]["value"] == 0.25
+        assert {call.kwargs["instance_id"] for call in mock_totals.call_args_list} == {"email_1"}
+        assert {call.kwargs["before"] for call in mock_run_totals.call_args_list} == {
+            datetime(2026, 12, 3, 9, tzinfo=UTC)
+        }
+
+    @parameterized.expand(
+        [
+            ("cuts_each_version_at_its_own_window", {"window": "5m"}, "event", datetime(2026, 11, 13, tzinfo=UTC)),
+            ("leaves_out_a_version_with_no_goal", {"window": "5m", "events": []}, "event", None),
+            *(
+                (f"starts_later_for_{trigger}", {"window": "5m"}, trigger, datetime(2026, 11, 28, tzinfo=UTC))
+                for trigger in ("webhook", "tracking_pixel", "manual")
+            ),
+        ]
+    )
+    def test_a_conversion_outcome_reads_each_version_by_the_goal_it_ran_with(
+        self, _name: str, first_version: dict, first_trigger: str, first_read_from: datetime | None
+    ) -> None:
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        with _filed_sample():
+            proposal = self._propose(flow_id, step_id="email_1", evidence=_conversion_evidence())
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+        with team_scope(self.team.id):
+            assert (
+                HogFlowRevision.objects.filter(hog_flow_id=flow_id, version=1).update(
+                    content={"conversion": {**CONVERSION_GOAL, **first_version}, "trigger": {"type": first_trigger}}
+                )
+                == 1
+            )
+
+        with (
+            time_machine.travel("2026-12-10T10:30:00Z", tick=False),
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
+                return_value=AppMetricsTotalsResponse(totals={}),
+            ),
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals_by_source",
+                return_value={},
+            ) as mock_run_totals,
+        ):
+            with team_scope(self.team.id):
+                proposal_outcome(team_id=self.team.id, hog_flow_id=UUID(flow_id), proposal_id=proposal["id"])
+
+        assert {
+            tuple(call.kwargs["app_source_ids"]): (call.kwargs["after"], call.kwargs["before"])
+            for call in mock_run_totals.call_args_list
+        } == {
+            **(
+                {(f"{flow_id}/1",): (first_read_from, datetime(2026, 12, 10, 9, tzinfo=UTC))} if first_read_from else {}
+            ),
+            (f"{flow_id}/2",): (datetime(2026, 11, 13, tzinfo=UTC), datetime(2026, 12, 3, 9, tzinfo=UTC)),
+        }
+
+    @parameterized.expand(
+        [
+            ("no_goal", None, {}, {}, "no conversion goal"),
+            ("no_window_means_90_days", {"events": CONVERSION_GOAL["events"]}, {}, {}, "longer than 30 days"),
+            ("long_window", {**CONVERSION_GOAL, "window": "31d"}, {}, {}, "longer than 30 days"),
+            ("relative_window", CONVERSION_GOAL, {"window": "-7d"}, {}, "ending at or before"),
+            (
+                "window_that_splits_an_hour",
+                CONVERSION_GOAL,
+                {"window": "2026-11-13T09:30:00Z/2026-11-14T09:00:00Z"},
+                {},
+                "on UTC hours",
+            ),
+            (
+                "window_before_the_metric_existed",
+                CONVERSION_GOAL,
+                {"window": "2026-11-10T00:00:00Z/2026-11-14T00:00:00Z"},
+                {},
+                "starting at or after",
+            ),
+            (
+                "changes_the_goal",
+                CONVERSION_GOAL,
+                {},
+                {"conversion": {**CONVERSION_GOAL, "window": "14d"}},
+                "cannot change",
+            ),
+        ]
+    )
+    def test_a_suggestion_cannot_aim_at_a_conversion_rate_that_cannot_be_measured(
+        self, _name: str, goal: dict | None, evidence: dict, change: dict, message: str
+    ) -> None:
+        flow_id = self._create_active_flow(conversion=goal)
+        response = self._post_conversion_proposal(flow_id, _conversion_evidence(**evidence), change)
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "evidence"
+        assert message in response.json()["detail"]
+
+    def test_a_conversion_window_cannot_reach_runs_that_can_still_convert(self) -> None:
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        end = timezone.now() - timedelta(days=6)
+        window = f"{(end - timedelta(days=1)).isoformat()}/{end.isoformat()}"
+        response = self._post_conversion_proposal(flow_id, _conversion_evidence(window=window))
+        assert response.status_code == 400, response.json()
+        assert "ending at or before" in response.json()["detail"]
+
+    def test_a_webhook_conversion_window_cannot_start_before_its_run_starts_were_versioned(self) -> None:
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        with team_scope(self.team.id):
+            HogFlowRevision.objects.filter(hog_flow_id=flow_id, version=1).update(
+                content={"conversion": CONVERSION_GOAL, "trigger": {"type": "webhook"}}
+            )
+        with time_machine.travel("2026-12-10T10:30:00Z", tick=False), _filed_sample():
+            refused = self._post_conversion_proposal(
+                flow_id, _conversion_evidence(window="2026-11-27T23:00:00Z/2026-11-30T00:00:00Z")
+            )
+            accepted = self._post_conversion_proposal(
+                flow_id, _conversion_evidence(window="2026-11-28T00:00:00Z/2026-11-30T00:00:00Z")
+            )
+        assert refused.status_code == 400, refused.json()
+        assert "starting at or after 2026-11-28T00:00:00Z" in refused.json()["detail"]
+        assert accepted.status_code == 201, accepted.json()
+
+    @parameterized.expand(
+        [
+            ("too_few_settled_runs", 19, 25, "email_1", "20 settled runs in the window. PostHog counts 19"),
+            ("too_few_sends_of_the_email_step", 25, 19, "email_1", "20 sends of this email step"),
+            ("untracked_sends_still_count", 20, 20, "email_1", None),
+            ("no_step_named", 20, 0, None, None),
+            ("a_step_that_sends_no_email", 20, 0, "action_1", None),
+            ("changes_the_email_it_names", 25, 25, "email_1", None, True),
+            ("changes_an_email_but_names_another_step", 25, 25, "action_1", "Set `step_id` to that step", True),
+            ("changes_an_email_but_names_no_step", 25, 25, None, "changes the email step email_1", True),
+            ("carries_the_email_unchanged", 25, 25, "action_1", None, False),
+        ]
+    )
+    def test_a_conversion_suggestion_needs_a_sample_posthog_can_count(
+        self,
+        _name: str,
+        runs: int,
+        sends: int,
+        step_id: str | None,
+        refusal: str | None,
+        changes_email: bool | None = None,
+    ) -> None:
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        change = None
+        if changes_email is not None:
+            email = {**_email_action(), "description": ""}
+            if changes_email:
+                email["config"]["inputs"]["email"]["value"]["subject"] = "Your cart is waiting"
+            change = {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com"), email]}
+        with _filed_sample(runs=runs, sends=sends):
+            response = self._post_conversion_proposal(flow_id, _conversion_evidence(), change=change, step_id=step_id)
+        assert response.status_code == (400 if refusal else 201), response.json()
+        if refusal:
+            assert response.json()["attr"] == "evidence"
+            assert refusal in response.json()["detail"]
+
+    def test_a_conversion_suggestion_is_filed_unverified_when_posthog_cannot_read_its_sample(self) -> None:
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        with (
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
+                side_effect=RuntimeError("ClickHouse is down"),
+            ),
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals_by_source",
+                side_effect=RuntimeError("ClickHouse is down"),
+            ),
+        ):
+            response = self._post_conversion_proposal(flow_id, _conversion_evidence(), step_id="email_1")
+        assert response.status_code == 201, response.json()
+        assert "measured" not in response.json()["evidence"]
+
+    def test_a_suggestion_cannot_aim_at_conversion_on_a_base_version_that_had_no_goal(self) -> None:
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        with team_scope(self.team.id):
+            HogFlowRevision.objects.filter(hog_flow_id=flow_id, version=1).update(content={"conversion": None})
+        response = self._post_conversion_proposal(flow_id, _conversion_evidence())
+        assert response.status_code == 400, response.json()
+        assert "no conversion goal" in response.json()["detail"]
+
+    def _post_conversion_proposal(
+        self, flow_id: str, evidence: dict, change: dict | None = None, step_id: str | None = None
+    ) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Lift conversion",
+                "rationale": "The email does not lead to the goal.",
+                "content": {
+                    "actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")],
+                    **(change or {}),
+                },
+                "base_version": 1,
+                "evidence": evidence,
+                **({"step_id": step_id} if step_id else {}),
+            },
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
+
     def test_an_api_key_can_read_the_outcome_of_what_it_proposed(self):
         flow_id = self._create_active_flow()
         proposal = self._propose(flow_id)
@@ -1696,6 +2047,42 @@ class TestWorkflowProposals(APIBaseTest):
         stale = self.client.post(url, {"overwrite": True, "expected_draft_updated_at": "2020-01-01T00:00:00Z"})
         assert stale.status_code == 409, stale.json()
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
+
+    def test_a_proposed_email_step_without_a_sender_stays_on_the_own_sender(self):
+        flow_id = self._create_active_flow()
+        new_step = {
+            "id": "email_2",
+            "name": "email_2",
+            "type": "function_email",
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "templating": "liquid",
+                        "value": {
+                            "to": {"email": "{{ person.properties.email }}", "name": ""},
+                            "from": {"integrationId": None},
+                            "subject": "Hello",
+                            "text": "Hello",
+                            "html": "",
+                        },
+                    }
+                },
+            },
+        }
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *_args, **_kwargs: key == SANDBOX_SENDER_ADOPTION_FLAG,
+        ):
+            proposal = self._propose(
+                flow_id, user_agent="posthog-cli", content={"actions": [_trigger_action(), new_step]}
+            )
+
+        proposed = next(action for action in proposal["content"]["actions"] if action["id"] == "email_2")
+        assert proposed["type"] == "function_email"
+        assert proposed["config"]["template_id"] == "template-email"
+        assert not Integration.objects.filter(team=self.team, kind="email_sandbox").exists()
 
     def test_a_whole_list_proposal_must_say_which_version_it_read(self):
         flow_id = self._create_active_flow()

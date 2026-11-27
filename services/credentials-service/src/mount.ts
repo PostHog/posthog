@@ -20,6 +20,13 @@ import type { Secret, MountedSecrets } from './types'
  */
 export const RESERVED_PREFIX = '__'
 
+/**
+ * OAuth client secrets and minter keys (for example a GitHub App private key). Reserved, so
+ * `/v1/secrets/resolve` never serves one to any caller. Only the in-process provider code reads
+ * them.
+ */
+export const PROVIDER_PREFIX = `${RESERVED_PREFIX}PROVIDER_`
+
 /** Comma-separated names of the secrets that are in recovery. */
 export const RECOVERY_KEYS = 'CREDENTIALS_RECOVERY_KEYS'
 
@@ -36,7 +43,10 @@ function commaList(value: string | undefined): string[] {
         .filter(Boolean)
 }
 
-/** Every file on the mount, by name. Kubelet's own dot-prefixed bookkeeping is skipped. */
+/**
+ * Every file on the mount, by name. Kubelet's own dot-prefixed bookkeeping is skipped.
+ * Null when the directory or any one entry cannot be read.
+ */
 export async function readMount(dir: string): Promise<Record<string, string> | null> {
     // Kubelet swaps `..data` atomically between versions. Reading through the resolved
     // target pins one version for the whole loop, so a swap mid-read cannot hand back a
@@ -67,6 +77,9 @@ export async function readMount(dir: string): Promise<Record<string, string> | n
                 key: entry,
                 error: err instanceof Error ? err.message : String(err),
             })
+            // A partial snapshot would drop every entry that failed, such as an allowlist,
+            // which would leave its deployment unrestricted.
+            return null
         }
     }
 
@@ -86,6 +99,8 @@ export interface SecretMountOptions {
  */
 export class SecretMount {
     private held: MountedSecrets | null = null
+    // The values `held` was built from, so `withdraw()` can take names away from them.
+    private heldValues: Record<string, string> | null = null
 
     constructor(private readonly opts: SecretMountOptions) {}
 
@@ -112,8 +127,9 @@ export class SecretMount {
     apply(values: Record<string, string> | null): void {
         const now = this.opts.now ?? Date.now
         const next = values ? this.build(values) : null
-        if (next) {
+        if (values && next) {
             this.held = next
+            this.heldValues = values
             servingStaleSeconds.set(0)
         } else {
             mountErrorsTotal.inc()
@@ -121,6 +137,30 @@ export class SecretMount {
                 servingStaleSeconds.set((now() - Date.parse(this.held.fetchedAt)) / 1000)
             }
         }
+    }
+
+    /**
+     * Apply only what `values` takes away. A name it no longer carries stops being served, and a
+     * name it adds to the recovery list is served as recovery. Every value it adds or changes stays
+     * out, for a snapshot whose signing keys the service refused: the keys still held could read it.
+     */
+    withdraw(values: Record<string, string> | null): void {
+        const held = this.heldValues
+        if (values === null || held === null) {
+            this.apply(null)
+            return
+        }
+        const kept: Record<string, string> = {}
+        for (const [name, value] of Object.entries(held)) {
+            if (Object.prototype.hasOwnProperty.call(values, name)) {
+                kept[name] = value
+            }
+        }
+        const recovery = new Set([...commaList(held[RECOVERY_KEYS]), ...commaList(values[RECOVERY_KEYS])])
+        if (recovery.size > 0) {
+            kept[RECOVERY_KEYS] = [...recovery].join(',')
+        }
+        this.apply(kept)
     }
 
     private build(values: Record<string, string>): MountedSecrets | null {

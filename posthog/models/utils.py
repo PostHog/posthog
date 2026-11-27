@@ -288,6 +288,40 @@ class LowercaseSlugField(models.SlugField):
         return prep_value.lower() if prep_value else prep_value
 
 
+LabelPath = list[str]
+
+
+class LabelTreeField(models.Field):
+    """A Django model field for a PostgreSQL label tree.
+
+    We represent label trees in Python as a list of strings, each item
+    in the list being one of the labels of the underlying ltree.
+    """
+
+    description = "A PostgreSQL label tree field provided by the ltree extension"
+
+    def db_type(self, connection):
+        return "ltree"
+
+    def from_db_value(self, value, expression, connection) -> None | LabelPath:
+        if value is None:
+            return value
+
+        return value.split(".")
+
+    def to_python(self, value) -> None | LabelPath:
+        if value is None:
+            return value
+
+        if isinstance(value, list):
+            return value
+
+        return value.split(".")
+
+    def get_prep_value(self, value: LabelPath) -> str:
+        return ".".join(value)
+
+
 def generate_random_short_suffix():
     """Return a 4 letter suffix made up random ASCII letters, useful for disambiguation of duplicates."""
     return "".join(secrets.choice(string.ascii_letters) for _ in range(4))
@@ -399,6 +433,21 @@ def execute_with_timeout(timeout: int, database: str = "default") -> Iterator[Cu
         with connections[database].cursor() as cursor:
             cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
             yield cursor
+
+
+@contextmanager
+def transaction_with_timeouts(
+    lock_timeout_ms: int, statement_timeout_ms: int, database: str = "default"
+) -> Iterator[None]:
+    """Open a transaction whose statements stop waiting for a lock after ``lock_timeout_ms`` and stop running after ``statement_timeout_ms``."""
+    with transaction.atomic(using=database):
+        with connections[database].cursor() as cursor:
+            # set_config with is_local=true acts as SET LOCAL, and unlike SET it accepts bound parameters.
+            cursor.execute(
+                "SELECT set_config('lock_timeout', %s, true), set_config('statement_timeout', %s, true)",
+                [str(lock_timeout_ms), str(statement_timeout_ms)],
+            )
+        yield
 
 
 def validate_rate_limit(value):

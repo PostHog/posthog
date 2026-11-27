@@ -33,10 +33,9 @@ pub async fn seed_persons(
     let ids: Vec<i64> = sqlx::query_scalar(&format!(
         r#"
         INSERT INTO {table} (
-            team_id, uuid, properties, properties_last_updated_at,
-            properties_last_operation, created_at, version, is_identified
+            team_id, uuid, properties, created_at, version, is_identified
         )
-        SELECT $1, gen_random_uuid(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, now(), 0, false
+        SELECT $1, gen_random_uuid(), '{{}}'::jsonb, now(), 0, false
         FROM generate_series(1, $2)
         RETURNING id
         "#
