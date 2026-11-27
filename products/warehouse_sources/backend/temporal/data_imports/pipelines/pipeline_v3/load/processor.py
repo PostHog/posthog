@@ -973,8 +973,6 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         # check discards anyway.
         return
 
-    registration_allowed = _ducklake_registration_allowed(export_signal.team_id)
-
     try:
         from posthog.temporal.common.client import async_connect
 
@@ -1011,6 +1009,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
             )
 
         async_to_sync(_start)()
+        # After the start, so a deployment that cannot start workflows pays nothing for the shadow.
+        registration_allowed = _ducklake_registration_allowed(export_signal.team_id)
         logger.info(
             "ducklake_registration_workflow_started",
             team_id=export_signal.team_id,
