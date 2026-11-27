@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
 import { Spinner } from '@posthog/quill'
+import { ChartThemeProvider } from '@posthog/quill-charts'
 
+import { useChartTheme } from 'lib/charts/hooks'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -48,6 +50,8 @@ function DashboardV2(): JSX.Element {
     const { activeTabId } = useValues(dashboardSceneLogic)
     const { applyDashboardEdit, setActiveTab } = useActions(dashboardSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    // The app theme adds the tooltip z-index above app overlays and the Storybook snapshot switch.
+    const chartTheme = useChartTheme()
     const { currentTeamId, timezone } = useValues(teamLogic)
     const tabRef = useRef(activeTabId)
     tabRef.current = activeTabId
@@ -88,7 +92,7 @@ function DashboardV2(): JSX.Element {
         )
     }
     return (
-        <>
+        <ChartThemeProvider value={chartTheme}>
             <DashboardView
                 surface="dashboard-v2-scene"
                 dashboard={dashboard}
@@ -117,6 +121,6 @@ function DashboardV2(): JSX.Element {
                 }
             />
             <SaveConflictDialog />
-        </>
+        </ChartThemeProvider>
     )
 }

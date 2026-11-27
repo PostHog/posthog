@@ -24,7 +24,7 @@ const { dashboard } = dashboardFromJson(
                 title: 'Overview',
                 tiles: [
                     { id: 'line', place: { x: 0, y: 0, w: 16, h: 14 }, panel: chart('line') },
-                    { id: 'stat', place: { x: 16, y: 0, w: 8, h: 14 }, panel: chart('stat') },
+                    { id: 'metric', place: { x: 16, y: 0, w: 8, h: 14 }, panel: chart('metric') },
                     {
                         id: 'note',
                         place: { x: 0, y: 14, w: 24, h: 6 },
