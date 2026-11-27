@@ -47,20 +47,21 @@ describe('InFlightRegistry', () => {
         expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
     })
 
-    it('exports every deferral reason at zero when the module loads', async () => {
+    it('serves every deferral reason at zero on the first scrape after the module loads', async () => {
         let registry: Registry | undefined
         jest.isolateModules(() => {
             registry = require('prom-client').register
             require('./in-flight-registry')
         })
 
-        const metric = await registry!.getSingleMetric('cdp_email_attachments_deferral_tokens_total')!.get()
-        expect(Object.fromEntries(metric.values.map(({ labels, value }) => [labels.reason, value]))).toEqual({
-            over_budget: 0,
-            over_heap: 0,
-            at_cap: 0,
-            refused: 0,
-        })
+        const scrape = await registry!.metrics()
+        expect(
+            scrape.split('\n').filter((line) => line.startsWith('cdp_email_attachments_deferral_tokens_total{'))
+        ).toEqual(
+            ['over_budget', 'over_heap', 'at_cap', 'refused'].map(
+                (reason) => `cdp_email_attachments_deferral_tokens_total{reason="${reason}"} 0`
+            )
+        )
     })
 
     it('defers every send when the worker refused sends with files', () => {
