@@ -3207,7 +3207,7 @@ export interface CustomerioSegmentApi {
     name: string
     /** The segment's type: `dynamic`, or `static` for a hand-made list. */
     type: string
-    /** The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort. */
+    /** The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a real-time cohort when every rule has an exact cohort condition, and uses that cohort. */
     conditions?: unknown
 }
 
@@ -3226,7 +3226,7 @@ export interface WorkflowImportRequestApi {
     layouts?: WorkflowImportRequestApiLayouts
     /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
     sender_identities?: CustomerioSenderIdentityApi[]
-    /** Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a realtime cohort. */
+    /** Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a real-time cohort. */
     segments?: CustomerioSegmentApi[]
     /** When true, translate and check the automations but save nothing, to preview the import. */
     dry_run?: boolean
@@ -3329,7 +3329,7 @@ export interface WorkflowImportSegmentCohortApi {
     segment_id: string
     /** The segment's name. */
     segment_name: string
-    /** `created`: the import made a realtime cohort from the segment's rules. `reused`: an earlier import made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, see `reason`.
+    /** `created`: the import made a real-time cohort from the segment's rules. `reused`: an earlier import made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, see `reason`.
      *
      * * `created` - Created
      * * `reused` - Reused

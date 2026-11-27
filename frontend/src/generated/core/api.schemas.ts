@@ -3224,18 +3224,18 @@ export const RealtimeCohortsAccessEnumApi = {
 } as const
 
 export interface TeamRealtimeCohortsApi {
-    /** `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+    /** `serving` when the request's user sees real-time cohorts in this project: whether feature flags can target each cohort, and the control to turn real-time on and off for it. `off` otherwise.
      *
      * * `off` - Off
      * * `serving` - Serving */
     access: RealtimeCohortsAccessEnumApi
     /**
-     * How many cohorts in this project have realtime on. Null when `access` is `off`.
+     * How many cohorts in this project have real-time on. Null when `access` is `off`.
      * @nullable
      */
     cohorts_used: number | null
     /**
-     * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+     * How many cohorts in this project the plan allows to have real-time on. Null when `access` is `off`, or when the plan sets no limit.
      * @nullable
      */
     max_cohorts: number | null
@@ -4088,7 +4088,7 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
-    /** Realtime cohorts as the request's user sees them in this project. */
+    /** Real-time cohorts as the request's user sees them in this project. */
     readonly realtime_cohorts: TeamRealtimeCohortsApi
     /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
     readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnumApi[]
@@ -4986,7 +4986,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
-    /** Realtime cohorts as the request's user sees them in this project. */
+    /** Real-time cohorts as the request's user sees them in this project. */
     readonly realtime_cohorts?: TeamRealtimeCohortsApi
     /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
     readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]

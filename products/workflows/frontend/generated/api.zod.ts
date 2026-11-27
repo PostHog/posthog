@@ -3663,13 +3663,13 @@ export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
                     .unknown()
                     .optional()
                     .describe(
-                        "The segment's rules: the `conditions` object from `GET \/v1\/environments\/{environment_id}\/segments\/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort."
+                        "The segment's rules: the `conditions` object from `GET \/v1\/environments\/{environment_id}\/segments\/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a real-time cohort when every rule has an exact cohort condition, and uses that cohort."
                     ),
             })
         )
         .optional()
         .describe(
-            'Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a realtime cohort.'
+            'Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a real-time cohort.'
         ),
     dry_run: zod
         .boolean()

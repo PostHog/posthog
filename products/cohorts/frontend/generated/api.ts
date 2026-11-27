@@ -377,7 +377,7 @@ export const getCohortsRealtimeCreateUrl = (projectId: string, id: number) => {
 }
 
 /**
- * Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them. Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.
+ * Turn real-time on or off for a cohort. Turning it on also turns it on for every real-time cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them. Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.
  */
 export const cohortsRealtimeCreate = async (
     projectId: string,
@@ -442,7 +442,7 @@ export const getRealtimeCohortsJoinRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Where this project stands in joining the realtime cohorts beta.
+ * Where this project stands in joining the real-time cohorts beta.
  */
 export const realtimeCohortsJoinRetrieve = async (
     projectId: string,
@@ -459,7 +459,7 @@ export const getRealtimeCohortsJoinCreateUrl = (projectId: string) => {
 }
 
 /**
- * Join the realtime cohorts beta for this project when it can join by itself, and return where it stands. A repeated call starts nothing more.
+ * Join the real-time cohorts beta for this project when it can join by itself, and return where it stands. A repeated call starts nothing more.
  */
 export const realtimeCohortsJoinCreate = async (
     projectId: string,
