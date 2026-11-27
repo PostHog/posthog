@@ -154,6 +154,40 @@ class TeamWallet:
     recent: list[TeamWalletEntry]
 
 
+@dataclass(frozen=True)
+class OrganizationTeamAccess:
+    # Teams that can send requests through the gateway: enabled and not revoked.
+    enrolled: int
+    total: int
+
+
+@dataclass(frozen=True)
+class OrganizationWalletProduct:
+    product: str
+    charged_usd: Decimal
+    free_usd: Decimal
+    # None when the gateway's usage report has no row for the product.
+    list_usd: Decimal | None
+
+
+@dataclass(frozen=True)
+class OrganizationWallet:
+    balance_usd: Decimal
+    charged_usd: Decimal
+    free_usd: Decimal
+    products: list[OrganizationWalletProduct]
+    # The gateway lists only its top products by spend. The totals still cover every product.
+    truncated: bool
+
+
+class OrganizationWalletUnavailable(Exception):
+    """The wallet could not be read: the gateway's internal API is not set up in this region, or the call failed."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
 class TeamWalletUnavailable(Exception):
     """The wallet could not be read: the gateway's internal API is not set up in this region, or the call failed."""
 

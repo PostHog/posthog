@@ -12,12 +12,13 @@ import base64
 import hashlib
 import secrets
 import dataclasses
-from datetime import datetime, timedelta
-from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
+from datetime import date, datetime, timedelta
+from decimal import ROUND_CEILING, ROUND_DOWN, Decimal, InvalidOperation
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q, QuerySet, Sum
+from django.db.models import Count, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -48,6 +49,10 @@ from .facade.contracts import (
     DevTokenUsage,
     DevUserUsage,
     MintedDevToken,
+    OrganizationTeamAccess,
+    OrganizationWallet,
+    OrganizationWalletProduct,
+    OrganizationWalletUnavailable,
     TeamAccessChange,
     TeamCreditAdded,
     TeamCreditRefused,
@@ -917,3 +922,57 @@ def team_wallet(team_id: int) -> TeamWallet:
             for entry in wallet.recent
         ],
     )
+
+
+# The gateway's spend read names the group of debits without a product this way. Its usage report returns a null
+# product key for the same group.
+UNATTRIBUTED_PRODUCT = "unattributed"
+
+
+def organization_team_access(organization_id: UUID) -> OrganizationTeamAccess:
+    counts = Team.objects.filter(organization_id=organization_id).aggregate(
+        total=Count("pk"),
+        enrolled=Count("pk", filter=Q(llm_gateway_enabled_at__isnull=False, llm_gateway_revoked_at__isnull=True)),
+    )
+    return OrganizationTeamAccess(enrolled=counts["enrolled"], total=counts["total"])
+
+
+def organization_wallet(organization_id: UUID, start: date, end: date) -> OrganizationWallet:
+    org_id = str(organization_id)
+    try:
+        spend = gateway_internal_client.get_org_spend(org_id, start, end)
+        report_rows = gateway_internal_client.get_usage_report_rows(
+            {
+                "group_by": "product",
+                "billed_org_id": org_id,
+                "from": f"{start.isoformat()}T00:00:00Z",
+                "to": f"{end.isoformat()}T00:00:00Z",
+            }
+        )
+        list_usd: dict[str, Decimal] = {}
+        for row in report_rows:
+            product = (row.get("keys") or {}).get("product") or UNATTRIBUTED_PRODUCT
+            list_usd[product] = list_usd.get(product, Decimal(0)) + Decimal(str(row.get("list_usd", "0")))
+        return OrganizationWallet(
+            balance_usd=Decimal(spend.balance_usd),
+            charged_usd=Decimal(spend.spend_usd),
+            free_usd=Decimal(spend.free_usd),
+            products=[
+                OrganizationWalletProduct(
+                    product=product.product,
+                    charged_usd=Decimal(product.spend_usd),
+                    free_usd=Decimal(product.free_usd),
+                    list_usd=list_usd.get(product.product),
+                )
+                for product in spend.products
+            ],
+            truncated=spend.truncated,
+        )
+    except gateway_internal_client.AIGatewayNotConfigured as exc:
+        raise OrganizationWalletUnavailable("The AI gateway internal API is not configured in this region.") from exc
+    except gateway_internal_client.AIGatewayInternalError as exc:
+        raise OrganizationWalletUnavailable(f"The wallet is unavailable: {exc}") from exc
+    except InvalidOperation as exc:
+        raise OrganizationWalletUnavailable(
+            "The wallet is unavailable: the gateway sent an amount that is not a number."
+        ) from exc

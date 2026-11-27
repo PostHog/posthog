@@ -1,22 +1,31 @@
 import uuid
+from datetime import UTC, date, timedelta
 from decimal import Decimal
 from typing import cast
+from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import messages
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
+from django.utils import timezone
 
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
+from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, FieldGroup, Filters, Notice, Page, Row, Stat, Stats, Table
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.ai_gateway.backend.facade import api
-from products.ai_gateway.backend.facade.contracts import TeamCreditRefused, TeamWallet, TeamWalletUnavailable
+from products.ai_gateway.backend.facade.contracts import (
+    OrganizationWalletUnavailable,
+    TeamCreditRefused,
+    TeamWallet,
+    TeamWalletUnavailable,
+)
 from products.ai_gateway.backend.facade.enums import TeamAccessAction
 
 AI_GATEWAY = Owner(name="AI gateway", crest="ai-gateway")
@@ -167,19 +176,154 @@ def _wallet_balance(wallet: TeamWallet) -> str:
     return f"Balance: ${wallet.balance_usd}"
 
 
+def _organization_wallet_url(organization_id: object) -> str:
+    tool_url = reverse("admin_console_tool", kwargs={"tool_key": WALLET_TOOL_KEY})
+    return f"{tool_url}?{urlencode({'organization': organization_id})}"
+
+
+@console.register_panel
+class AIGatewayOrganizationPanel(Panel):
+    record = "organization"
+    key = "ai-gateway"
+    title = "AI gateway"
+    owner = AI_GATEWAY
+
+    def facts(self, obj: Model) -> list[Fact]:
+        access = api.organization_team_access(obj.pk)
+        teams = "team" if access.total == 1 else "teams"
+        return [
+            Fact(label="Access", value=f"{access.enrolled} of {access.total} {teams} enrolled"),
+            # The balance is a blocking call to the gateway, so the organization page links to it.
+            Fact(label="Wallet", value="Balance and spend by product", href=_organization_wallet_url(obj.pk)),
+        ]
+
+
+LAST_30_DAYS = "last-30-days"
+THIS_MONTH = "this-month"
+LAST_MONTH = "last-month"
+PERIODS = {
+    LAST_30_DAYS: "Last 30 days",
+    THIS_MONTH: "This calendar month",
+    LAST_MONTH: "Last calendar month",
+}
+
+
+class OrganizationWalletForm(forms.Form):
+    organization = forms.UUIDField(label="Organization ID")
+    period = forms.ChoiceField(choices=tuple(PERIODS.items()), required=False, initial=LAST_30_DAYS)
+
+
+def _period_days(period: str, today: date) -> tuple[date, date]:
+    """The UTC days [start, end) of a period. The gateway reads spend by UTC day."""
+    tomorrow = today + timedelta(days=1)
+    if period == THIS_MONTH:
+        return today.replace(day=1), tomorrow
+    if period == LAST_MONTH:
+        this_month = today.replace(day=1)
+        return (this_month - timedelta(days=1)).replace(day=1), this_month
+    return tomorrow - timedelta(days=30), tomorrow
+
+
+def _usd(amount: Decimal) -> str:
+    # Two decimals would show a spend under one cent as $0.00.
+    places = 2 if amount == 0 or abs(amount) >= Decimal("0.01") else 4
+    return f"${amount:,.{places}f}"
+
+
+def _organization_wallet_page(request: HttpRequest) -> Page:
+    form = OrganizationWalletForm(request.GET if "organization" in request.GET else None)
+    filters = Filters(
+        form=form,
+        groups=(FieldGroup(title="Wallet", field_names=("organization", "period")),),
+        submit_label="Show wallet",
+        pending_label="Reading the wallet",
+        compact=True,
+    )
+    if not form.is_bound:
+        return Page(
+            blocks=(
+                Notice(text="Open a wallet from the AI gateway panel on an organization's or a team's page."),
+                filters,
+            )
+        )
+    if not form.is_valid():
+        return Page(blocks=(filters,))
+    organization = RECORD_TYPES["organization"].find(str(form.cleaned_data["organization"]))
+    if organization is None:
+        return Page(blocks=(filters, Notice(text="No organization has this ID. Check the ID and try again.")))
+    organization_url = RECORD_TYPES["organization"].url(organization)
+    period = form.cleaned_data["period"] or LAST_30_DAYS
+    start, end = _period_days(period, timezone.now().astimezone(UTC).date())
+    try:
+        wallet = api.organization_wallet(organization.pk, start, end)
+    except OrganizationWalletUnavailable as unavailable:
+        return Page(
+            blocks=(
+                filters,
+                Notice(text=unavailable.detail, link_text="Back to the organization", href=organization_url),
+            )
+        )
+    last_day = end - timedelta(days=1)
+    blocks: list[Filters | Notice | Stats | Table] = [
+        filters,
+        Notice(
+            text=(
+                f"{RECORD_TYPES['organization'].title(organization)}. {PERIODS[period]}: "
+                f"{start.strftime('%b %-d, %Y')} to {last_day.strftime('%b %-d, %Y')}, in UTC days."
+            ),
+            link_text="Back to the organization",
+            href=organization_url,
+        ),
+        Stats(
+            items=(
+                Stat(label="Balance", value=_usd(wallet.balance_usd)),
+                Stat(label="Charged", value=_usd(wallet.charged_usd)),
+                Stat(label="Free allocation used", value=_usd(wallet.free_usd)),
+            )
+        ),
+    ]
+    if wallet.truncated:
+        blocks.append(
+            Notice(
+                text=f"The table shows the {len(wallet.products)} products with the most spend. "
+                "Charged and free allocation used cover every product."
+            )
+        )
+    blocks.append(
+        Table(
+            title="Spend by product",
+            columns=("Product", "Charged", "Free allocation", "List cost"),
+            numeric_columns=(1, 2, 3),
+            rows=tuple(
+                Row(
+                    cells=(
+                        Cell(text=product.product),
+                        Cell(text=_usd(product.charged_usd)),
+                        Cell(text=_usd(product.free_usd)),
+                        Cell(text="-", muted=True) if product.list_usd is None else Cell(text=_usd(product.list_usd)),
+                    )
+                )
+                for product in wallet.products
+            ),
+            empty_text="No spend in this period.",
+        )
+    )
+    return Page(blocks=tuple(blocks))
+
+
 @console.register_tool
 class AIGatewayWalletTool(ConsoleTool):
     key = WALLET_TOOL_KEY
     title = "AI gateway wallet"
     owner = AI_GATEWAY
     group = "Billing"
-    description = "The gateway balance and recent ledger entries of one team."
+    description = "One organization's AI balance and spend."
     subject = "team"
 
     def page(self, request: HttpRequest) -> Page:
         team = self.subject_of(request)
         if team is None:
-            return Page(blocks=(Notice(text="Open a team's wallet from the AI gateway panel on the team's page."),))
+            return _organization_wallet_page(request)
         team_id = team.pk
         team_url = reverse("admin_console_team", kwargs={"pk": team_id})
         try:
