@@ -75,6 +75,7 @@ export function SectionTile({
     const hasMenu = hasTileMenu(actions)
     const showAdd = can('addTile')
 
+    const descriptionRows = sectionDescriptionRows(panel)
     const onLiveRows = useCallback(
         (rows: number | null): void =>
             onSectionRows(
@@ -83,10 +84,10 @@ export function SectionTile({
                     ? null
                     : Math.max(
                           panel.minRows ?? 0,
-                          GRID.sectionChromeRows + sectionDescriptionRows(panel) + Math.max(GRID.emptySectionRows, rows)
+                          GRID.sectionChromeRows + descriptionRows + Math.max(GRID.emptySectionRows, rows)
                       )
             ),
-        [id, onSectionRows, panel]
+        [id, onSectionRows, panel.minRows, descriptionRows]
     )
 
     const emptyLabel = editable ? 'Drag tiles here' : 'No tiles'
