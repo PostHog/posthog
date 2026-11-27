@@ -1276,6 +1276,10 @@ def _located_values(content: HogFunctionContent) -> Iterator[tuple[str, str | No
     yield "masking", None, content.masking
 
 
+# Input keys have no length limit, and a location only has to point a reviewer at the input.
+_MAX_LOCATION_KEY_CHARS = 100
+
+
 def _located_inputs(content: HogFunctionContent) -> Iterator[tuple[str, str, JsonValue, JsonValue]]:
     sources: list[tuple[str, JsonValue, JsonValue]] = [("", content.inputs, content.inputs_schema)]
     for index, mapping in enumerate(content.mappings):
@@ -1284,7 +1288,7 @@ def _located_inputs(content: HogFunctionContent) -> Iterator[tuple[str, str, Jso
     for prefix, inputs, schema in sources:
         if isinstance(inputs, dict):
             for key, entry in inputs.items():
-                yield f"{prefix}input:{key}", key, entry, schema
+                yield f"{prefix}input:{key[:_MAX_LOCATION_KEY_CHARS]}", key, entry, schema
 
 
 def _located_code_rules(content: HogFunctionContent) -> Iterator[tuple[str, Rule]]:

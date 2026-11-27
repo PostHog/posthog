@@ -24,6 +24,7 @@ MAX_HISTORY_ENTRIES = 30
 MAX_ORG_FUNCTIONS = 50
 MAX_HOSTS_PER_FUNCTION = 20
 MAX_RULE_EVIDENCE = 20
+UNLOCATED = "not in the public content: depends on a secret input"
 MAX_HISTORY_CODE_CHARS = 4_000
 MAX_ORIGINS_PER_TEST = 20
 MAX_ORIGIN_CHARS = 300
@@ -37,8 +38,8 @@ _HISTORY_VALUE_FIELDS = frozenset({"hog", "enabled"})
 @frozen
 class Classification:
     rule_hits: tuple[str, ...]
-    # Where each rule hit matched. A hit that only a secret input explains shows the location "secret input" and no
-    # host, so the value stays out.
+    # Where each rule hit matched, with at least one entry for every hit before the cap. A hit that the public
+    # content does not explain depends on a secret input, so it shows `UNLOCATED` and no host, and the value stays out.
     rule_evidence: tuple[rules.RuleEvidence, ...]
     rule_evidence_omitted: int
     # The hosts the rules count as request targets.
@@ -183,11 +184,20 @@ def _rule_evidence(content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...
     public = tuple(entry for entry in rules.rule_evidence(content) if entry.rule in rule_hits)
     explained = {entry.rule for entry in public}
     secret_only = tuple(
-        rules.RuleEvidence(rule=rule, location="secret input", host=None, request_target=False)
+        rules.RuleEvidence(rule=rule, location=UNLOCATED, host=None, request_target=False)
         for rule in rule_hits
         if rule not in explained
     )
-    return public + secret_only
+    return _each_rule_first(public + secret_only)
+
+
+def _each_rule_first(evidence: tuple[rules.RuleEvidence, ...]) -> tuple[rules.RuleEvidence, ...]:
+    """The first entry of each rule, then the rest in order, so the cap never drops every entry of a hit."""
+    first: dict[rules.Rule, rules.RuleEvidence] = {}
+    for entry in evidence:
+        first.setdefault(entry.rule, entry)
+    leading = tuple(first.values())
+    return leading + tuple(entry for entry in evidence if entry not in leading)
 
 
 def _account_facts(hog_function: HogFunction, team: Team, scored: ScoredHogFunction) -> AccountFacts:

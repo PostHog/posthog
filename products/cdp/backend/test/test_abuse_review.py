@@ -179,7 +179,7 @@ class TestAbuseReview(AbuseClassificationTestCase):
                     "mappings": [],
                     "masking": None,
                 },
-                [{"rule": "internal_host", "location": "secret input", "host": None, "request_target": False}],
+                [{"rule": "internal_host", "location": case_file.UNLOCATED, "host": None, "request_target": False}],
                 [],
             ),
         ]
@@ -193,6 +193,22 @@ class TestAbuseReview(AbuseClassificationTestCase):
 
         assert classification["rule_evidence"] == evidence
         assert classification["request_hosts"] == request_hosts
+
+    def test_the_evidence_cap_keeps_every_rule_hit(self) -> None:
+        catchers = {f"a{index:02}": {"value": f"https://x{index:02}.webhook.site/"} for index in range(25)}
+        destination = self.create_destination(
+            hog="fetch(inputs.z_target)",
+            inputs_schema=[{"key": key, "type": "string"} for key in [*catchers, "z_target"]],
+            inputs={**catchers, "z_target": {"value": "http://169.254.169.254/latest"}},
+            mappings=[],
+            masking=None,
+        )
+
+        classification = self.case_of(destination)["function"]["classification"]
+
+        assert {entry["rule"] for entry in classification["rule_evidence"]} == {"internal_host", "request_catcher"}
+        assert len(classification["rule_evidence"]) == case_file.MAX_RULE_EVIDENCE
+        assert classification["rule_evidence_omitted"] == 26 - case_file.MAX_RULE_EVIDENCE
 
     def test_no_secret_value_reaches_the_case_file(self) -> None:
         destination = self.create_destination(encrypted_inputs={"api_key": {"value": SECRET_VALUE}})
@@ -272,9 +288,23 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert 0 < len(built.org_functions) < 10
         assert len(built.org_functions) + built.org_functions_omitted == 10
 
-    def test_a_huge_host_cannot_push_the_history_out(self) -> None:
-        long_host = "a" * 60 + "." + ("b" * 60 + ".") * 2_500 + "example.com"
-        destination = self.create_destination(hog=f"fetch('http://{long_host}/')")
+    @parameterized.expand(
+        [
+            ("host", {"hog": "fetch('http://" + "a" * 60 + "." + ("b" * 60 + ".") * 2_500 + "example.com/')"}),
+            (
+                "input_key",
+                {
+                    "hog": "fetch(inputs.url)",
+                    "inputs_schema": [{"key": "k" * 150_000, "type": "string"}],
+                    "inputs": {"k" * 150_000: {"value": "http://localhost:8000/"}},
+                    "mappings": [],
+                    "masking": None,
+                },
+            ),
+        ]
+    )
+    def test_a_huge_name_cannot_push_the_history_out(self, _name: str, overrides: dict[str, Any]) -> None:
+        destination = self.create_destination(**overrides)
         self.log(destination, "updated", changes=[{"field": "hog", "after": "fetch('http://127.0.0.1')"}])
 
         case = self.case_of(destination)
