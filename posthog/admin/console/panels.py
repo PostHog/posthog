@@ -210,7 +210,6 @@ class Operation:
     # Opened from a support ticket link (`?ticket=<url>`), the reason starts as "For ticket <url>". Staff still read
     # and submit it, so only an operation whose reason names the ticket anyway opts in.
     reason_from_ticket: bool = False
-    # Sends the file the handler returns to another tool instead of to the browser's downloads.
     handoff: Handoff | None = None
 
     def __post_init__(self) -> None:

@@ -257,10 +257,6 @@ window.addEventListener('pageshow', () => {
     }
 })
 
-// An operation with a `Handoff` (posthog/admin/console/panels.py) sends the file it returns to another tool. The
-// tab opens on the click, because browsers block a tab that a script opens later. The operation then runs in the
-// background, and the file goes to that tab when it says it is ready. Only the tab opened here, at the origin of
-// the tool's URL, can receive it.
 const HANDOFF_READY = 'posthog-admin:ready'
 const HANDOFF_MESSAGE = 'posthog-admin:handoff'
 const HANDOFF_VERSION = 1
@@ -304,6 +300,7 @@ async function handOff(form) {
     }
     const button = form.querySelector('button[type="submit"]')
 
+    // Open the tab during the click, because browsers block a tab that a script opens after an await.
     const tab = window.open(form.dataset.consoleHandoff, '_blank')
     if (!tab) {
         say(`The browser blocked the new tab. Allow pop-ups for this site and try again.`)
