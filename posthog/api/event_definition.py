@@ -1012,7 +1012,7 @@ class EventDefinitionViewSet(
         responses={200: EventDefinitionBulkUpdateVerifiedResponseSerializer},
     )
     @action(methods=["POST"], detail=False)
-    def bulk_update_verified(self, request, *args, **kwargs) -> response.Response:
+    def bulk_update_verified(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Mark multiple event definitions as verified or unverified in one request.
 
         In the same vein as ``bulk_update_tags``, but ``verified`` lives on the enterprise
@@ -1113,7 +1113,7 @@ class EventDefinitionViewSet(
         responses={200: EventDefinitionBulkUpdateHiddenResponseSerializer},
     )
     @action(methods=["POST"], detail=False)
-    def bulk_update_hidden(self, request, *args, **kwargs) -> response.Response:
+    def bulk_update_hidden(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Hide or unhide multiple event definitions in one request.
 
         Mirrors ``bulk_update_verified``: ``hidden`` lives on the ``EnterpriseEventDefinition``
