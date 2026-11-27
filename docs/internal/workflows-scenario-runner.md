@@ -968,6 +968,14 @@ export interface CyclotronProbe {
 These are the runner's only queries against `cyclotron_jobs`. `unfinishedJobs` counts jobs that are `available`, scheduled for later included, or `running`; `runningJobs` counts the `running` ones, for a valve's `when`.
 When Cyclotron gains its own read of the same counts, that read replaces this module.
 
+### Vacuum probe
+
+`probe/vacuum-probe.ts` reads the vacuum state of `cyclotron_jobs` every 10 seconds from the drive's start, and once more when the probes stop, into `vacuum` in `probes.json`.
+Each read is one catalog query with no table scan: live and dead tuples, the autovacuum and vacuum counts, the last autovacuum, the start of an autovacuum running on the table, and the sizes of the heap, its TOAST and each index.
+A failed read is kept with its error.
+At the start, the probe reads the autovacuum and vacuum settings and the storage options of the table and its indexes into `vacuumSettings`.
+`workersVisible` there says whether the role holds `pg_read_all_stats` and `track_activities` is on. Without both, PostgreSQL hides an autovacuum worker's start.
+
 ### Scorecard
 
 Each run, `invalid` runs included, writes one event:
