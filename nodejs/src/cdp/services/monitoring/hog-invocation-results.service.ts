@@ -254,6 +254,10 @@ const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
 // Recovery paths pass a workflow stub with only an id. A run that started before its template became
 // sensitive carries no stamp, so a transactional send without the actions is treated as sensitive.
 const sendsSensitiveMessage = (invocation: CyclotronJobInvocationHogFlow): boolean => {
+    // A transactional push's variables stay in its sealed job, whether or not its step is marked sensitive.
+    if (invocation.state?.event?.event === TRANSACTIONAL_PUSH_EVENT) {
+        return true
+    }
     if (invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true) {
         return true
     }
