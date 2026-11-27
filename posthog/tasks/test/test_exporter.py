@@ -9,7 +9,10 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import (
+    BrowserType,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 from posthog.hogql.errors import QueryError
 
@@ -198,6 +201,32 @@ class TestExporterTask(APIBaseTest):
             "export started",
             "export succeeded",
         ]
+
+    def test_batched_export_saves_every_chart_under_a_real_playwright_session(self, mock_uuid: MagicMock) -> None:
+        mock_uuid.uuid4.side_effect = ["real_playwright_first", "real_playwright_second"]
+        assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.exported_asset.dashboard_id,
+                export_format="image/png",
+                created_by=self.user,
+            )
+            for _ in range(2)
+        ]
+        page = MagicMock()
+        page.evaluate.return_value = 600
+        page.screenshot.side_effect = lambda path: Path(path).write_bytes(self.example_png)
+        browser = MagicMock()
+        browser.new_context.return_value.new_page.return_value = page
+
+        with patch.object(BrowserType, "connect_over_cdp", return_value=browser):
+            failures = exporter.export_image_assets_batched(
+                assets, source=EventSource.SUBSCRIPTION, should_stop=lambda: False
+            )
+
+        assert failures == {}
+        stored = [ExportedAsset.objects.get(pk=asset.pk) for asset in assets]
+        assert [asset.content_location is not None for asset in stored] == [True, True]
 
     @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_exporter_rechecks_typed_export_scopes(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:

@@ -7325,6 +7325,7 @@ export namespace Schemas {
             | undefined;
     };
     export type WebVitalsPathBreakdownResultItem = {
+        count?: (number | null) | undefined;
         path: string;
         value: number;
     };
@@ -7556,6 +7557,7 @@ export namespace Schemas {
         | "apple-ads"
         | "postgresql"
         | "aws-s3"
+        | "aws-warehouse-sources"
         | "aws-redshift"
         | "s3-compatible"
         | "snowflake"
@@ -8544,6 +8546,7 @@ export namespace Schemas {
         interval?: (IntervalType | null) | undefined;
         kind?: string | undefined;
         metric: WebVitalsMetric;
+        minSamples?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         orderBy?:
             | (Array<

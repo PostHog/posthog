@@ -89,7 +89,7 @@ function ChartData({
     return (
         <div
             className={clsx(
-                'flex min-h-0 flex-1 flex-col transition-opacity motion-reduce:transition-none',
+                'relative flex min-h-0 w-full flex-1 flex-col transition-opacity motion-reduce:transition-none',
                 result.refreshing && 'opacity-50'
             )}
             // Always rendered, so the chart inside keeps its instance when a refresh starts or ends.

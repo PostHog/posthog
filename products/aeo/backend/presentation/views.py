@@ -23,7 +23,14 @@ from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
 )
-from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
+from posthog.rate_limit import (
+    AEOPromptSuggestionsBurstRateThrottle,
+    AEOPromptSuggestionsSustainedRateThrottle,
+    AEOSearchDetailBurstRateThrottle,
+    AEOSearchDetailSustainedRateThrottle,
+    AEOTopicRelabelBurstRateThrottle,
+    AEOTopicRelabelSustainedRateThrottle,
+)
 
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
@@ -40,6 +47,7 @@ from products.aeo.backend.facade.api import (
     get_prompt_set_movers,
     get_prompt_set_overview,
     get_prompt_set_rankings,
+    get_prompt_set_search_detail,
     get_prompt_stats,
     get_prompt_suggestions,
     import_prompts,
@@ -51,6 +59,10 @@ from products.aeo.backend.facade.api import (
     list_prompt_topics,
     list_prompt_versions,
     list_prompts,
+    merge_prompt_topics,
+    remove_prompt_topic,
+    rename_prompt_topic,
+    set_prompts_topic,
     start_prompt_suggestions,
     update_brand,
     update_engine_setting,
@@ -62,11 +74,15 @@ from products.aeo.backend.facade.contracts import (
     BRAND_NAME_MAX_LENGTH,
     COMPETITOR_CANDIDATE_DAYS,
     DEFAULT_DATE_FROM,
+    MAX_DETAIL_DOMAINS,
+    MAX_DETAIL_PROMPTS,
     MAX_MOVERS,
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
+    MAX_RELATED_SEARCHES,
     MAX_SUGGESTED_COMPETITORS,
+    MAX_TOPIC_PROMPT_IDS,
     MAX_WINDOW_DAYS,
     MIN_MOVER_ANSWERS,
     PROMPT_LIMIT_ERROR_CODE,
@@ -111,7 +127,9 @@ from products.aeo.backend.facade.contracts import (
     PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
+    PromptSetRelatedSearch,
     PromptSetSearch,
+    PromptSetSearchDetail,
     PromptSetSearchPrompt,
     PromptSetTopicCounts,
     PromptStats,
@@ -121,6 +139,10 @@ from products.aeo.backend.facade.contracts import (
     PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
+    PromptTopicChange,
+    PromptTopicConflictError,
+    PromptTopicError,
+    PromptTopicNotFoundError,
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
@@ -206,6 +228,18 @@ EXTERNAL_VISIBILITY_HELP = (
     "Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set "
     "came from. Kept to benchmark against our own citation rate."
 )
+
+
+@contextmanager
+def topic_errors() -> Iterator[None]:
+    try:
+        yield
+    except PromptTopicNotFoundError as error:
+        raise NotFound(str(error))
+    except PromptTopicError as error:
+        raise ValidationError(str(error))
+    except PromptTopicConflictError as error:
+        raise Conflict(str(error))
 
 
 class AEOPromptChecksPagination(PrecountedLimitOffsetPagination):
@@ -330,6 +364,60 @@ class AEOPromptTopicSerializer(DataclassSerializer):
         extra_kwargs = {
             "topic": {"help_text": "Topic name. Empty for prompts that have no topic."},
             "prompts": {"help_text": "How many prompts in the set have this topic."},
+        }
+
+
+def topic_name_field(help_text: str) -> serializers.CharField:
+    return serializers.CharField(max_length=PROMPT_TOPIC_MAX_LENGTH, help_text=help_text)
+
+
+class AEOPromptTopicRenameRequestSerializer(serializers.Serializer):
+    topic = topic_name_field("The topic to rename, as listed by GET aeo_prompts/topics/. Letter case is ignored.")
+    new_topic = topic_name_field(
+        "The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 "
+        "when another topic already has the name: merge the two instead."
+    )
+
+
+class AEOPromptTopicMergeRequestSerializer(serializers.Serializer):
+    topic = topic_name_field("The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored.")
+    into_topic = topic_name_field(
+        "The topic to keep, as listed by GET aeo_prompts/topics/. It keeps its current spelling. Letter case is ignored."
+    )
+
+
+class AEOPromptTopicRemoveRequestSerializer(serializers.Serializer):
+    topic = topic_name_field(
+        "The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored."
+    )
+
+
+class AEOPromptBulkSetTopicRequestSerializer(serializers.Serializer):
+    prompt_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_TOPIC_PROMPT_IDS,
+        help_text=f"Ids of the prompts to change, from GET aeo_prompts/. At most {MAX_TOPIC_PROMPT_IDS}. Archived prompts are refused.",
+    )
+    topic = serializers.CharField(
+        allow_blank=True,
+        max_length=PROMPT_TOPIC_MAX_LENGTH,
+        help_text=(
+            "The topic to set. A name that matches an existing topic in another letter case takes that topic's "
+            "spelling. An empty string removes the topic."
+        ),
+    )
+
+
+class AEOPromptTopicChangeSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptTopicChange
+        ref_name = "AEOPromptTopicChange"
+        extra_kwargs = {
+            "prompts": {"help_text": "How many prompts now have the new topic, archived prompts included."},
+            "checks": {
+                "help_text": "How many past checks were relabeled with the new topic. Always 0 when setting a topic on chosen prompts, because their past checks keep the topic they ran with."
+            },
         }
 
 
@@ -659,6 +747,61 @@ class AEOPromptSetSearchSerializer(DataclassSerializer):
         }
 
 
+class AEOPromptSetRelatedSearchSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptSetRelatedSearch
+        ref_name = "AEOPromptSetRelatedSearch"
+        extra_kwargs = {
+            "query": {"help_text": "Another web search the engines ran in the same answers, normalized the same way."},
+            "answers": {"help_text": "Answers that ran both searches in the window."},
+            "share_of_answers": {
+                "help_text": "Share (0-1) of the answers that ran the requested search and ran this one too."
+            },
+        }
+
+
+class AEOPromptSetSearchDetailSerializer(DataclassSerializer):
+    domains = AEOPromptSetDomainSerializer(
+        many=True,
+        help_text=(
+            f"The {MAX_DETAIL_DOMAINS} domains cited most by the answers that ran the search, most cited first, then the "
+            "best-ranked own domain when it ranks lower. 'share_of_answers' is over those answers. An answer usually runs "
+            "several searches, and a citation is not tied to one of them, so a domain may come from another search of the "
+            "same answer."
+        ),
+    )
+    related_searches = AEOPromptSetRelatedSearchSerializer(
+        many=True,
+        help_text=f"Up to {MAX_RELATED_SEARCHES} other searches the same answers ran most, most common first.",
+    )
+    top_prompts = AEOPromptSetSearchPromptSerializer(
+        many=True,
+        help_text=f"Up to {MAX_DETAIL_PROMPTS} prompts whose answers ran the search, the ones that ran it most first.",
+    )
+
+    class Meta:
+        dataclass = PromptSetSearchDetail
+        ref_name = "AEOPromptSetSearchDetail"
+        extra_kwargs = {
+            "query": {
+                "help_text": "The search, lowercased with whitespace collapsed, as in the overview's top_searches."
+            },
+            "window_from": {"help_text": "First day of the window, in the project's timezone."},
+            "window_to": {"help_text": "Last day of the window, in the project's timezone."},
+            "answers": {
+                "help_text": "Answered web-search checks in the window that ran the search. The base of every share."
+            },
+            "prompts": {"help_text": "Distinct prompts whose answers ran the search."},
+            "cited": {"help_text": "Of those answers, how many cited a URL on the project's own domains."},
+            "engines": {"help_text": "Answer engines that ran the search, ordered by engine."},
+            "domains_cited": {"help_text": "Distinct registrable domains those answers cited."},
+            "target_rank": {
+                "help_text": "Place of the best-ranked own domain among the domains those answers cited, from 1. Null when none of them cited it."
+            },
+            "keywords": {"help_text": "The project's tracked keywords that appear in the search, alphabetical."},
+        }
+
+
 class AEOPromptSetOverviewSerializer(DataclassSerializer):
     current = AEOPromptSetCountsSerializer(help_text="Checks across the prompt set from 'window_from' to 'window_to'.")
     previous = AEOPromptSetCountsSerializer(help_text="The same counts for the 'days' days before 'window_from'.")
@@ -731,7 +874,7 @@ class AEORankedBrandSerializer(DataclassSerializer):
             },
             "previous_visibility": {"help_text": "The same share for the window before. Null without answers."},
             "positive_share": {
-                "help_text": "For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored."
+                "help_text": "The share (0-1) of scored answers naming the brand whose sentences about it were positive. Null when none of them was scored yet."
             },
         }
 
@@ -898,6 +1041,7 @@ class AEOCheckScopeQuerySerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_null=True,
+        allow_blank=True,
         max_length=64,
         help_text="Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.",
     )
@@ -913,6 +1057,13 @@ class AEOCheckScopeQuerySerializer(serializers.Serializer):
         ),
     )
 
+    # A client that serializes an unset filter sends it as the text 'null', which would match no check.
+    def validate_engine(self, value: str | None) -> str | None:
+        return None if value in ("", "null") else value
+
+    def validate_topic(self, value: str | None) -> str | None:
+        return None if value == "null" else value
+
 
 class AEOPromptSetOverviewQuerySerializer(AEOCheckScopeQuerySerializer):
     date_from = date_from_field(DEFAULT_DATE_FROM)
@@ -927,6 +1078,13 @@ class AEOPromptSetOverviewQuerySerializer(AEOCheckScopeQuerySerializer):
             "judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. "
             + BRANDED_PROMPT_HELP
         ),
+    )
+
+
+class AEOPromptSetSearchDetailQuerySerializer(AEOPromptSetOverviewQuerySerializer):
+    search = serializers.CharField(
+        max_length=1000,
+        help_text="The web search to describe. Case and repeated spaces are ignored, as in the overview's top_searches.",
     )
 
 
@@ -1314,7 +1472,7 @@ class AEOPromptCitationSerializer(AEOPromptCheckSerializer):
         }
 
 
-class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
+class AEOPromptSetCitationsQuerySerializer(AEOCheckScopeQuerySerializer):
     url = serializers.CharField(
         required=False,
         max_length=2048,
@@ -1347,11 +1505,6 @@ class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
             "or 'non_branded'. Pass the value the overview or rankings used so the list matches their counts. "
             + BRANDED_PROMPT_HELP
         ),
-    )
-    engine = serializers.CharField(
-        required=False,
-        max_length=64,
-        help_text="Only list answers from this answer engine, for example 'claude-web-search'.",
     )
     include_answer_text = serializers.BooleanField(
         default=False,
@@ -1392,13 +1545,23 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "stats",
         "versions",
         "overview",
+        "search_detail",
         "rankings",
         "movers",
         "citations",
         "suggestion",
     ]
     # suggest saves nothing, but it spends model credits, so it needs write access.
-    scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest"]
+    scope_object_write_actions = [
+        "partial_update",
+        "destroy",
+        "bulk_import",
+        "suggest",
+        "topics_rename",
+        "topics_merge",
+        "topics_remove",
+        "bulk_set_topic",
+    ]
     pagination_class = PrecountedLimitOffsetPagination
 
     def dangerously_get_permissions(self) -> list[BasePermission]:
@@ -1580,6 +1743,42 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         return Response(AEOPromptSetOverviewSerializer(overview).data)
 
     @validated_request(
+        query_serializer=AEOPromptSetSearchDetailQuerySerializer,
+        operation_id="aeo_prompts_search_detail",
+        summary="Get what one AEO web search tells",
+        description=(
+            "Gets one web search the engines ran from 'date_from' to 'date_to' (default the last 30 days) in the "
+            "project's timezone: how many answers and prompts ran it, the domains those answers cited with their share "
+            "and the rank of the project's own domain, the other searches the same answers ran, the tracked keywords it "
+            "contains, and the prompts that ran it most. Citations are stored per answer, not per search, so a domain "
+            "may come from another search of the same answer. Pass the 'branded', 'engine' and 'topic' values of the "
+            "overview so the counts match it."
+        ),
+        responses={200: OpenApiResponse(response=AEOPromptSetSearchDetailSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        pagination_class=None,
+        throttle_classes=[AEOSearchDetailBurstRateThrottle, AEOSearchDetailSustainedRateThrottle],
+    )
+    def search_detail(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        query = request.validated_query_data
+        with date_range_errors():
+            detail = get_prompt_set_search_detail(
+                self.team_id,
+                query["search"],
+                timezone_name=self.team.timezone,
+                date_from=query["date_from"],
+                date_to=query["date_to"],
+                branded=BrandedSegment(query["branded"]),
+                engine=query["engine"],
+                topic=query["topic"],
+            )
+        return Response(AEOPromptSetSearchDetailSerializer(detail).data)
+
+    @validated_request(
         query_serializer=AEOPromptSetReportQuerySerializer,
         operation_id="aeo_prompts_rankings",
         summary="Get AEO brand rankings",
@@ -1653,7 +1852,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             "timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the "
             "prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches "
             "it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview "
-            "or the rankings, with the same 'date_from', 'date_to' and 'branded' values."
+            "or the rankings, with the same 'date_from', 'date_to', 'branded', 'engine' and 'topic' values."
         ),
         responses={
             200: AEOPromptCitationSerializer(many=True),
@@ -1676,7 +1875,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 url=data.get("url"),
                 domain=data.get("domain"),
                 search=data.get("search"),
-                engine=data.get("engine"),
+                engine=data["engine"],
+                topic=data["topic"],
                 branded=BrandedSegment(data["branded"]),
                 include_answer_text=data["include_answer_text"],
             )
@@ -1720,13 +1920,108 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     @validated_request(
         operation_id="aeo_prompts_topics",
         summary="List AEO prompt topics",
-        description="Lists the topics in the project's AEO prompt set, with the number of prompts in each.",
+        description="Lists the topics in the project's AEO prompt set, with the number of prompts in each. Archived prompts are not counted, and a topic only archived prompts have is left out.",
         responses={200: OpenApiResponse(response=AEOPromptTopicSerializer(many=True))},
         tags=["web_analytics"],
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def topics(self, request: Request, **kwargs: Any) -> Response:
         return Response(AEOPromptTopicSerializer(list_prompt_topics(self.team_id), many=True).data)
+
+    @validated_request(
+        request_serializer=AEOPromptTopicRenameRequestSerializer,
+        operation_id="aeo_prompts_topics_rename",
+        summary="Rename an AEO prompt topic",
+        description="Renames a topic on every prompt that has it, archived prompts included, and on the past checks that ran with it, so the reports show its history under the new name. Prompt versions don't change.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptTopicChangeSerializer),
+            400: OpenApiResponse(description="A topic name is empty."),
+            404: OpenApiResponse(description="No prompt has the topic."),
+            409: OpenApiResponse(description="Another topic already has the new name. Merge the two instead."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="topics/rename",
+        throttle_classes=[AEOTopicRelabelBurstRateThrottle, AEOTopicRelabelSustainedRateThrottle],
+    )
+    def topics_rename(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        with topic_errors():
+            change = rename_prompt_topic(self.team_id, data["topic"], data["new_topic"])
+        return Response(AEOPromptTopicChangeSerializer(change).data)
+
+    @validated_request(
+        request_serializer=AEOPromptTopicMergeRequestSerializer,
+        operation_id="aeo_prompts_topics_merge",
+        summary="Merge two AEO prompt topics",
+        description="Moves every prompt of one topic, archived prompts included, to another topic, along with the past checks that ran with it. The first topic is gone afterwards. Prompt versions don't change.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptTopicChangeSerializer),
+            400: OpenApiResponse(description="A topic name is empty, or both name the same topic."),
+            404: OpenApiResponse(description="No prompt has one of the topics."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="topics/merge",
+        throttle_classes=[AEOTopicRelabelBurstRateThrottle, AEOTopicRelabelSustainedRateThrottle],
+    )
+    def topics_merge(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        with topic_errors():
+            change = merge_prompt_topics(self.team_id, data["topic"], data["into_topic"])
+        return Response(AEOPromptTopicChangeSerializer(change).data)
+
+    @validated_request(
+        request_serializer=AEOPromptTopicRemoveRequestSerializer,
+        operation_id="aeo_prompts_topics_remove",
+        summary="Remove an AEO prompt topic",
+        description="Removes a topic from every prompt that has it, archived prompts included, and from the past checks that ran with it. The prompts are kept and have no topic afterwards. Prompt versions don't change.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptTopicChangeSerializer),
+            400: OpenApiResponse(description="The topic name is empty."),
+            404: OpenApiResponse(description="No prompt has the topic."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="topics/remove",
+        throttle_classes=[AEOTopicRelabelBurstRateThrottle, AEOTopicRelabelSustainedRateThrottle],
+    )
+    def topics_remove(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        with topic_errors():
+            change = remove_prompt_topic(self.team_id, request.validated_data["topic"])
+        return Response(AEOPromptTopicChangeSerializer(change).data)
+
+    @validated_request(
+        request_serializer=AEOPromptBulkSetTopicRequestSerializer,
+        operation_id="aeo_prompts_bulk_set_topic",
+        summary="Set the topic of several AEO prompts",
+        description="Sets one topic on the chosen prompts, or removes their topic. Their past checks keep the topic they ran with, as when one prompt's topic changes. Prompt versions don't change. Nothing is saved when a prompt is missing or archived.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptTopicChangeSerializer),
+            400: OpenApiResponse(description="A prompt is archived. Restore it first."),
+            404: OpenApiResponse(description="A prompt is not in the project's prompt set."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"])
+    def bulk_set_topic(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            change = set_prompts_topic(self.team_id, data["prompt_ids"], data["topic"])
+        except PromptNotFoundError:
+            raise NotFound()
+        except PromptUpdateError as error:
+            raise ValidationError(str(error))
+        return Response(AEOPromptTopicChangeSerializer(change).data)
 
     @validated_request(
         request_serializer=AEOPromptBulkImportRequestSerializer,

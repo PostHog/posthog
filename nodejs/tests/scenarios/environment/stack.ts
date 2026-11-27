@@ -542,6 +542,14 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
 export const cyclotronUrlOf = (spec: RoleSpec): string =>
     spec.cyclotronUrl ?? (spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl)
 
+export const writerUrlOf = (env: NodeJS.ProcessEnv, settings: Record<string, string> = {}): string | undefined =>
+    env.SCENARIO_RUN_MANIFEST
+        ? env.SCENARIO_WRITER_URL || undefined
+        : env.SCENARIO_WRITER_URL ||
+          settings.CYCLOTRON_NODE_DATABASE_URL ||
+          env.CYCLOTRON_NODE_DATABASE_URL ||
+          STACK.cyclotronNodeUrl
+
 const settingsOf = (spec: RoleSpec): PluginsServerConfig =>
     overrideWithEnv({ ...getDefaultConfig(), DATABASE_URL: STACK.postgresUrl }, spec.env)
 

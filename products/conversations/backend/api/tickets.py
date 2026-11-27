@@ -2176,7 +2176,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 feedback_properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(
+            posthoganalytics.capture_ai(
                 distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties, groups=event_groups
             )
         else:
@@ -2191,7 +2191,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(
+            posthoganalytics.capture_ai(
                 distinct_id=distinct_id, event="$ai_metric", properties=properties, groups=event_groups
             )
 
