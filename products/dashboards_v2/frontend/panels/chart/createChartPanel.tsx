@@ -195,6 +195,7 @@ export function createChartPanel({
             const csv: MenuAction = {
                 key: 'csv',
                 label: 'CSV',
+                section: 'Data',
                 dataAttr: 'dashboard-v2-chart-download-csv',
                 disabledReason: null,
                 onSelect: () => downloadCsv(context.panel),
