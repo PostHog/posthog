@@ -18,8 +18,11 @@ from products.notebooks.backend.app_refresh import (
     result_scope,
     run_slot,
 )
-from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook, NotebookAppRefreshRun, NotebookAppSchedule
+from products.notebooks.backend.markdown_conversion import (
+    build_markdown_notebook_content,
+    get_markdown_notebook_markdown,
+)
+from products.notebooks.backend.models import Notebook, NotebookAppRefreshRun, NotebookAppRelease, NotebookAppSchedule
 from products.notebooks.backend.tasks.app_refresh import dispatch_notebook_app_refreshes
 from products.notifications.backend.models import NotificationEvent
 
@@ -165,6 +168,112 @@ class TestAppRefresh(APIBaseTest):
         assert run.detail == "A new release needs a new refresh schedule."
         assert not schedule.enabled
         assert schedule.last_success_at is None
+
+    def publish_private_cells(self):
+        self.notebook.content = build_markdown_notebook_content(
+            '<PythonV2 nodeId="score" code="print(42)" returnVariable="activation_score" />\n\n'
+            '<SQLV2 nodeId="counts" code="SELECT 1" connectionId="test-connection" returnVariable="counts" />\n\n'
+            '<PythonV2 nodeId="hidden" code="print(1)" />'
+        )
+        self.notebook.app_published["blocks"] = [
+            {"id": "one", "kind": "cell", "node_id": "score", "tab_id": "overview", "title": "Score"},
+            {"id": "two", "kind": "cell", "node_id": "counts", "tab_id": "overview"},
+        ]
+        self.notebook.save(update_fields=["content", "app_published"])
+        NotebookAppRelease.objects.for_team(self.team.pk).create(
+            team=self.team,
+            notebook=self.notebook,
+            revision=3,
+            title="Activation",
+            variables=[],
+            layout=self.notebook.app_published,
+            markdown=get_markdown_notebook_markdown(self.notebook.content),
+        )
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_opt_in_runs_published_defaults_as_the_owner_and_discards_every_private_result(self, _flag):
+        self.publish_private_cells()
+        executed = []
+
+        def compute(team_id, notebook_id, user, revision, node_id, inputs):
+            executed.append((team_id, notebook_id, user.pk, revision, node_id, inputs))
+            return {"columns": ["private"], "rows": [["never persist this row"]]}
+
+        with patch("products.notebooks.backend.app_runtime_checks.run_app_cell", side_effect=compute):
+            denied = self.client.post(
+                self.url, {**self.schedule_payload, "checked_node_ids": ["hidden"]}, format="json"
+            )
+            assert denied.status_code == 400
+            response = self.client.post(
+                self.url, {**self.schedule_payload, "checked_node_ids": ["score", "counts"]}, format="json"
+            )
+            assert response.status_code == 200, response.json()
+            assert {target["node_id"] for target in response.json()["check_targets"]} == {"score", "counts"}
+            schedule = NotebookAppSchedule.objects.for_team(self.team.pk).get(notebook=self.notebook)
+            run = self.slot(schedule)
+            run_slot(self.team.pk, run.pk)
+            run_slot(self.team.pk, run.pk)
+        state = refresh_status(self.team.pk, self.notebook.pk)
+        schedule.refresh_from_db()
+        assert executed == [(self.team.pk, self.notebook.pk, self.user.pk, 3, node, {}) for node in ["counts", "score"]]
+        assert state.history[0].status == "succeeded"
+        assert state.history[0].checked_count == 2
+        assert state.history[0].duration_seconds is not None
+        assert schedule.outputs == {}
+        assert read_outputs(self.team.pk, self.notebook.pk, self.user.pk, 3) == {}
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_private_failure_never_records_the_exception_text_or_a_result(self, _flag):
+        self.publish_private_cells()
+
+        def compute(*_args):
+            raise ValueError("private output in error text")
+
+        with patch("products.notebooks.backend.app_runtime_checks.run_app_cell", side_effect=compute):
+            configure(self.team.pk, self.notebook.pk, self.user.pk, 3, 60, 90, True, ["score"])
+            schedule = NotebookAppSchedule.objects.for_team(self.team.pk).get(notebook=self.notebook)
+            run_slot(self.team.pk, self.slot(schedule).pk)
+        state = refresh_status(self.team.pk, self.notebook.pk)
+        assert state.history[0].status == "failed"
+        assert state.history[0].detail == "Runtime check failed for score. Open the app and run the cell to inspect it."
+        assert state.last_success_at is None
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_owner_losing_access_during_a_run_stops_the_remaining_cells(self, _flag):
+        self.publish_private_cells()
+        executed = []
+
+        def revoke_after_first(_team, _notebook, owner, _revision, node_id, _inputs):
+            executed.append(node_id)
+            owner.is_active = False
+            owner.save(update_fields=["is_active"])
+            return {}
+
+        configure(self.team.pk, self.notebook.pk, self.user.pk, 3, 60, 90, True, ["counts", "score"])
+        schedule = NotebookAppSchedule.objects.for_team(self.team.pk).get(notebook=self.notebook)
+        with patch("products.notebooks.backend.app_runtime_checks.run_app_cell", side_effect=revoke_after_first):
+            run_slot(self.team.pk, self.slot(schedule).pk)
+        state = refresh_status(self.team.pk, self.notebook.pk)
+        assert executed == ["counts"]
+        assert state.history[0].status == "failed"
+        assert state.history[0].checked_count == 1
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_legacy_layouts_keep_sql_refresh_and_only_offer_checks_after_republication(self, _flag):
+        response = self.client.post(self.url, self.schedule_payload, format="json")
+        assert response.status_code == 200
+        assert response.json()["check_targets"] == []
+        assert response.json()["checked_node_ids"] == []
+        response = self.client.post(self.url, {**self.schedule_payload, "checked_node_ids": ["signups"]}, format="json")
+        assert response.status_code == 400
 
     def test_old_worker_cannot_replace_new_schedule(self):
         schedule = self.configure()

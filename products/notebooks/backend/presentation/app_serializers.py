@@ -156,6 +156,12 @@ class NotebookAppLayoutField(serializers.JSONField):
 
 
 class NotebookAppScheduleSettingsSerializer(serializers.Serializer):
+    checked_node_ids = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        max_length=3,
+        required=False,
+        help_text="Published Python or connected SQL cells to check privately with the schedule owner's current access.",
+    )
     revision = serializers.IntegerField(min_value=0, help_text="Published revision to refresh.")
     enabled = serializers.BooleanField(help_text="Whether this schedule runs.")
     interval_minutes = serializers.IntegerField(
@@ -180,9 +186,19 @@ class NotebookAppRefreshHistorySerializer(serializers.Serializer):
     status = serializers.CharField()
     detail = serializers.CharField(allow_blank=True)
     output_count = serializers.IntegerField()
+    checked_count = serializers.IntegerField()
+    duration_seconds = serializers.FloatField(allow_null=True)
+
+
+class NotebookAppRefreshCheckTargetSerializer(serializers.Serializer):
+    node_id = serializers.CharField()
+    title = serializers.CharField()
+    kind = serializers.CharField()
 
 
 class NotebookAppRefreshStatusSerializer(serializers.Serializer):
+    check_targets = NotebookAppRefreshCheckTargetSerializer(many=True)
+    checked_node_ids = serializers.ListField(child=serializers.CharField())
     published_revision = serializers.IntegerField()
     enabled = serializers.BooleanField()
     revision = serializers.IntegerField(required=False)

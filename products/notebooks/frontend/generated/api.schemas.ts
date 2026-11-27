@@ -1050,6 +1050,12 @@ export interface NotebookAppRefreshOutputsApi {
 
 export interface NotebookAppScheduleSettingsApi {
     /**
+     * Published Python or connected SQL cells to check privately with the schedule owner's current access.
+     * @maxItems 3
+     * @items.maxLength 128
+     */
+    checked_node_ids?: string[]
+    /**
      * Published revision to refresh.
      * @minimum 0
      */
@@ -1070,6 +1076,12 @@ export interface NotebookAppScheduleSettingsApi {
     freshness_minutes?: number
 }
 
+export interface NotebookAppRefreshCheckTargetApi {
+    node_id: string
+    title: string
+    kind: string
+}
+
 export interface NotebookAppRefreshHistoryApi {
     revision: number
     due_at: string
@@ -1078,9 +1090,14 @@ export interface NotebookAppRefreshHistoryApi {
     status: string
     detail: string
     output_count: number
+    checked_count: number
+    /** @nullable */
+    duration_seconds: number | null
 }
 
 export interface NotebookAppRefreshStatusApi {
+    check_targets: NotebookAppRefreshCheckTargetApi[]
+    checked_node_ids: string[]
     published_revision: number
     enabled: boolean
     revision?: number

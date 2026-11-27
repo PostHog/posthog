@@ -255,6 +255,13 @@ class AccountNotebook:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AppRefreshCheckTarget:
+    node_id: str
+    title: str
+    kind: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class AppRefreshHistory:
     revision: int
     due_at: datetime
@@ -262,6 +269,8 @@ class AppRefreshHistory:
     status: str
     detail: str
     output_count: int
+    checked_count: int = 0
+    duration_seconds: float | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -269,6 +278,8 @@ class AppRefreshStatus:
     published_revision: int
     enabled: bool
     history: list[AppRefreshHistory]
+    check_targets: list[AppRefreshCheckTarget] = field(default_factory=list)
+    checked_node_ids: list[str] = field(default_factory=list)
     revision: int | None = None
     interval_minutes: int | None = None
     freshness_minutes: int | None = None

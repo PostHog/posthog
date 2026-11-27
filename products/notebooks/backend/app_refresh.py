@@ -25,6 +25,7 @@ from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
 from products.notebooks.backend.app_releases import read_release
+from products.notebooks.backend.app_runtime_checks import RuntimeCheckFailed, check_targets, run_checks, validate_checks
 from products.notebooks.backend.app_viewer import resolve_viewer_queries
 from products.notebooks.backend.facade.contracts import AppRefreshedOutput, AppRefreshHistory, AppRefreshStatus
 from products.notebooks.backend.models import Notebook, NotebookAppRefreshRun, NotebookAppSchedule
@@ -45,13 +46,17 @@ RUN_TIMEOUT = timedelta(minutes=15)
 HISTORY_SIZE = 20
 
 
-def current_plans(notebook: Notebook, revision: int):
+def current_plans(notebook: Notebook, revision: int, checked_node_ids: list[str] | None = None):
     release = read_release(notebook.team_id, notebook.pk)
     if release is None or release.revision != revision:
         raise Conflict("A new release needs a new refresh schedule.")
     plans = resolve_viewer_queries(release, {})
-    if not 1 <= len(plans) <= MAX_QUERIES:
-        raise ValidationError(f"Choose an app with between 1 and {MAX_QUERIES} native SQL outputs.")
+    if checked_node_ids:
+        validate_checks(release, checked_node_ids)
+    if (not plans and not checked_node_ids) or len(plans) > MAX_QUERIES:
+        raise ValidationError(
+            f"Choose at least one SQL output or runtime check, with at most {MAX_QUERIES} native SQL outputs."
+        )
     return plans
 
 
@@ -77,7 +82,14 @@ def check_query_access(notebook: Notebook, user: User, action: Action) -> None:
 
 
 def configure(
-    team_id: int, notebook_id: UUID, user_id: int, revision: int, interval: int, freshness: int, enabled: bool
+    team_id: int,
+    notebook_id: UUID,
+    user_id: int,
+    revision: int,
+    interval: int,
+    freshness: int,
+    enabled: bool,
+    checked_node_ids: list[str] | None = None,
 ) -> None:
     now = timezone.now()
     user = User.objects.get(pk=user_id)
@@ -90,7 +102,8 @@ def configure(
                 raise Conflict("A new release needs a new refresh schedule.")
             NotebookAppSchedule.objects.for_team(locked.team_id).filter(notebook=locked).update(enabled=False)
             return
-        current_plans(locked, revision)
+        checks = sorted(checked_node_ids or [])
+        current_plans(locked, revision, checks)
         schedule, created = (
             NotebookAppSchedule.objects.for_team(locked.team_id)
             .select_for_update()
@@ -109,6 +122,7 @@ def configure(
         if (
             not created
             and schedule.enabled
+            and schedule.checked_node_ids == checks
             and (schedule.owner_id, schedule.revision, schedule.interval_minutes, schedule.freshness_minutes)
             == (user.pk, revision, interval, freshness)
         ):
@@ -116,6 +130,7 @@ def configure(
         if not created and (schedule.revision != revision or schedule.owner_id != user.pk):
             schedule.last_success_at = None
             schedule.outputs = {}
+        schedule.checked_node_ids = checks
         schedule.owner = user
         schedule.revision = revision
         schedule.interval_minutes = interval
@@ -133,13 +148,16 @@ def refresh_status(team_id: int, notebook_id: UUID) -> AppRefreshStatus:
     if release is None:
         raise Conflict("The app is no longer published.")
     published_revision = release.revision
+    targets = check_targets(release)
     if not schedule:
-        return AppRefreshStatus(published_revision=published_revision, enabled=False, history=[])
+        return AppRefreshStatus(published_revision=published_revision, enabled=False, history=[], check_targets=targets)
     runs = NotebookAppRefreshRun.objects.for_team(team_id).filter(schedule=schedule).order_by("-due_at")
     threshold = (schedule.last_success_at or schedule.configured_at) + timedelta(minutes=schedule.freshness_minutes)
     return AppRefreshStatus(
         published_revision=published_revision,
         enabled=schedule.enabled,
+        check_targets=targets,
+        checked_node_ids=schedule.checked_node_ids,
         revision=schedule.revision,
         interval_minutes=schedule.interval_minutes,
         freshness_minutes=schedule.freshness_minutes,
@@ -154,6 +172,10 @@ def refresh_status(team_id: int, notebook_id: UUID) -> AppRefreshStatus:
                 status=run.status,
                 detail=run.detail,
                 output_count=run.output_count,
+                checked_count=run.checked_count,
+                duration_seconds=(run.finished_at - run.started_at).total_seconds()
+                if run.finished_at and run.started_at
+                else None,
             )
             for run in runs[:HISTORY_SIZE]
         ],
@@ -167,7 +189,7 @@ def read_outputs(team_id: int, notebook_id: UUID, user_id: int, revision: int) -
         .filter(notebook_id=notebook_id, revision=revision, last_success_at__isnull=False)
         .first()
     )
-    if not schedule:
+    if not schedule or not schedule.outputs:
         return {}
     notebook, user = schedule.notebook, User.objects.get(pk=user_id)
     check_query_access(notebook, user, Action.VIEW)
@@ -227,9 +249,12 @@ def refresh_outputs(schedule: NotebookAppSchedule) -> dict[str, Any]:
     check_query_access(notebook, owner, Action.EDIT)
     if not notebook_app_builder_enabled(owner, notebook.team):
         raise PermissionDenied()
-    outputs = {}
+    outputs: dict[str, Any] = {}
+    plans = current_plans(notebook, schedule.revision, schedule.checked_node_ids)
+    if not plans:
+        return outputs
     access = query_access_for_user(notebook, owner)
-    for plan in current_plans(notebook, schedule.revision):
+    for plan in plans:
         executor = query_executor(plan.query, notebook, owner, access)
         executor.generate_clickhouse_sql()
         if executor.direct_sql is not None or executor.clickhouse_sql is None:
@@ -272,7 +297,12 @@ def notify_owner(schedule: NotebookAppSchedule, title: str, key: str) -> None:
 
 
 def finish_run(
-    run: NotebookAppRefreshRun, outputs: dict[str, Any] | None, detail: str, *, obsolete: bool = False
+    run: NotebookAppRefreshRun,
+    outputs: dict[str, Any] | None,
+    detail: str,
+    *,
+    obsolete: bool = False,
+    checked_count: int = 0,
 ) -> None:
     now = timezone.now()
     with transaction.atomic():
@@ -290,6 +320,7 @@ def finish_run(
             finished_at=now,
             detail=detail,
             output_count=len(outputs or {}),
+            checked_count=checked_count,
         )
         if not updated:
             return
@@ -332,6 +363,21 @@ def run_slot(team_id: int, run_id: UUID) -> None:
             finish_run(run, None, "This schedule was changed.")
             return
         outputs = refresh_outputs(run.schedule)
+        checks = run.schedule.checked_node_ids
+        run_checks(
+            run.schedule.notebook,
+            run.schedule.owner_id,
+            run.revision,
+            checks,
+            lambda notebook, owner: check_query_access(notebook, owner, Action.EDIT),
+        )
+    except RuntimeCheckFailed as failure:
+        finish_run(
+            run,
+            None,
+            f"Runtime check failed for {failure.node_id}. Open the app and run the cell to inspect it.",
+            checked_count=failure.completed,
+        )
     except PermissionDenied:
         finish_run(run, None, "The schedule owner no longer has access.")
     except Conflict:
@@ -340,4 +386,4 @@ def run_slot(team_id: int, run_id: UUID) -> None:
         logger.exception("notebook_app_refresh_failed", run_id=str(run.pk))
         finish_run(run, None, "Could not refresh the SQL results.")
     else:
-        finish_run(run, outputs, "")
+        finish_run(run, outputs, "", checked_count=len(checks))
