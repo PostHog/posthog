@@ -32,7 +32,7 @@ from products.ai_observability.backend.api.evaluation_backfills import (
 from products.ai_observability.backend.api.evaluations import EvaluationSerializer, create_evaluation, update_evaluation
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
-from products.ai_observability.backend.logic.eval_suggestions.judge_key import judge_key
+from products.ai_observability.backend.logic.eval_suggestions.judge_key import judge_key, provider_for_model
 from products.ai_observability.backend.logic.eval_suggestions.ranking import judge_input_price
 from products.ai_observability.backend.logic.evaluations.settle import settle_horizon
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -42,6 +42,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
 )
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 logger = structlog.get_logger(__name__)
 
@@ -78,6 +79,7 @@ class AcceptEstimate:
     window_start: datetime | None
     window_end: datetime | None
     judge_model: str | None
+    judge_key_name: str | None
     estimated_cost_usd: float | None
 
 
@@ -145,11 +147,15 @@ def plan_backfill(
     return BackfillPlan(window=last_with_traffic, units=cap) if last_with_traffic else None
 
 
-def judge_model_configuration(team: Team) -> dict[str, Any]:
-    """The team's judge key with its provider's default model. Raises when the team has no working key."""
-    key = judge_key(team.pk)
+def suggestion_judge_key(suggestion: EvalSuggestion, team: Team) -> LLMProviderKey:
+    """The key an accepted judge runs on, preferring the provider whose model calibrated it. Raises without one."""
+    key = judge_key(team.pk, provider=provider_for_model(suggestion.judge_model))
     if key is None:
         raise ValidationError(NO_KEY_MESSAGE)
+    return key
+
+
+def judge_model_configuration(key: LLMProviderKey) -> dict[str, Any]:
     return {"provider": key.provider, "model": DEFAULT_MODEL_BY_PROVIDER[key.provider], "provider_key_id": str(key.id)}
 
 
@@ -166,11 +172,13 @@ def estimate(suggestion: EvalSuggestion, team: Team) -> AcceptEstimate:
     )
     units = plan.units if plan else 0
     model = None
+    key_name = None
     cost: float | None = 0.0
     if suggestion.draft.get("evaluation_type") == "llm_judge":
         # The same key and model accept uses. Without a working key, accept refuses, so nothing is priced.
         try:
-            model = judge_model_configuration(team)["model"]
+            key = suggestion_judge_key(suggestion, team)
+            model, key_name = DEFAULT_MODEL_BY_PROVIDER[key.provider], key.name
         except ValidationError:
             model = None
         # The suggestion stores the tokens one run reads, a whole transcript for trace and session judges.
@@ -182,6 +190,7 @@ def estimate(suggestion: EvalSuggestion, team: Team) -> AcceptEstimate:
         window_start=plan.window.start if plan else None,
         window_end=plan.window.end if plan else None,
         judge_model=model,
+        judge_key_name=key_name,
         estimated_cost_usd=cost,
     )
 
@@ -240,7 +249,7 @@ def accept(suggestion_id: str, *, team: Team, request: Request, serializer_conte
 
         data: dict[str, Any] = {**suggestion.draft, "enabled": True, "conditions": conditions_for(suggestion)}
         if data.get("evaluation_type") == "llm_judge":
-            data["model_configuration"] = judge_model_configuration(team)
+            data["model_configuration"] = judge_model_configuration(suggestion_judge_key(suggestion, team))
         serializer = EvaluationSerializer(data=data, context=serializer_context)
         serializer.is_valid(raise_exception=True)
         evaluation = create_evaluation(

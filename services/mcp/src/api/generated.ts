@@ -48109,10 +48109,15 @@ export namespace Schemas {
          */
       window_end: string | null;
       /**
-         * Model a judge runs on: the default for the project's most recently used working key. Null for Hog checks.
+         * Model a judge runs on: the default model of judge_key_name. Null for Hog checks, and when no OpenAI, Anthropic or Gemini key works.
          * @nullable
          */
       judge_model: string | null;
+      /**
+         * Provider key accept pins: a working key for the provider the judge was drafted on, else the one most of the project's judges use. Null for Hog checks, and when no key works.
+         * @nullable
+         */
+      judge_key_name: string | null;
       /**
          * units x input tokens one judge run reads x the input price of the model accept uses, in USD. 0 for Hog checks, null when the price or token count is unknown.
          * @nullable

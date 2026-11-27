@@ -120,6 +120,12 @@ export function JudgeSuggestionConfirmModal(): JSX.Element {
                                 <dt className="text-secondary">Model</dt>
                                 <dd className="m-0 font-mono">{estimate.judge_model ?? 'Unknown'}</dd>
                             </div>
+                            {estimate.judge_key_name && (
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-secondary">Provider key</dt>
+                                    <dd className="m-0">{estimate.judge_key_name}</dd>
+                                </div>
+                            )}
                             {estimate.units > 0 && (
                                 <div className="flex justify-between gap-4">
                                     <dt className="text-secondary">Estimated cost</dt>

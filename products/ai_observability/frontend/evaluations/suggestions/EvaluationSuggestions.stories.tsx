@@ -150,6 +150,7 @@ const ESTIMATE: EvalSuggestionEstimateApi = {
     window_start: '2026-10-31T09:00:00Z',
     window_end: '2026-11-01T01:00:00Z',
     judge_model: 'gpt-5-mini',
+    judge_key_name: 'OpenAI',
     estimated_cost_usd: 0.07,
 }
 

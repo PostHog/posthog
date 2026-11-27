@@ -245,7 +245,17 @@ class EvalSuggestionEstimateSerializer(serializers.Serializer):
     window_end = serializers.DateTimeField(allow_null=True, help_text="End of the recent window accept covers.")
     judge_model = serializers.CharField(
         allow_null=True,
-        help_text="Model a judge runs on: the default for the project's most recently used working key. Null for Hog checks.",
+        help_text=(
+            "Model a judge runs on: the default model of judge_key_name. Null for Hog checks, and when no OpenAI, "
+            "Anthropic or Gemini key works."
+        ),
+    )
+    judge_key_name = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Provider key accept pins: a working key for the provider the judge was drafted on, else the one most of "
+            "the project's judges use. Null for Hog checks, and when no key works."
+        ),
     )
     estimated_cost_usd = serializers.FloatField(
         allow_null=True,

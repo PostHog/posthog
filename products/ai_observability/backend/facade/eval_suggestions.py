@@ -62,6 +62,7 @@ def estimate_eval_suggestion_accept(
         window_start=estimate.window_start,
         window_end=estimate.window_end,
         judge_model=estimate.judge_model,
+        judge_key_name=estimate.judge_key_name,
         estimated_cost_usd=estimate.estimated_cost_usd,
     )
 

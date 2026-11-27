@@ -34,6 +34,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionRun,
     EvalSuggestionRunStatus,
 )
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 from . import (
     call_review,
@@ -73,10 +74,16 @@ MAX_DEDUPED_EVALS = 50
 PAID_STAGES = ("screening", "drafting")
 
 
-def judge_model(team: Team) -> str:
-    """The model a new judge would run on: the default for the team's judge key, else the product default."""
+def judge_model(team: Team) -> str | None:
+    """The model a new judge would run on: the default for the team's judge key, else the product default.
+
+    None when the team has working keys but none can run a judge, since accept would refuse every judge card.
+    """
     key = judge_key(team.pk)
-    return DEFAULT_MODEL_BY_PROVIDER[key.provider] if key else ranking.DEFAULT_JUDGE_MODEL
+    if key is not None:
+        return DEFAULT_MODEL_BY_PROVIDER[key.provider]
+    has_working_key = LLMProviderKey.objects.filter(team_id=team.pk, state=LLMProviderKey.State.OK).exists()
+    return None if has_working_key else ranking.DEFAULT_JUDGE_MODEL
 
 
 class _Stages:

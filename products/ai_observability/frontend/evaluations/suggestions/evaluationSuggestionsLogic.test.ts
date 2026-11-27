@@ -177,22 +177,20 @@ describe('evaluationSuggestionsLogic', () => {
     })
 
     it.each([
-        ['offers the key settings without a working key', null, true],
-        ['leaves out the key settings with a working key', { id: 'key-1', provider: 'openai', state: 'ok' }, false],
-    ])('keeps the judge confirm open when accept is refused, and %s', async (_, providerKey, needsKey) => {
+        ['offers the key settings when the estimate found no key', null, true],
+        ['leaves out the key settings when the estimate found a key', 'gpt-5-mini', false],
+    ])('keeps the judge confirm open when accept is refused, and %s', async (_, judgeModel, needsKey) => {
         const refusal =
             "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet."
         useMocks({
             get: {
-                '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                    results: providerKey ? [providerKey] : [],
-                },
                 [`${SUGGESTIONS_URL}/:id/accept_estimate/`]: {
                     target: 'trace',
                     units: 50,
                     window_start: '2026-10-31T00:00:00Z',
                     window_end: '2026-11-01T00:00:00Z',
-                    judge_model: 'gpt-5-mini',
+                    judge_model: judgeModel,
+                    judge_key_name: judgeModel ? 'OpenAI' : null,
                     estimated_cost_usd: 0.02,
                 },
             },
@@ -203,12 +201,9 @@ describe('evaluationSuggestionsLogic', () => {
                 ],
             },
         })
-        await expectLogic(llmProviderKeysLogic, () =>
-            llmProviderKeysLogic.actions.loadProviderKeys()
-        ).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.openJudgeConfirm(JUDGE))
             .toDispatchActions(['loadEvalSuggestionEstimateSuccess'])
-            .toMatchValues({ evalSuggestionEstimate: partial({ units: 50, judge_model: 'gpt-5-mini' }) })
+            .toMatchValues({ evalSuggestionEstimate: partial({ units: 50, judge_model: judgeModel }) })
         const pathBefore = router.values.location.pathname
 
         await expectLogic(logic, () => logic.actions.acceptSuggestion(JUDGE)).toFinishAllListeners()
