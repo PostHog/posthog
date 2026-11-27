@@ -572,7 +572,6 @@ def _frontier_review_plan(hog_function: HogFunction, scored: ScoredHogFunction) 
     A note that Jev cut long code does not count on its own, and without a Jev verdict only a rule hit counts."""
     if not scored.would_alert:
         return _FrontierReviewPlan(properties={"frontier_review_queued": False})
-    # Checked first, so with the review switched off a save reads no cache key and builds no fingerprint.
     if not frontier_review_switched_on(hog_function.team):
         skipped: frontier.SkipReason | None = frontier.SkipReason.SWITCHED_OFF
     else:

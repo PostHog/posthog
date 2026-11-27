@@ -278,7 +278,6 @@ class TestFrontierReview(AbuseClassificationTestCase):
         assert self.broker.queued == []
 
     def test_a_redelivered_task_reviews_the_burst_once(self) -> None:
-        # A refused review stores no verdict, so only the claim on the pending key stops a second review.
         self.review_reply = httpx.Response(200, json=model_message("", stop_reason="refusal"))
         with time_machine.travel(time.time(), tick=False) as clock:
             self.probe()
