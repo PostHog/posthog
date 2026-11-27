@@ -1089,7 +1089,7 @@ export namespace Schemas {
          */
       previous_visibility: number | null;
       /**
-         * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+         * The share (0-1) of scored answers naming the brand whose sentences about it were positive. Null when none of them was scored yet.
          * @nullable
          */
       positive_share: number | null;
@@ -10556,6 +10556,8 @@ export namespace Schemas {
     }
 
     export interface WebVitalsPathBreakdownResultItem {
+      /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+      count?: number | null;
       path: string;
       value: number;
     }
@@ -10815,6 +10817,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
@@ -11738,6 +11741,8 @@ export namespace Schemas {
       interval?: IntervalType | null;
       kind?: 'WebVitalsPathBreakdownQuery';
       metric: WebVitalsMetric;
+      /** Drop pages with fewer samples than this in the period, so a page with a handful of slow loads does not outrank a busy page with a real problem. No floor when omitted. */
+      minSamples?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
@@ -24535,6 +24540,7 @@ export namespace Schemas {
      * * `github` - Pull request comment
      * * `slack` - Slack
      * * `api` - API
+     * * `slack_link` - Slack link
      */
     export type BroadcastRequestSourceEnum = typeof BroadcastRequestSourceEnum[keyof typeof BroadcastRequestSourceEnum];
 
@@ -24543,6 +24549,7 @@ export namespace Schemas {
       Github: 'github',
       Slack: 'slack',
       Api: 'api',
+      SlackLink: 'slack_link',
     } as const;
 
     /**
@@ -30329,7 +30336,8 @@ export namespace Schemas {
        *
        * * `github` - Pull request comment
        * * `slack` - Slack
-       * * `api` - API */
+       * * `api` - API
+       * * `slack_link` - Slack link */
       readonly requested_via: BroadcastRequestSourceEnum;
       /** The requester's note for the people who review, shown in Slack only. Blank when there is none. */
       readonly note: string;
@@ -41996,7 +42004,7 @@ export namespace Schemas {
       date_to: string;
       /** Project timezone for the period boundaries. */
       timezone: string;
-      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Follows the project's "Filter out internal and test users" default, like the query-web-* tools. Goal conversions include them either way. */
       filter_test_accounts: boolean;
       /** Metric definitions to use when you compare the digest with a direct query. */
       notes: string[];
@@ -69182,6 +69190,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -69239,6 +69248,7 @@ export namespace Schemas {
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -69296,6 +69306,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -69464,6 +69475,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -98781,7 +98793,7 @@ export namespace Schemas {
       /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
       /**
-         * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.
+         * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with Origin, or with Referer when Origin names no domain.
          * @maxItems 1000
          * @items.maxLength 2000
          */
@@ -98793,13 +98805,13 @@ export namespace Schemas {
          */
       blocked_ips?: string[];
       /**
-         * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.
+         * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests without Origin or Referer, such as from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosts such as vercel.app are rejected. A blocked domain wins.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       allowed_hosts?: string[];
       /**
-         * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.
+         * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, all other callers get no flags, even browsers on allowed domains. Add IPv6 addresses too, as callers may connect over IPv6. Behind a proxy, such as the managed reverse proxy, the proxy's address is checked. Same entry rules as blocked_ips. A blocked address wins.
          * @maxItems 1000
          * @items.maxLength 2000
          */
@@ -99649,6 +99661,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      /** A list sent replaces the saved one. Omitted fields are kept. */
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
@@ -106244,6 +106257,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      /** A list sent replaces the saved one. Omitted fields are kept. */
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
@@ -107076,6 +107090,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      /** A list sent replaces the saved one. Omitted fields are kept. */
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
@@ -150306,6 +150321,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -150374,6 +150390,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -157621,11 +157638,11 @@ export namespace Schemas {
 
     export type WebAnalyticsWeeklyDigestParams = {
     /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     * When true (default), include period-over-period change for each metric comparing against the `days` complete days before the window. Set to false to skip the comparison query (faster).
      */
     compare?: boolean;
     /**
-     * Lookback window in days (1–90). Defaults to 7.
+     * Number of complete days to summarize (1–90), ending yesterday in the project timezone. Defaults to 7.
      */
     days?: number;
     };

@@ -1,4 +1,4 @@
-import type { SavedPanel, ContentPanelParts } from '../../dashboard/document/dashboardTypes'
+import { type SavedPanel, type ContentPanelParts } from '../../panels/core/panelSchema'
 import { showsPart } from './tileParts'
 
 describe('showsPart', () => {

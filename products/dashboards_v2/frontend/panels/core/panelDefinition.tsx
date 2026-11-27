@@ -1,8 +1,8 @@
 import type { ComponentType } from 'react'
 
-import type { ContentPanel, SavedPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import { parseOnce } from '../../schema/parseOnce'
+import { type ContentPanel, type SavedPanel } from './panelSchema'
 import { type PanelSpec, type PanelTypeSpec, definePanelSpec } from './panelSpec'
 
 export type AddTileOption<Config> = {

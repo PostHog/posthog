@@ -224,6 +224,54 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             self.assertIn("signal_handler_app:posthog/models", result.groups)
             self.assertIn("posthog/models/test/test_models.py", result.tests)
 
+    @parameterized.expand(
+        [
+            (
+                "django_receiver_decorator",
+                "posthog/models/hooks.py",
+                "from django.dispatch import receiver\n\n@receiver(post_save)\ndef on_save(**kwargs): pass\n",
+                True,
+            ),
+            (
+                "django_dispatch_receiver_attribute_decorator",
+                "posthog/models/hooks.py",
+                "import django.dispatch\n\n@django.dispatch.receiver(post_save)\ndef on_save(**kwargs): pass\n",
+                True,
+            ),
+            (
+                "mutable_receiver_decorator",
+                "products/surveys/backend/activity_logging.py",
+                "@mutable_receiver(model_activity_signal, sender=Survey)\ndef on_activity(**kwargs): pass\n",
+                True,
+            ),
+            (
+                "receiver_as_a_variable_name",
+                "products/surveys/backend/service.py",
+                "def launch():\n    for receiver, response in survey_launched.send_robust(None):\n        log(receiver)\n",
+                False,
+            ),
+        ]
+    )
+    def test_signal_handler_expansion_follows_receiver_registration(
+        self, _name: str, path: str, source: str, expect_expansion: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            selection = _load_selection_module()
+            selection.REPO_ROOT = Path(root)
+            (selection.REPO_ROOT / path).parent.mkdir(parents=True)
+            (selection.REPO_ROOT / path).write_text(source)
+
+            result = selection.ast_select_tests(
+                [path],
+                {
+                    "posthog/api/test/test_user.py": selection.TestFeatures(
+                        path="posthog/api/test/test_user.py", imports_api_client=True
+                    )
+                },
+            )
+
+            self.assertEqual("signal_handler_api_tests" in result.groups, expect_expansion, result.groups)
+
     def test_middleware_change_expands_to_api_tests(self) -> None:
         selection = _load_selection_module()
 
@@ -640,6 +688,10 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         self.assertEqual(
             selection.selected_seconds_by_segment(selected, durations),
             {"core": 170, "poe": 70, "temporal": 210},
+        )
+        self.assertEqual(
+            selection.selected_seconds_by_suite(selected, durations),
+            {"django": 380, "product": 100_000},
         )
 
 

@@ -14,7 +14,7 @@ export type TimeSeriesData = {
     multiTarget: boolean
 }
 
-function fieldValues(frame: DataFrame, type: DataFrame['fields'][number]['type']): unknown[] {
+export function fieldValues(frame: DataFrame, type: DataFrame['fields'][number]['type']): unknown[] {
     return frame.fields.find((field) => field.type === type)?.values ?? []
 }
 

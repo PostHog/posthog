@@ -38,7 +38,9 @@ Rules:
 - `open`, `defaultOpen` and `onOpenChange` work as on `Dialog`. Leave out `open` to let the credenza keep its own state.
 - `disablePointerDismissal` keeps a click outside the dialog from closing it, for a form with unsaved input. Escape and the close button still close it. The drawer has no such option and ignores it.
 - Put content in `CredenzaBody`. It scrolls between the header and the footer and gives the side padding. Content placed directly in `CredenzaContent` has no padding. `viewportClassName` and `render` work as on `DialogBody` in both modes.
+- Every credenza has a `CredenzaFooter`. Without one, the body runs to the bottom edge with no padding.
 - Write the footer as Cancel first, main action last. The dialog shows them in a row, with the main action on the right. The drawer stacks them full width, with the main action on top.
+- When each change saves as the user makes it, there is nothing to submit or cancel. The footer then holds one `outline` button, since closing is not a main action: `<CredenzaClose render={<Button variant="outline" />}>Done</CredenzaClose>`.
 - A change of mode remounts the popup and its parts, but never a `CredenzaTrigger`: the triggers attach to the mounted root through a shared handle. Focus goes back to the trigger that opened it, and any number of triggers works with no extra props.
 - Use `Dialog` or `Drawer` directly when the surface must be the same on every viewport.
 
