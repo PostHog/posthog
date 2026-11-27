@@ -54,7 +54,7 @@ import {
     parseRef,
 } from './validation'
 
-export const DECRYPT_CONCURRENCY = 16
+const DECRYPT_CONCURRENCY = 16
 const OWNER_DELETE_BATCH = 500
 // See `listChangedIntegrations`: the longest write transaction the change feed can wait out.
 const DEFAULT_CHANGES_SETTLE_SECONDS = 30
@@ -78,6 +78,8 @@ export interface IntegrationsDeps {
 export interface Caller {
     auth: IntegrationAuth
     actor: AuditActor
+    /** The access time on every audit row of the request, so the rows of one request share it. */
+    requestedAt: Date
 }
 
 export interface RecordPage {
@@ -226,11 +228,7 @@ function decodeChangeCursor(value: string | null): ChangeCursor | null {
 }
 
 /** Runs `fn` on every item, with at most `limit` calls in flight. */
-export async function forEachLimit<T>(
-    items: readonly T[],
-    limit: number,
-    fn: (item: T) => Promise<void>
-): Promise<void> {
+async function forEachLimit<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
     let next = 0
     async function worker(): Promise<void> {
         while (next < items.length) {
@@ -265,25 +263,6 @@ export async function sealSecret(
         if (err instanceof KmsError) {
             logger.error('integrations:seal_failed', { integrationId: row.id, reason: err.reason })
             throw kmsUnavailable()
-        }
-        throw err
-    }
-}
-
-/**
- * Opens the sealed blob of a row. A KMS outage becomes `kms_unavailable`, and a blob that does
- * not decrypt becomes `unreadable_secret`.
- */
-export async function openSecret(envelope: Envelope, row: IntegrationRow, stored: StoredSecret): Promise<JsonObject> {
-    try {
-        return await envelope.open(stored.sealed, encryptionContext(row))
-    } catch (err) {
-        if (err instanceof KmsError && err.reason === 'unavailable') {
-            throw kmsUnavailable()
-        }
-        if (err instanceof KmsError || err instanceof EnvelopeError) {
-            logger.error('integrations:unreadable_secret', { integrationId: row.id, reason: err.reason })
-            throw unreadableSecret()
         }
         throw err
     }
@@ -986,8 +965,19 @@ export class IntegrationsService {
         return sealSecret(this.deps.envelope, row, blob)
     }
 
-    private open(row: IntegrationRow, stored: StoredSecret): Promise<JsonObject> {
-        return openSecret(this.deps.envelope, row, stored)
+    private async open(row: IntegrationRow, stored: StoredSecret): Promise<JsonObject> {
+        try {
+            return await this.deps.envelope.open(stored.sealed, encryptionContext(row))
+        } catch (err) {
+            if (err instanceof KmsError && err.reason === 'unavailable') {
+                throw kmsUnavailable()
+            }
+            if (err instanceof KmsError || err instanceof EnvelopeError) {
+                logger.error('integrations:unreadable_secret', { integrationId: row.id, reason: err.reason })
+                throw unreadableSecret()
+            }
+            throw err
+        }
     }
 
     private auditEntry(
@@ -1000,7 +990,7 @@ export class IntegrationsService {
     ): AuditEntry {
         return {
             actor: caller.actor,
-            occurredAt: new Date(),
+            occurredAt: caller.requestedAt,
             operation,
             outcome,
             ownerType: row.ownerType,

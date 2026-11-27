@@ -123,7 +123,8 @@ The service holds only the public keys, so a leak of the service's secret does n
 Each file holds one or more PEM `PUBLIC KEY` blocks (SPKI), newest first.
 To rotate, add the new block, move the caller to the new private key, then remove the old block.
 The load fails on a file with any other name, a private key, a key that is not Ed25519, or one key listed for two deployments.
-A failed reload keeps the previous keys (see the metrics).
+A failed reload keeps the previous keys (see the metrics), except for each key the edit removed.
+Removing the last `.pub` file is not a failure: a running pod then refuses every integration caller.
 
 ```bash
 openssl genpkey -algorithm ed25519 -out posthog-web-django.key   # stays with the caller
@@ -165,9 +166,9 @@ A test pins the whole table, so a change to it is visible in review.
 
 | Deployment                                                                                     | Ops                                                                                      | Kinds                                                                                                                            |
 | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key)            | all except `reverse_sync`, `mirror` and `reconcile`                                      | any                                                                                                                              |
+| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key)            | all except `reverse_sync` and `mirror`                                                   | any                                                                                                                              |
 | `posthog-integrations-reverse-sync` (dedicated Celery queue, Phase 7 removes it)               | `reverse_sync` only                                                                      | any                                                                                                                              |
-| `posthog-worker-django` (Celery)                                                               | `read`, `resolve`, `write`, `refresh`, `list_across_teams`, `mirror`, `reconcile`        | any                                                                                                                              |
+| `posthog-worker-django` (Celery)                                                               | `read`, `resolve`, `write`, `refresh`, `list_across_teams`, `mirror`                     | any                                                                                                                              |
 | `posthog-admin-django`, `temporal-worker-general-purpose`                                      | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                               | any                                                                                                                              |
 | `posthog-query-django`                                                                         | `read`                                                                                   | any (HogQL `system.integrations`)                                                                                                |
 | `temporal-worker-data-warehouse`, `warehouse-sources-load`                                     | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                               | the warehouse OAuth and destination kinds, plus warehouse source rows                                                            |
@@ -178,7 +179,7 @@ A test pins the whole table, so a change to it is visible in review.
 | the listed `cdp-*` deployments and `ingestion-*` lanes (hog functions and hog transformations) | `resolve`                                                                                | any                                                                                                                              |
 
 `temporal-worker-health-check`, `temporal-worker-stamphog` and every other name get nothing.
-Only `posthog-worker-django` holds `mirror` and `reconcile`. Only `posthog-web-django` holds `delete`, `revoke`, `oauth_exchange`, `write_by_external_id`, `delete_by_external_id` and `delete_owner`. `read_by_external_id` also goes to `temporal-worker-tasks-agent`, for the Slack kinds only.
+Only `posthog-worker-django` holds `mirror`. Only `posthog-web-django` holds `delete`, `revoke`, `oauth_exchange`, `write_by_external_id`, `delete_by_external_id` and `delete_owner`. `read_by_external_id` also goes to `temporal-worker-tasks-agent`, for the Slack kinds only.
 
 A warehouse source row holds the typed-in credentials of a warehouse source and is marked by `config.warehouse_source_type`.
 There are about a thousand such kinds, so the policy gives the warehouse deployments a `sourceRows` flag instead of a list.
@@ -203,6 +204,11 @@ The service reads it from one of two sources, set by `CREDENTIALS_SERVICE_SECRET
 Each source yields the whole Secret at one version.
 The service applies that one snapshot to the signing keys first and then to the credentials.
 So a revocation and a rotation in one edit land together, and a revoked caller never reads the new values.
+That includes an edit that removes the last caller key: a running pod then refuses every caller.
+Only boot refuses a secret with no caller keys.
+When the signing-key load refuses a snapshot, the service still applies what the snapshot takes away: removed keys, removed credentials, and new names on the recovery list.
+It holds every credential value that the snapshot adds or changes, until a snapshot loads.
+A resolve request reads the credentials in the same tick as the keys, so a reload during signature verification cannot mix the two.
 
 The kubernetes source:
 
@@ -292,7 +298,7 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_store_errors_total`                                 | source reads that returned nothing                            |
 | `credentials_service_watch_restarts_total{reason}`                       | Kubernetes watch restarts, by why the previous watch ended    |
 | `credentials_service_signing_keys_last_loaded_timestamp`                 | staleness means a revocation has not landed on this pod       |
-| `credentials_service_signing_key_reload_failures_total`                  | reloads that kept the previous key set                        |
+| `credentials_service_signing_key_reload_failures_total`                  | reloads that kept the previous keys and credential values     |
 | `credentials_service_integration_keys_last_loaded_timestamp`             | as above, for the integrations public keys                    |
 | `credentials_service_integration_key_reload_failures_total`              | reloads that kept the previous integrations public keys       |
 | `credentials_service_auth_failures_total{reason}`                        | rejected tokens, by why                                       |
@@ -303,13 +309,12 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_audit_dropped_total{reason}`                        | read audit rows lost: `queue_full` or `write_failed`          |
 | `credentials_service_audit_written_total`                                | read audit rows written by the async queue                    |
 | `credentials_service_integration_mirror_rows_total{origin,outcome}`      | mirrored rows, by sender origin and per-row outcome           |
-| `credentials_service_integration_mirror_digest_rows_total{outcome}`      | digest rows: `digest`, `deleted` or `unreadable_secret`       |
 | `credentials_service_audit_exported_total{outcome}`                      | audit rows sent to capture: `sent` or `failed` (retried)      |
 | `credentials_service_audit_export_lag_seconds`                           | age of the oldest audit row not exported yet, 0 when none     |
 | `credentials_service_shutting_down`                                      | 1 while draining                                              |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
-previous keys when an edit is malformed, and an unreadable mount keeps what is already held. Alert
+previous keys and credential values when an edit is malformed, and an unreadable mount keeps what is already held. Alert
 on the two staleness signals, or neither degradation is observable.
 
 `/metrics` listens on its own port, which the chart keeps off the ingress; in-cluster Prometheus
@@ -467,7 +472,6 @@ Every query binds the owner from the token.
 | `DELETE /v1/integrations?owner=<team id>`                   | `delete_owner`          | Soft-deletes every row and secret of the token's owner, in batches. Web only |
 | `GET /v1/integrations/changes`                              | `reverse_sync`          | Rows of every team changed after a cursor, with secrets. Reverse-sync only   |
 | `PUT /v1/integrations/mirror`                               | `mirror`                | Upserts or tombstones up to 100 Django rows by legacy id. Celery worker only |
-| `POST /v1/integrations/mirror/digests`                      | `reconcile`             | Salted content digests of mirrored rows of one kind. Celery worker only      |
 
 - A record mirrors the Python `IntegrationRecord`, plus `reference`, `version`, `legacy_id` and `is_source_row`. No read returns a secret.
 - `resolve` returns the decrypted secret blob without `refresh_token`, and without `client_secret` for an `oauth` row. `expires_at` is `refreshed_at + expires_in` from the config, or null.
@@ -479,19 +483,9 @@ Every query binds the owner from the token.
 - A row of another team answers 404, the same as a row that does not exist, so a caller cannot probe ids.
 - `mirror` copies Django rows, keyed by `legacy_id`, for the token's owner. Each row carries the Django `row_version` as `source_version`.
   An older version answers `stale`, the same version answers `unchanged` (no KMS call, no audit row) unless `force` is set, and a newer one replaces every field and seals the secret again.
-  A delete soft-deletes the row and removes its secret. `tombstone: true` on an unknown id stores a deleted row, so a late upsert of that id answers `stale`.
+  A delete soft-deletes the row and removes its secret, whatever its `source_version`, because a deleted Django id never comes back. `tombstone: true` on an unknown id stores a deleted row, so a late upsert of that id answers `stale`.
   Each row answers `created`, `updated`, `deleted`, `unchanged`, `stale`, `absent`, `owner_mismatch`, `conflict` (with `conflicting_legacy_id`, or with `code: concurrent_write` when the row lost a race twice and can be sent again) or `rejected` (with `code`), and one bad row does not fail the others.
   [`tests/fixtures/mirror-request.json`](tests/fixtures/mirror-request.json) is a request the route must accept as-is.
-- `mirror/digests` lets the Django reconcile job compare its rows with the mirrored rows. It returns no plaintext.
-  The body is `{kind, salt, after_legacy_id, limit, legacy_ids}`. `salt` is base64 and must decode to exactly 32 bytes. `limit` is 1 to 1000 (default 1000).
-  It reads the rows of `kind` that the mirror wrote (`source_version` set), of every team, ordered by `legacy_id`, deleted rows included.
-  `next_after_legacy_id` is the `after_legacy_id` of the next page, or null on the last page.
-  `legacy_ids` (1 to 1000) selects those rows only, for a confirm pass. `after_legacy_id` must then be null, and `limit` does not apply.
-  Each result has `legacy_id`, `team_id`, `kind`, `deleted`, `source_version`, `created_by_id`, `digest` and `digest_error`.
-  `digest` is the hex HMAC-SHA256, keyed by the salt, of the canonical JSON of the row content ([`src/integrations/digest.ts`](src/integrations/digest.ts), the same as `posthog/integrations/mirror/canonical.py`).
-  It is null for a deleted row. A row whose secret does not decrypt has `digest_error: unreadable_secret`, and the other rows still get a digest. A KMS outage fails the page.
-  The token is cross-team (no owner) and must carry `kinds`, and the body's `kind` must be one of them.
-  Each page writes one audit row (`operation: reconcile`, no owner) with the kind, the row count and the first and last `legacy_id`, and the secret key names it read.
 
 Web-only routes (the web deployment is the only one whose policy holds these ops):
 

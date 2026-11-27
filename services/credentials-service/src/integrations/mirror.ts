@@ -25,12 +25,10 @@ import { logger } from '../lib/logging'
 import { type AuditEntry, insertAuditRows, logAuditEntries } from './audit'
 import { IntegrationApiError } from './errors'
 import { mirrorRowsTotal } from './metrics'
-import { type DigestPage, mirrorDigests } from './mirror-digests'
 import { type Caller, isEmpty, owner, sealSecret, writeDeadline } from './service'
 import {
     type MirrorBody,
     type MirrorDeleteRow,
-    type MirrorDigestsBody,
     type MirrorRowBody,
     type MirrorUpsertRow,
     checkAuthType,
@@ -86,14 +84,13 @@ export function decideMirror(
     if (stored.deletedAt !== null) {
         return { outcome: row.deleted ? 'unchanged' : 'stale' }
     }
+    // A delete wins whatever its version: a deleted Django id never comes back, and the version
+    // a delete signal carries can be older than the last update.
+    if (row.deleted) {
+        return { write: 'delete' }
+    }
     // A live row with a legacy id but no source version was not written by the mirror.
     const storedVersion = stored.sourceVersion ?? -1
-    if (row.deleted) {
-        // A delete without a version still wins: a deleted Django id never comes back.
-        return row.source_version !== undefined && row.source_version < storedVersion
-            ? { outcome: 'stale' }
-            : { write: 'delete' }
-    }
     if (row.source_version < storedVersion) {
         return { outcome: 'stale' }
     }
@@ -130,11 +127,6 @@ export interface MirrorDeps {
 
 export class MirrorService {
     constructor(private readonly deps: MirrorDeps) {}
-
-    /** Salted digests of the mirrored rows of one kind, across every team. */
-    digests(caller: Caller, body: MirrorDigestsBody): Promise<DigestPage> {
-        return mirrorDigests(this.deps, caller, body)
-    }
 
     async mirror(caller: Caller, body: MirrorBody): Promise<{ results: MirrorResult[] }> {
         const teamOwner = owner(caller)
@@ -341,7 +333,7 @@ export class MirrorService {
 
         const entry: AuditEntry = {
             actor: caller.actor,
-            occurredAt: new Date(),
+            occurredAt: caller.requestedAt,
             operation: 'mirror',
             outcome,
             ownerType: written.row.ownerType,

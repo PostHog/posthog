@@ -48,7 +48,7 @@ describe('decideMirror', () => {
         ['tombstone + delete', tombstone, remove(true), false, { outcome: 'unchanged' }],
         ['live + delete', live(5), remove(false), false, { write: 'delete' }],
         ['live + delete with an equal version', live(5), remove(false, 5), false, { write: 'delete' }],
-        ['live + delete with a lower version', live(5), remove(false, 4), true, { outcome: 'stale' }],
+        ['live + delete with a lower version', live(5), remove(false, 4), false, { write: 'delete' }],
         ['live + lower version', live(5), upsert(4), true, { outcome: 'stale' }],
         ['live + equal version', live(5), upsert(5), false, { outcome: 'unchanged' }],
         ['live + equal version with force', live(5), upsert(5), true, { write: 'replace' }],

@@ -15,7 +15,6 @@ import type { Caller, IntegrationsService } from '../integrations/service'
 import {
     crossTeamBody,
     mirrorBody,
-    mirrorDigestsBody,
     newIntegrationBody,
     parse,
     parseChangesQuery,
@@ -60,6 +59,7 @@ function caller<E extends Env>(c: Context<E>): Caller {
             jti: auth.jti,
             requestId: c.get('requestId'),
         },
+        requestedAt: new Date(),
     }
 }
 
@@ -199,17 +199,6 @@ export function createIntegrationRoutes(opts: IntegrationRoutesOptions): Hono<En
         const input = parse(mirrorBody, body(c))
         return c.json(await opts.mirror.mirror(caller(c), input))
     })
-
-    // Cross-team and plaintext-free: a salted digest per row, for the Django reconcile job.
-    app.post(
-        '/mirror/digests',
-        readBody,
-        requireIntegrationAuth('reconcile', { kind: (c) => bodyField(c, 'kind') }),
-        async (c) => {
-            const input = parse(mirrorDigestsBody, body(c))
-            return c.json(await opts.mirror.digests(caller(c), input))
-        }
-    )
 
     app.get('/changes', requireIntegrationAuth('reverse_sync', { kind: (c) => c.req.queries('kind') }), async (c) => {
         const query = parseChangesQuery(c.req.queries())

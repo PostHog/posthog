@@ -16,15 +16,7 @@ import {
 } from '@/auth/integrations'
 import { JwtVerifier } from '@/auth/jwt'
 import { createIntegrationAuth } from '@/auth/middleware'
-import {
-    ALL_KINDS,
-    CROSS_TEAM_OPS,
-    INTEGRATION_OPS,
-    type IntegrationOp,
-    POLICY,
-    deploymentAllows,
-    policyFor,
-} from '@/auth/policy'
+import { ALL_KINDS, INTEGRATION_OPS, type IntegrationOp, POLICY, deploymentAllows, policyFor } from '@/auth/policy'
 import type { SigningKeyLoader } from '@/auth/registry'
 import { MemoryReplayStore, REPLAY_WINDOW_MS, ReplayCache, type ReplayStore } from '@/auth/replay'
 import { AUDIENCE, AuthError, INTEGRATIONS_AUDIENCE } from '@/auth/types'
@@ -199,9 +191,9 @@ describe('integration policy', () => {
         expect(POLICY[REVERSE_SYNC]!.ops).toEqual(['reverse_sync'])
     })
 
-    it('gives web every op except reverse_sync, mirror and reconcile', () => {
+    it('gives web every op except reverse_sync and mirror', () => {
         expect([...POLICY[WEB]!.ops].sort()).toEqual(
-            INTEGRATION_OPS.filter((op) => !['reverse_sync', 'mirror', 'reconcile'].includes(op)).sort()
+            INTEGRATION_OPS.filter((op) => op !== 'reverse_sync' && op !== 'mirror').sort()
         )
     })
 
@@ -211,15 +203,6 @@ describe('integration policy', () => {
             .map(([deployment]) => deployment)
 
         expect(holders).toEqual([CELERY])
-    })
-
-    it('gives reconcile to the Celery worker only, as a cross-team op', () => {
-        const holders = Object.entries(POLICY)
-            .filter(([, policy]) => policy.ops.includes('reconcile'))
-            .map(([deployment]) => deployment)
-
-        expect(holders).toEqual([CELERY])
-        expect(CROSS_TEAM_OPS).toContain('reconcile')
     })
 
     it('keeps the cross-team and admin ops on web', () => {
@@ -483,7 +466,7 @@ describe('integration policy', () => {
             "posthog-worker-django": {
               "kinds": "*",
               "opKinds": {},
-              "ops": "list_across_teams,mirror,read,reconcile,refresh,resolve,write",
+              "ops": "list_across_teams,mirror,read,refresh,resolve,write",
               "sourceRows": false,
             },
             "temporal-worker-batch-exports": {
@@ -605,6 +588,43 @@ describe('integration public keys', () => {
             expect(keys.entries().map(([deployment]) => deployment)).toEqual([WEB])
         })
 
+        // A stray file makes the reload fail, and the removed key must still stop working.
+        it.each([
+            ['nothing else', {}],
+            ['a stray file', { 'stray.txt': 'oops' }],
+        ])('refuses every caller when a reload removes the last key file and leaves %s', async (_label, extra) => {
+            const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
+            dirs.push(dir)
+            await writeFile(join(dir, `${WEB}.pub`), webPem)
+            const keys = new IntegrationKeyLoader(dir)
+            await keys.load()
+
+            await rm(join(dir, `${WEB}.pub`))
+            await Promise.all(Object.entries(extra).map(([name, contents]) => writeFile(join(dir, name), contents)))
+            await keys.reload()
+
+            expect(await codeFor(verifier({ keys }).verify(await mint()))).toBe('bad_signature')
+        })
+
+        // The README rotation ends by removing the old block from the file. A refused reload must
+        // still revoke that block, and keep the new one working.
+        it('stops accepting a key whose block a refused reload removed', async () => {
+            const next = generateKeyPairSync('ed25519')
+            const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
+            dirs.push(dir)
+            await writeFile(join(dir, `${WEB}.pub`), `${publicPem(next.publicKey)}\n${webPem}`)
+            const keys = new IntegrationKeyLoader(dir)
+            await keys.load()
+
+            await writeFile(join(dir, `${WEB}.pub`), publicPem(next.publicKey))
+            await writeFile(join(dir, 'stray.txt'), 'oops')
+            await keys.reload()
+
+            const v = verifier({ keys })
+            expect(await codeFor(v.verify(await mint()))).toBe('bad_signature')
+            expect((await v.verify(await mint({ signWith: next.privateKey }))).deployment).toBe(WEB)
+        })
+
         it('keeps the previous keys when one file cannot be read', async () => {
             const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
             dirs.push(dir)
@@ -701,13 +721,6 @@ describe('integration token verification', () => {
         ...(['refresh', 'mint', 'revoke', 'delete'] as const).map(
             (op) => [`a ${op} token with no refs`, { claims: { ops: [op] } }, 'invalid_claims'] as const
         ),
-        ['a reconcile token with no kinds', { omit: ['owner'], claims: { ops: ['reconcile'] } }, 'invalid_claims'],
-        ['a reconcile token with an owner', { claims: { ops: ['reconcile'], kinds: ['slack'] } }, 'invalid_claims'],
-        [
-            'a token that mixes reconcile and mirror',
-            { omit: ['owner'], claims: { ops: ['reconcile', 'mirror'], kinds: ['slack'] } },
-            'invalid_claims',
-        ],
         ['a token with an empty kinds list', { claims: { kinds: [] } }, 'invalid_claims'],
         ['a token with an invalid kind', { claims: { kinds: ['Slack App'] } }, 'invalid_claims'],
         ['a token with an uppercase uuid ref', { claims: { refs: [UUID_REF.toUpperCase()] } }, 'invalid_claims'],
@@ -736,10 +749,6 @@ describe('integration token verification', () => {
         ['the RFC 9864 alg name', { alg: 'Ed25519' }],
         ['a refresh token that names its ref', { claims: { ops: ['refresh'], refs: ['12'] } }],
         ['no owner when every op is cross-team', { omit: ['owner'], claims: { ops: ['list_across_teams'] } }],
-        [
-            'a reconcile token that names its kinds',
-            { omit: ['owner'], claims: { ops: ['reconcile'], kinds: ['slack'] } },
-        ],
     ] as [string, MintOptions][])('accepts %s', async (_label, opts) => {
         await expect(verifier().verify(await mint(opts))).resolves.toBeDefined()
     })
@@ -880,14 +889,6 @@ describe('integration authorization', () => {
             { deployment: REVERSE_SYNC, claims: { ops: ['read'] } },
             'read',
         ],
-        ...([WEB, CDP, WORKER, TASKS, REVERSE_SYNC] as const).map(
-            (deployment) =>
-                [
-                    `${deployment} reconciling`,
-                    { deployment, omit: ['owner'], claims: { ops: ['reconcile'], kinds: ['slack'] } },
-                    'reconcile',
-                ] as const
-        ),
         // The policy allows it, but the token does not ask for it.
         ['web with an op the token lacks', { deployment: WEB, claims: { ops: ['read'] } }, 'write'],
     ] as [string, MintOptions, IntegrationOp][])('forbids %s', async (_label, opts, op) => {
@@ -913,27 +914,6 @@ describe('integration authorization', () => {
     it('lets the reverse-sync deployment read the changes feed', async () => {
         const g = await grant({ deployment: REVERSE_SYNC, omit: ['owner'], claims: { ops: ['reverse_sync'] } })
         expect(g.authorize('reverse_sync').op).toBe('reverse_sync')
-    })
-
-    it('lets the Celery worker reconcile a kind its token names, and no other kind', async () => {
-        const g = await grant({ deployment: CELERY, omit: ['owner'], claims: { ops: ['reconcile'], kinds: ['slack'] } })
-        expect(g.authorize('reconcile', { kind: 'slack' })).toMatchObject({ owner: null, kinds: ['slack'] })
-
-        const other = await grant({
-            deployment: CELERY,
-            omit: ['owner'],
-            claims: { ops: ['reconcile'], kinds: ['slack'] },
-        })
-        expect(await codeFor(() => other.authorize('reconcile', { kind: 'hubspot' }))).toBe('forbidden_kind')
-    })
-
-    it('forbids a reconcile token that names refs, because the route cannot name the refs it reads', async () => {
-        const g = await grant({
-            deployment: CELERY,
-            omit: ['owner'],
-            claims: { ops: ['reconcile'], kinds: ['slack'], refs: ['12'] },
-        })
-        expect(await codeFor(() => g.authorize('reconcile', { kind: 'slack' }))).toBe('forbidden_ref')
     })
 
     it('forbids a reverse_sync token that carries an owner', async () => {
