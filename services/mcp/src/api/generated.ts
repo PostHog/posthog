@@ -68012,6 +68012,11 @@ export namespace Schemas {
       title: string;
       /** Project-specific evidence for this suggestion, in prose. */
       why_here: string;
+      /**
+         * One plain sentence saying what the scout would do. Blank on batches stored before the field existed, so a client falls back to `description`, then to the first sentence of `why_here`.
+         * @maxLength 200
+         */
+      goal?: string;
       /** Custom only: the one-line description the scout would be created with. */
       description: string;
       /** Custom only: the complete skill body the scout would be created with. */
@@ -69185,6 +69190,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -69242,6 +69248,7 @@ export namespace Schemas {
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -69299,6 +69306,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -69467,6 +69475,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -150312,6 +150321,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -150380,6 +150390,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
