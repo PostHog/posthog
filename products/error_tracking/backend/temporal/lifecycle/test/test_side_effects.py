@@ -478,7 +478,7 @@ def test_preview_replays_the_live_transition_filter(team):
         stamp = timezone.now()
         inputs = replace(_inputs(), team_id=team.pk, event_uuid=str(uuid4()), event_timestamp=stamp.isoformat())
         signal_id = str(uuid4())
-        properties = {"environment": environment, "severity": "low", "attempts": 3}
+        properties: dict[str, object] = {"environment": environment, "severity": "low", "attempts": 3}
         filter_inputs = alert_delivery_inputs(
             inputs, event="$error_tracking_issue_reopened", exception_timestamp=inputs.event_timestamp
         )

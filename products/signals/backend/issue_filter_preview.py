@@ -13,6 +13,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.access_control.backend.facade import api as access
@@ -28,9 +29,16 @@ SAMPLE_SIZE = 5
 PAGE_SIZE = 500
 
 
-def recent_signals(
-    team: Team, types: list[str], start: datetime, end: datetime
-) -> Iterator[tuple[datetime, str, str, str, str]]:
+@frozen
+class PreviewSignal:
+    timestamp: datetime
+    signal_id: str
+    source_type: str
+    issue_id: str
+    report_id: str
+
+
+def recent_signals(team: Team, types: list[str], start: datetime, end: datetime) -> Iterator[PreviewSignal]:
     condition = """timestamp >= {start} AND timestamp < {end} AND rendering = 'plain'
         AND JSONExtractString(metadata, 'source_product') = 'error_tracking'
         AND JSONExtractString(metadata, 'source_type') IN {types}"""
@@ -60,7 +68,10 @@ def recent_signals(
             ).results
             or []
         )
-        yield from page
+        for timestamp, signal_id, kind, issue_id, report_id in page:
+            yield PreviewSignal(
+                timestamp=timestamp, signal_id=signal_id, source_type=kind, issue_id=issue_id, report_id=report_id
+            )
         if len(page) < PAGE_SIZE:
             break
         params.update(last_time=ast.Constant(value=page[-1][0]), last_id=ast.Constant(value=page[-1][1]))
@@ -165,13 +176,13 @@ def _replay_window(team: Team, compiled: dict, types: list[str]) -> dict:
     start = end - timedelta(days=7)
     for batch in batched(recent_signals(team, types, start, end), 100, strict=False):
         verdicts = (
-            alerts.replay_signal_filters(team, [str(signal[1]) for signal in batch], compiled)
+            alerts.replay_signal_filters(team, [signal.signal_id for signal in batch], compiled)
             if compiled["properties"]
             else {}
         )
-        for timestamp, signal_id, kind, issue_id, report_id in batch:
-            row = rows[kind]
-            verdict = verdicts.get(str(signal_id)) if compiled["properties"] else (LifecycleFilterOutcome.MATCH, {})
+        for signal in batch:
+            row = rows[signal.source_type]
+            verdict = verdicts.get(signal.signal_id) if compiled["properties"] else (LifecycleFilterOutcome.MATCH, {})
             if verdict is None:
                 row["unavailable_count"] += 1
                 continue
@@ -185,9 +196,9 @@ def _replay_window(team: Team, compiled: dict, types: list[str]) -> dict:
             group = "passing" if outcome == LifecycleFilterOutcome.MATCH else "excluded"
             row[f"{group}_count"] += 1
             if len(row[group]) < SAMPLE_SIZE:
-                row[group].append({"issue_id": issue_id, "timestamp": timestamp, "field_values": fields})
-            if group == "excluded" and report_id:
-                excluded_reports[kind].add(UUID(str(report_id)))
+                row[group].append({"issue_id": signal.issue_id, "timestamp": signal.timestamp, "field_values": fields})
+            if group == "excluded" and signal.report_id:
+                excluded_reports[signal.source_type].add(UUID(signal.report_id))
     for kind, row in rows.items():
         row["excluded_reports"] = report_outcomes(team, excluded_reports[kind], start, end)
     return {"status": Status.OK, "error": None, "results": list(rows.values())}

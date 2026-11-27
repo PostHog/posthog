@@ -620,7 +620,7 @@ class IssueFilterSourceType(TextChoices):
     SPIKING = "issue_spiking", "Spiking issues"
 
 
-@extend_schema_field(EventPropertyFilter)
+@extend_schema_field(EventPropertyFilter)  # type: ignore[arg-type]
 class IssueFilterPropertyField(serializers.JSONField):
     pass
 
