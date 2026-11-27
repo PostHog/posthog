@@ -53,6 +53,7 @@ def _daily_statistics(
     client: RESTClient,
     path: str,
     data_selector: str,
+    group_by: str,
     start: date,
     today: date,
     manager: ResumableSourceManager[TrafficStarsResumeConfig],
@@ -67,7 +68,7 @@ def _daily_statistics(
             json={
                 "date_from": day.isoformat(),
                 "date_to": day.isoformat(),
-                "group_by": "campaign",
+                "group_by": group_by,
                 "show_archived": True,
             },
             paginator=SinglePagePaginator(),
@@ -106,7 +107,8 @@ def trafficstars_source(
         "partition_keys": [config.partition_key] if config.partition_key else None,
     }
 
-    if endpoint == "campaign_statistics_daily":
+    if config.group_by is not None:
+        group_by = config.group_by
         today = datetime.now(UTC).date()
         if resume is not None and resume.next_day:
             start = date.fromisoformat(resume.next_day)
@@ -119,7 +121,7 @@ def trafficstars_source(
         client = RESTClient(base_url=TRAFFICSTARS_BASE_URL, auth=_auth(api_key), request_timeout=REQUEST_TIMEOUT)
         return SourceResponse(
             items=lambda: _daily_statistics(
-                client, config.path, config.data_selector, start, today, resumable_source_manager
+                client, config.path, config.data_selector, group_by, start, today, resumable_source_manager
             ),
             # Days are requested in order, so rows arrive in date order.
             sort_mode="asc",
@@ -132,7 +134,7 @@ def trafficstars_source(
         paginator = PageNumberPaginator(base_page=1, page_param="page", total_path="page_count")
         params["size"] = CREATIVES_PAGE_SIZE
     else:
-        # The campaign list documents no paging and returns every campaign that is not archived.
+        # The campaign and country lists document no paging and return every row in one response.
         paginator = SinglePagePaginator()
 
     rest_config: RESTAPIConfig = {

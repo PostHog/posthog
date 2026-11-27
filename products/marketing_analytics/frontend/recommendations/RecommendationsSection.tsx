@@ -3,11 +3,13 @@ import { useEffect, useRef } from 'react'
 
 import { LemonButton, Popover } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
+import { QuillRecommendationsSection } from './QuillRecommendationsSection'
 import { RecommendationsIdle } from './RecommendationsIdle'
 import { RecommendationsLoading } from './RecommendationsLoading'
 import { recommendationsLogic } from './recommendationsLogic'
@@ -36,6 +38,7 @@ export function RecommendationsSection(): JSX.Element {
     const { openRecommendations, dismissIntro, reportRecommendationsShown, loadData } = useActions(recommendationsLogic)
     // Hands the current query to the node, which runs it again when the sources or dates change.
     useMountedLogic(dataNodeLogic(dataNodeProps))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const showGroups = shownState === 'recommendations'
     const openFirstRule = (source: 'intro' | 'button'): void => {
@@ -74,6 +77,29 @@ export function RecommendationsSection(): JSX.Element {
         // One event per state the viewer sees, so reloads and new date ranges with the same state do not add views.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [shownState])
+
+    const error =
+        dataWarehouseSources && sources.length > 0 && responseError ? (
+            <MarketingQueryError
+                message="Could not load recommendations. Try again, and contact support if it keeps happening."
+                queryId={queryId}
+                onRetry={() => loadData('force_async')}
+                loading={responseLoading}
+            />
+        ) : null
+
+    if (todayRailNav) {
+        return (
+            <QuillRecommendationsSection
+                shownState={shownState}
+                showIntro={showGroups && !introSeen}
+                onDismissIntro={dismissIntro}
+                onOpenFirstRule={openFirstRule}
+                error={error}
+                modal={<RecommendationsModal />}
+            />
+        )
+    }
 
     return (
         <div className="@container flex flex-col gap-3 pt-2" data-attr="marketing-recommendations">
@@ -115,14 +141,7 @@ export function RecommendationsSection(): JSX.Element {
                     )}
                 </div>
             </Popover>
-            {dataWarehouseSources && sources.length > 0 && responseError ? (
-                <MarketingQueryError
-                    message="Could not load recommendations. Try again, and contact support if it keeps happening."
-                    queryId={queryId}
-                    onRetry={() => loadData('force_async')}
-                    loading={responseLoading}
-                />
-            ) : null}
+            {error}
             <RecommendationsModal />
         </div>
     )
