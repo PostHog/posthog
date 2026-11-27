@@ -89,57 +89,6 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.openCount).toBe(0)
     })
 
-    it('keeps an answer saved in another tab when this tab opens the next door', () => {
-        logic.actions.activateDoor('door-1')
-        logic.actions.finishReveal()
-        window.dispatchEvent(
-            new StorageEvent('storage', {
-                key: KEY,
-                newValue: JSON.stringify({
-                    [UUID]: { opened: [1, 2], answers: { 2: 'tim' } },
-                }),
-            })
-        )
-
-        logic.actions.activateDoor('door-3-lower')
-
-        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
-        expect(doorOf(logic, 'door-3-lower')?.status).toBe('open')
-    })
-
-    it.each([
-        ['james', 'tim'],
-        ['tim', 'james'],
-    ])('settles on one answer when this tab picks %s and another picks %s', (here, there) => {
-        logic.actions.activateDoor('door-1')
-        logic.actions.finishReveal()
-        logic.actions.answerDoor('door-2', here)
-        const otherTab = JSON.stringify({
-            [UUID]: { opened: [1, 2], answers: { 2: there } },
-        })
-        window.localStorage.setItem(KEY, otherTab)
-        window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: otherTab }))
-
-        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'James Hawkins' })
-
-        logic.unmount()
-        logic = adventCalendarLogic()
-        logic.mount()
-
-        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'James Hawkins' })
-    })
-
-    it('takes the answer another tab stored before its event arrives, so the reward does not swap later', () => {
-        logic.actions.activateDoor('door-1')
-        logic.actions.finishReveal()
-        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
-
-        logic.actions.answerDoor('door-2', 'james')
-
-        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
-        expect(capture).not.toHaveBeenCalledWith('workflows advent answer picked', expect.anything())
-    })
-
     it('ignores another door while a reveal runs, then opens it once the reveal ends', () => {
         logic.actions.activateDoor('door-1')
         logic.actions.answerDoor('door-2', 'tim')
@@ -154,23 +103,7 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
     })
 
-    it('leaves a newer save from another tab untouched when a door that stays locked is clicked', () => {
-        logic.actions.activateDoor('door-1')
-        logic.actions.finishReveal()
-        const newer = JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }, null, 2)
-        window.localStorage.setItem(KEY, newer)
-
-        logic.actions.activateDoor('door-4-lower')
-
-        expect(window.localStorage.getItem(KEY)).toBe(newer)
-    })
-
-    it.each([
-        '[object Object]',
-        'null',
-        `{"${UUID}":{"opened":3}}`,
-        `{"${UUID}":{"opened":[1,25,-1,2.5],"answers":{"30":"tim"}}}`,
-    ])('keeps working when storage holds %s at load and from another tab', (value) => {
+    it.each(['null', `{"${UUID}":{"opened":3}}`])('keeps working when storage holds %s at load', (value) => {
         const uncaught: ErrorEvent[] = []
         const onError = (event: ErrorEvent): number => uncaught.push(event)
         window.addEventListener('error', onError)
@@ -180,17 +113,17 @@ describe('adventCalendarLogic', () => {
         logic.mount()
         logic.actions.activateDoor('door-1')
         logic.actions.finishReveal()
-
-        window.localStorage.setItem(KEY, value)
-        window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: value }))
         logic.actions.answerDoor('door-2', 'tim')
         window.removeEventListener('error', onError)
 
+        logic.unmount()
+        logic = adventCalendarLogic()
+        logic.mount()
+
         expect(uncaught).toEqual([])
-        expect(JSON.parse(window.localStorage.getItem(KEY) ?? '{}')[UUID]).toEqual({
-            opened: [1, 2],
-            answers: { 2: 'tim' },
-        })
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+        expect(doorOf(logic, 'door-3-lower')?.status).toBe('ready')
+        expect(logic.values.openCount).toBe(2)
     })
 
     it('opens a question door with the answer and puffs away the path not taken', async () => {

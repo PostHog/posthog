@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 
 import { IconTableOfContents } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 /**
  * Registry for custom nav icons that need dynamic behavior (e.g., badges, counters).
@@ -30,26 +30,16 @@ function DataCatalogNavBadge({ className }: { className?: string }): JSX.Element
     )
 }
 
-function NoNavSuffix(): null {
-    return null
-}
-
-const LazyAdventNavTree = lazy<() => JSX.Element | null>(() =>
-    retryImport(() => import('products/workflows/frontend/AdventCalendar/AdventNavTree')).then(
-        (module) => ({ default: module.AdventNavTree }),
-        () => ({ default: NoNavSuffix })
-    )
-)
-
 function WorkflowsNavSuffix(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]) {
         return null
     }
     return (
-        <Suspense fallback={null}>
-            <LazyAdventNavTree />
-        </Suspense>
+        <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-success" data-attr="advent-nav-tree" aria-hidden>
+            <path d="M8 1 4.5 5.5h2L3.5 9.5h2.5L3 13.5h10L10 9.5h2.5l-3-4h2Z" fill="currentColor" />
+            <rect x="7" y="13.5" width="2" height="1.5" rx="0.3" className="fill-warning" />
+        </svg>
     )
 }
 
