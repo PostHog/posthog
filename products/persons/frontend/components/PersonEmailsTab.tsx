@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
@@ -6,8 +7,10 @@ import { LemonTable, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
+import { transactionalSendPageUrl } from 'products/workflows/frontend/Transactional/transactionalEmailUrl'
 import { EmailViewerModal } from 'products/workflows/frontend/Workflows/EmailViewerModal'
 import { MessageAsset } from 'products/workflows/frontend/Workflows/messageAssetsApi'
 
@@ -36,6 +39,17 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
     const logic = personEmailsLogic({ teamId, personId })
     const { emails, emailsLoading } = useValues(logic)
     const [selected, setSelected] = useState<MessageAsset | null>(null)
+    const sendTimeline = useFeatureFlag('WORKFLOWS_EMAIL_SEND_TIMELINE')
+    const transactionalLog = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
+
+    const openEmail = (asset: MessageAsset): void => {
+        const sendPageUrl = sendTimeline && transactionalLog ? transactionalSendPageUrl(asset) : null
+        if (sendPageUrl) {
+            router.actions.push(sendPageUrl)
+        } else {
+            setSelected(asset)
+        }
+    }
 
     return (
         <>
@@ -43,7 +57,7 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
                 loading={emailsLoading}
                 dataSource={emails}
                 onRow={(asset: MessageAsset) => ({
-                    onClick: () => setSelected(asset),
+                    onClick: () => openEmail(asset),
                     className: 'cursor-pointer',
                 })}
                 emptyState={<EmptyEmails />}

@@ -33,6 +33,13 @@ const OTHERS = [
 const PERSON_ROWS = [['person-1', '{"email":"ada@example.com"}', '2025-01-01T00:00:00Z']]
 const ACTIVITY = { before: [{ uuid: 'ev-1' }], after: [], has_more_before: true, has_more_after: false }
 
+const CLICK_LINK = { at: '2026-03-10T09:05:00Z', link_url: 'https://example.com/billing' }
+const CLICKED_TIMELINE = [
+    { kind: 'sent', at: SENT, reason: null },
+    { kind: 'clicked', at: '2026-03-10T09:05:00Z', reason: null },
+    { kind: 'clicked', at: '2026-03-10T09:07:00Z', reason: null },
+] as TransactionalEmailLogDetailApi['timeline']
+
 const PANELS = ['person', 'activity', 'otherEmails'] as const
 type Endpoint = 'detail' | (typeof PANELS)[number]
 
@@ -42,6 +49,7 @@ describe('transactionalEmailLogEntryLogic', () => {
     let failing: Set<Endpoint>
     let served: Endpoint[]
     let othersQuery: Record<string, string> | null
+    let activity: Record<string, unknown>
 
     const serve = (endpoint: Endpoint, answer: () => [number, unknown]): [number, unknown] => {
         served.push(endpoint)
@@ -63,12 +71,13 @@ describe('transactionalEmailLogEntryLogic', () => {
         failing = new Set()
         served = []
         othersQuery = null
+        activity = ACTIVITY
         useMocks({
             get: {
                 [`${LOG}:id/`]: ({ params }) =>
                     serve('detail', () => (sends[params.id as string] ? [200, sends[params.id as string]] : [404, {}])),
                 [`${LOG}:id/activity/`]: ({ params }) =>
-                    serve('activity', () => (sends[params.id as string] ? [200, ACTIVITY] : [404, {}])),
+                    serve('activity', () => (sends[params.id as string] ? [200, activity] : [404, {}])),
                 [LOG]: ({ request }) => {
                     othersQuery = Object.fromEntries(new URL(request.url).searchParams)
                     return serve('otherEmails', () => [200, { has_more: false, results: OTHERS }])
@@ -164,6 +173,31 @@ describe('transactionalEmailLogEntryLogic', () => {
         router.actions.push(urls.transactionalEmailLogEntry('msg-1'), { status: 'bounced' })
         await open('msg-1')
         expect(logic.values.emailPageUrl).toEqual(emailPageUrl)
+    })
+
+    it.each([
+        ['lists each click with its link', true, 'user-1', [CLICK_LINK], true, 'loaded', [CLICK_LINK.link_url, null]],
+        [
+            'lists no clicks with the flag off',
+            false,
+            'user-1',
+            [CLICK_LINK],
+            false,
+            'loaded',
+            [CLICK_LINK.link_url, null],
+        ],
+        ['lists clicks from a server without links', true, 'user-1', undefined, true, 'loaded', [null, null]],
+        ['lists the clicks of a send with no distinct id', true, '', [CLICK_LINK], true, 'none', [null, null]],
+    ])('%s', async (_name, flagOn, distinctId, clicks, clicksShown, clickLinks, links) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(flagOn ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] : [], {
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE]: flagOn,
+        })
+        sends['msg-1'] = { ...SEND, distinct_id: distinctId, timeline: CLICKED_TIMELINE }
+        activity = { ...ACTIVITY, clicks }
+        await open('msg-1')
+        expect(logic.values).toMatchObject({ clicksShown, clickLinks })
+        expect(logic.values.clickRows.map((row) => row.link)).toEqual(links)
     })
 
     it.each(PANELS)('marks only the %s panel failed, and a retry clears it', async (panel) => {

@@ -10,6 +10,8 @@ import type {
     TransactionalEmailLogEventApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
+import { EmailClick } from './emailClicks'
+
 /** How far before and after the send the page looks for what the person did. */
 export const ACTIVITY_WINDOW_DAYS = 7
 /** A row with no session of its own stays with activity it happened this close to. */
@@ -38,6 +40,7 @@ export interface PersonActivity {
     /** True when the window held more events before the send than the page loaded. */
     hasMoreBefore: boolean
     hasMoreAfter: boolean
+    clicks: EmailClick[]
 }
 
 /** A short sentence for what the person did, such as "Viewed /pricing". */
