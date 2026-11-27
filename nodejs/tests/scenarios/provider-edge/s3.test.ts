@@ -8,6 +8,7 @@ import {
     UploadSlot,
     buildAttachmentStore,
 } from '~/cdp/services/messaging/attachment-store'
+import { InFlightRegistry, requireAdmission } from '~/cdp/services/messaging/in-flight-registry'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 import { CardFault, ruleOf } from './faults'
@@ -41,6 +42,12 @@ const put = (slot: UploadSlot, body: Buffer): Promise<FetchResponse> => {
     return internalFetch(slot.url, { method: slot.method, headers: slot.headers, body })
 }
 
+const roomForAnySend = new InFlightRegistry({
+    budgetBytes: Number.MAX_SAFE_INTEGER,
+    heapLimitBytes: Number.MAX_SAFE_INTEGER,
+    maxInFlight: Number.MAX_SAFE_INTEGER,
+})
+
 const elapsedMs = async (work: () => Promise<unknown>): Promise<number> => {
     const started = performance.now()
     await work()
@@ -56,8 +63,13 @@ describe('the edge in front of the attachment store', () => {
         return await put(slot, uploaded.bytes)
     }
 
-    const load = (stored: TestFile, signal = AbortSignal.timeout(10_000)): Promise<Buffer> =>
-        store.load(TEAM, [stored], signal).then(([loaded]) => Buffer.from(loaded.bytes))
+    const load = async (stored: TestFile, signal = AbortSignal.timeout(10_000)): Promise<Buffer> => {
+        const { started } = roomForAnySend.tryStart([stored], () =>
+            store.load(TEAM, requireAdmission([stored]), signal)
+        ) as { started: ReturnType<S3AttachmentStore['load']> }
+        const [loaded] = await started
+        return Buffer.from(loaded.bytes)
+    }
 
     const fault = (cardFault: CardFault): string => edge.addFault(ruleOf(cardFault))
 

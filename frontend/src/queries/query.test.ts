@@ -130,6 +130,36 @@ describe('query', () => {
         expect(queryCompletedCalls[0][1]).not.toHaveProperty('result_poll_timing')
     })
 
+    it('submits and polls a query against an explicitly scoped team', async () => {
+        const requestedPaths: string[] = []
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': ({ request }) => {
+                    requestedPaths.push(new URL(request.url).pathname)
+                    return [200, { query_status: { id: 'scoped-query', complete: false } }]
+                },
+            },
+            get: {
+                '/api/environments/:team_id/query/:id': ({ request }) => {
+                    requestedPaths.push(new URL(request.url).pathname)
+                    return [200, { query_status: { id: 'scoped-query', complete: true, results: { results: [] } } }]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        const query: HogQLQuery = { kind: NodeKind.HogQLQuery, query: 'select 1' }
+
+        try {
+            const response = performQuery(query, { teamId: 99 }, 'async')
+            await jest.advanceTimersByTimeAsync(500)
+            await expect(response).resolves.toEqual({ results: [] })
+        } finally {
+            jest.useRealTimers()
+        }
+
+        expect(requestedPaths).toEqual(['/api/projects/99/query/HogQLQuery/', '/api/projects/99/query/scoped-query'])
+    })
+
     it.each([undefined, 'metadata'] as const)('captures HogQLQuery telemetry with mode %s', async (queryTelemetry) => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const querySpy = jest.spyOn(api, 'query')

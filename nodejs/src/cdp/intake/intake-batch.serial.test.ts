@@ -23,7 +23,7 @@ import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../services/monitoring/hog-invocation-results.service'
-import { CyclotronJobInvocation } from '../types'
+import { CYCLOTRON_QUEUE_ROLES, CyclotronJobInvocation } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { IntakeBatchServices, SHADOW_COPY_MAX_AGE_MS, insertIntakeBatch } from './intake-batch'
 import { IntakeOutput, IntakeProducer } from './intake-producer'
@@ -135,7 +135,12 @@ describe('insertIntakeBatch', () => {
 
     beforeAll(() => {
         pool = new Pool({ connectionString: DB_URL })
-        manager = new CyclotronV2Manager({ pool: { dbUrl: DB_URL }, depthLimit: 1_000_000, depthCheckIntervalMs: 0 })
+        manager = new CyclotronV2Manager({
+            pool: { dbUrl: DB_URL },
+            depthLimit: 1_000_000,
+            depthCheckIntervalMs: 0,
+            ...CYCLOTRON_QUEUE_ROLES,
+        })
     })
 
     afterAll(async () => {

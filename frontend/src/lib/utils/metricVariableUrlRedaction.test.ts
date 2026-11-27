@@ -30,6 +30,7 @@ describe('redactMetricVariableUrl', () => {
             '/data-catalog/metrics/new',
         ],
         ['an autocaptured metric prefill link', 'a:attr__href="/data-catalog/metrics/new#metric_prefill=value"', ''],
+        ['an encoded notebook app link', '/login?next=%2Fnotebooks%2Fabc%23appView%3Dvalue', '/login'],
         ['a relative link', `/insights/abc?filters_override=${filters}`, '/insights/abc'],
         ['an element chain', `a:attr__href="/insights/abc?filters_override=${filters}"`, ''],
     ])('keeps only the path of %s', (_name, text, expected) => {
@@ -39,6 +40,7 @@ describe('redactMetricVariableUrl', () => {
     it.each([
         `https://us.posthog.com/dashboard/1?query_filters=${filters}`,
         `https://us.posthog.com/dashboard/1#bi_filter=${encodeURIComponent(JSON.stringify({ record: { country: 'private_value' } }))}`,
+        `https://us.posthog.com/project/1/notebooks/abc?view=app#appView=${encodeURIComponent(JSON.stringify({ inputs: { account: 'private_value' } }))}`,
     ])('redacts every property of an event containing %s', (url) => {
         const event = redactMetricVariableUrls({
             event: '$pageview',

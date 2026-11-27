@@ -1,12 +1,16 @@
 import { IconInfo } from '@posthog/icons'
 import { Button, Checkbox, Label, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import type { FinalizeButtonCopy } from '../lib/reviewDecisions'
+
 export interface QuillFinalizeRunActionsProps {
     addImagesToComment: boolean
     setAddImagesToComment: (enabled: boolean) => void
     isFinalizing: boolean
     finalizeRun: () => void
-    reviewPending: number
+    button: FinalizeButtonCopy
+    /** Set when some changes were accepted by an agent, to filter the strip to them. */
+    onShowAgentAccepts?: () => void
 }
 
 export function QuillFinalizeRunActions({
@@ -14,10 +18,26 @@ export function QuillFinalizeRunActions({
     setAddImagesToComment,
     isFinalizing,
     finalizeRun,
-    reviewPending,
+    button,
+    onShowAgentAccepts,
 }: QuillFinalizeRunActionsProps): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
+            {button.note && (
+                <span className="flex items-center gap-1 text-xs text-secondary">
+                    <span data-attr="visual-review-finalize-progress">{button.note}</span>
+                    {onShowAgentAccepts && (
+                        <Button
+                            variant="link"
+                            size="xs"
+                            onClick={onShowAgentAccepts}
+                            data-attr="visual-review-show-agent-accepts"
+                        >
+                            Show them
+                        </Button>
+                    )}
+                </span>
+            )}
             <div className="flex items-center gap-2">
                 <Checkbox
                     id="visual-review-add-images-to-comment"
@@ -41,9 +61,11 @@ export function QuillFinalizeRunActions({
                 variant="primary"
                 onClick={finalizeRun}
                 loading={isFinalizing}
+                tooltip={button.tooltip ?? undefined}
+                disabledReason={button.disabledReason ?? undefined}
                 data-attr="visual-review-finalize-run"
             >
-                {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
+                {isFinalizing ? 'Finalizing…' : button.label}
             </Button>
         </div>
     )

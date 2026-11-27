@@ -448,6 +448,9 @@
     .mt-0 {
         margin-top: calc(0.25rem * 0);
     }
+    .mt-0\.5 {
+        margin-top: calc(0.25rem * 0.5);
+    }
     .mt-1 {
         margin-top: calc(0.25rem * 1);
     }
@@ -921,6 +924,10 @@
         border-style: var(--tw-border-style);
         border-width: 1px;
     }
+    .border-0 {
+        border-style: var(--tw-border-style);
+        border-width: 0px;
+    }
     .border-t {
         border-top-style: var(--tw-border-style);
         border-top-width: 1px;
@@ -1327,6 +1334,12 @@
         page-break-inside: avoid;
         -moz-column-break-inside: avoid;
         break-inside: avoid;
+    }
+    .group-open\/fact\:hidden:is(:where(.group\/fact):is([open], :popover-open, :open) *) {
+        display: none;
+    }
+    .group-open\/fact\:inline:is(:where(.group\/fact):is([open], :popover-open, :open) *) {
+        display: inline;
     }
     .group-open\/group\:rotate-90:is(:where(.group\/group):is([open], :popover-open, :open) *) {
         rotate: 90deg;
