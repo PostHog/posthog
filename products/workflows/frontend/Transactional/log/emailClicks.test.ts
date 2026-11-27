@@ -26,7 +26,7 @@ describe('emailClicks', () => {
                 { kind: 'opened', at: '2026-06-15T09:02:00Z', reason: null },
                 { kind: 'clicked', at: '2026-06-15T09:05:00Z', reason: null },
             ],
-        } as TransactionalEmailLogDetailApi
+        } satisfies Pick<TransactionalEmailLogDetailApi, 'timeline'>
         const click = {
             at: '2026-06-15T09:05:00Z',
             link_url: 'https://app.example.com/billing',
