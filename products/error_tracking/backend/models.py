@@ -93,8 +93,6 @@ class ErrorTrackingIssue(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     state_updated_at = models.DateTimeField(null=True, blank=True)
     last_received_at = models.DateTimeField(null=True, blank=True)
-    auto_resolved = models.BooleanField(default=False, db_default=False)
-    auto_resolve_sync_requested_at = models.DateTimeField(null=True, blank=True)
     status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
     severity = models.TextField(choices=Severity, null=True, default=None)
     name = models.TextField(null=True, blank=True)
@@ -114,11 +112,6 @@ class ErrorTrackingIssue(UUIDTModel):
                 fields=["team", "-created_at"],
                 name="et_issue_active_created_idx",
                 condition=models.Q(status="active"),
-            ),
-            models.Index(
-                fields=["team", "id"],
-                name="et_issue_auto_resolve_sync_idx",
-                condition=models.Q(auto_resolve_sync_requested_at__isnull=False),
             ),
         ]
 
@@ -990,7 +983,6 @@ class ErrorTrackingSettings(models.Model):
     per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     ai_issue_summaries_enabled = models.BooleanField(default=False, db_default=False)
     auto_resolve_after_days = models.PositiveSmallIntegerField(null=True, blank=True)
-    auto_resolve_observation_started_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_errortrackingsettings"

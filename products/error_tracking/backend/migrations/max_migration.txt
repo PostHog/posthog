@@ -1,1 +1,1 @@
-0057_issue_auto_resolve_sync_index
+0056_issue_auto_resolve
