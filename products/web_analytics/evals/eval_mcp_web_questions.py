@@ -67,13 +67,13 @@ CASES = [
     ),
     _case(
         "highest_bounce_landing_page",
-        f"Which landing page with at least {MIN_LANDING_PAGE_VISITORS} visitors has the highest bounce rate this week?",
+        f"Which landing page with at least {MIN_LANDING_PAGE_VISITORS} visitors has the highest bounce rate over the last 7 days?",
         "query-web-stats",
         seed_highest_bounce_landing_page,
     ),
     _case(
         "week_over_week",
-        "How does this week's traffic compare with the previous week?",
+        "How does traffic over the last 7 days compare with the 7 days before?",
         "query-web-overview",
         seed_week_over_week,
     ),
@@ -115,7 +115,7 @@ CASES = [
     ),
     _case(
         "worst_lcp_pages",
-        "Which pages have the worst Largest Contentful Paint this week?",
+        "Which pages have the worst Largest Contentful Paint over the last 7 days?",
         "query-web-vitals",
         seed_web_vitals,
     ),

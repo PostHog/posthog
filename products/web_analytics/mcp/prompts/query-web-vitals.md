@@ -31,7 +31,7 @@ Requires the project to capture the `$web_vitals` event (`capture_performance` i
 
 # Reading the result
 
-Each band lists `{path, value, count}` rows, **worst value first**, capped at 20 per band — so "the slowest pages" are the first rows of `poor`, then `needs_improvements`. `count` is the number of samples behind the percentile; quote it, and treat a page with a handful of samples as noise rather than a finding. A page in `poor` at p75 on a high-traffic route is a real, citable problem even if it never changed. Mobile values run 2–3× desktop, so a pooled percentile can hide a mobile-only problem: when a page looks borderline, re-run with a `$device_type` filter.
+Each band lists `{path, value, count}` rows, **worst value first**, capped at 20 per band — so "the slowest pages" are the first rows of `poor`, then `needs_improvements`. `count` is the number of samples behind the percentile; quote it, and treat a page with a handful of samples as noise rather than a finding. A response served from precomputed aggregates (`preComputeStrategy` other than `live`) carries no `count`: pass `minSamples: 1` to force a live scan when the counts matter. A page in `poor` at p75 on a high-traffic route is a real, citable problem even if it never changed. Mobile values run 2–3× desktop, so a pooled percentile can hide a mobile-only problem: when a page looks borderline, re-run with a `$device_type` filter.
 
 # Example
 

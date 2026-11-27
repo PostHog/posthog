@@ -483,6 +483,12 @@ describe('createQueryWrapper complete-period comparison', () => {
             { date_from: '-7d' },
         ],
         [
+            'keeps a rolling hour window whole',
+            'WebOverviewQuery',
+            { dateRange: { date_from: '-48h' }, compareFilter: { compare: true } },
+            { date_from: '-48h' },
+        ],
+        [
             'does nothing for other query kinds',
             'TrendsQuery',
             { dateRange: { date_from: '-7d' }, compareFilter: { compare: true } },

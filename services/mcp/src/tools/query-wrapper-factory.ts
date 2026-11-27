@@ -64,6 +64,8 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
 
 const TEST_ACCOUNT_FILTER_FIELD = 'filterTestAccounts'
 
+// A rolling hour window such as `-48h` has no complete day to keep, so clipping would shrink it.
+const HOUR_RANGE = /^-?\d+h/i
 const COMPLETE_PERIOD_COMPARE_KINDS = new Set(['WebOverviewQuery', 'WebStatsTableQuery'])
 
 /**
@@ -84,6 +86,9 @@ export function applyCompletePeriodCompare(kind: string, query: Record<string, u
         return
     }
     if (dateRange.excludeIncompletePeriods !== undefined) {
+        return
+    }
+    if (typeof dateRange.date_from === 'string' && HOUR_RANGE.test(dateRange.date_from)) {
         return
     }
     query.dateRange = { ...dateRange, excludeIncompletePeriods: true }
