@@ -84,7 +84,5 @@ class ServiceAccountViewSet(
     @validated_request(ServiceAccountWriteSerializer, responses={200: ServiceAccountSerializer})
     def partial_update(self, request: ValidatedRequest, **kwargs) -> Response:
         membership = self.get_object()
-        membership = operations.rename_service_account(
-            self.organization, membership.user.uuid, name=request.validated_data["name"]
-        )
+        membership = operations.rename_service_account(membership, name=request.validated_data["name"])
         return Response(self.get_serializer(membership).data)

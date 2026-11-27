@@ -1,4 +1,4 @@
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -36,9 +36,7 @@ def create_service_account(organization: Organization, *, name: str) -> Organiza
         )
 
 
-def rename_service_account(organization: Organization, account_id: UUID, *, name: str) -> OrganizationMembership:
-    with transaction.atomic():
-        membership = service_accounts(organization).select_for_update(of=("self", "user")).get(user__uuid=account_id)
-        membership.user.first_name = name
-        membership.user.save(update_fields=["first_name"])
-        return membership
+def rename_service_account(membership: OrganizationMembership, *, name: str) -> OrganizationMembership:
+    membership.user.first_name = name
+    membership.user.save(update_fields=["first_name"])
+    return membership
