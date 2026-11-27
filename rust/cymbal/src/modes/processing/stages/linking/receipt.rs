@@ -1,6 +1,10 @@
-use std::{future::Future, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use moka::future::Cache;
+use moka::{future::Cache, Expiry};
 use uuid::Uuid;
 
 use crate::{error::UnhandledError, types::operator::TeamId};
@@ -10,7 +14,29 @@ const RECEIPT_TTL: Duration = Duration::from_secs(3600);
 
 type ReceiptKey = (TeamId, Uuid);
 
-pub(crate) struct IssueReceiptCache(Cache<ReceiptKey, ()>);
+#[derive(Clone)]
+pub(crate) struct EntryWithDeadline<T> {
+    pub value: T,
+    pub expires_at: Instant,
+}
+
+pub(crate) struct EntryDeadline;
+
+impl<K, T> Expiry<K, EntryWithDeadline<T>> for EntryDeadline {
+    fn expire_after_create(
+        &self,
+        _: &K,
+        entry: &EntryWithDeadline<T>,
+        inserted_at: Instant,
+    ) -> Option<Duration> {
+        Some(entry.expires_at.saturating_duration_since(inserted_at))
+    }
+}
+
+pub(crate) struct IssueReceiptCache {
+    entries: Cache<ReceiptKey, EntryWithDeadline<()>>,
+    ttl: Duration,
+}
 
 impl IssueReceiptCache {
     pub(crate) fn new(capacity: u64) -> Self {
@@ -18,16 +44,17 @@ impl IssueReceiptCache {
     }
 
     fn with_ttl(capacity: u64, ttl: Duration) -> Self {
-        Self(
-            Cache::builder()
+        Self {
+            entries: Cache::builder()
                 .max_capacity(capacity)
-                .time_to_live(ttl)
+                .expire_after(EntryDeadline)
                 .build(),
-        )
+            ttl,
+        }
     }
 
     pub(super) async fn contains(&self, key: ReceiptKey) -> bool {
-        self.0.get(&key).await.is_some()
+        self.entries.get(&key).await.is_some()
     }
 
     pub(super) async fn record_if_due<T>(
@@ -35,12 +62,25 @@ impl IssueReceiptCache {
         key: ReceiptKey,
         commit: impl Future<Output = Result<T, UnhandledError>>,
     ) -> Result<Option<T>, UnhandledError> {
+        self.record_if_due_since(key, Instant::now(), commit).await
+    }
+
+    pub(super) async fn record_if_due_since<T>(
+        &self,
+        key: ReceiptKey,
+        started_at: Instant,
+        commit: impl Future<Output = Result<T, UnhandledError>>,
+    ) -> Result<Option<T>, UnhandledError> {
         let mut committed = None;
         // Only the writer owns the transition result and can publish its reopen side effects.
-        self.0
+        // A slow commit must not extend the window beyond the sweep's grace period.
+        self.entries
             .try_get_with(key, async {
                 committed = Some(commit.await?);
-                Ok(())
+                Ok(EntryWithDeadline {
+                    value: (),
+                    expires_at: started_at + self.ttl,
+                })
             })
             .await
             .map_err(|error: Arc<UnhandledError>| UnhandledError::Other(error.to_string()))?;
@@ -75,11 +115,23 @@ mod tests {
         assert_eq!(writer.await.unwrap(), Some(42));
         assert_eq!(waiter.await.unwrap(), None);
         assert!(cache.contains(key).await);
+        assert_eq!(cache.ttl, Duration::from_secs(3600));
+        assert_eq!(cache.entries.policy().time_to_idle(), None);
+    }
+
+    #[tokio::test]
+    async fn a_slow_commit_does_not_extend_the_receipt_window() {
+        let cache = IssueReceiptCache::new(10);
+        let key = (1, Uuid::nil());
+        let started_at = Instant::now() - RECEIPT_TTL;
         assert_eq!(
-            cache.0.policy().time_to_live(),
-            Some(Duration::from_secs(3600))
+            cache
+                .record_if_due_since(key, started_at, async { Ok(42) })
+                .await
+                .unwrap(),
+            Some(42)
         );
-        assert_eq!(cache.0.policy().time_to_idle(), None);
+        assert!(!cache.contains(key).await);
     }
 
     #[tokio::test]

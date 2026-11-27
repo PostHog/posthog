@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use chrono::{DateTime, Utc};
 use common_types::format::parse_datetime_assuming_utc;
@@ -428,6 +428,7 @@ async fn resolve_issue(
             process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties)
                 .await?;
 
+        let receipt_started_at = Instant::now();
         if track_receipt {
             issue.record_receipt(&mut txn).await?;
         }
@@ -451,7 +452,7 @@ async fn resolve_issue(
             // finds the newly visible issue before the cache entry is published.
             let committed = context
                 .issue_receipts
-                .record_if_due((team_id, issue.id), async {
+                .record_if_due_since((team_id, issue.id), receipt_started_at, async {
                     txn.commit().await?;
                     Ok(())
                 })
