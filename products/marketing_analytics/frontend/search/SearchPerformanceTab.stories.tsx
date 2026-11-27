@@ -1,8 +1,9 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { MarketingAnalyticsScene } from 'scenes/marketing-analytics/MarketingAnalyticsScene'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -423,6 +424,18 @@ const meta: Meta<typeof SearchPerformanceTab> = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+const withQuillSurface: Decorator = (Story) => (
+    <QuillSurfaceContext.Provider value={true}>
+        <Story />
+    </QuillSurfaceContext.Provider>
+)
+
+const QUILL_FEATURE_FLAGS = [
+    FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+    FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS,
+    FEATURE_FLAGS.TODAY_RAIL_NAV,
+]
+
 export const Connected: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=false` },
 }
@@ -491,6 +504,14 @@ export const Comparison: Story = {
         await within(canvasElement).findByText('Google Search Console')
         const table = canvasElement.querySelector('.SearchPerformanceTable .LemonTable__content')!
         await expect(table.getBoundingClientRect().height).toBeLessThan(600)
+    },
+}
+export const ComparisonQuill: Story = {
+    decorators: [withQuillSurface],
+    parameters: { ...Comparison.parameters, featureFlags: QUILL_FEATURE_FLAGS },
+    play: async ({ canvasElement }) => {
+        const keywords = await within(canvasElement).findAllByRole('button', { name: 'product analytics' })
+        await expect(keywords[0]).toBeVisible()
     },
 }
 export const MixedWithPosition: Story = {
@@ -616,6 +637,15 @@ export const OrganicDetail: Story = {
         await userEvent.click(keywords[0])
     },
 }
+export const OrganicDetailQuill: Story = {
+    ...ComparisonQuill,
+    play: async ({ canvasElement }) => {
+        const keywords = await within(canvasElement).findAllByRole('button', { name: 'product analytics' })
+        await userEvent.click(keywords[0])
+        const dialog = await within(canvasElement.ownerDocument.body).findByRole('dialog')
+        await within(dialog).findByText('https://example.com/product-analytics')
+    },
+}
 export const NotConnected: Story = {
     parameters: {
         msw: {
@@ -719,6 +749,11 @@ export const UnavailableSources: Story = {
         await expect(await canvas.findByText(/out of date/)).toBeVisible()
         expect(canvas.queryByRole('table')).toBeNull()
     },
+}
+export const UnavailableSourcesQuill: Story = {
+    ...UnavailableSources,
+    decorators: [withQuillSurface],
+    parameters: { ...UnavailableSources.parameters, featureFlags: QUILL_FEATURE_FLAGS },
 }
 export const UnavailableSourcesNarrow: Story = {
     ...UnavailableSources,
@@ -824,6 +859,18 @@ export const Loading: Story = {
             },
         },
         testOptions: { waitForLoadersToDisappear: false },
+    },
+}
+export const LoadingQuill: Story = {
+    ...Loading,
+    decorators: [withQuillSurface],
+    parameters: {
+        ...Loading.parameters,
+        featureFlags: QUILL_FEATURE_FLAGS,
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="marketing-search-performance"] [role="status"][aria-label="Loading"]',
+        },
     },
 }
 export const QueryError: Story = {

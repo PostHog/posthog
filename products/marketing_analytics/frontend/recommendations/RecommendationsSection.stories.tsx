@@ -1,8 +1,9 @@
-import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsFilters } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -389,6 +390,46 @@ async function openRecommendations(canvasElement: HTMLElement): Promise<void> {
 export const Modal: Story = {
     play: async ({ canvasElement }) => {
         await openRecommendations(canvasElement)
+    },
+}
+
+const withQuillSurface: Decorator = (Story) => (
+    <QuillSurfaceContext.Provider value={true}>
+        <Story />
+    </QuillSurfaceContext.Provider>
+)
+
+const QUILL_FEATURE_FLAGS = [
+    FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+    FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,
+    FEATURE_FLAGS.TODAY_RAIL_NAV,
+]
+
+export const SummaryQuill: Story = {
+    beforeEach: resetIntro,
+    decorators: [withQuillSurface],
+    parameters: {
+        featureFlags: QUILL_FEATURE_FLAGS,
+        testOptions: { waitForSelector: '[data-attr="marketing-recommendations-intro-open"]' },
+    },
+}
+
+export const ModalQuill: Story = {
+    beforeEach: resetIntro,
+    decorators: [withQuillSurface],
+    parameters: { featureFlags: QUILL_FEATURE_FLAGS },
+    play: async ({ canvasElement }) => {
+        const find = (selector: string): Promise<HTMLElement> =>
+            waitFor(() => {
+                const element = canvasElement.ownerDocument.querySelector<HTMLElement>(selector)
+                if (!element) {
+                    throw new Error(`Missing ${selector}`)
+                }
+                return element
+            })
+        await userEvent.click(await find('[data-attr="marketing-recommendations-open"]'))
+        // The intro popover is a dialog too, so wait for the rule list that only the modal has.
+        await find('[data-attr^="marketing-recommendations-group-"]')
     },
 }
 
