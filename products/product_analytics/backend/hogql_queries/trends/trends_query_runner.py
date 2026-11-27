@@ -1,6 +1,7 @@
 import json
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from functools import cached_property, partial
@@ -234,6 +235,10 @@ def _event_count_query_builder(runner: "TrendsQueryRunner", series: SeriesWithEx
     )
 
 
+# Keep a rewritten alert result out of the result cache used by dashboards and raw alert checks.
+series_values_cache_variant: ContextVar[str] = ContextVar("series_values_cache_variant", default="")
+
+
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
     cached_response: CachedTrendsQueryResponse
@@ -242,6 +247,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     # For a caller that cannot use a partial result. When set, the first failed series query calls it once,
     # and no queued series query starts after that. The callback can cancel the series queries in flight.
     on_series_error: Callable[[Exception], None] | None = None
+
+    def get_cache_key_variant(self) -> str:
+        return super().get_cache_key_variant() + series_values_cache_variant.get()
 
     def __init__(
         self,

@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from functools import partial
 from typing import Any, cast
 
 from posthog.schema import (
@@ -36,7 +37,7 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.delay import apply_evaluation_delay
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
-from products.alerts.backend.evaluation.series_values_shadow import compare_series_values_shadow
+from products.alerts.backend.evaluation.series_values_shadow import calculate_alert_trends
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -188,19 +189,24 @@ class TrendsExtractor:
         cache_age_seconds: int | None,
         filters_override: dict | None,
     ) -> InsightResult:
-        result = calculate_for_query_based_insight(
-            insight,
-            team=alert.team,
-            execution_mode=execution_mode,
-            cache_age_seconds=cache_age_seconds,
-            # Scheduled alert check (no request user); attribute the read to the alert owner so
-            # warehouse HogQL access control resolves against their access.
-            user=alert.created_by,
-            filters_override=filters_override,
-            analytics_props={"source": EventSource.ALERT},
+        return calculate_alert_trends(
+            alert,
+            query,
+            filters_override,
+            alert_kind="threshold",
+            calculate=partial(
+                calculate_for_query_based_insight,
+                insight,
+                team=alert.team,
+                execution_mode=execution_mode,
+                cache_age_seconds=cache_age_seconds,
+                # Scheduled alert check (no request user); attribute the read to the alert owner so
+                # warehouse HogQL access control resolves against their access.
+                user=alert.created_by,
+                filters_override=filters_override,
+                analytics_props={"source": EventSource.ALERT},
+            ),
         )
-        compare_series_values_shadow(alert, query, filters_override, result, alert_kind="threshold")
-        return result
 
     def _empty_result(
         self,

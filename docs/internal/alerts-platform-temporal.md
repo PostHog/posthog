@@ -588,6 +588,12 @@ The stored series values shadow, behind the `alerts-series-values-precompute` fl
 - A shadow's build INSERT runs as `alerts_platform_insight`. Before the flag enrolls a project, that user needs INSERT on `posthog.series_values_preaggregated` and `posthog.sharded_series_values_preaggregated`. Without the grant every build fails, and enrolled checks record an `error` comparison. Their live result stands.
 - A comparison runs in the check's activity, after the live query and before the outcome returns. An enrolled check's notification waits for it, on a cold build for up to `SHADOW_BUILD_BUDGET_SECONDS` plus `SHADOW_READ_MAX_SECONDS`. A worker that shuts down in that time loses the computed outcome, as a shutdown during the live query does. Watch notification latency for enrolled projects when the flag widens.
 
+The independent `alerts-series-values-serve` flag lets a Trends alert use ready stored hours for its decision. The pilot covers single-series time charts and skips queries with explicit modifiers. The Trends rewrite checks the compiled count and filters, so an action that counts a single event can use the same stored hours as that event.
+
+ClickHouse still reads the recent tail from events. A check with incomplete coverage uses its ordinary query without starting or waiting for a build. With both flags enabled, a fresh raw result can still warm the store through the shadow. A result served from stored hours or from the serving cache is excluded from shadow comparisons.
+
+Keep serving at 0% while collecting shadow parity and latency. Before enrolling an organization, verify the alert query user can SELECT the stored table. Returning serving to 0% switches checks back to the ordinary result cache on the next flag refresh.
+
 1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
 2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
 3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.

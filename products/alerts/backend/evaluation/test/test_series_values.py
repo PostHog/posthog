@@ -20,9 +20,12 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.errors import CHQueryErrorQueryWasCancelled
 
+from products.actions.backend.facade.testing import create_action
 from products.alerts.backend.evaluation.dispatcher import check_alert_for_insight
 from products.alerts.backend.evaluation.query_slot import QuerySlotFull
 from products.alerts.backend.evaluation.series_values_shadow import (
+    SERIES_VALUES_PRECOMPUTE_FLAG,
+    SERIES_VALUES_SERVE_FLAG,
     SHADOW_BUILD_BUDGET_SECONDS,
     SHADOW_COMPARISON_EVENT,
     SHADOW_READ_MAX_SECONDS,
@@ -143,8 +146,11 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    def _enrolled(self) -> Any:
-        return patch(f"{_SHADOW}.posthoganalytics.feature_enabled", return_value=True)
+    def _enrolled(self, *flags: str) -> Any:
+        enabled = flags or (SERIES_VALUES_PRECOMPUTE_FLAG,)
+        return patch(
+            f"{_SHADOW}.posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key in enabled
+        )
 
     def _jobs(self) -> int:
         return PreaggregationJob.objects.filter(team_id=self.team.pk).count()
@@ -246,6 +252,55 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert shadowed == live
         assert (properties["outcome"], properties["max_abs_difference"]) == ("mismatch", 1.0)
+
+    def test_cold_serving_does_not_start_a_precomputation(self) -> None:
+        alert = self._alert(detector=None)
+        with self._enrolled(SERIES_VALUES_SERVE_FLAG):
+            assert _platform_check(alert).value == 3
+        assert self._jobs() == 0
+
+    @parameterized.expand(
+        [
+            ("threshold", None, False),
+            ("detector", _THRESHOLD_DETECTOR, False),
+            ("single_event_action", None, True),
+        ]
+    )
+    def test_serving_changes_the_alert_verdict_only_while_enrolled(
+        self, _name: str, detector: dict[str, Any] | None, use_action: bool
+    ) -> None:
+        alert = self._alert(detector=detector)
+        self._shadowed_check(alert)
+        if use_action:
+            action = create_action(team=self.team, name="Signups", steps_json=[{"event": "signed_up"}])
+            query = _trends_query("day")
+            query["series"] = [{"kind": "ActionsNode", "id": action.id, "math": "total"}]
+            alert = self._alert_on(
+                query, {"type": "TrendsAlertConfig", "series_index": 0}, detector=detector, calculation_interval="daily"
+            )
+        job = PreaggregationJob.objects.get(
+            team=self.team, time_range_start__lte="2024-01-14T00:00:00Z", time_range_end__gt="2024-01-14T00:00:00Z"
+        )
+        sync_execute(
+            """
+            INSERT INTO sharded_series_values_preaggregated
+                (team_id, job_id, time_window_start, time_window_end, series_key, value)
+            VALUES (%(team_id)s, %(job_id)s, '2024-01-14 10:00:00', '2024-01-14 11:00:00', '', 200)
+            """,
+            {"team_id": self.team.pk, "job_id": str(job.pk)},
+        )
+        with (
+            self._enrolled(SERIES_VALUES_SERVE_FLAG, SERIES_VALUES_PRECOMPUTE_FLAG),
+            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
+        ):
+            served = _platform_check(alert)
+            assert _shadow_events(capture) == []
+        assert served.breaches
+        assert served.value == 203
+        raw, comparison = self._shadowed_check(alert)
+        assert not raw.breaches
+        assert raw.value == 3
+        assert comparison["outcome"] == "mismatch"
 
     def test_a_failing_shadow_step_records_an_error_and_never_changes_the_check(self) -> None:
         alert = self._alert(detector=_THRESHOLD_DETECTOR)
