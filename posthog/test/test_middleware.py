@@ -72,6 +72,7 @@ from posthog.models.team import Team
 from posthog.models.user import User, UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.run_mode import derive_run_mode
+from posthog.session.activity import session_public_id
 from posthog.settings import SITE_URL, base_variables
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
@@ -2405,7 +2406,8 @@ class TestUpgradeImpersonation(APIBaseTest):
             follow=True,
         )
 
-    def test_upgrade_succeeds_from_read_only_with_reason(self):
+    @patch("posthoganalytics.capture")
+    def test_upgrade_succeeds_from_read_only_with_reason(self, mock_capture):
         self.login_as_read_only()
 
         # Verify we're in read-only mode
@@ -2424,6 +2426,19 @@ class TestUpgradeImpersonation(APIBaseTest):
         # Verify we're now in read-write mode
         user_response = self.client.get("/api/users/@me/")
         assert user_response.json()["is_impersonated_read_only"] is False
+
+        # Both events name the impersonated user and the impersonation session, not the staff user's.
+        session_key = self.client.session.session_key
+        assert session_key
+        events = {
+            call.kwargs["event"]: call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") in ("impersonation_started", "impersonation_upgraded")
+        }
+        for event in ("impersonation_started", "impersonation_upgraded"):
+            assert str(events[event]["target_user_id"]) == str(self.other_user.id)
+            assert events[event]["$ip"] == "127.0.0.1"
+            assert events[event]["session_public_id"] == str(session_public_id(session_key))
 
     def test_start_exposes_reason_on_user_api(self):
         self.login_as_read_only()

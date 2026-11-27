@@ -101,6 +101,26 @@ class TestSessionActivity(BaseTest):
         expected = {"$ip": "127.0.0.1", "session_public_id": str(session_public_id(key))}
         self.assertEqual(properties, {k: v for k, v in expected.items() if k in expected_keys})
 
+    def test_client_attribution_prefers_the_verified_mcp_client_ip(self):
+        user = self._make_user()
+        request = self._request(user, self._login_session(user))
+        request.verified_mcp_client_ip = "198.51.100.23"
+
+        self.assertEqual(client_attribution_properties(request, user)["$ip"], "198.51.100.23")
+
+    def test_client_attribution_saves_a_login_session_that_has_no_key_yet(self):
+        user = self._make_user()
+        request = RequestFactory().get("/")
+        request.session = self.engine.SessionStore()
+        request.session[SESSION_KEY] = str(user.pk)
+
+        properties = client_attribution_properties(request, user)
+
+        key = request.session.session_key
+        assert key
+        self.assertTrue(Session.objects.filter(session_key=key).exists())
+        self.assertEqual(properties["session_public_id"], str(session_public_id(key)))
+
     def test_list_returns_only_the_users_live_sessions(self):
         user = self._make_user()
         other_user = self._make_user()

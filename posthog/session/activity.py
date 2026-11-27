@@ -13,11 +13,12 @@ from loginas.utils import is_impersonated_session
 
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.geoip import get_geoip_properties
+from posthog.ip_restrictions import get_restriction_client_ip
 from posthog.models import User
 from posthog.models.activity_logging.utils import ActivityCredential
 from posthog.ph_client import self_hosted_capture_reaches_posthog
 from posthog.session.models import Session
-from posthog.utils import _is_valid_ip_address, get_ip_address, get_short_user_agent, get_trusted_client_ip
+from posthog.utils import _is_valid_ip_address, get_ip_address, get_short_user_agent
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -64,20 +65,21 @@ def client_attribution_properties(request: "HttpRequest | Request", user: User) 
     request = getattr(request, "_request", request)
     properties: dict[str, str] = {}
     # Server-side capture otherwise records this server's egress address as `$ip`. Ingestion keeps an
-    # explicit `$ip` and still drops it for teams that anonymize IPs.
-    if ip := get_trusted_client_ip(request):
+    # explicit `$ip` and still drops it for teams that anonymize IPs. An MCP call comes from the MCP pod,
+    # so prefer the end-user IP that the MCP server signed and the middleware verified.
+    if ip := get_restriction_client_ip(request):
         properties["$ip"] = ip
     session = getattr(request, "session", None)
     # A token can authenticate a request that also carries the user's session cookie, and that session
     # did not make the request. Before login() runs, as in the social auth pipeline or a password reset,
     # the session is not the user's yet and login() replaces its key. Either id would misattribute the event.
-    if (
-        not token_authenticated
-        and session is not None
-        and session.session_key
-        and session.get(SESSION_KEY) == str(user.pk)
-    ):
-        properties["session_public_id"] = str(session_public_id(session.session_key))
+    if token_authenticated or session is None or session.get(SESSION_KEY) != str(user.pk):
+        return properties
+    if session.session_key is None:
+        # login() over another account's session flushes it, and the new session gets its key only when
+        # saved. Save it now so the event names the session that the response sets.
+        session.save()
+    properties["session_public_id"] = str(session_public_id(session.session_key))
     return properties
 
 

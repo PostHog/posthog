@@ -8,7 +8,7 @@ from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session
 from loginas.views import user_login as loginas_user_login
 
-from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.impersonation import get_impersonated_user, get_original_user_from_session
 from posthog.middleware import (
     IMPERSONATION_READ_ONLY_SESSION_KEY,
     IMPERSONATION_REASON_SESSION_KEY,
@@ -60,7 +60,7 @@ def start_impersonation(request, user_id, *, read_only: bool):
                 "staff_user_email": staff_user.email,
                 "target_user_id": user_id,
                 "target_user_email": target_user.email if target_user else None,
-                **client_attribution_properties(request, request.user),
+                **(client_attribution_properties(request, target_user) if target_user else {}),
             },
         )
 
@@ -101,16 +101,19 @@ def upgrade_impersonation(request):
         del request.session[IMPERSONATION_READ_ONLY_SESSION_KEY]
     request.session.modified = True
 
+    # AdminImpersonationMiddleware sets request.user back to the staff user on /admin/ paths, so read the
+    # impersonated user from the session.
+    target_user = get_impersonated_user(request)
     posthoganalytics.capture(
         distinct_id=str(staff_user.distinct_id),
         event="impersonation_upgraded",
         properties={
             "staff_user_id": staff_user.id,
             "staff_user_email": staff_user.email,
-            "target_user_id": request.user.id,
-            "target_user_email": request.user.email,
+            "target_user_id": target_user.id if target_user else None,
+            "target_user_email": target_user.email if target_user else None,
             "reason": reason,
-            **client_attribution_properties(request, request.user),
+            **(client_attribution_properties(request, target_user) if target_user else {}),
         },
     )
 
