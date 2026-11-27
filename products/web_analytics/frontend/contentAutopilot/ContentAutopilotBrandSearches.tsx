@@ -54,7 +54,7 @@ export const ContentAutopilotBrandSearches = ({
                 className: 'w-full max-w-0',
                 render: (_, search) => (
                     <ContentAutopilotCitationsLink
-                        lookup={{ kind: 'search', value: search.query, dateFrom, dateTo, branded }}
+                        lookup={{ kind: 'search', value: search.query, dateFrom, dateTo, branded, engine, topic }}
                         source="brand-searches"
                         title={search.query}
                     >

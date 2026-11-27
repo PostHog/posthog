@@ -27,11 +27,16 @@ export const ContentAutopilotBrandCitedSites = ({
     dateFrom,
     dateTo,
     branded,
+    engine,
+    topic,
 }: {
     sites: AEOBrandCitedSiteApi[]
     dateFrom: string
     dateTo: string
     branded: BrandedSegmentEnumApi
+    /** The engine and topic filters of the page, so a site or page opens the same answers it counted. */
+    engine: string | null
+    topic: string | null
 }): JSX.Element => (
     <AiVisibilityTable<AEOBrandCitedSiteApi>
         size="small"
@@ -49,7 +54,7 @@ export const ContentAutopilotBrandCitedSites = ({
                         <li key={page.url} className={SHARE_GRID}>
                             <span className="flex min-w-0 items-center gap-1">
                                 <ContentAutopilotCitationsLink
-                                    lookup={{ kind: 'url', value: page.url, dateFrom, dateTo, branded }}
+                                    lookup={{ kind: 'url', value: page.url, dateFrom, dateTo, branded, engine, topic }}
                                     source="brand-cited-pages"
                                     title={page.url}
                                 >
@@ -80,7 +85,7 @@ export const ContentAutopilotBrandCitedSites = ({
                 render: (_, site) => (
                     <ContentAutopilotSiteLabel domain={site.domain} isTarget={false}>
                         <ContentAutopilotCitationsLink
-                            lookup={{ kind: 'domain', value: site.domain, dateFrom, dateTo, branded }}
+                            lookup={{ kind: 'domain', value: site.domain, dateFrom, dateTo, branded, engine, topic }}
                             source="brand-cited-sites"
                         >
                             {site.domain}

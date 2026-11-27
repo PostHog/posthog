@@ -131,6 +131,8 @@ export const ContentAutopilotBrandDetail = (): JSX.Element | null => {
                                 dateFrom={detail.window_from}
                                 dateTo={detail.window_to}
                                 branded={detail.branded}
+                                engine={detail.engine}
+                                topic={detail.topic}
                             />
                         </TabsContent>
                         <TabsContent value="sentiment">
