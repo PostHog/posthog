@@ -221,6 +221,45 @@ function sdkValueBeforeLoad({ page, cached }: DecisionRow): 'on' | 'off' | 'none
     return cached === 'stored on' ? 'on' : cached === 'stored off' ? 'off' : 'none'
 }
 
+function servePage(row: DecisionRow): void {
+    window.POSTHOG_APP_CONTEXT = {
+        persisted_feature_flags: row.persisted === 'persisted' ? [FLAG] : [],
+    } as unknown as AppContext
+    if (row.page === 'absent') {
+        delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
+    } else {
+        window.POSTHOG_USER_IDENTITY_WITH_FLAGS = {
+            distinctID: 'person-1',
+            featureFlags: { [FLAG]: row.page === 'on' },
+        }
+    }
+    const storedOn = row.cached === 'stored on' || (row.cached === 'first visit' && row.persisted === 'persisted')
+    if (row.cached !== 'first visit' || storedOn) {
+        localStorage.setItem(
+            'lib.logic.featureFlagLogic.featureFlags',
+            JSON.stringify(storedOn ? { [FLAG]: true } : {})
+        )
+    }
+}
+
+function loadOutcome(row: DecisionRow): {
+    after: 'on' | 'off' | 'none'
+    errors: string[]
+    details: Record<string, { failed: boolean }>
+} {
+    const before = sdkValueBeforeLoad(row)
+    const evaluatedNothing = row.load === 'blocked' || row.load === 'calendar flag failed'
+    const after = evaluatedNothing ? before : row.load.endsWith('answers on') ? 'on' : 'off'
+    const errors =
+        row.load === 'blocked'
+            ? ['connection_error']
+            : row.load === 'calendar flag failed' || row.load.startsWith('unrelated error')
+              ? ['errors_while_computing_flags']
+              : []
+    const details = row.load === 'calendar flag failed' && before === 'none' ? { [FLAG]: { failed: true } } : {}
+    return { after, errors, details }
+}
+
 function setTabHidden(hidden: boolean): void {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
     document.dispatchEvent(new Event('visibilitychange'))
@@ -260,39 +299,14 @@ describe('adventCalendarAccessLogic', () => {
         loadedFlags = null
         delete window.POSTHOG_GLOBAL_ERRORS
         jest.mocked(posthog.get_property).mockReset()
-        window.POSTHOG_APP_CONTEXT = {
-            persisted_feature_flags: row.persisted === 'persisted' ? [FLAG] : [],
-        } as unknown as AppContext
-        if (row.page === 'absent') {
-            delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
-        } else {
-            window.POSTHOG_USER_IDENTITY_WITH_FLAGS = {
-                distinctID: 'person-1',
-                featureFlags: { [FLAG]: row.page === 'on' },
-            }
-        }
-        const storedOn = row.cached === 'stored on' || (row.cached === 'first visit' && row.persisted === 'persisted')
-        if (row.cached !== 'first visit' || storedOn) {
-            localStorage.setItem(
-                'lib.logic.featureFlagLogic.featureFlags',
-                JSON.stringify(storedOn ? { [FLAG]: true } : {})
-            )
-        }
+        servePage(row)
         initKeaTests()
         featureFlagLogic.mount()
         appLogic.mount()
         const logic = adventCalendarAccessLogic()
 
         const blocked = row.load === 'blocked'
-        const before = sdkValueBeforeLoad(row)
-        const after =
-            blocked || row.load === 'calendar flag failed' ? before : row.load.endsWith('answers on') ? 'on' : 'off'
-        const errors = blocked
-            ? ['connection_error']
-            : row.load === 'calendar flag failed' || row.load.startsWith('unrelated error')
-              ? ['errors_while_computing_flags']
-              : []
-        const details = row.load === 'calendar flag failed' && before === 'none' ? { [FLAG]: { failed: true } } : {}
+        const { after, errors, details } = loadOutcome(row)
         const loadFlags = (): void => {
             if (blocked) {
                 window.POSTHOG_GLOBAL_ERRORS = { onFeatureFlagsLoadError: true }
