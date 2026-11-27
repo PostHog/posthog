@@ -63,7 +63,6 @@ describe('featureFlagLogic', () => {
     describe('flags from posthog-js', () => {
         const FLAG = 'flag-created-after-the-last-visit'
         const OTHER_FLAG = 'some-other-flag'
-        const { PostHog: RealPostHog } = jest.requireActual<typeof import('posthog-js')>('posthog-js')
 
         type FlagsAnswer = Record<string, boolean> | 'blocked' | 'in flight'
         type PageVisit = {
@@ -79,33 +78,29 @@ describe('featureFlagLogic', () => {
                 isIdentifiedID: true,
                 featureFlags: pageFlags,
             }
-            const sdk = new RealPostHog()
-            jest.spyOn(sdk, '_send_request').mockImplementation(({ url, callback }) => {
-                if (!url.includes('/flags/')) {
-                    return
+            global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+                if (!String(url).startsWith(`${SDK_HOST}/flags/`)) {
+                    return suiteFetch(url, init)
                 }
                 const answer = flagsAnswers.shift() ?? 'blocked'
-                if (answer === 'in flight') {
-                    return
+                if (answer === 'blocked') {
+                    throw new TypeError('Failed to fetch')
                 }
-                callback?.(
-                    answer === 'blocked'
-                        ? { statusCode: 0, error: new TypeError('Failed to fetch') }
-                        : {
-                              statusCode: 200,
-                              json: {
-                                  flags: Object.fromEntries(
-                                      Object.entries(answer).map(([key, enabled]) => [
-                                          key,
-                                          { key, enabled, variant: null },
-                                      ])
-                                  ),
-                              },
-                          }
-                )
+                if (answer === 'in flight') {
+                    return new Promise<Response>(() => {})
+                }
+                const flags = Object.entries(answer).map(([key, enabled]) => [key, { key, enabled, variant: null }])
+                return new Response(JSON.stringify({ flags: Object.fromEntries(flags) }), { status: 200 })
+            }) as typeof fetch
+            let sdk: PostHog | undefined
+            jest.isolateModules(() => {
+                sdk = new (jest.requireActual<typeof import('posthog-js')>('posthog-js').PostHog)()
             })
+            if (!sdk) {
+                throw new Error('posthog-js did not load')
+            }
             sdk.init('phc_test', {
-                api_host: 'https://us.i.posthog.com',
+                api_host: SDK_HOST,
                 persistence: 'localStorage',
                 bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS,
                 advanced_disable_feature_flags_on_first_load: true,
@@ -125,12 +120,17 @@ describe('featureFlagLogic', () => {
             await jest.advanceTimersByTimeAsync(100)
         }
 
+        const SDK_HOST = 'https://us.i.posthog.com'
+        let suiteFetch: typeof fetch
+
         beforeEach(() => {
+            suiteFetch = global.fetch
             jest.useFakeTimers()
             window.localStorage.clear()
         })
 
         afterEach(() => {
+            global.fetch = suiteFetch
             jest.useRealTimers()
             window.localStorage.clear()
             delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
@@ -196,6 +196,16 @@ describe('featureFlagLogic', () => {
                 [{ pageFlags: { [OTHER_FLAG]: true }, flagsAnswers: [{ [OTHER_FLAG]: true }] }],
                 { pageFlags: { [OTHER_FLAG]: true, [FLAG]: true }, flagsAnswers: [{ [OTHER_FLAG]: true }] },
                 undefined,
+            ],
+            [
+                'a blocked request that fails before the app mounts keeps a flag the page decided on',
+                [{ pageFlags: { [OTHER_FLAG]: true }, flagsAnswers: ['blocked'] }],
+                {
+                    pageFlags: { [OTHER_FLAG]: true, [FLAG]: true },
+                    flagsAnswers: ['blocked'],
+                    mountAfterLoad: true,
+                },
+                true,
             ],
             [
                 'a successful load that arrives before the app mounts wins over the page decision',

@@ -116,24 +116,25 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
 
 const POSTHOG_JS_STORED_PERSON_PROPERTIES = '$stored_person_properties'
 const POSTHOG_JS_FLAG_OVERRIDES = '$override_feature_flags'
+const POSTHOG_JS_FLAG_ERRORS = '$feature_flag_errors'
 const ENROLLMENT_PROPERTY_PREFIX = '$feature_enrollment/'
 
-function flagsChosenInThisBrowser(): Set<string> {
+function flagsChosenInThisBrowser(): string[] {
     const enrolledFlags = Object.keys(posthog.get_property(POSTHOG_JS_STORED_PERSON_PROPERTIES) ?? {})
         .filter((property) => property.startsWith(ENROLLMENT_PROPERTY_PREFIX))
         .map((property) => property.slice(ENROLLMENT_PROPERTY_PREFIX.length))
-    const overriddenFlags = Object.keys(posthog.get_property(POSTHOG_JS_FLAG_OVERRIDES) ?? {})
-    return new Set([...enrolledFlags, ...overriddenFlags])
+    return [...enrolledFlags, ...Object.keys(posthog.get_property(POSTHOG_JS_FLAG_OVERRIDES) ?? {})]
 }
 
 function withPageDecisions(variants: Record<string, boolean | string>): Record<string, boolean | string> {
     const chosenFlags = flagsChosenInThisBrowser()
-    const pageDecisions = Object.entries(window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags ?? {}).filter(
-        ([flag]) => !chosenFlags.has(flag)
-    )
-    return Object.fromEntries(
-        Object.entries({ ...variants, ...Object.fromEntries(pageDecisions) }).filter(([, value]) => value)
-    )
+    const decidedVariants = { ...variants }
+    for (const [flag, value] of Object.entries(window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags ?? {})) {
+        if (!chosenFlags.includes(flag)) {
+            decidedVariants[flag] = value
+        }
+    }
+    return Object.fromEntries(Object.entries(decidedVariants).filter(([, value]) => value))
 }
 
 export function peekFeatureFlag(featureFlags: FeatureFlagsSet, flag: FeatureFlagKey): boolean | string | undefined {
@@ -193,11 +194,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // starts from the server decision again.
         posthogAiAccessRevoked = false
         let flagsLoadedOnThisPage = false
-        let flagsFailedOnThisPage = false
+        let flagsFailed = !!posthog.get_property(POSTHOG_JS_FLAG_ERRORS)?.length
         posthog.onFeatureFlags((flags, variants, context) => {
             flagsLoadedOnThisPage ||= context?.errorsLoading === false
-            flagsFailedOnThisPage ||= context?.errorsLoading === true
-            if (flagsLoadedOnThisPage || !flagsFailedOnThisPage) {
+            flagsFailed ||= context?.errorsLoading === true
+            if (flagsLoadedOnThisPage || !flagsFailed) {
                 actions.setFeatureFlags(flags, variants)
                 return
             }
