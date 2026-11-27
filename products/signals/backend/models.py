@@ -3995,6 +3995,8 @@ class SignalScoutMessage(TeamScopedRootMixin, UUIDModel):
 
     class DropReason(models.TextChoices):
         FLAG_OFF = "flag_off", "Feature off"
+        # The owner turned `emit` off after the message was queued.
+        EMIT_OFF = "emit_off", "Emit off"
         ROUTE_REMOVED = "route_removed", "Route removed"
         REPORT_MISSING = "report_missing", "Report missing"
         # The report is suppressed by the safety judge, deleted, or failed, so the inbox does not show it.

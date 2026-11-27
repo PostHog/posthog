@@ -50,6 +50,7 @@ class Migration(migrations.Migration):
                         blank=True,
                         choices=[
                             ("flag_off", "Feature off"),
+                            ("emit_off", "Emit off"),
                             ("route_removed", "Route removed"),
                             ("report_missing", "Report missing"),
                             ("report_hidden", "Report hidden"),

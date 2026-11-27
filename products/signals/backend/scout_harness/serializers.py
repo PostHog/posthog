@@ -4708,11 +4708,14 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
     )
 
     def validate_output_destinations(self, value: dict) -> dict:
-        # Carried over here rather than in `update`, so stored routes kept by an update that drops
-        # the Slack integration are rejected the same way as routes sent with no integration.
         stored = self.instance.output_destinations if isinstance(self.instance, SignalScoutConfig) else None
         if "messages" not in value and isinstance(stored, dict) and stored.get("messages"):
             value = {**value, "messages": stored["messages"]}
+            # Turning Slack delivery off sends no `slack`. The kept routes send through the integration,
+            # so it stays, without its channel or members: reports stop posting and the routes keep working.
+            stored_slack = stored.get("slack")
+            if value.get("slack") is None and isinstance(stored_slack, dict) and "integration_id" in stored_slack:
+                value["slack"] = {"integration_id": stored_slack["integration_id"]}
         return _validate_output_destinations(value, self.context)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:

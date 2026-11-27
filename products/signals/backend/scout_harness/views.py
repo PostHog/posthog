@@ -124,7 +124,7 @@ from products.signals.backend.scout_harness.lifecycle_lock import (
     resolve_auth_kind,
     user_holds_scout_lifecycle_claim,
 )
-from products.signals.backend.scout_harness.message_routes import get_message_routes, scout_send_message_enabled
+from products.signals.backend.scout_harness.message_routes import scout_send_message_enabled
 from products.signals.backend.scout_harness.precheck import (
     dry_run_scout_precheck,
     resolve_effective_precheck,
@@ -3912,9 +3912,11 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
     def _sets_message_routes(request: Request) -> bool:
         # A route's `when` is rendered verbatim into the run prompt, and a route decides who the scout
         # can message, so setting routes is skill-authoring-level steering. Clearing them is not.
+        # The raw value decides, not the route parser: the serializer coerces entries the parser skips
+        # (a numeric `key` becomes a valid slug), so a parsed check would let those through ungated.
         data = request.data
         destinations = data.get("output_destinations") if isinstance(data, dict) else None
-        return isinstance(destinations, dict) and bool(get_message_routes(destinations))
+        return isinstance(destinations, dict) and bool(destinations.get("messages"))
 
     @staticmethod
     def _sets_custom_image(request: Request) -> bool:

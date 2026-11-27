@@ -268,6 +268,37 @@ class TestScoutMessageRoutesConfigAPI(_MessagesFixture, APIBaseTest):
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
         assert not config.output_destinations.get("messages")
 
+    def test_turning_slack_delivery_off_keeps_the_routes_and_their_integration(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        config.output_destinations = {
+            "slack": {"integration_id": self.integration.id, "channel": "C0456DEF789"},
+            "messages": [_route("big-change", _DM)],
+        }
+        config.save(update_fields=["output_destinations"])
+
+        response = self._patch(config, {})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.output_destinations["slack"] == {"integration_id": self.integration.id}
+        assert [route["key"] for route in config.output_destinations["messages"]] == ["big-change"]
+
+    def test_a_route_the_parser_would_skip_still_needs_skill_editor_access(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        numeric_key_route = {"key": 123, "when": "When it happens", "to": [_DM]}
+
+        with patch(
+            "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet._has_skill_editor_access",
+            return_value=False,
+        ):
+            response = self._patch(
+                config, {"slack": {"integration_id": self.integration.id}, "messages": [numeric_key_route]}
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        config.refresh_from_db()
+        assert not config.output_destinations.get("messages")
+
     def test_an_upsert_with_an_empty_list_clears_the_stored_routes(self) -> None:
         LLMSkill.objects.create(team=self.team, name="signals-scout-foo", description="d", body="watch")
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
@@ -336,6 +367,7 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
     @parameterized.expand(
         [
             ("flag_off", "flag_off"),
+            ("emit_turned_off_during_the_run", "emit_off"),
             ("route_removed_during_the_run", "route_removed"),
             ("report_deleted_during_the_run", "report_hidden"),
             ("sent_by_an_overlapping_run", "duplicate"),
@@ -348,6 +380,8 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
         message = self._message(run, key="pr-1", status=SignalScoutMessage.Status.QUEUED, report=report)
         if reason == "route_removed":
             self._set_routes(run.scout_config, _route("another-route", _DM))
+        elif reason == "emit_off":
+            SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(emit=False)
         elif reason == "report_hidden":
             SignalReport.objects.filter(pk=report.pk).update(status=SignalReport.Status.DELETED)
         elif reason == "duplicate":
@@ -427,6 +461,7 @@ class TestPostScoutMessageToSlack(_MessagesFixture, BaseTest):
             ("recipient_removed", "recipient_removed"),
             ("route_removed", "route_removed"),
             ("flag_turned_off", "flag_off"),
+            ("emit_turned_off", "emit_off"),
             ("report_suppressed", "report_hidden"),
         ]
     )
@@ -446,6 +481,8 @@ class TestPostScoutMessageToSlack(_MessagesFixture, BaseTest):
             self._set_routes(run.scout_config, _route("big-change", {"type": "slack_dm", "user": "U0999ZZZ999"}))
         elif refusal == "route_removed":
             self._set_routes(run.scout_config, _route("another-route", _DM))
+        elif refusal == "emit_off":
+            SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(emit=False)
         elif refusal == "report_hidden":
             SignalReport.objects.filter(pk=report.pk).update(status=SignalReport.Status.SUPPRESSED)
         delivery = SignalScoutMessageDelivery.all_teams.select_related(

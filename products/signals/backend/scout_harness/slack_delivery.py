@@ -1022,13 +1022,15 @@ def _ensure_channel_not_shared(client: WebClient, channel_id: str) -> None:
 
 def _ensure_message_delivery_authorized(delivery: SignalScoutMessageDelivery, *, integration_id: int) -> None:
     """Refuse a delivery its route no longer allows. Checked before every post and retry, because an owner
-    can remove a recipient, a route or the integration, or the flag can turn off, while it waits in the queue."""
+    can remove a recipient, a route or the integration, or turn `emit` or the flag off, while it waits in the queue."""
     message = delivery.message
     config = message.run.scout_config
     destinations = config.output_destinations if config is not None else None
     refusal: str | None = None
     if not scout_send_message_enabled(message.run.team):
         refusal = "flag_off"
+    elif config is not None and not config.emit:
+        refusal = "emit_off"
     elif (route := find_message_route(destinations, message.route_key)) is None:
         refusal = "route_removed"
     elif not any(

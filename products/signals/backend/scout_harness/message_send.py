@@ -216,7 +216,9 @@ def _send_one(
         if message is None:
             return False
         route = find_message_route(config.output_destinations, message.route_key) if config else None
-        drop_reason = _drop_reason(message=message, route=route, enabled=enabled, integration_id=integration_id)
+        drop_reason = _drop_reason(
+            message=message, config=config, route=route, enabled=enabled, integration_id=integration_id
+        )
         if drop_reason is None and _sent_recently(message):
             drop_reason = SignalScoutMessage.DropReason.DUPLICATE
         if drop_reason is not None or route is None or integration_id is None:
@@ -254,10 +256,17 @@ def _send_one(
 
 
 def _drop_reason(
-    *, message: SignalScoutMessage, route: MessageRoute | None, enabled: bool, integration_id: int | None
+    *,
+    message: SignalScoutMessage,
+    config: SignalScoutConfig | None,
+    route: MessageRoute | None,
+    enabled: bool,
+    integration_id: int | None,
 ) -> SignalScoutMessage.DropReason | None:
     if not enabled:
         return SignalScoutMessage.DropReason.FLAG_OFF
+    if config is not None and not config.emit:
+        return SignalScoutMessage.DropReason.EMIT_OFF
     if route is None:
         return SignalScoutMessage.DropReason.ROUTE_REMOVED
     if integration_id is None:
