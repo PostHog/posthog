@@ -5,6 +5,8 @@ Authenticated by a shared secret header instead of session or personal-API-key a
 
 import hmac
 
+from django.conf import settings
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -12,7 +14,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import ErrorResponseSerializer
-from posthog.models.instance_setting import get_instance_setting
 from posthog.rate_limit import IPThrottle
 
 from products.growth.backend.facade.api import request_wizard_stamp_rescore
@@ -57,11 +58,11 @@ class GrowthEnrichmentViewSet(viewsets.ViewSet):
         },
         summary="Re-score an organization's ICP fit after its wizard AI-SDK stamp lands.",
         description="Called by a PostHog realtime destination, not by API clients. Requires the "
-        f"{WEBHOOK_SECRET_HEADER} header to match the GROWTH_RESCORE_WEBHOOK_SECRET instance setting.",
+        f"{WEBHOOK_SECRET_HEADER} header to match the GROWTH_RESCORE_WEBHOOK_SECRET setting.",
     )
     @action(methods=["POST"], detail=False, throttle_classes=[GrowthRescoreWebhookThrottle])
     def rescore(self, request: Request, **kwargs) -> Response:
-        secret = get_instance_setting("GROWTH_RESCORE_WEBHOOK_SECRET")
+        secret = settings.GROWTH_RESCORE_WEBHOOK_SECRET
         if not secret:
             return Response(status=503)
         # Django decodes headers as latin-1, and compare_digest rejects a non-ASCII str. The

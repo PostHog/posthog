@@ -817,9 +817,7 @@ def _build_template_context(
         context["boot_theme"] = user_theme_mode or "light"
 
     if posthog_distinct_id:
-        from posthog.models.instance_setting import get_instance_setting
-
-        support_secret = get_instance_setting("CONVERSATIONS_HMAC_SIGNING_SECRET")
+        support_secret = settings.CONVERSATIONS_HMAC_SIGNING_SECRET
         if support_secret:
             from products.conversations.backend.services.identity import (
                 IDENTITY_CLAIM_MAX_AGE_SECONDS,

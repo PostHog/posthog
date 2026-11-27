@@ -394,10 +394,7 @@ class TestGetContextForTemplate(APIBaseTest):
         SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
         request.user = self.user
 
-        with mock.patch(
-            "posthog.models.instance_setting.get_instance_setting",
-            return_value="test-conversations-secret",
-        ):
+        with self.settings(CONVERSATIONS_HMAC_SIGNING_SECRET="test-conversations-secret"):
             context = get_context_for_template("index.html", request)
 
         assert ("js_posthog_identity_claims" in context) is expects_claim

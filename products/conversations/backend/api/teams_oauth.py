@@ -16,7 +16,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -219,7 +218,7 @@ def teams_oauth_callback(request: HttpRequest) -> HttpResponse:
         return _error_response(next_path, "missing_code", 400)
 
     client_id = settings.SUPPORT_TEAMS_APP_ID
-    client_secret = str(get_instance_setting("SUPPORT_TEAMS_APP_SECRET") or "")
+    client_secret = settings.SUPPORT_TEAMS_APP_SECRET
     if not client_id or not client_secret:
         return _error_response(next_path, "support_teams_not_configured", 503)
 

@@ -227,8 +227,8 @@ Task links include the Slack thread, the web task, and the pull request when ava
 
 PostHog Desktop reuses the regular Slack notifications app, so set the standard
 `SLACK_APP_*` credentials in `.env` and restart the `django` +
-`temporal-django-worker` processes so it reloads. These are dynamic settings
-seeded from the env on boot (`posthog/settings/dynamic_settings.py`):
+`temporal-django-worker` processes so it reloads. These are Django settings
+read from the env on boot (`posthog/settings/integrations.py`):
 
 ```bash
 SLACK_APP_CLIENT_ID=<client id>

@@ -65,6 +65,7 @@ class TestInstanceSettingsFallback(SimpleTestCase):
             mock.patch(FLAG, return_value=flag_on),
             mock.patch(POST, return_value=response) as post,
             mock.patch.dict("os.environ", {KEY: "env-copy"}),
+            mock.patch.dict(instance_settings.CONSTANCE_CONFIG, {KEY: ("", "", str)}),
             mock.patch.object(instance_settings, "get_instance_setting", return_value=instance_value),
             mock.patch.object(instance_settings, "get_instance_settings", return_value={KEY: instance_value}),
         ):

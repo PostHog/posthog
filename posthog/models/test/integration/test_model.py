@@ -20,7 +20,6 @@ from posthog.integrations import IntegrationManager
 from posthog.integrations.backend.django_backend import _reported_over_encrypted
 from posthog.integrations.contracts import FrozenIntegrationRecord
 from posthog.integrations.secret_reads import integration_secret_decrypt_counter
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration, SlackIntegration, UndecryptedIntegrationSecretError
 
 
@@ -188,15 +187,19 @@ class TestIntegrationModel(BaseTest):
             _ = loaded.access_token
 
     def test_slack_integration_config(self):
-        self.enterContext(override_settings(SLACK_APP_CLIENT_ID=None))
-        set_instance_setting("SLACK_APP_CLIENT_SECRET", None)
-        set_instance_setting("SLACK_APP_SIGNING_SECRET", None)
+        self.enterContext(
+            override_settings(SLACK_APP_CLIENT_ID=None, SLACK_APP_CLIENT_SECRET=None, SLACK_APP_SIGNING_SECRET=None)
+        )
 
         assert not SlackIntegration.slack_config() == {}
 
-        self.enterContext(override_settings(SLACK_APP_CLIENT_ID="client-id"))
-        set_instance_setting("SLACK_APP_CLIENT_SECRET", "client-secret")
-        set_instance_setting("SLACK_APP_SIGNING_SECRET", "not-so-secret")
+        self.enterContext(
+            override_settings(
+                SLACK_APP_CLIENT_ID="client-id",
+                SLACK_APP_CLIENT_SECRET="client-secret",
+                SLACK_APP_SIGNING_SECRET="not-so-secret",
+            )
+        )
 
         assert SlackIntegration.slack_config() == {
             "SLACK_APP_CLIENT_ID": "client-id",

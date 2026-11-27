@@ -4,7 +4,6 @@ import unittest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.core import mail
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -20,7 +19,7 @@ from posthog.api.instance_settings import (
     get_instance_setting as get_instance_setting_helper,
 )
 from posthog.models import ActivityLog
-from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
+from posthog.models.instance_setting import get_instance_setting, set_instance_setting
 from posthog.settings import CONSTANCE_CONFIG, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
 
 
@@ -93,8 +92,9 @@ class TestSecretSettingsCoverage(unittest.TestCase):
             ("boolean", False, REDACTED),
         ]
     )
+    @patch("posthog.api.instance_settings.SECRET_SETTINGS", ["SOME_SECRET"])
     def test_redact_if_secret_redacts_secret_keys(self, _name: str, value: object, expected: object) -> None:
-        self.assertEqual(_redact_if_secret("EMAIL_HOST_PASSWORD", value), expected)
+        self.assertEqual(_redact_if_secret("SOME_SECRET", value), expected)
 
     @parameterized.expand(
         [
@@ -107,6 +107,7 @@ class TestSecretSettingsCoverage(unittest.TestCase):
             ("list", [1, 2, 3]),
         ]
     )
+    @patch("posthog.api.instance_settings.SECRET_SETTINGS", ["SOME_SECRET"])
     def test_redact_if_secret_passes_through_non_secret_keys(self, _name: str, value: object) -> None:
         self.assertEqual(_redact_if_secret("EMAIL_HOST", value), value)
 
@@ -166,10 +167,6 @@ class TestInstanceSettings(APIBaseTest):
             if item["key"] == "AUTO_START_ASYNC_MIGRATIONS":
                 self.assertEqual(item["editable"], True)
 
-            if item["key"] == "EMAIL_HOST_PASSWORD":
-                self.assertEqual(item["is_secret"], True)
-                self.assertEqual(item["value"], "")
-
     def test_can_retrieve_setting(self):
         response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -183,26 +180,6 @@ class TestInstanceSettings(APIBaseTest):
         )
         self.assertEqual(json_response["value_type"], "bool")
         self.assertEqual(json_response["editable"], True)
-
-    def test_retrieve_secret_setting(self):
-        response = self.client.get(f"/api/instance_settings/EMAIL_HOST_PASSWORD")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        json_response = response.json()
-
-        self.assertEqual(json_response["key"], "EMAIL_HOST_PASSWORD")
-        self.assertEqual(json_response["value"], "")  # empty values are returned
-        self.assertEqual(json_response["editable"], True)
-        self.assertEqual(json_response["is_secret"], True)
-
-        # When a value is set, the value is never exposed again
-        with override_instance_config("EMAIL_HOST_PASSWORD", "this_is_a_secret_sssshhh"):
-            response = self.client.get(f"/api/instance_settings/EMAIL_HOST_PASSWORD")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        json_response = response.json()
-
-        self.assertEqual(json_response["key"], "EMAIL_HOST_PASSWORD")
-        self.assertEqual(json_response["value"], "*****")  # note redacted value
-        self.assertEqual(json_response["is_secret"], True)
 
     def test_non_staff_user_cant_list_or_retrieve(self):
         self.user.is_staff = False
@@ -239,25 +216,6 @@ class TestInstanceSettings(APIBaseTest):
 
         self.assertEqual(get_instance_setting_helper(key).value, after)
         self.assertEqual(get_instance_setting(key), after)
-
-    def test_updating_email_settings(self):
-        with self.settings(
-            EMAIL_HOST="localhost",
-            EMAIL_DEFAULT_FROM="hellohello@posthog.com",
-            SITE_URL="http://localhost:8000",
-            CELERY_TASK_ALWAYS_EAGER=True,
-        ):
-            response = self.client.patch(f"/api/instance_settings/EMAIL_HOST_PASSWORD", {"value": "hunter2"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        self.assertEqual(mail.outbox[0].from_email, "hellohello@posthog.com")
-        self.assertEqual(mail.outbox[0].subject, "This is a test email of your PostHog instance")
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
-        self.validate_basic_html(
-            html_message,
-            "http://localhost:8000",
-            preheader="Email successfully set up!",
-        )
 
     def test_update_integer_setting(self):
         response = self.client.patch(
@@ -380,85 +338,6 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(changes[0]["action"], "changed")
         self.assertEqual(changes[0]["before"], before)
         self.assertEqual(changes[0]["after"], after)
-
-    @parameterized.expand(
-        [
-            ("install", "", "hunter2", "<unset>", "<redacted>"),
-            ("rotate", "old_secret", "new_secret", "<redacted>", "<redacted>"),
-            ("clear", "old_secret", "", "<redacted>", "<unset>"),
-        ]
-    )
-    def test_update_secret_setting_redacts_value(
-        self,
-        _name: str,
-        before: str,
-        after: str,
-        expected_before: str,
-        expected_after: str,
-    ):
-        set_instance_setting("EMAIL_HOST_PASSWORD", before)
-        initial_count = self._instance_setting_logs().count()
-
-        response = self.client.patch(f"/api/instance_settings/EMAIL_HOST_PASSWORD", {"value": after})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        logs = self._instance_setting_logs()
-        self.assertEqual(logs.count(), initial_count + 1)
-
-        log = logs.order_by("-created_at").first()
-        assert log is not None
-        change = log.detail["changes"][0]
-        self.assertEqual(change["before"], expected_before)
-        self.assertEqual(change["after"], expected_after)
-
-        # Defense in depth: the cleartext must appear nowhere in the serialized row.
-        raw_detail = json.dumps(log.detail)
-        if before:
-            self.assertNotIn(before, raw_detail)
-        if after:
-            self.assertNotIn(after, raw_detail)
-
-    @parameterized.expand([(key,) for key in SECRET_SETTINGS])
-    def test_every_secret_setting_is_redacted_on_update(self, key: str):
-        # End-to-end: PATCH every declared secret setting and assert the cleartext
-        # never lands in `posthog_activitylog.detail`. Catches the case where someone
-        # adds a new key to SECRET_SETTINGS but the redaction path silently misses it.
-        before_value = f"old-{key}-cleartext"
-        after_value = f"new-{key}-cleartext"
-        set_instance_setting(key, before_value)
-        initial_count = self._instance_setting_logs().count()
-
-        response = self.client.patch(f"/api/instance_settings/{key}", {"value": after_value})
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-
-        logs = self._instance_setting_logs()
-        self.assertEqual(logs.count(), initial_count + 1)
-
-        log = logs.order_by("-created_at").first()
-        assert log is not None
-        change = log.detail["changes"][0]
-        self.assertEqual(change["before"], "<redacted>")
-        self.assertEqual(change["after"], "<redacted>")
-
-        raw_detail = json.dumps(log.detail)
-        self.assertNotIn(before_value, raw_detail)
-        self.assertNotIn(after_value, raw_detail)
-
-    @parameterized.expand([(key,) for key in SECRET_SETTINGS])
-    def test_every_secret_setting_is_redacted_on_retrieve(self, key: str):
-        # GET every declared secret. When set, the cleartext must never appear in the
-        # response — only the "*****" placeholder. Catches regressions where a future
-        # refactor of get_instance_setting drops the masking for one (or all) keys.
-        cleartext = f"cleartext-for-{key}"
-        with override_instance_config(key, cleartext):
-            response = self.client.get(f"/api/instance_settings/{key}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        json_response = response.json()
-
-        self.assertEqual(json_response["key"], key)
-        self.assertTrue(json_response["is_secret"])
-        self.assertEqual(json_response["value"], "*****")
-        self.assertNotIn(cleartext, response.content.decode())
 
     @parameterized.expand(
         [

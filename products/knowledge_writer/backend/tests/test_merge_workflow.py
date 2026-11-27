@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
 from django.core.cache import cache, caches
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 
 import requests
 from temporalio import activity
@@ -94,7 +94,7 @@ def github_webhook_view():
     dispatcher = WebhookDispatcher(ConsumerRegistry(providers=SPECS, consumers=WEBHOOK_CONSUMERS))
     with (
         patch("posthog.ingress.views.get_dispatcher", return_value=dispatcher),
-        patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=WEBHOOK_SECRET),
+        override_settings(GITHUB_WEBHOOK_SECRET=WEBHOOK_SECRET),
     ):
         yield build_webhook_view(build_github_provider("posthog"))
     reset_consumer_registry()

@@ -33,7 +33,6 @@ from prometheus_client import Counter
 from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.ph_client import ScopedCapture, ph_background_capture, ph_scoped_capture
 from posthog.service_accounts.emails import is_generated_service_account_email
@@ -689,7 +688,7 @@ def _send_via_smtp(
                         host=settings.EMAIL_HOST,
                         port=settings.EMAIL_PORT,
                         username=settings.EMAIL_HOST_USER,
-                        password=get_instance_setting("EMAIL_HOST_PASSWORD"),
+                        password=settings.EMAIL_HOST_PASSWORD,
                         use_tls=settings.EMAIL_USE_TLS,
                         use_ssl=settings.EMAIL_USE_SSL,
                         # Bound the socket so a relay that goes silent mid-conversation raises TimeoutError

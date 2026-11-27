@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.core.cache import cache, caches
 from django.db import OperationalError
 from django.http.response import HttpResponseBase
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -89,12 +89,8 @@ class TestDefaultBranchPushConsumer(VisualReviewTeamScopedTestMixin, BaseTest):
         self.addCleanup(cache.clear)
         self.addCleanup(caches[INGRESS_DEDUP_CACHE_ALIAS].clear)
         dispatcher = WebhookDispatcher(ConsumerRegistry(providers=SPECS, consumers=WEBHOOK_CONSUMERS))
-        for patcher in (
-            patch("posthog.ingress.views.get_dispatcher", return_value=dispatcher),
-            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=WEBHOOK_SECRET),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        self.enterContext(patch("posthog.ingress.views.get_dispatcher", return_value=dispatcher))
+        self.enterContext(override_settings(GITHUB_WEBHOOK_SECRET=WEBHOOK_SECRET))
         self.view = build_webhook_view(build_github_provider("posthog"))
 
     def _post(self, payload: dict[str, Any]) -> HttpResponseBase:

@@ -33,7 +33,7 @@ Two apps on one Slack app registration: `supporthog` for the Events API, and `su
 They are separate here because they are separate endpoints with separate payload types, so each one's consumers are validated against only the types its own endpoint receives.
 The signing secret is the same for both, and it belongs to the product that owns the Slack app, so `build_slack_provider()` and `build_slack_interactivity_provider()` take it as a getter.
 Nothing under `posthog/ingress/` reads it.
-The conversations product reads `SUPPORT_SLACK_SIGNING_SECRET` from the credentials service first, and from the instance setting while the service does not hold it.
+The conversations product reads `SUPPORT_SLACK_SIGNING_SECRET` from the credentials service first, and from the Django setting while the service does not hold it.
 It caches the secret for five minutes.
 
 A third app, `provisioning_review_interactivity`, is PostHog's staff bot for provisioning partner reviews.

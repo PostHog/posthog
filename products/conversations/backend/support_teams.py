@@ -21,7 +21,6 @@ import requests
 import structlog
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -120,7 +119,7 @@ def is_teams_graph_message_seen(team_id: int, channel_id: str, message_id: str) 
 def get_teams_instance_settings() -> dict:
     return {
         "SUPPORT_TEAMS_APP_ID": settings.SUPPORT_TEAMS_APP_ID,
-        "SUPPORT_TEAMS_APP_SECRET": get_instance_setting("SUPPORT_TEAMS_APP_SECRET"),
+        "SUPPORT_TEAMS_APP_SECRET": settings.SUPPORT_TEAMS_APP_SECRET,
         "SUPPORT_TEAMS_APP_TENANT_ID": settings.SUPPORT_TEAMS_APP_TENANT_ID,
     }
 

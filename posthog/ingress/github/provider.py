@@ -1,9 +1,8 @@
 """GitHub App deliveries, for every App PostHog runs.
 
-Two apps share this incarnation: the customer-facing PostHog App (`posthog`, secret in
-instance settings so an operator can rotate it without a deploy) and the Stamphog review App
-(`stamphog`, secret in env because it is instance-wide infrastructure). Both secrets are read from
-the credentials service first, and from those settings while the service does not hold them.
+Two apps share this incarnation: the customer-facing PostHog App (`posthog`) and the Stamphog
+review App (`stamphog`), each with its own webhook secret. Both secrets are read from the
+credentials service first, and from the environment while the service does not hold them.
 """
 
 from collections.abc import Callable, Mapping, Sequence

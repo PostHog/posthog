@@ -23,7 +23,7 @@ The payload's `installation.id` goes into the delivery context as `installation_
 
 Two apps share this incarnation, each subscribed to its own event types in GitHub.
 
-- `posthog`, the customer-facing App. Its secret is `GITHUB_WEBHOOK_SECRET`, held as an instance setting so an operator can rotate it without a deploy.
+- `posthog`, the customer-facing App. Its secret is `GITHUB_WEBHOOK_SECRET`, a Django setting.
 - `stamphog`, the review App. Its secret is `STAMPHOG_GITHUB_APP_WEBHOOK_SECRET`, held as a Django setting because it is instance-wide infrastructure.
 
 Both secrets are read from the credentials service first.

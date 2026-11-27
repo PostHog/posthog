@@ -11,7 +11,7 @@ from typing import Any
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import Client
+from django.test import Client, override_settings
 from django.utils import timezone
 
 from posthog.ingress.contracts import WebhookDelivery
@@ -21,7 +21,6 @@ from posthog.ingress.mailgun.provider import FILES_KEY
 from products.conversations.backend.services.mailgun_events import SENDER_STATUS_ABSENT, SENDER_STATUS_ABSENT_BODY
 
 MAILGUN_SIGNING_KEY = "mailgun-signing-key"
-_SIGNING_KEY_SETTING = "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY"
 # The transport behind the cross-region sender lookup, which a test patches to choose the answer.
 SENDER_STATUS_REQUEST = "products.conversations.backend.services.mailgun_events.requests.post"
 
@@ -39,10 +38,6 @@ def sender_status_response(status_code: int, payload: Any = SENDER_STATUS_ABSENT
         return payload
 
     return SimpleNamespace(status_code=status_code, json=json)
-
-
-def _instance_setting(name: str) -> str:
-    return MAILGUN_SIGNING_KEY if name == _SIGNING_KEY_SETTING else ""
 
 
 def signed_mailgun_fields() -> dict[str, str]:
@@ -79,12 +74,9 @@ class MailgunWebhookTestMixin:
 
     def setUp(self) -> None:
         super().setUp()  # type: ignore[misc]
-        signing_key = patch(
-            "products.conversations.backend.mailgun.get_instance_setting",
-            side_effect=_instance_setting,
-        )
-        signing_key.start()
-        self.addCleanup(signing_key.stop)  # type: ignore[attr-defined]
+        signing_key = override_settings(CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY=MAILGUN_SIGNING_KEY)
+        signing_key.enable()
+        self.addCleanup(signing_key.disable)  # type: ignore[attr-defined]
 
         sender_status = patch(
             SENDER_STATUS_REQUEST,

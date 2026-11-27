@@ -193,7 +193,7 @@ export const getGrowthEnrichmentRescoreCreateUrl = () => {
 }
 
 /**
- * Called by a PostHog realtime destination, not by API clients. Requires the X-PostHog-Webhook-Secret header to match the GROWTH_RESCORE_WEBHOOK_SECRET instance setting.
+ * Called by a PostHog realtime destination, not by API clients. Requires the X-PostHog-Webhook-Secret header to match the GROWTH_RESCORE_WEBHOOK_SECRET setting.
  * @summary Re-score an organization's ICP fit after its wizard AI-SDK stamp lands.
  */
 export const growthEnrichmentRescoreCreate = async (

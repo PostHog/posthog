@@ -131,9 +131,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         self.view = build_webhook_view(build_github_provider("posthog"))
         dispatcher = WebhookDispatcher(ConsumerRegistry(providers=SPECS, consumers=WEBHOOK_CONSUMERS))
         self.enterContext(patch("posthog.ingress.views.get_dispatcher", return_value=dispatcher))
-        self.secret = self.enterContext(
-            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=_SECRET)
-        )
+        self.enterContext(self.settings(GITHUB_WEBHOOK_SECRET=_SECRET))
 
     def _cache_summary(
         self, *, takes_all: bool = False, names: list[str] | None = None, ids: list[int] | None = None
@@ -207,7 +205,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
     ) -> None:
         body = b"not json" if invalid_body else json.dumps(_payload()).encode()
         if missing_secret:
-            self.secret.return_value = None
+            self.enterContext(self.settings(GITHUB_WEBHOOK_SECRET=""))
 
         response = self._post(body, event=event, signature=signature)
 

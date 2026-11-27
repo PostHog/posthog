@@ -47,21 +47,15 @@ session.
 
 ## Step 1 — credentials
 
-`SUPPORT_SLACK_APP_CLIENT_ID` is a plain Django setting read from its env var.
-`SUPPORT_SLACK_APP_CLIENT_SECRET` and `SUPPORT_SLACK_SIGNING_SECRET` are django-constance dynamic settings
-(`posthog/settings/dynamic_settings.py`) that default to the matching env var. Empty client id is what
-produces "Support Slack OAuth client ID is not configured". Put your Slack app's values in `.env.local`
-(gitignored) and restart the backend:
+`SUPPORT_SLACK_APP_CLIENT_ID`, `SUPPORT_SLACK_APP_CLIENT_SECRET` and `SUPPORT_SLACK_SIGNING_SECRET` are
+plain Django settings read from their env vars. Empty client id is what produces "Support Slack OAuth client
+ID is not configured". Put your Slack app's values in `.env.local` (gitignored) and restart the backend:
 
 ```bash
 SUPPORT_SLACK_APP_CLIENT_ID=<client id>
 SUPPORT_SLACK_APP_CLIENT_SECRET=<client secret>
 SUPPORT_SLACK_SIGNING_SECRET=<signing secret>
 ```
-
-Constance stores the two secrets in the DB, and a stored value overrides the env default. If a secret
-still reads as unconfigured after a restart, check `/admin/constance/config/` for a blank stored value and
-set it there instead.
 
 ## Step 2 — the Slack app
 

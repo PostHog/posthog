@@ -4,13 +4,12 @@ from email.generator import BytesGenerator
 from io import BytesIO
 from typing import Any, TypedDict
 
+from django.conf import settings
 from django.core.mail import EmailMessage
 from django.utils import timezone
 
 import requests
 import structlog
-
-from posthog.models.instance_setting import get_instance_setting
 
 from products.conversations.backend.models import MailgunDomainRegistration
 
@@ -24,11 +23,10 @@ MAILGUN_SEND_TIMEOUT = 30  # seconds
 def get_email_webhook_signing_key() -> str | None:
     """The Mailgun account signing key the route endpoints verify with.
 
-    Injected into the ingress provider rather than read there, because the instance setting
-    belongs to this product and nothing under `posthog/ingress/` imports a product. The scheme
-    calls this on every request, and `get_instance_setting` is cached.
+    Injected into the ingress provider rather than read there, because the setting belongs to
+    this product and nothing under `posthog/ingress/` imports a product.
     """
-    return get_instance_setting("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY")
+    return settings.CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY or None
 
 
 class MailgunDnsRecord(TypedDict, total=False):
@@ -47,7 +45,7 @@ class MailgunError(Exception):
 
 
 class MailgunNotConfigured(MailgunError):
-    """Mailgun API key is missing from instance settings."""
+    """Mailgun API key is not configured."""
 
 
 class MailgunDomainConflict(MailgunError):
@@ -87,7 +85,7 @@ class MailgunTransientError(MailgunError):
 
 
 def _get_api_key() -> str:
-    key = get_instance_setting("CONVERSATIONS_EMAIL_MAILGUN_API_KEY")
+    key = settings.CONVERSATIONS_EMAIL_MAILGUN_API_KEY
     if not key:
         raise MailgunNotConfigured("CONVERSATIONS_EMAIL_MAILGUN_API_KEY is not configured")
     return key

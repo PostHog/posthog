@@ -26,7 +26,6 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.jwt import PosthogJwtAudience
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
     CONFIG_LEGACY_OAUTH_CLIENT,
     OAUTH_CLIENT_CREDENTIAL_KEYS,
@@ -2256,21 +2255,19 @@ class TestOauthClientCredentialsFromTheService(BaseTest):
 
     @parameterized.expand(
         [
-            # Self-hosted edits the Slack secret in instance settings, and that edit beats the env var it
-            # defaults from. Reading the env var directly with the service off would ignore the edit.
             (
                 "service_off",
                 False,
                 {},
                 ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"],
-                ("settings-id", "instance-secret"),
+                ("settings-id", "settings-secret"),
             ),
             (
                 "service_missing_the_key",
                 True,
                 {},
                 ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"],
-                ("settings-id", "instance-secret"),
+                ("settings-id", "settings-secret"),
             ),
             (
                 "service_holds_the_key",
@@ -2282,11 +2279,10 @@ class TestOauthClientCredentialsFromTheService(BaseTest):
         ]
     )
     def test_slack_falls_back_to_settings(self, _name, service_on, service_values, service_missing, expected):
-        set_instance_setting("SLACK_APP_CLIENT_SECRET", "instance-secret")
         with (
-            self.settings(SLACK_APP_CLIENT_ID="settings-id"),
+            self.settings(SLACK_APP_CLIENT_ID="settings-id", SLACK_APP_CLIENT_SECRET="settings-secret"),
             patch(CREDENTIALS_SERVICE_FLAG, return_value=service_on),
-            patch.dict("os.environ", {"SLACK_APP_CLIENT_ID": "", "SLACK_APP_CLIENT_SECRET": "env-secret"}),
+            patch.dict("os.environ", {"SLACK_APP_CLIENT_ID": "", "SLACK_APP_CLIENT_SECRET": ""}),
             patch(
                 CREDENTIALS_SERVICE_POST,
                 return_value=_credentials_service_response(service_values, service_missing),

@@ -114,14 +114,13 @@ class TestErrorTrackingGitHubWebhook(SimpleTestCase):
         ]
     )
     @patch("products.error_tracking.backend.tasks.github.process_github_external_reference.delay")
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="webhook-secret")
+    @override_settings(GITHUB_WEBHOOK_SECRET="webhook-secret")
     def test_verified_delivery_enqueues_supported_events(
         self,
         _name: str,
         event_type: str,
         resource_key: str,
         expected_resource_type: str,
-        _get_instance_setting: Mock,
         delay: Mock,
     ) -> None:
         payload = {
