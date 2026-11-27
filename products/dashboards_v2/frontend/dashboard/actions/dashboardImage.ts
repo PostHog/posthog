@@ -7,7 +7,8 @@ import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
 
 import type { MenuAction } from '../../menu/menuAction'
-import { DESCRIPTION_ICON_CLASS, INTERACTIVE_ONLY_CLASS } from '../../tiles/core/ContentTile'
+import { INTERACTIVE_ONLY_CLASS } from '../../tiles/core/ContentTile'
+import { DESCRIPTION_ICON_CLASS } from '../../tiles/core/DescriptionIcon'
 import { TILE_PLACEHOLDER_CLASS } from '../../tiles/core/TileContextMenu'
 
 export type ImageFormat = 'png' | 'webp'
