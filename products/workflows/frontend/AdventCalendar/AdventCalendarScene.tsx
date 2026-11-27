@@ -1,10 +1,12 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
+import { useEffect } from 'react'
 
-import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { AdventShareButton } from './AdventShareButton'
 import { AdventStage } from './AdventStage'
@@ -16,12 +18,16 @@ export const scene: SceneExport = {
 export function AdventCalendarScene(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
+    const hasCalendar = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]
 
-    if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+    useEffect(() => {
+        if (receivedFeatureFlags && !hasCalendar) {
+            router.actions.replace(urls.workflows())
+        }
+    }, [receivedFeatureFlags, hasCalendar])
+
+    if ((!receivedFeatureFlags && !featureFlagsTimedOut) || !hasCalendar) {
         return <div className="flex-1" />
-    }
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]) {
-        return <NotFound object="page" />
     }
 
     return (
