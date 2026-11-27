@@ -10,6 +10,7 @@ import pytest
 import time_machine
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import ImproperlyConfigured
 from django.db import OperationalError
 from django.test import override_settings
 
@@ -489,6 +490,68 @@ class TestMintScopedToken:
             post.return_value = self._response(201, {"token": "phe_abc"})
             assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
         assert post.call_args.kwargs["json"]["ttl_seconds"] == 86400
+
+
+DEV_TOKEN = "phe_dev_mode_token"
+
+
+class TestDevModeTokenPassThrough:
+    def _response(self) -> MagicMock:
+        response = MagicMock()
+        response.status_code = 201
+        response.json.return_value = {"token": "phe_minted", "capture_mode": "none"}
+        return response
+
+    @pytest.mark.parametrize("debug", [True, False])
+    @pytest.mark.parametrize("dev_token", [DEV_TOKEN, None])
+    @pytest.mark.parametrize("mint_key", ["phs_test_mint", None])
+    def test_mint_resolves_the_dev_token_mint_key_and_debug(self, mint_settings, debug, dev_token, mint_key) -> None:
+        mint_settings.DEBUG = debug
+        mint_settings.SANDBOX_AI_GATEWAY_DEV_TOKEN = dev_token
+        mint_settings.SANDBOX_AI_GATEWAY_MINT_KEY = mint_key
+        with patch.object(requests, "post", return_value=self._response()) as post:
+            if dev_token and not debug:
+                with pytest.raises(ImproperlyConfigured, match="only works with DEBUG on"):
+                    mint_scoped_token(ai_product="signals_scout", team_id=123, capture_mode="none")
+                expected_token = None
+            else:
+                token = mint_scoped_token(ai_product="signals_scout", team_id=123, capture_mode="none")
+                expected_token = dev_token or ("phe_minted" if mint_key else None)
+                assert token == expected_token
+        assert post.called == (expected_token == "phe_minted")
+
+    def test_a_dev_token_without_the_phe_prefix_is_refused(self, mint_settings) -> None:
+        mint_settings.DEBUG = True
+        mint_settings.SANDBOX_AI_GATEWAY_DEV_TOKEN = "phs_not_a_dev_token"
+        with patch.object(requests, "post") as post, pytest.raises(ImproperlyConfigured, match="phe_"):
+            mint_scoped_token(ai_product="signals_scout", team_id=123)
+        post.assert_not_called()
+
+    @pytest.mark.parametrize("debug", [True, False])
+    def test_the_dev_token_is_never_revoked(self, mint_settings, debug) -> None:
+        mint_settings.DEBUG = debug
+        mint_settings.SANDBOX_AI_GATEWAY_DEV_TOKEN = DEV_TOKEN
+        with patch.object(requests, "post") as post:
+            if debug:
+                revoke_private_gateway_token(DEV_TOKEN)
+            else:
+                with pytest.raises(ImproperlyConfigured, match="only works with DEBUG on"):
+                    revoke_private_gateway_token(DEV_TOKEN)
+        post.assert_not_called()
+
+    @pytest.mark.parametrize("debug", [True, False])
+    def test_env_vars_route_a_run_on_the_dev_token_alone(self, mint_settings, debug) -> None:
+        mint_settings.DEBUG = debug
+        mint_settings.SANDBOX_AI_GATEWAY_DEV_TOKEN = DEV_TOKEN
+        mint_settings.SANDBOX_AI_GATEWAY_MINT_KEY = None
+        with patch.object(requests, "post") as post:
+            if debug:
+                env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout")
+                assert env["AI_GATEWAY_TOKEN"] == DEV_TOKEN
+            else:
+                with pytest.raises(ProcessTaskFatalError, match="only works with DEBUG on"):
+                    utils.run_gateway_env_vars(MagicMock(team_id=123, run_id="run"), MagicMock())
+        post.assert_not_called()
 
 
 class TestAiGatewayEnvVars:

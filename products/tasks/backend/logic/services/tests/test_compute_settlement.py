@@ -401,6 +401,17 @@ class TestComputeSettlement(BaseTest):
         post.assert_not_called()
         assert self._reload(session).compute_settled_at is None
 
+    def test_dev_mode_token_skips_settlement(self) -> None:
+        session = self._session()
+        with (
+            override_settings(DEBUG=True, SANDBOX_AI_GATEWAY_DEV_TOKEN="phe_dev_mode_token"),
+            patch(HTTPX_POST) as post,
+        ):
+            assert settle_sandbox_session(session) == SettlementOutcome.DISABLED
+
+        post.assert_not_called()
+        assert self._reload(session).compute_settled_at is None
+
     @parameterized.expand([("unattributed", True), ("zero_amount", False)])
     def test_settles_locally_without_a_call(self, _name: str, unattributed: bool) -> None:
         ended_at = self.now - timedelta(hours=1)

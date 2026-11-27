@@ -23,7 +23,10 @@ from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 
 from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunSpend, TaskRunTokenUsage
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
-from products.tasks.backend.logic.services.sandbox_config import sandbox_ai_gateway_worker_url
+from products.tasks.backend.logic.services.sandbox_config import (
+    sandbox_ai_gateway_dev_token,
+    sandbox_ai_gateway_worker_url,
+)
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun, TaskRunGatewayRequest
 
@@ -34,6 +37,8 @@ logger = structlog.get_logger(__name__)
 _REQUEST_ID = re.compile(r"[a-zA-Z0-9_-]{1,255}\Z")
 _PROCESSING_SECONDS = 10
 _DRAIN_BATCH_SIZE = 200
+_UNPRICED_STATE_KEY = "token_cost_unpriced"
+_DEV_TOKEN_UNPRICED_REASON = "dev_token"
 _SCHEDULING_LOOP: asyncio.AbstractEventLoop | None = None
 _SCHEDULING_LOCK = threading.Lock()
 
@@ -102,6 +107,8 @@ def record_gateway_routing(*, run_id: UUID | str, team_id: int, uses_gateway: bo
         if uses_gateway:
             state.setdefault("unprocessed_request_ids", [])
             state.setdefault("token_cost", {})
+            if sandbox_ai_gateway_dev_token():
+                state[_UNPRICED_STATE_KEY] = _DEV_TOKEN_UNPRICED_REASON
         else:
             state["token_cost_incomplete"] = True
         if state == run.state:
@@ -201,6 +208,13 @@ def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20
             _save_accounting_state(run)
         if not gateway_usage_enabled(run):
             return _cost_sources(run).as_contract()
+        if sandbox_ai_gateway_dev_token():
+            if state["unprocessed_request_ids"] or state.get(_UNPRICED_STATE_KEY) != _DEV_TOKEN_UNPRICED_REASON:
+                state["unprocessed_request_ids"] = []
+                state[_UNPRICED_STATE_KEY] = _DEV_TOKEN_UNPRICED_REASON
+                run.state = state
+                _save_accounting_state(run)
+            return _cost_sources(run).as_contract()
         pending = _pending_ids(state)[:limit]
     deadline = time.monotonic() + _PROCESSING_SECONDS
     for request_id in pending:
@@ -299,6 +313,8 @@ def _bucket_cost_microusd(bucket: dict[str, Any], *, standard: bool = False) -> 
 def _recorded_cost_microusd(run: TaskRun, *, standard: bool = False) -> int | None:
     state = run.state or {}
     if not isinstance(state.get("token_cost"), dict):
+        return None
+    if state.get(_UNPRICED_STATE_KEY) == _DEV_TOKEN_UNPRICED_REASON and sandbox_ai_gateway_dev_token():
         return None
     return sum(_bucket_cost_microusd(bucket, standard=standard) for bucket in _cost_buckets(state))
 
