@@ -14851,17 +14851,17 @@ Note: apidocs.tempo.io is a Redoc page; the spec is at ./tempo-openapi.yaml (~55
 
 ## TemporalIO — gaps
 
-Today (5): `namespaces`, `schedules`, `standalone_activities`, `workflow_histories`, `workflows`
+Today (7): `batch_operations`, `namespaces`, `schedules`, `standalone_activities`, `workers`, `workflow_histories`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/temporalio/api/master/openapi/openapiv3.yaml>
 
 - [x] `namespaces/{namespace}/schedules (ListSchedules)` — schedule definitions and their recent action results — lookup resolving which schedule spawned the workflows we already sync (high)
 - [x] `namespaces (ListNamespaces)` — namespace lookup with retention and archival config; the top-level partition of every other table (medium)
 - [x] `namespaces/{namespace}/activities (ListActivities)` — activity-level state including paused/retrying activities, without reconstructing it from raw history events (medium)
-- [ ] `namespaces/{namespace}/task-queues/{task_queue.name} (DescribeTaskQueue)` — backlog depth and poller counts per task queue — the key operational health metric (medium)
-- [ ] `namespaces/{namespace}/batch-operations (ListBatchOperations)` — bulk terminate/signal/reset jobs and their progress, which explain mass workflow state changes (medium)
-- [ ] `namespaces/{namespace}/workers (ListWorkers)` — worker fleet inventory for attributing workflow execution to hosts/builds (medium)
-- [ ] `namespaces/{namespace}/archived-workflows (ListArchivedWorkflowExecutions)` — closed executions past the visibility retention window — required for long-range historical analysis (medium)
+- [ ] `namespaces/{namespace}/task-queues/{task_queue.name} (DescribeTaskQueue)` — backlog depth and poller counts per task queue — the key operational health metric (medium) Skipped: no RPC lists task queues, and the response is a point-in-time gauge for one named queue.
+- [x] `namespaces/{namespace}/batch-operations (ListBatchOperations)` — bulk terminate/signal/reset jobs and their progress, which explain mass workflow state changes (medium)
+- [x] `namespaces/{namespace}/workers (ListWorkers)` — worker fleet inventory for attributing workflow execution to hosts/builds (medium)
+- [ ] `namespaces/{namespace}/archived-workflows (ListArchivedWorkflowExecutions)` — closed executions past the visibility retention window — required for long-range historical analysis (medium) Skipped: Temporal Cloud has no archival, and self-hosted archived visibility accepts only archiver-specific filtered queries, so it cannot list every execution.
 - [ ] `namespaces/{namespace}/worker-deployments (ListWorkerDeployments)` — deployment/version records for comparing workflow outcomes across worker versions (low)
 - [ ] `namespaces/{namespace}/search-attributes (ListSearchAttributes)` — lookup describing the custom search attributes that appear on synced workflows (low)
 
