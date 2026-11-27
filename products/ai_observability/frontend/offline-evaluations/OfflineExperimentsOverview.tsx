@@ -67,7 +67,6 @@ export function OfflineExperimentsOverview({
             title: 'Experiment',
             key: 'name',
             className: '@max-[50rem]:w-1/3',
-            width: '25%',
             render: (_, experiment) => (
                 <Tooltip
                     title={
@@ -371,7 +370,7 @@ export function OfflineExperimentsOverview({
                     </LemonBanner>
                 ) : (
                     <LemonTable
-                        className="@max-[50rem]:[&_colgroup]:hidden @max-[50rem]:[&_table]:table-auto"
+                        className="@max-[50rem]:[&_colgroup]:hidden @max-[50rem]:[&_table]:table-auto @max-[50rem]:[&_th:first-child]:w-px"
                         dataSource={experiments?.results || []}
                         columns={columns}
                         rowKey="id"
