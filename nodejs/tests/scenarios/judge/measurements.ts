@@ -173,18 +173,22 @@ const terminationsOf = (
 ): (ValveTimelineEntry & Required<Pick<ValveTimelineEntry, 'exit'>>)[] =>
     timeline.flatMap((entry) => (entry.exit === undefined ? [] : [{ ...entry, exit: entry.exit }]))
 
+const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
+
 export const roleExitMs: MeasurementDefinition = {
     name: 'role_exit_ms',
     params: z.object({}).strict(),
     unit: 'ms',
     measure: ({ timeline }) => {
         const terminations = terminationsOf(timeline)
-        const keyed = (key: string, index: number): string => (terminations.length === 1 ? key : `${key} ${index + 1}`)
-        return terminations.map(({ target, exit }, index) =>
+        if (terminations.length > 1) {
+            return [unmeasured('the card terminates more than one role, so its exits have no stable key')]
+        }
+        return terminations.map(({ target, exit }) =>
             exit.exitedAt === undefined
-                ? { value: null, censored: true, unmeasured: `${target} did not exit` }
+                ? unmeasured(`${target} did not exit`)
                 : {
-                      key: keyed(exit.signal === 'SIGKILL' ? 'sigkill' : 'sigterm', index),
+                      key: exit.signal === 'SIGKILL' ? 'sigkill' : 'sigterm',
                       value: Date.parse(exit.exitedAt) - Date.parse(exit.signalledAt),
                   }
         )
@@ -200,8 +204,6 @@ const unreadTruthOf = ({ unread, unsettled, converged }: MeasureEvidence): strin
           (converged === false
               ? 'the run did not converge, so a resend could still land after the final read'
               : undefined))
-
-const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
 
 export const leaseReclaimMs: MeasurementDefinition = {
     name: 'lease_reclaim_ms',

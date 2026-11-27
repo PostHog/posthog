@@ -225,14 +225,17 @@ describe('measurements', () => {
             [{ key: 'sigterm', value: 10_010 }],
         ],
         [
-            'each of two roles',
+            'two terminated roles',
             [
                 { exitedAt: at(8000), code: 0 },
                 { exitedAt: at(9000), code: 0 },
             ],
             [
-                { key: 'sigterm 1', value: 3000 },
-                { key: 'sigterm 2', value: 4000 },
+                {
+                    value: null,
+                    censored: true,
+                    unmeasured: 'the card terminates more than one role, so its exits have no stable key',
+                },
             ],
         ],
         [

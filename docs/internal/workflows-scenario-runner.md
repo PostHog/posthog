@@ -615,6 +615,7 @@ It rejects:
 - a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
 - an `edge_accepted` entry on any valve but `role.kill` or `role.terminate` on the email worker, because the held send is an email worker's;
 - an `edge_accepted` entry under a profile that runs more than one email worker, because the valve stops replica 0 and another replica may own the held send;
+- a `role.terminate` entry armed on `running_on_queue`, because a worker given SIGTERM drains its running jobs before it exits, so the read jobs may have finished by the signal; arm it on `edge_accepted` or `at`;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
 
 **Hashes.**
@@ -944,7 +945,7 @@ export type JournalEntry = {
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
-  - `role_exit_ms`, `sigterm` or `sigkill`, milliseconds, lower is better: for each `role.terminate` entry, from the SIGTERM to the role's exit, keyed `sigkill` when the role died of the SIGKILL and `sigterm` otherwise, with the entry's place among the card's terminations added when it has several. A role whose exit never arrived is unmeasured.
+  - `role_exit_ms`, `sigterm` or `sigkill`, milliseconds, lower is better: for each `role.terminate` entry, from the SIGTERM to the role's exit, keyed `sigkill` when the role died of the SIGKILL and `sigterm` otherwise. A role whose exit never arrived is unmeasured, and so is a card with more than one `role.terminate` entry, whose exits have no stable key.
   - `lease_reclaim_ms`, per unit and invocation id, milliseconds, lower is better: for each `role.terminate` entry, from the role's exit to the first edge request after it, for each invocation whose send the edge accepted by the signal. Each key is a send stranded by the stop and sent again under the same invocation id; a send refused before the signal and retried later is not one. When none went out again, the role never exited, the truth is unread or still settling, the run did not converge, or the card stops more than one role, it is unmeasured.
   - `resent_invocations`, invocations, lower is better: the key `total` counts the invocation ids the edge accepted more than once, and one key per such unit and invocation id gives its accepted sends. A card that kills the worker resends under the invocation id the worker already used too; list `resent_invocations` in its `measure` to compare the two. While the truth is unread, sends could still land, or the run did not converge, `total` is unmeasured.
   - `counter_drift`, messages, closer to 0 is better: how far the production email counters drift from the sink's truth. It is a measurement, not a pass or fail bar.

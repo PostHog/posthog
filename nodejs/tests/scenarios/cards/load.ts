@@ -234,6 +234,16 @@ function checkAcceptedBoundary(card: Card): string[] {
     )
 }
 
+function checkTerminateTrigger(card: Card): string[] {
+    return card.valves.flatMap(({ valve, when }, i) =>
+        valve === roleTerminate.name && when?.name === 'running_on_queue'
+            ? [
+                  `valves.${i}.when: arm ${valve} on edge_accepted or at, since a worker given SIGTERM drains its jobs before it exits`,
+              ]
+            : []
+    )
+}
+
 function checkTerminationGrace(card: Card, profile: Profile): string[] {
     return profile.terminationGrace !== undefined
         ? []
@@ -506,6 +516,7 @@ function check(
         ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
         ...checkAcceptedBoundary(card),
+        ...checkTerminateTrigger(card),
         ...('profile' in loaded
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
