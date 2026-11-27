@@ -1314,6 +1314,47 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         check = next(check for check in response.json()["checks"] if check["key"] == check_key)
         self.assertEqual((check["status"], check["reason"], check["values"]), expected)
 
+    @parameterized.expand(
+        [
+            ("running", {"start_date": datetime(2026, 1, 2, tzinfo=UTC)}, True, "2026-01-05T00:00:00Z"),
+            (
+                "stopped",
+                {"start_date": datetime(2025, 12, 20, tzinfo=UTC), "end_date": datetime(2026, 1, 2, 12, tzinfo=UTC)},
+                True,
+                "2026-01-02T00:00:00Z",
+            ),
+            ("draft", {}, True, None),
+            ("paused", {"start_date": datetime(2026, 1, 2, tzinfo=UTC)}, False, None),
+        ]
+    )
+    def test_health_says_from_when_a_check_is_out_of_date(
+        self, _name: str, experiment_fields: dict[str, Any], flag_active: bool, stale_before: str | None
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"health-stale-before-{_name}",
+            created_by=self.user,
+            active=flag_active,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team, name=f"health-stale-before-{_name}", feature_flag=flag, **experiment_fields
+        )
+
+        with time_machine.travel(datetime(2026, 1, 5, 12, tzinfo=UTC), tick=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["stale_before"], stale_before)
+
     def _deny_event_property(self, name: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}

@@ -1050,7 +1050,8 @@ class EnterpriseExperimentsViewSet(
         result counts when the split changed. The `as_of` of these checks can be a day or more before
         the request when the results are out of date. A check that reads the flag's calls by release
         condition reads a scan that is cached for up to a day. A check that reads only settings gives
-        the time of the request.
+        the time of the request. A check here or in the exposure query whose `as_of` is earlier than
+        `stale_before` is out of date.
 
         The checks here read the experiment, its flag, its linked metrics, the project's event and
         property definitions, the cohorts of the exposure criteria, and the changes of the flag's

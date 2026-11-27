@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime
 from typing import Any
 
 from django.utils import timezone
@@ -30,6 +31,7 @@ from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate, not_checked_health
 from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import activation_blocks_cuped, metric_supports_cuped
 from products.experiments.backend.hogql_queries.utils import FrequentistSettings
 from products.experiments.backend.metric_calculation.config import (
@@ -40,6 +42,7 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation.admission import STALE_REFRESH_MIN_RESULT_AGE
 from products.feature_flags.backend.facade.filters import (
     condition_aggregation,
     condition_rollout_percentage,
@@ -68,8 +71,19 @@ def evaluate_experiment_health(
     ctx = _health_context(experiment, team_config, reader_access, user)
     launched = _launched_now(experiment, ctx) if at_launch and not ctx.is_launched else None
     return replace(
-        evaluate(ctx, EXPERIMENT_HEALTH_CHECKS, launched=launched), setup=_health_setup(experiment, ctx, team_config)
+        evaluate(ctx, EXPERIMENT_HEALTH_CHECKS, launched=launched),
+        setup=_health_setup(experiment, ctx, team_config),
+        stale_before=_stale_before(experiment, timezone.now()),
     )
+
+
+def _stale_before(experiment: Experiment, now: datetime) -> datetime | None:
+    """The `as_of` before which a check is out of date: STALE_REFRESH_MIN_RESULT_AGE before the end of the window, the
+    rule that refreshes stale results on the results page. None before launch and while paused, because no new data
+    arrives then."""
+    if experiment.is_draft or experiment.is_paused:
+        return None
+    return experiment_window_end(experiment, now) - STALE_REFRESH_MIN_RESULT_AGE
 
 
 def _launched_now(experiment: Experiment, ctx: HealthContext) -> HealthContext:

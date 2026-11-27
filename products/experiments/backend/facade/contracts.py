@@ -724,6 +724,11 @@ class ExperimentHealth:
     checks: tuple[ExperimentHealthCheckResult, ...]
     # None when not loaded or when the experiment has no flag. Only the health endpoint loads it.
     setup: ExperimentHealthSetup | None = None
+    # pinned: API callers read it. A check whose `as_of` is earlier is out of date, by the rule that refreshes stale
+    # results on the results page. A time rather than a flag per check, because the exposure checks come from an answer
+    # that is cached for a day, and a flag stored there would say "current" exactly when the run is old. None for a
+    # draft and a paused experiment, which collect no new data. Only the health endpoint sets it.
+    stale_before: datetime | None = None
 
 
 @frozen
