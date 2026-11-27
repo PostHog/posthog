@@ -21,12 +21,12 @@ export interface RecentTracesListProps {
     'data-attr': string
 }
 
-// The input is the customer's own prompt. ph-sensitive keeps the click on the row in autocapture without its text, and
-// ph-mask masks the text in session replay.
+// The input is the customer's own prompt. ph-no-capture keeps it out of autocapture, copied text included, which
+// ph-sensitive does not cover, and ph-mask masks it in session replay. A click on the text is not autocaptured.
 function inputOf(preview: TraceCellLoad<TracePreviewApi> | undefined): JSX.Element | null {
     const value = preview?.status === 'ready' ? preview.value : null
     if (value?.input) {
-        return <span className="ph-sensitive ph-mask min-w-0 truncate">{value.input}</span>
+        return <span className="ph-no-capture ph-mask min-w-0 truncate">{value.input}</span>
     }
     return value?.inputMissingReason ? (
         <span className="text-muted whitespace-nowrap">{MISSING_REASON_LABELS[value.inputMissingReason]}</span>
