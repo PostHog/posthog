@@ -162,35 +162,53 @@ class TestLoadRunFooter(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("posthog_credits_add_billed_compute", {}, Decimal("0.25"), Decimal("1.25")),
-            ("posthog_credits_without_billed_compute", {}, Decimal(0), Decimal("1.00")),
-            # A thread can switch plans between runs, so an own-plan run shows no cost rather than a
-            # compute-only figure that hides earlier model spend.
-            ("own_plan_shows_no_cost", OWN_PLAN_STATE, Decimal("0.25"), None),
+            ("credit_runs_add_model_spend_and_compute", [{}, {}], Decimal("0.25"), Decimal("2.25")),
+            (
+                "earlier_credit_spend_survives_a_switch_to_an_own_plan",
+                [{}, OWN_PLAN_STATE],
+                Decimal("0.25"),
+                Decimal("1.25"),
+            ),
+            (
+                "own_plan_runs_pay_only_for_billed_compute",
+                [OWN_PLAN_STATE, OWN_PLAN_STATE],
+                Decimal("0.25"),
+                Decimal("0.25"),
+            ),
+            ("own_plan_runs_without_billed_compute_show_no_cost", [OWN_PLAN_STATE, OWN_PLAN_STATE], Decimal(0), None),
+            ("credit_runs_without_billed_compute", [{}, {}], Decimal(0), Decimal("2.00")),
         ]
     )
     @patch("products.tasks.backend.facade.billing.get_task_compute_cost")
-    @patch("products.tasks.backend.facade.billing.get_task_token_cost")
+    @patch("products.tasks.backend.facade.billing.get_local_task_run_token_costs")
+    @patch("products.tasks.backend.facade.api.list_task_runs")
     @patch("products.tasks.backend.facade.api.get_task_run")
-    def test_thread_cost_adds_the_compute_that_ai_credits_bill(
+    def test_thread_cost_counts_model_spend_of_credit_runs_and_billed_compute(
         self,
         _name: str,
-        state: dict,
+        run_states: list[dict],
         billed_compute: Decimal,
         expected: Decimal | None,
         mock_get_run,
-        mock_token_cost,
+        mock_list_runs,
+        mock_run_costs,
         mock_compute,
     ) -> None:
+        runs = [SimpleNamespace(id=uuid4(), state=state) for state in run_states]
         mock_get_run.return_value = SimpleNamespace(
-            id=uuid4(),
+            id=runs[-1].id,
             task_id=uuid4(),
             team_id=1,
-            state=state,
+            state=runs[-1].state,
             created_by_id=None,
+            task_origin_product="slack",
             task_created_at=datetime(2026, 11, 1, tzinfo=UTC),
         )
-        mock_token_cost.return_value = Decimal("1.00")
+        mock_list_runs.return_value = runs
+        # Every run the footer asks about spent one dollar on models, so the total counts the runs asked for.
+        mock_run_costs.side_effect = lambda **kwargs: {
+            str(run_id): Decimal("1.00") for run_id in kwargs["task_run_ids"]
+        }
         mock_compute.return_value = TaskComputeCost(
             cost_usd=billed_compute, billing_meter=ComputeBillingMeter.AI_CREDITS if billed_compute else None
         )
