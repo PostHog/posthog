@@ -26,6 +26,7 @@ import { canAdoptSandboxSender } from '../Channels/sandboxSender'
 import { urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
 import { messageAudienceAttempt, startMessageAudienceAttempt } from './messageAudienceAttempts'
+import { draftMessage } from './messageDrafts'
 
 // pinned: analytics property values of the warnings event
 export type MessageAudienceWarningKind =
@@ -89,26 +90,29 @@ export async function loadMessageAudienceWarnings(
     { offerTestSender = false }: { offerTestSender?: boolean } = {}
 ): Promise<MessageAudienceWarning[]> {
     const projectId = String(ApiConfig.getCurrentProjectId())
+    const teamId = String(ApiConfig.getCurrentTeamId())
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
-    const [suspension, integrations, testSender, cohorts] = await Promise.all([
+    const testSender = offerTestSender ? withinTimeout(workflowEmailSandboxStatus(teamId)) : Promise.resolve(null)
+    const [suspension, integrations, cohorts] = await Promise.all([
         withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(projectId)),
-        withinTimeout(integrationsList(projectId, { kind: 'email' })),
-        offerTestSender ? withinTimeout(workflowEmailSandboxStatus(projectId)) : null,
+        withinTimeout(integrationsList(teamId, { kind: 'email' })),
         Promise.all(
             cohortIds.map((id) =>
                 withinTimeout(cohortsRetrieve(projectId, id).then((cohort) => toAudienceCohort(id, cohort)))
             )
         ),
     ])
+    // A verified sender can sit on a later page, so only a complete list can say none is verified.
+    const senderWarning = integrations && !integrations.next ? emailSenderWarning(integrations.results) : null
+    const sendingWorks = suspension?.email_sending_suspended === false
     return [
         suspension?.email_sending_suspended
             ? { kind: 'sending_suspended' as const, message: EMAIL_SENDING_SUSPENDED_MESSAGE }
             : null,
-        // A verified sender can sit on a later page, so only a complete list can say none is verified.
-        integrations && !integrations.next
-            ? withTestSender(emailSenderWarning(integrations.results), canAdoptSandboxSender(testSender), destination)
-            : null,
+        senderWarning && sendingWorks && offerTestSender
+            ? withTestSender(senderWarning, canAdoptSandboxSender(await testSender), destination)
+            : senderWarning,
         ...cohorts.map((cohort) => {
             const message = cohort ? audienceCohortLaunchError(cohort) : null
             return message ? { kind: 'cohort_not_ready' as const, message } : null
@@ -139,7 +143,7 @@ export async function openMessageAudience(
                 urlForNewWorkflowWithTrigger(
                     { type: 'batch', filters: { properties: audience.properties } },
                     audience.source,
-                    audience.broadcastEmail ?? audience.workflowEmail,
+                    audience.broadcastEmail ?? audience.workflowEmail ?? draftMessage({ kind: 'placeholder' }),
                     audience.draftSource,
                     messageAudienceAttempt(audience.source, 'broadcast')
                 )

@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -17,10 +18,11 @@ import {
 } from 'products/workflows/frontend/generated/api'
 
 import { parseWorkflowTriggerPrefill } from '../Workflows/workflowTriggerPrefill'
+import { DRAFT_SOURCE_PARAM, parseEmailDraftSource } from './aiEmailDraft'
 import { MessageAudience, MessageAudienceDestination, captureMessageAudienceClicked } from './messageAudience'
 import { ATTEMPT_PREFILL_PARAM, parseAttemptPrefill } from './messageAudienceAttempts'
 import { MessageAudienceWarning, loadMessageAudienceWarnings, openMessageAudience } from './messageAudienceWarnings'
-import { parseMessageDraftPrefill } from './messageDrafts'
+import { MessageDraft, draftMessage, parseMessageDraftPrefill } from './messageDrafts'
 
 jest.mock('products/cohorts/frontend/generated/api', () => ({ cohortsRetrieve: jest.fn() }))
 jest.mock('products/integrations/frontend/generated/api', () => ({ integrationsList: jest.fn() }))
@@ -46,12 +48,12 @@ const LIST_MATCHING: MessageAudienceWarning = {
 const TEST_SENDER_FOR_WORKFLOW: MessageAudienceWarning = {
     kind: 'test_sender_only',
     message:
-        "You don't have a verified email sender yet. You can send a test to yourself from the PostHog test sender. It only delivers to verified members of your organization. To email your users, set up your own domain.",
+        "You don't have a verified email sender yet. You can send a test from the PostHog test sender to verified members of your organization. To email your users, set up your own domain.",
 }
 const TEST_SENDER_FOR_BROADCAST: MessageAudienceWarning = {
     kind: 'test_sender_only',
     message:
-        "Broadcasts need a verified email sender, and you don't have one yet. To try this email first, continue in a workflow and send a test to yourself from the PostHog test sender. It only delivers to verified members of your organization.",
+        "Broadcasts need a verified email sender, and you don't have one yet. To try this email first, continue in a workflow and send a test from the PostHog test sender to verified members of your organization.",
 }
 
 const testSender = {
@@ -137,7 +139,7 @@ describe('loadMessageAudienceWarnings', () => {
             suspended: true,
             senders: [],
             sandbox: testSender,
-            expected: [SUSPENDED, TEST_SENDER_FOR_BROADCAST],
+            expected: [SUSPENDED, NO_SENDER],
         },
         {
             case: 'a verified sender next to the test sender',
@@ -221,7 +223,7 @@ describe('loadMessageAudienceWarnings', () => {
         jest.useFakeTimers()
         try {
             jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockReturnValue(new Promise(() => {}))
-            jest.mocked(workflowEmailSandboxStatus).mockReturnValue(new Promise(() => {}))
+            jest.mocked(workflowEmailSandboxStatus).mockResolvedValue(testSender as never)
             jest.mocked(integrationsList).mockResolvedValue({ count: 0, results: [] } as never)
 
             const warnings = loadMessageAudienceWarnings(audience, 'workflow', { offerTestSender: true })
@@ -230,6 +232,52 @@ describe('loadMessageAudienceWarnings', () => {
             expect(await warnings).toEqual([NO_SENDER])
         } finally {
             jest.useRealTimers()
+        }
+    })
+
+    it('answers at once when a verified sender leaves nothing for the test sender to change', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
+                email_sending_suspended: false,
+            } as never)
+            jest.mocked(workflowEmailSandboxStatus).mockReturnValue(new Promise(() => {}))
+            jest.mocked(integrationsList).mockResolvedValue({ count: 1, results: [verified], next: null } as never)
+
+            let warnings: MessageAudienceWarning[] | undefined
+            void loadMessageAudienceWarnings(audience, 'workflow', { offerTestSender: true }).then((result) => {
+                warnings = result
+            })
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(warnings).toEqual([])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('reads the senders and the test sender of the selected environment', async () => {
+        const teamId = ApiConfig.getCurrentTeamId()
+        try {
+            ApiConfig.setCurrentTeamId(teamId + 1)
+            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
+                email_sending_suspended: false,
+            } as never)
+            jest.mocked(workflowEmailSandboxStatus).mockImplementation(
+                async (id) => (id === String(teamId + 1) ? testSender : noTestSender) as never
+            )
+            jest.mocked(integrationsList).mockImplementation(
+                async (id) =>
+                    (id === String(teamId + 1)
+                        ? { count: 0, results: [], next: null }
+                        : { count: 1, results: [verified], next: null }) as never
+            )
+
+            expect(await loadMessageAudienceWarnings(audience, 'workflow', { offerTestSender: true })).toEqual([
+                TEST_SENDER_FOR_WORKFLOW,
+            ])
+        } finally {
+            ApiConfig.setCurrentTeamId(teamId)
         }
     })
 
@@ -295,37 +343,63 @@ describe('loadMessageAudienceWarnings', () => {
             }
         }
     )
-    it('continues a broadcast that only the test sender could send in a workflow with the same people, email and attempt', async () => {
-        const email = { subject: 'Your survey answers', paragraphs: ['Hi there,', 'Thanks for answering.'] }
-        router.actions.push('/start')
-        jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
-            email_sending_suspended: false,
-        } as never)
-        jest.mocked(integrationsList).mockResolvedValue({ count: 0, results: [], next: null } as never)
-        jest.mocked(workflowEmailSandboxStatus).mockResolvedValue(testSender as never)
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-        try {
-            captureMessageAudienceClicked('survey_respondents_test_sender', 'broadcast')
-            await openMessageAudience(
-                { ...audience, source: 'survey_respondents_test_sender', broadcastEmail: email },
-                'broadcast'
-            )
+    it.each<{
+        case: string
+        extra: Partial<MessageAudience>
+        email: MessageDraft
+        draftSource: MessageAudience['draftSource'] | null
+    }>([
+        {
+            case: 'its email',
+            extra: {
+                broadcastEmail: { subject: 'Your survey answers', paragraphs: ['Hi there,', 'Thanks for answering.'] },
+            },
+            email: { subject: 'Your survey answers', paragraphs: ['Hi there,', 'Thanks for answering.'] },
+            draftSource: null,
+        },
+        {
+            case: 'an email step for the draft of a cohort',
+            extra: { draftSource: { source: 'cohort', source_id: '7' } },
+            email: draftMessage({ kind: 'placeholder' }),
+            draftSource: { source: 'cohort', source_id: '7' },
+        },
+    ])(
+        'continues a broadcast that only the test sender could send in a workflow with the same people, attempt and $case',
+        async ({ extra, email, draftSource }) => {
+            router.actions.push('/start')
+            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
+                email_sending_suspended: false,
+            } as never)
+            jest.mocked(integrationsList).mockResolvedValue({ count: 0, results: [], next: null } as never)
+            jest.mocked(workflowEmailSandboxStatus).mockResolvedValue(testSender as never)
+            jest.mocked(cohortsRetrieve).mockResolvedValue({
+                name: 'Signups',
+                is_static: true,
+                is_calculating: false,
+            } as never)
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            try {
+                const source = `test_sender_handoff_${draftSource ? 'draft' : 'email'}`
+                captureMessageAudienceClicked(source, 'broadcast')
+                await openMessageAudience({ ...audience, source, ...extra }, 'broadcast')
 
-            expect(await screen.findByText('Set up email')).toBeInTheDocument()
-            fireEvent.click(await screen.findByText('Continue in a workflow'))
-            await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
+                expect(await screen.findByText('Set up email')).toBeInTheDocument()
+                fireEvent.click(await screen.findByText('Continue in a workflow'))
+                await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
 
-            const [clicked] = capture.mock.calls.map(([, properties]) => properties)
-            const { pathname, searchParams } = router.values.currentLocation
-            expect(pathname.endsWith(urls.workflowNew())).toBe(true)
-            expect(parseWorkflowTriggerPrefill(searchParams.trigger)).toEqual({
-                type: 'batch',
-                filters: { properties: audience.properties },
-            })
-            expect(parseMessageDraftPrefill(searchParams.email)).toEqual(email)
-            expect(parseAttemptPrefill(searchParams[ATTEMPT_PREFILL_PARAM])).toEqual(clicked?.attempt_id)
-        } finally {
-            capture.mockRestore()
+                const [clicked] = capture.mock.calls.map(([, properties]) => properties)
+                const { pathname, searchParams } = router.values.currentLocation
+                expect(pathname.endsWith(urls.workflowNew())).toBe(true)
+                expect(parseWorkflowTriggerPrefill(searchParams.trigger)).toEqual({
+                    type: 'batch',
+                    filters: { properties: audience.properties },
+                })
+                expect(parseMessageDraftPrefill(searchParams.email)).toEqual(email)
+                expect(parseEmailDraftSource(searchParams[DRAFT_SOURCE_PARAM])).toEqual(draftSource)
+                expect(parseAttemptPrefill(searchParams[ATTEMPT_PREFILL_PARAM])).toEqual(clicked?.attempt_id)
+            } finally {
+                capture.mockRestore()
+            }
         }
-    })
+    )
 })

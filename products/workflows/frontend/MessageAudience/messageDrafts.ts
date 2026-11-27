@@ -12,6 +12,7 @@ export type MessageDraftContext =
     | { kind: 'feature_available'; featureName: string; featureDescription?: string | null }
     | { kind: 'feature_enrolled'; featureName: string; featureDescription?: string | null }
     | { kind: 'survey_responded' }
+    | { kind: 'placeholder' }
 
 export interface MessageDraftEmail {
     subject: string
@@ -89,6 +90,8 @@ export function draftMessage(context: MessageDraftContext): MessageDraft {
                     'Thanks for taking the time to answer our survey. Your answers help us decide what to work on next.',
                 ],
             }
+        case 'placeholder':
+            return { subject: 'An update for you', paragraphs: [GREETING, 'Write your message here.'] }
     }
 }
 

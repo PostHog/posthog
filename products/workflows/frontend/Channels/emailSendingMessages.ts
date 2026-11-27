@@ -6,7 +6,7 @@ export const UNVERIFIED_SENDER_MESSAGE = "Verify the sender's domain before send
 export const NO_EMAIL_SENDER_MESSAGE = 'Set up an email sender before sending'
 
 export const TEST_SENDER_ONLY_WORKFLOW_MESSAGE =
-    "You don't have a verified email sender yet. You can send a test to yourself from the PostHog test sender. It only delivers to verified members of your organization. To email your users, set up your own domain."
+    "You don't have a verified email sender yet. You can send a test from the PostHog test sender to verified members of your organization. To email your users, set up your own domain."
 
 export const TEST_SENDER_ONLY_BROADCAST_MESSAGE =
-    "Broadcasts need a verified email sender, and you don't have one yet. To try this email first, continue in a workflow and send a test to yourself from the PostHog test sender. It only delivers to verified members of your organization."
+    "Broadcasts need a verified email sender, and you don't have one yet. To try this email first, continue in a workflow and send a test from the PostHog test sender to verified members of your organization."
