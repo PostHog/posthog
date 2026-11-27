@@ -2635,7 +2635,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIsNone(response.json()["start_date"])
         self.assertEqual(response.json()["end_date"], "2024-02-11T00:00:00Z")
 
-    def test_invalid_update(self):
+    @parameterized.expand(
+        [
+            (
+                "changed_flag_key",
+                {"description": "Bazinga", "filters": {}, "feature_flag_key": "new_key"},
+                "Can't update keys: feature_flag_key on Experiment",
+            ),
+            (
+                "folder",
+                {"description": "Bazinga", "_create_in_folder": "Special Folder/Experiments"},
+                "Can't update keys: _create_in_folder on Experiment",
+            ),
+        ]
+    )
+    def test_invalid_update(self, _name: str, update: dict[str, Any], message: str) -> None:
         # Draft experiment
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -2654,19 +2668,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         id = response.json()["id"]
 
         # Now update
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}",
-            {
-                "description": "Bazinga",
-                "filters": {},
-                "feature_flag_key": "new_key",
-            },  # invalid
-        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/experiments/{id}", update)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Can't update keys: get_feature_flag_key on Experiment",
-        )
+        self.assertEqual(response.json()["detail"], message)
 
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
