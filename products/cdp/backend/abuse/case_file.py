@@ -4,7 +4,9 @@ account, and counts of the organization's other functions.
 Built from Postgres only, bounded in size, and without secret input values.
 """
 
+import re
 import json
+import ipaddress
 from collections import Counter
 from dataclasses import asdict, replace
 from datetime import datetime
@@ -37,6 +39,10 @@ MAX_ORIGIN_CHARS = 300
 # Room for the function's config, which `build_state` caps at the Jev state limit, and a short history.
 MAX_CASE_FILE_CHARS = 100_000
 _TRUNCATED_MARKER = " [truncated]"
+_HOSTNAME = re.compile(r"[a-z0-9_-]+(?:\.[a-z0-9_-]+)+", re.IGNORECASE)
+_REDACTED_HOST = "[secret]"
+# A shorter secret, such as a port number, would hide ordinary hosts that merely contain it.
+_MIN_SECRET_IN_HOST_CHARS = 8
 # What `content_of` and `_with_secret_inputs` read from another function of the organization.
 _RULE_FIELDS = (
     "type",
@@ -255,7 +261,7 @@ def _history(hog_function: HogFunction) -> _History:
     latest = list(logged.order_by("-created_at").only("activity", "created_at", "detail")[:MAX_HISTORY_ENTRIES])
     rows = list(reversed(latest))
     values = _secret_values(hog_function)
-    origin_secrets = [
+    stored = [
         *stored_secret_values(
             hog_function.team_id,
             _tested_integration_ids(rows),
@@ -266,8 +272,8 @@ def _history(hog_function: HogFunction) -> _History:
             ],
         ),
         *values,
-        *_url_secret_labels(values),
     ]
+    origin_secrets = [*stored, *_url_secret_labels(stored)]
     return _History(
         entries=tuple(_history_entry(row, origin_secrets) for row in rows),
         omitted=max(total - MAX_HISTORY_ENTRIES, 0),
@@ -307,17 +313,16 @@ def _secret_values(hog_function: HogFunction) -> list[str]:
 
 
 def _url_secret_labels(values: list[str]) -> list[str]:
-    """The labels left of the domain in each secret URL, such as a webhook token used as a subdomain. The origin
-    redactor compares a secret with the labels of an origin, and a whole URL never equals one."""
+    """The labels left of the domain in each secret URL or bare hostname, such as a webhook token used as a
+    subdomain. The origin redactor compares a secret with the labels of an origin, and a whole URL never equals one."""
     labels: list[str] = []
     for value in values:
-        if "://" not in value:
-            continue
         try:
-            host = urlsplit(value).hostname or ""
+            host = (urlsplit(value).hostname or "") if "://" in value else value
         except ValueError:
             continue
-        labels.extend(host.split(".")[:-2])
+        if _HOSTNAME.fullmatch(host):
+            labels.extend(host.split(".")[:-2])
     return labels
 
 
@@ -373,9 +378,26 @@ def _history_entry(row: ActivityLog, secrets: list[str]) -> HistoryEntry:
 
 
 def _redacted_hosts(hosts: tuple[str, ...], secrets: list[str]) -> tuple[str, ...]:
-    # The origin redactor reads a whole origin, so each host goes through it as one.
+    # The origin redactor reads a whole origin, so each host goes through it as one. It redacts only subdomain labels,
+    # and the hosts of code include URL usernames, so a host that is or holds a secret is hidden whole.
     redacted = redact_secrets_in_origins([f"https://{host}" for host in hosts], secrets)
-    return tuple(origin.removeprefix("https://") for origin in redacted)
+    # Shorter strings include numbers from compiled bytecode, which would hide ordinary labels such as `1`.
+    known = {secret.lower() for secret in secrets if len(secret) >= 4}
+    return tuple(
+        _REDACTED_HOST if _holds_secret(host, known) else host
+        for host in (origin.removeprefix("https://") for origin in redacted)
+    )
+
+
+def _holds_secret(host: str, secrets: set[str]) -> bool:
+    if _is_address(host):
+        return False
+    lowered = host.lower()
+    return (
+        lowered in secrets
+        or any(label in secrets for label in lowered.split("."))
+        or any(len(secret) >= _MIN_SECRET_IN_HOST_CHARS and secret in lowered for secret in secrets)
+    )
 
 
 def _redacted_origins(origins: list[JsonValue], secrets: list[str]) -> tuple[str, ...]:
@@ -479,6 +501,14 @@ def _without_last_list_item(case_file: CaseFile) -> CaseFile | None:
     if case_file.history:
         return replace(case_file, history=case_file.history[1:], history_omitted=case_file.history_omitted + 1)
     return None
+
+
+def _is_address(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return True
 
 
 def _origin_host(origin: str) -> str:

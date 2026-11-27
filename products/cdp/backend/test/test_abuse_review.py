@@ -264,7 +264,8 @@ class TestAbuseReview(AbuseClassificationTestCase):
             changes=[
                 {
                     "field": "hog",
-                    "after": f"fetch('https://{SECRET_VALUE}.example.com/?key={SECRET_VALUE}')",
+                    "after": f"fetch('https://{SECRET_VALUE}.example.com/?key={SECRET_VALUE}');"
+                    f"fetch('https://{SECRET_VALUE}@api.example.com/')",
                 }
             ],
         )
@@ -309,11 +310,12 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert legacy_secret not in serialized
         assert "https://hooks.example.com/orders" in serialized
 
-    def test_a_secret_url_used_as_a_test_target_is_redacted_from_test_origins(self) -> None:
+    @parameterized.expand([("url", "https://{label}.example.com/hook"), ("bare_hostname", "{label}.example.com")])
+    def test_a_secret_host_used_as_a_test_target_is_redacted_from_test_origins(self, _name: str, value: str) -> None:
         secret_label = "hooktoken0042secret"
         destination = self.create_destination(
             inputs_schema=[{"key": "url", "type": "string", "label": "URL", "secret": True}],
-            inputs={"url": {"value": f"https://{secret_label}.example.com/hook"}},
+            inputs={"url": {"value": value.format(label=secret_label)}},
             mappings=[],
         )
         self.log(
