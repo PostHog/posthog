@@ -3546,18 +3546,18 @@ Note: Endpoint list taken from the API doc index navigation. Excluded /register,
 
 ## Close — gaps
 
-Today (18): `Activities`, `ActivityCustomFields`, `ContactCustomFields`, `Contacts`, `EmailTemplates`, `Events`, `LeadCustomFields`, `LeadStatuses`, `Leads`, `Opportunities`, `OpportunityCustomFields`, `OpportunityStatuses`, `Organizations`, `Outcomes`, `Pipelines`, `SharedCustomFields`, `Tasks`, `Users`
+Today (24): `Activities`, `ActivityCustomFields`, `ContactCustomFields`, `Contacts`, `CustomObjectTypes`, `CustomObjects`, `EmailTemplates`, `Events`, `Groups`, `LeadCustomFields`, `LeadStatuses`, `Leads`, `Opportunities`, `OpportunityCustomFields`, `OpportunityStatuses`, `Organizations`, `Outcomes`, `Pipelines`, `Roles`, `SequenceSubscriptions`, `Sequences`, `SharedCustomFields`, `Tasks`, `Users`
 
 Diffed against: <https://api.close.com/api/openapi.json>
 
 - [x] `/custom_field/lead/, /custom_field/contact/, /custom_field/opportunity/, /custom_field/activity/, /custom_field/shared/ (+ /custom_field_schema/{object_type}/)` — Lookup that resolves the opaque custom.cf\_\* field IDs already embedded in the synced Leads, Contacts and Opportunities rows - without it those columns are unreadable (high)
 - [x] `/event/` — Event log: full per-object change history (field-level old/new values) for leads, opportunities and tasks; note Close caps it near 30 days of retention so it must be appended incrementally (high)
-- [ ] `/sequence/ and /sequence_subscription/` — Outbound sequence definitions plus per-contact enrollment state, the core outbound-motion analysis Close users want (medium)
-- [ ] `/custom_object_type/ and /custom_object/` — Custom object instances plus their type definitions - the only way to query org-specific objects modeled outside leads/opportunities (medium)
+- [x] `/sequence/ and /sequence_subscription/` — Outbound sequence definitions plus per-contact enrollment state, the core outbound-motion analysis Close users want (medium) — added as `Sequences` and `SequenceSubscriptions`. `GET /sequence_subscription/` needs a sequence, contact or lead id, so subscriptions read through Advanced Filtering (`sequence_subscription` object type).
+- [x] `/custom_object_type/ and /custom_object/` — Custom object instances plus their type definitions - the only way to query org-specific objects modeled outside leads/opportunities (medium) — added as `CustomObjectTypes` and `CustomObjects`. `GET /custom_object/` needs a `lead_id`, so instances read through Advanced Filtering (`custom_object` object type).
 - [x] `/outcome/` — Call outcome lookup that resolves the outcome IDs carried on call activities we already sync (medium)
 - [x] `/organization/{id}/` — Org record including memberships, resolving which users belong to which organization and with what role (medium)
-- [ ] `/group/ and /role/` — User groups and permission roles - the grouping dimensions for slicing the Users table in rep-performance reporting (medium)
-- [ ] `/comment/ and /comment_thread/` — Internal collaboration volume on leads and opportunities (low)
+- [x] `/group/ and /role/` — User groups and permission roles - the grouping dimensions for slicing the Users table in rep-performance reporting (medium) — added as `Groups` and `Roles`.
+- [ ] `/comment/ and /comment_thread/` — Internal collaboration volume on leads and opportunities (low) — Skipped: `/comment/` needs a thread or object id per request, `/comment_thread/` caps `_skip` at 10,000, and on Advanced Filtering both sort on `date_created`/`date_updated` while their rows carry `created_at`/`updated_at`.
 - [ ] `/form/` — Form definitions that resolve the form IDs on FormSubmission activities (low)
 
 Note: `/custom_field_schema/{object_type}/` was skipped while ticking the custom fields line: it is a single-object read per object type whose `fields` array is the same rows the per-type `/custom_field/{object_type}/` tables now carry, ordered for display. Close ships a real OpenAPI 3 spec at https://api.close.com/api/openapi.json (135 GET paths); the source dir already documents it in close/api_inventory.md. The existing `Activities` table syncs the polymorphic /activity/ endpoint, so per-type activity endpoints (calls, emails, notes, SMS, meetings, lead/opportunity status changes) are already covered by it - I did not count them as gaps. Stage/status history is therefore available today via /activity/status_change/\*.
@@ -6111,10 +6111,10 @@ Note: Read the official operation index and the individual reference pages for a
 
 Re-audited 2026-11-19 against: <https://fred.stlouisfed.org/docs/api/fred/>
 
-- [ ] `Series in a category (GET /fred/category/series)` — Lists which series sit in each synced category, so users can discover series without knowing IDs (medium)
-- [ ] `Series in a release (GET /fred/release/series)` — Lists series published by each synced release (medium)
-- [ ] `Releases of a source (GET /fred/source/releases)` — Joins each synced source to its releases (low)
-- [ ] `Series updates (GET /fred/series/updates)` — Recently updated series with timestamps, to see what changed (low)
+- [x] `Series in a category (GET /fred/category/series)` — Lists which series sit in each synced category, so users can discover series without knowing IDs (medium)
+- [x] `Series in a release (GET /fred/release/series)` — Lists series published by each synced release (medium)
+- [x] `Releases of a source (GET /fred/source/releases)` — Joins each synced source to its releases (low)
+- [x] `Series updates (GET /fred/series/updates)` — Recently updated series with timestamps, to see what changed (low)
 - [ ] `Category tags (GET /fred/category/tags)` — Tags attached to each category (low)
 - [ ] `Related categories (GET /fred/category/related)` — Related-category links for the category tree (series count is small) (low)
 
@@ -6668,11 +6668,11 @@ Diffed against: <https://apidocs.goldcast.io/>
 - [x] `event/broadcasts` — the live session objects under an event - sync-time joins for attendance and agenda analysis (high)
 - [x] `event/broadcasts/{id}/polls` — in-session poll results, the main engagement measurement in a webinar tool (high)
 - [x] `event/ticket-type` — lookup resolving the ticket type carried on event_members registrations (high)
-- [ ] `core/tag-library` — lookup resolving tag IDs referenced across events and members (medium)
-- [ ] `event/booths` — sponsor/expo booths, the unit sponsorship ROI is measured on (medium)
+- [x] `core/tag-library` — lookup resolving tag IDs referenced across events and members (medium)
+- [x] `event/booths` — sponsor/expo booths, the unit sponsorship ROI is measured on (medium)
 - [x] `event/{event_id}/public/v1/speakers` — speaker roster per event, a dimension for session performance breakdowns (medium)
-- [ ] `event/{id}/get_recordings` — recording assets per event, needed to join on-demand viewing (medium)
-- [ ] `event/resources` — downloadable content attached to an event (low)
+- [x] `event/{id}/get_recordings` — recording assets per event, needed to join on-demand viewing (medium)
+- [x] `event/resources` — downloadable content attached to an event (low)
 - [ ] `event/sponsor-resources/{id}` — sponsor-supplied content assets (low)
 - [ ] `event/{event_id}/public/v1/overview` — event-level summary fields not present on the base event object (low)
 
@@ -8313,8 +8313,8 @@ Diffed against: <https://docs.kalshi.com/openapi.yaml>
 - [x] `Fills (GET /trade-api/v2/portfolio/fills; GET /trade-api/v2/historical/fills)` — analyze account execution prices, fees, and trading volume across current and archived fills (high)
 - [x] `Settlements (GET /trade-api/v2/portfolio/settlements)` — reconcile settled contracts with payouts and account trading results (high)
 - [x] `Orders (GET /trade-api/v2/portfolio/orders; GET /trade-api/v2/historical/orders)` — compare submitted, executed, and canceled orders across current and archived history (medium)
-- [ ] `Market orderbook (GET /trade-api/v2/markets/{ticker}/orderbook)` — measure market depth and available liquidity at each price level (medium)
-- [ ] `Series fee changes (GET /trade-api/v2/series/fee_changes)` — explain trading cost changes across series and time (medium)
+- [x] `Market orderbook (GET /trade-api/v2/markets/{ticker}/orderbook)` — measure market depth and available liquidity at each price level (medium)
+- [x] `Series fee changes (GET /trade-api/v2/series/fee_changes)` — explain trading cost changes across series and time (medium)
 - [x] `Weather index (GET /trade-api/v2/live_data/weather/{city})` — analyze the minute-resolution city temperature index behind hourly temperature markets (medium)
 - [x] `Weather index calibrations (GET /trade-api/v2/live_data/weather/{city}/calibrations)` — reproduce published weather index values from each city's station weights and offsets over time (medium)
 - [x] `Credit history (GET /trade-api/v2/portfolio/credit_history)` — reconcile credits applied to the account alongside fills and settlements (medium)
@@ -10256,9 +10256,9 @@ Diffed against: <https://raw.githubusercontent.com/n8n-io/n8n/master/packages/cl
 - [x] `/projects/{projectId}/users` — project membership join table with roles — resolves who owns which project (medium)
 - [x] `/projects/{projectId}/folders` — folder hierarchy workflows are organized into; lookup for workflow parentFolder ids (medium)
 - [x] `/workflows/{id}/test-runs (+ /test-runs/{runId}/test-cases)` — evaluation run results per workflow — pass/fail history for AI workflow testing (medium)
-- [ ] `/data-tables and /data-tables/{dataTableId}/rows` — user-defined data tables and their rows, queried as ordinary warehouse tables (medium)
-- [ ] `/data-tables/{dataTableId}/columns` — column metadata needed to type the data-table rows (low)
-- [ ] `/community-packages` — installed community node inventory for auditing what workflows depend on (low)
+- [x] `/data-tables and /data-tables/{dataTableId}/rows` — user-defined data tables and their rows, queried as ordinary warehouse tables (medium)
+- [x] `/data-tables/{dataTableId}/columns` — column metadata needed to type the data-table rows (low)
+- [x] `/community-packages` — installed community node inventory for auditing what workflows depend on (low)
 
 Note: Spec is served from the n8n repo (docs.n8n.io/api/v1/openapi.yml 404s). Credentials, source-control, SSO/OTel/security-policy settings and log-streaming destinations were excluded as config/secret plumbing.
 
@@ -10418,18 +10418,18 @@ Re-audited 2026-11-19 against <https://www.ncei.noaa.gov/cdo-web/webservices/v2>
 
 ## NoCRM — gaps
 
-Today (13): `activities`, `categories`, `client_folders`, `fields`, `follow_ups`, `lead_action_histories`, `lead_comments`, `leads`, `pipelines`, `steps`, `tags`, `teams`, `users`
+Today (16): `activities`, `categories`, `client_folders`, `fields`, `follow_ups`, `lead_action_histories`, `lead_attachments`, `lead_comments`, `leads`, `pipelines`, `spreadsheet_rows`, `spreadsheets`, `steps`, `tags`, `teams`, `users`
 
 Diffed against: <https://www.nocrm.io/api>
 
 - [x] `leads/{lead_id}/action_histories` — per-lead action and step-change history - the state-transition table needed for pipeline velocity and conversion timing (high). Added as `lead_action_histories` (fan-out over `leads`).
 - [x] `follow_ups` — scheduled follow-up tasks/reminders on leads, the core activity object driving rep workload analysis (high). Added as `follow_ups` (fan-out over `users`, since the endpoint requires a `lead_id` or `user_id`).
 - [x] `leads/{lead_id}/comments` — comment thread per lead, the narrative activity stream alongside activities (medium). Added as `lead_comments` (fan-out over `leads`).
-- [ ] `spreadsheets` — prospecting lists - the top-of-funnel container that leads are created from, with no equivalent table today (medium)
-- [ ] `spreadsheets/{spreadsheet_id}/rows` — prospect rows inside prospecting lists, plus their conversion-to-lead linkage (medium)
+- [x] `spreadsheets` — prospecting lists - the top-of-funnel container that leads are created from, with no equivalent table today (medium). Added as `spreadsheets`.
+- [x] `spreadsheets/{spreadsheet_id}/rows` — prospect rows inside prospecting lists, plus their conversion-to-lead linkage (medium). Added as `spreadsheet_rows` (fan-out over `spreadsheets`): the API has no GET list for rows, so each row is read from the `spreadsheet_rows` array of `GET /spreadsheets/{id}`.
 - [x] `follow_ups/{follow_up_id}/tasks` — individual tasks within a follow-up sequence, the completion-level detail (medium). Skipped: the API has no list endpoint for tasks, only `PUT /follow_ups/{follow_up_id}/tasks/{task_id}`; `follow_ups` rows carry `tasks_count` and `tasks_done_count`.
-- [ ] `spreadsheets/{spreadsheet_id}/comments` — comments on prospecting lists and rows, engagement history before a lead exists (low)
-- [ ] `leads/{lead_id}/attachments` — attachment metadata per lead (counts/types, not file bytes) (low)
+- [ ] `spreadsheets/{spreadsheet_id}/comments` — comments on prospecting lists and rows, engagement history before a lead exists (low). Skipped: the API documents only POST (create) for list and prospect comments, no GET list; rows carry `comment_count`.
+- [x] `leads/{lead_id}/attachments` — attachment metadata per lead (counts/types, not file bytes) (low). Added as `lead_attachments` (fan-out over `leads`).
 
 Note: The API reference is a single large HTML page; extracted all /api/v2/\* paths from it. Core CRM objects are covered (leads, activities, steps, pipelines, users, teams, clients->client_folders, predefined_tags->tags, categories, fields). The gaps are all lead sub-resources and the prospecting-list side of the product.
 
@@ -14663,7 +14663,7 @@ Note: The folders and form-analytics endpoints were announced in the June 2026 r
 
 ## Tavus — gaps
 
-Today (9): `canvas_interactions`, `conversations`, `faces`, `memory_stores`, `pals`, `personas`, `replicas`, `transcriptions`, `videos`
+Today (14): `canvas_interactions`, `conversations`, `deployments`, `documents`, `faces`, `memory_stores`, `objectives`, `pal_skills`, `pals`, `personas`, `replicas`, `skills`, `transcriptions`, `videos`
 
 Diffed against: <https://docs.tavus.io/openapi.yaml>
 
@@ -14671,10 +14671,10 @@ Diffed against: <https://docs.tavus.io/openapi.yaml>
 - [x] `GET /v2/faces` — Current replacement for replicas - the lookup table for the face/avatar ID on conversations and videos (high) → `faces` (full refresh)
 - [x] `GET /v2/transcriptions` — Conversation transcripts, the primary analytical output of a conversational-video product and completely uncovered (high) → `transcriptions` (full refresh; the endpoint lists speech-to-text jobs for video files, not conversation transcripts)
 - [x] `GET /v2/conversations/{conversation_id}/canvas/interactions` — Per-conversation interaction events (clicks, inputs, component responses) - the event stream under the synced conversations table (high) → `canvas_interactions` (full refresh, fan-out over `conversations`)
-- [ ] `GET /v2/deployments` — Deployments group conversations by embed/widget surface; needed to attribute conversation volume to a channel (medium)
-- [ ] `GET /v2/objectives` — Lookup table for the objectives a PAL is scored against, the basis of conversation outcome analysis (medium)
-- [ ] `GET /v2/documents` — Knowledge-base documents attached to PALs, with crawl status (medium)
-- [ ] `GET /v2/skills and GET /v2/pals/{pal_id}/skills` — Skill catalog plus the PAL-to-skill membership table (medium)
+- [x] `GET /v2/deployments` — Deployments group conversations by embed/widget surface; needed to attribute conversation volume to a channel (medium) → `deployments` (full refresh)
+- [x] `GET /v2/objectives` — Lookup table for the objectives a PAL is scored against, the basis of conversation outcome analysis (medium) → `objectives` (full refresh)
+- [x] `GET /v2/documents` — Knowledge-base documents attached to PALs, with crawl status (medium) → `documents` (full refresh)
+- [x] `GET /v2/skills and GET /v2/pals/{pal_id}/skills` — Skill catalog plus the PAL-to-skill membership table (medium) → `skills` (full refresh) and `pal_skills` (full refresh, fan-out over `pals`)
 - [ ] `GET /v2/tools and GET /v2/pals/{pal_id}/tools` — Tool definitions and PAL-to-tool membership, needed to interpret tool-call activity (medium)
 - [ ] `GET /v2/voices` — Lookup table resolving the voice ID configured on PALs and videos (medium)
 - [ ] `GET /v2/lipsync` — Lipsync generation jobs with status and duration, a sibling of the synced videos table (low)
@@ -14851,17 +14851,17 @@ Note: apidocs.tempo.io is a Redoc page; the spec is at ./tempo-openapi.yaml (~55
 
 ## TemporalIO — gaps
 
-Today (5): `namespaces`, `schedules`, `standalone_activities`, `workflow_histories`, `workflows`
+Today (7): `batch_operations`, `namespaces`, `schedules`, `standalone_activities`, `workers`, `workflow_histories`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/temporalio/api/master/openapi/openapiv3.yaml>
 
 - [x] `namespaces/{namespace}/schedules (ListSchedules)` — schedule definitions and their recent action results — lookup resolving which schedule spawned the workflows we already sync (high)
 - [x] `namespaces (ListNamespaces)` — namespace lookup with retention and archival config; the top-level partition of every other table (medium)
 - [x] `namespaces/{namespace}/activities (ListActivities)` — activity-level state including paused/retrying activities, without reconstructing it from raw history events (medium)
-- [ ] `namespaces/{namespace}/task-queues/{task_queue.name} (DescribeTaskQueue)` — backlog depth and poller counts per task queue — the key operational health metric (medium)
-- [ ] `namespaces/{namespace}/batch-operations (ListBatchOperations)` — bulk terminate/signal/reset jobs and their progress, which explain mass workflow state changes (medium)
-- [ ] `namespaces/{namespace}/workers (ListWorkers)` — worker fleet inventory for attributing workflow execution to hosts/builds (medium)
-- [ ] `namespaces/{namespace}/archived-workflows (ListArchivedWorkflowExecutions)` — closed executions past the visibility retention window — required for long-range historical analysis (medium)
+- [ ] `namespaces/{namespace}/task-queues/{task_queue.name} (DescribeTaskQueue)` — backlog depth and poller counts per task queue — the key operational health metric (medium) Skipped: no RPC lists task queues, and the response is a point-in-time gauge for one named queue.
+- [x] `namespaces/{namespace}/batch-operations (ListBatchOperations)` — bulk terminate/signal/reset jobs and their progress, which explain mass workflow state changes (medium)
+- [x] `namespaces/{namespace}/workers (ListWorkers)` — worker fleet inventory for attributing workflow execution to hosts/builds (medium)
+- [ ] `namespaces/{namespace}/archived-workflows (ListArchivedWorkflowExecutions)` — closed executions past the visibility retention window — required for long-range historical analysis (medium) Skipped: Temporal Cloud has no archival, and self-hosted archived visibility accepts only archiver-specific filtered queries, so it cannot list every execution.
 - [ ] `namespaces/{namespace}/worker-deployments (ListWorkerDeployments)` — deployment/version records for comparing workflow outcomes across worker versions (low)
 - [ ] `namespaces/{namespace}/search-attributes (ListSearchAttributes)` — lookup describing the custom search attributes that appear on synced workflows (low)
 

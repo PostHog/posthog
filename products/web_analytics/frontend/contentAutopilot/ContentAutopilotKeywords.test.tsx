@@ -67,7 +67,7 @@ describe('ContentAutopilotKeywords', () => {
         const report = await screen.findByTestId('content-autopilot-keywords-report')
         const headerRows = report.querySelectorAll('thead tr')
         const groups = Array.from(headerRows[0].querySelectorAll('th')).map((cell) => cell.textContent)
-        expect(groups).toEqual(['', 'AI answers', 'Google search'])
+        expect(groups).toEqual(['', '', 'AI answers', 'Google search'])
         expect(await within(report).findByText('Impressions')).toBeTruthy()
     })
 })

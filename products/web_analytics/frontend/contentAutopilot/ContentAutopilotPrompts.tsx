@@ -228,8 +228,8 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </div>
             </div>
             <Text size="xs" variant="muted" className="m-0 max-w-3xl">
-                PostHog sends each active prompt to AI assistants once a day and records whether the answer cites your
-                site. Open a prompt to see the answers, edit it, or archive it.
+                PostHog sends each active prompt to AI assistants on each engine's schedule and records whether the
+                answer cites your site. Open a prompt to see the answers, edit it, or archive it.
             </Text>
 
             {promptsError === 'failed' ? (

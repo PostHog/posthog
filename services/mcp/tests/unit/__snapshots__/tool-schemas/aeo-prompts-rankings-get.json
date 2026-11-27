@@ -7,6 +7,11 @@
             "enum": ["all", "branded", "non_branded"],
             "type": "string"
         },
+        "current_prompts": {
+            "default": false,
+            "description": "Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count.",
+            "type": "boolean"
+        },
         "date_from": {
             "anyOf": [
                 {
