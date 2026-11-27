@@ -139,12 +139,6 @@ def experiment_eligibility_error(variants: list[dict[str, Any]] | None) -> str |
     return None
 
 
-class _JsonbPathExists(Func):
-    function = "jsonb_path_exists"
-    template = "%(function)s(%(expressions)s::jsonpath)"
-    output_field = BooleanField()
-
-
 class FeatureFlagQuerySet(RootTeamQuerySet):
     def eligible_for_experiment(self) -> "FeatureFlagQuerySet":
         """JSONB twin of FeatureFlag.is_eligible_for_experiment."""
@@ -154,9 +148,11 @@ class FeatureFlagQuerySet(RootTeamQuerySet):
                 function="jsonb_array_length",
                 output_field=IntegerField(),
             ),
-            _has_eligible_experiment_rule=_JsonbPathExists(
+            _has_eligible_experiment_rule=Func(
                 F("filters"),
                 Value(experiment_rule_variant_count_jsonpath(EXPERIMENT_MIN_VARIANTS, EXPERIMENT_MAX_VARIANTS)),
+                function="jsonb_path_exists",
+                output_field=BooleanField(),
             ),
         ).filter(
             Q(
