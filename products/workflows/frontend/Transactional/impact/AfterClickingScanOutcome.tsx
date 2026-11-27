@@ -21,10 +21,14 @@ export function AfterClickingScanOutcome({ state }: { state: ScanOutcomeState })
         case 'finished':
             return (
                 <AfterClickingNotice title="Scan finished">
-                    <span className="text-secondary text-sm">
-                        <span>{state.withResult}</span> of <span>{state.scanned}</span> scanned{' '}
-                        {pluralize(state.scanned, 'session', 'sessions', false)} have an answer.
-                    </span>
+                    {state.scanned > 0 ? (
+                        <span className="text-secondary text-sm">
+                            <span>{state.withResult}</span> of <span>{state.scanned}</span> scanned{' '}
+                            {pluralize(state.scanned, 'session', 'sessions', false)} have an answer.
+                        </span>
+                    ) : (
+                        <span className="text-secondary text-sm">No sessions were scanned.</span>
+                    )}
                     <AfterClickingSkippedSessions skipped={state.skipped} />
                     {askAnother}
                 </AfterClickingNotice>
