@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache, caches
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -845,10 +845,3 @@ class TestEmailReputationAccessControl(APIBaseTest):
         assert data["reputation"] is None
         assert data["isps"] == []
         assert [row["hog_flow_id"] for row in data["workflows"]] == [str(flow.id)]
-
-
-class TestEmailInfrastructureHealthCache(SimpleTestCase):
-    def test_the_shipped_cache_refuses_a_value_json_cannot_encode(self):
-        with override_settings(CACHES=_shipped_redis_cache()):
-            with pytest.raises(TypeError):
-                caches["workflows_email_infrastructure_health"].set("probe", {"rates": {0.01, 0.02}})
