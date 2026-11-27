@@ -489,10 +489,14 @@ export function baselineOf({
 // The bar the readout quotes: a series has recovered once it stays at or under this multiple of its baseline p99.
 export const RECOVERY_BAR_MULTIPLE = 2
 const SERIES_WINDOW_MS = 60_000
+// The writer probe samples every second and times out at 2 seconds, so a longer silence is a probe that stopped.
+const WRITER_PROBE_GAP_MS = 10_000
 
-type SeriesPoint = { offsetS: number; value: number | null; recovered: boolean; incomplete?: true }
+type WindowP99 = { value: number | null; clean: boolean; censored?: true; incomplete?: true }
 
-type Series = { baseline: number; bar: number; points: SeriesPoint[] }
+type SeriesPoint = { offsetS: number; value: number | null; recovered: boolean; censored?: true; incomplete?: true }
+
+type Series = { baseline: number | null; bar: number | null; points: SeriesPoint[] }
 
 const recentBaselineOf = (baseline: Phase): Phase | undefined =>
     seconds(baseline.to - baseline.from) < MIN_BASELINE_SECONDS
@@ -509,42 +513,47 @@ function windowsOf(phase: Phase): Phase[] {
 
 function seriesOver(
     { drive, timeline }: Pick<MeasureEvidence, 'drive' | 'timeline'>,
-    p99: (window: Phase) => { value: number | null; clean: boolean; incomplete?: true }
+    p99: (window: Phase) => WindowP99
 ): Series | undefined {
     const { baseline, valve } = phasesOf(drive, timeline)
     const recent = recentBaselineOf(baseline)
-    const reference = recent && p99(recent)
-    if (valve === undefined || reference?.value == null || !reference.clean) {
+    if (valve === undefined || recent === undefined) {
         return undefined
     }
-    const bar = RECOVERY_BAR_MULTIPLE * reference.value
+    const reference = p99(recent)
+    const usable = reference.value !== null && reference.clean && !reference.censored
+    const bar = usable ? RECOVERY_BAR_MULTIPLE * reference.value! : null
     const points = windowsOf(valve).map((window): SeriesPoint => {
-        const { value, clean, incomplete } = p99(window)
+        const { value, clean, censored, incomplete } = p99(window)
         return {
             offsetS: seconds(window.from - valve.from),
             value,
-            recovered: value !== null && clean && value <= bar,
+            recovered: bar !== null && value !== null && clean && value <= bar,
+            ...(censored ? { censored } : {}),
             ...(incomplete ? { incomplete } : {}),
         }
     })
-    return { baseline: reference.value, bar, points }
+    return { baseline: usable ? reference.value : null, bar, points }
 }
 
+const valueOf = (value: number | null, censored?: true): Value =>
+    value === null ? { value, censored: true } : censored ? { value, censored } : { value }
+
 const pointsOf = ({ baseline, bar, points }: Series, prefix = ''): Measured[] => [
-    { key: `${prefix}baseline`, value: baseline },
-    { key: `${prefix}bar`, value: bar },
+    { key: `${prefix}baseline`, ...valueOf(baseline) },
+    { key: `${prefix}bar`, ...valueOf(bar) },
     ...points.map(
-        ({ offsetS, value, incomplete }): Measured => ({
+        ({ offsetS, value, censored, incomplete }): Measured => ({
             key: `${prefix}t${offsetS}`,
-            ...(value === null ? { value, censored: true as const } : { value }),
+            ...valueOf(value, censored),
             ...(incomplete ? { incomplete } : {}),
         })
     ),
 ]
 
-function recoveryOf({ points }: Series): Measured {
+function recoveryOf({ bar, points }: Series): Measured {
     const lastUnrecovered = points.findLastIndex(({ recovered }) => !recovered)
-    return lastUnrecovered === points.length - 1
+    return bar === null || lastUnrecovered === points.length - 1
         ? { value: null, censored: true }
         : { value: lastUnrecovered < 0 ? 0 : points[lastUnrecovered + 1].offsetS }
 }
@@ -556,9 +565,12 @@ function writeLatencySeries({ writer, drive, timeline }: MeasureEvidence): Serie
             .filter(({ ok }) => ok)
             .map(({ latencyMs }) => latencyMs)
             .sort((a, b) => a - b)
+        const bounds = [window.from, ...probed.map(({ at }) => at), window.to]
+        const silent = bounds.some((at, i) => i > 0 && at - bounds[i - 1] > WRITER_PROBE_GAP_MS)
         return {
             value: committed.length === 0 ? null : nearestRank(committed, 0.99),
-            clean: probed.every(({ ok }) => ok),
+            clean: !silent && probed.every(({ ok }) => ok),
+            ...(silent ? { incomplete: true as const } : {}),
         }
     })
 }
@@ -569,7 +581,7 @@ function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, S
             return []
         }
         const series = seriesOver({ drive, timeline }, (window) => {
-            const pickups = pickupsBetween(samples, [role], window)
+            const pickups = pickupsBetween(samples, [role], window, { straddlesEnd: false })
             if ('unread' in pickups) {
                 return { value: null, clean: false, incomplete: true }
             }
@@ -577,8 +589,9 @@ function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, S
             if ((buckets['+Inf'] ?? 0) === 0) {
                 return { value: null, clean: false }
             }
+            // The value is the bound of the histogram bucket that holds the p99, so the bar compares bucket bounds.
             const { value, beyond } = p99Of(buckets)
-            return { value, clean: !beyond }
+            return { value, clean: !beyond, ...(beyond ? { censored: true as const } : {}) }
         })
         return series ? [[queue, series] as [string, Series]] : []
     })
