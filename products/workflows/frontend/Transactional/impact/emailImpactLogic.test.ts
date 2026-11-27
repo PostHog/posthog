@@ -305,10 +305,17 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         requestedParams = []
 
-        logic.actions.turnOnLinkTracking()
-        await saveStarted
-        expect(requestedParams).toEqual([])
-        releaseSave()
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+        try {
+            logic.actions.turnOnLinkTracking()
+            await saveStarted
+            await jest.advanceTimersByTimeAsync(500)
+            expect(requestedParams).toEqual([])
+            releaseSave()
+            await jest.advanceTimersByTimeAsync(500)
+        } finally {
+            jest.useRealTimers()
+        }
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(otherLogic).toFinishAllListeners()
 
