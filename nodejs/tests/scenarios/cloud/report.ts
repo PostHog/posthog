@@ -5,6 +5,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { CAPACITY_MINUTES } from '../environment/failover'
 import { seriesOf } from '../environment/metric-data'
+import { CapacityMinute, CapacityRule, capacityMinutesOf, capacityProblems } from '../environment/reader-capacity'
 import { EXIT_CODE, Status } from '../runner/status'
 import { ADAPTERS, SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
@@ -18,7 +19,7 @@ import { receiptsOf } from './teardown'
 
 export type RunEnd = { exitCode: number; reasons: string[]; teardownClean: boolean }
 
-type Minute = { at: number; max?: number; avg?: number }
+type Minute = CapacityMinute
 
 type Capacity = { minutes: Minute[]; gaps: number[] }
 
@@ -119,14 +120,9 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
             subject: (id) => `CloudWatch's ${id} series`,
         }
     )
-    const byMinute = new Map<number, Minute>()
-    for (const [id, points] of Object.entries(series)) {
-        for (const { at, value } of points) {
-            byMinute.set(at, { ...byMinute.get(at), at, [id]: value })
-        }
-    }
-    const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
+    const minutes = capacityMinutesOf({ max: series.max, avg: series.avg })
     const ends = [...minutes.map(({ at }) => at), ...expected.map((at) => minuteOf(Math.min(Math.max(at, from), to)))]
+    const byMinute = new Map(minutes.map((minute) => [minute.at, minute]))
     const gaps: number[] = []
     for (let at = Math.min(...ends); at <= Math.max(...ends); at += MINUTE_MS) {
         const minute = byMinute.get(at)
@@ -213,21 +209,22 @@ function judgeCapacity(
             reason: 'the cloud profile sets no readerAcu.idleMax, so the reader was not judged',
         }
     }
-    const above = pre.filter(({ avg }) => avg !== undefined && avg > idleMax)
-    const under = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading < min))
-    const inverted = pre.filter(({ max, avg }) => max !== undefined && avg !== undefined && avg > max)
-    const unshown = pre.filter(({ max, avg }) => avg === undefined && max !== undefined && max > idleMax)
-    const over = pre.filter(({ max: top, avg }) => [top, avg].some((reading) => reading !== undefined && reading > max))
     const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
+    const phrased: Record<CapacityRule, string> = {
+        unread: 'reader capacity before T0 is missing a reading',
+        over: `reader above its ${max} ACU maximum before T0`,
+        idle: `reader above its ${idleMax} ACU idle limit before T0`,
+        under: `reader capacity under its ${min} ACU minimum before T0`,
+        inverted: 'reader average above its maximum before T0',
+        unshown: `no reader average before T0 to show the reader under its ${idleMax} ACU idle limit`,
+    }
     const reasons = [
-        over.length > 0 && `reader above its ${max} ACU maximum before T0 (${listed(over)})`,
-        !warmReader && above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
-        under.length > 0 && `reader capacity under its ${min} ACU minimum before T0 (${listed(under)})`,
-        inverted.length > 0 && `reader average above its maximum before T0 (${listed(inverted)})`,
-        !warmReader &&
-            unshown.length > 0 &&
-            `no reader average before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
+        ...capacityProblems(
+            pre,
+            { min, max, idleMax },
+            { idleSince: warmReader ? undefined : -Infinity, bothReadings: false }
+        ).map(({ rule, minutes: found }) => `${phrased[rule]} (${listed(found)})`),
         missing.length > 0 &&
             `no reader capacity in the ${CAPACITY_MINUTES} minutes before T0 for ${missing.map(iso).join(', ')}`,
         readerAtT0 === null && `no reader maximum for the minute before T0 (${iso(t0Minute - MINUTE_MS)})`,

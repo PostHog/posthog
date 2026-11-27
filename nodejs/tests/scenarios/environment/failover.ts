@@ -5,6 +5,7 @@ import type { RunManifest } from '../cloud/lease'
 import { RUN_TAG } from '../cloud/stack'
 import type { WriterSample } from '../probe/writer-probe'
 import { seriesOf } from './metric-data'
+import { CapacityMinute, CapacityRule, capacityMinutesOf, capacityProblems } from './reader-capacity'
 import { SCENARIO_SESSION_PREFIX } from './roles'
 import { withPostgres } from './stack'
 
@@ -409,8 +410,7 @@ export async function failOver({
                 'TimestampAscending',
             ])
         )
-        let sorted: { at: number; acu: number }[] = []
-        let peaks = new Map<number, number>()
+        let read: CapacityMinute[] = []
         try {
             const { acu, peak } = seriesOf(answer, {
                 ids: ['acu', 'peak'],
@@ -420,15 +420,14 @@ export async function failOver({
                 floor,
                 subject: () => `${reader}'s capacity read`,
             })
-            sorted = acu.map(({ at, value }) => ({ at, acu: value }))
-            peaks = new Map(peak.map(({ at, value }) => [at, value]))
+            read = capacityMinutesOf({ avg: acu, max: peak })
         } catch (error) {
             refuse(messageOf(error))
         }
-        let consecutive = sorted.length > 0 ? 1 : 0
+        let consecutive = read.length > 0 ? 1 : 0
         while (
-            consecutive < Math.min(sorted.length, CAPACITY_MINUTES) &&
-            sorted.at(-consecutive)!.at - sorted.at(-consecutive - 1)!.at === MINUTE_MS
+            consecutive < Math.min(read.length, CAPACITY_MINUTES) &&
+            read.at(-consecutive)!.at - read.at(-consecutive - 1)!.at === MINUTE_MS
         ) {
             consecutive++
         }
@@ -437,32 +436,33 @@ export async function failOver({
                 `${reader} has ${consecutive} consecutive complete capacity minutes, under the ${CAPACITY_MINUTES} it needs`
             )
         }
-        const minutes = sorted.slice(-CAPACITY_MINUTES)
+        const minutes = read.slice(-CAPACITY_MINUTES)
         const newestEnd = minutes.at(-1)!.at + MINUTE_MS
         if (Date.now() - newestEnd > CAPACITY_FRESH_WITHIN_MS) {
             refuse(`${reader}'s newest capacity minute ended ${Math.floor((Date.now() - newestEnd) / 1000)}s ago`)
         }
-        // No reader reaches past its maximum, so a reading above it is bad evidence even for a warm reader.
-        const unpeaked = minutes.filter(({ at }) => !peaks.has(at))
-        if (unpeaked.length > 0) {
-            refuse(
-                `${reader}'s capacity read has no maximum for ${unpeaked.map(({ at }) => new Date(at).toISOString()).join(', ')}`
-            )
-        }
-        const over = minutes
-            .map(({ at, acu }) => ({ at, acu: Math.max(acu, peaks.get(at)!) }))
-            .filter(({ acu }) => acu > ceiling)
-        if (over.length > 0) {
-            refuse(
-                `${reader} was above its ${ceiling} ACU maximum in its last ${CAPACITY_MINUTES} minutes: ${over.map(({ at, acu }) => `${acu} at ${new Date(at).toISOString()}`).join(', ')}`
-            )
-        }
         const since = new Date().setUTCSeconds(0, 0) - CAPACITY_MINUTES * MINUTE_MS
-        const busy = minutes.filter(({ at, acu }) => at >= since && acu > idleMax)
-        if (busy.length > 0 && !warmReader) {
-            refuse(
-                `${reader} was above its ${idleMax} ACU idle limit in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, acu }) => `${acu} at ${new Date(at).toISOString()}`).join(', ')}`
-            )
+        const at = ({ at: minute }: CapacityMinute): string => new Date(minute).toISOString()
+        const last = `in its last ${CAPACITY_MINUTES} minutes`
+        const phrased: Record<CapacityRule, (found: CapacityMinute[]) => string> = {
+            unread: (found) => `${reader}'s capacity read has no average or no maximum for ${found.map(at).join(', ')}`,
+            over: (found) =>
+                `${reader} was above its ${ceiling} ACU maximum ${last}: ${found.map((minute) => `${Math.max(minute.max ?? -Infinity, minute.avg ?? -Infinity)} at ${at(minute)}`).join(', ')}`,
+            idle: (found) =>
+                `${reader} was above its ${idleMax} ACU idle limit ${last}: ${found.map((minute) => `${minute.avg} at ${at(minute)}`).join(', ')}`,
+            under: (found) => `${reader}'s capacity read has a value below ${floor} at ${found.map(at).join(', ')}`,
+            inverted: (found) =>
+                `${reader}'s capacity read has an average above its maximum at ${found.map(at).join(', ')}`,
+            unshown: (found) =>
+                `${reader}'s capacity read has no average to show it idle at ${found.map(at).join(', ')}`,
+        }
+        const problems = capacityProblems(
+            minutes,
+            { min: floor, max: ceiling, idleMax },
+            { idleSince: warmReader ? undefined : since, bothReadings: true }
+        )
+        if (problems.length > 0) {
+            refuse(problems.map(({ rule, minutes: found }) => phrased[rule](found)).join('; '))
         }
     }
 }

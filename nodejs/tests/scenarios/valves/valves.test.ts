@@ -296,6 +296,27 @@ describe('valves', () => {
             { warmReader: true },
         ],
         [
+            'records no intent for a warm-reader failover on a reader whose newest minute peaked above its maximum with no average',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2, 40], averages: [2, 2, 2, 2, 2, null] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has no average or no maximum for .*; .* was above its 32 ACU maximum in its last 5 minutes: 40 at /
+                ),
+            },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a failover on a reader whose minute averaged above its own maximum',
+            { liveReaderAcu: { maxima: [1, 1, 1, 1, 1], averages: [1, 1, 2, 1, 1] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has an average above its maximum at /
+                ),
+            },
+        ],
+        [
             'fails a warm reader at its maximum over and back',
             { liveReaderAcu: { maxima: [32, 32, 32, 32, 32] } },
             true,
