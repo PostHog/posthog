@@ -16,7 +16,13 @@ import {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { PreflightStatus, UserType } from '../../../../frontend/src/types'
-import { ADVENT_LAST_DAY, adventQuestionBefore, AdventReward } from './adventContent'
+import {
+    ADVENT_LAST_DAY,
+    ADVENT_QUESTION_DAYS,
+    ADVENT_QUESTIONS,
+    adventQuestionBefore,
+    AdventReward,
+} from './adventContent'
 import { AdventRewards, drawAdventRewards } from './adventDraw'
 import {
     AdventDoor,
@@ -51,15 +57,16 @@ function isAdventDay(day: unknown): day is number {
     return Number.isInteger(day) && (day as number) >= 1 && (day as number) <= ADVENT_LAST_DAY
 }
 
+function isAdventAnswer(answer: [string, unknown]): answer is [string, string] {
+    return !!ADVENT_QUESTIONS[Number(answer[0])]?.options.some((option) => option.id === answer[1])
+}
+
 function cleanProgress(opened: unknown[], answers: unknown): AdventProgress {
-    const answered = Object.entries(isRecord(answers) ? answers : {})
+    const answered = Object.fromEntries(Object.entries(isRecord(answers) ? answers : {}).filter(isAdventAnswer))
+    const unanswered = ADVENT_QUESTION_DAYS.find((day) => opened.includes(day) && !answered[day])
     return {
-        opened: [...new Set(opened.filter(isAdventDay))],
-        answers: Object.fromEntries(
-            answered.filter(
-                (answer): answer is [string, string] => isAdventDay(Number(answer[0])) && typeof answer[1] === 'string'
-            )
-        ),
+        opened: [...new Set(opened.filter(isAdventDay))].filter((day) => unanswered === undefined || day < unanswered),
+        answers: answered,
     }
 }
 

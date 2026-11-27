@@ -180,6 +180,23 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
     })
 
+    it.each([
+        ['an answer no option has', { opened: [1, 2, 3], answers: { 2: 'tmi' } }],
+        ['no answer', { opened: [1, 2, 3], answers: {} }],
+    ])('lets the person answer a question again when storage holds %s for it', (_, progress) => {
+        logic.unmount()
+        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: progress }))
+        logic = adventCalendarLogic()
+        logic.mount()
+
+        expect(doorOf(logic, 'door-2')?.status).toBe('ready')
+        expect(logic.values.openCount).toBe(1)
+
+        logic.actions.answerDoor('door-2', 'tim')
+
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+    })
+
     it.each(['null', `{"${UUID}":{"opened":3}}`])('keeps working when storage holds %s at load', (value) => {
         const uncaught: ErrorEvent[] = []
         const onError = (event: ErrorEvent): number => uncaught.push(event)
