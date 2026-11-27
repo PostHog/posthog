@@ -147,6 +147,9 @@ class Handoff:
     tab once it sends `{"type": "posthog-admin:ready"}`. The message is `{"type": "posthog-admin:handoff",
     "version": 1, "files": [{"name", "text"}]}`, and only the tab the console opened, at `url`'s origin, gets it.
     The file never goes through a server outside PostHog.
+
+    The tool's tab keeps a handle that can navigate the admin tab until it lets go, so the tool must accept the
+    message only from the PostHog origins it trusts, and set `window.opener = null` as soon as the file arrives.
     """
 
     url: str
