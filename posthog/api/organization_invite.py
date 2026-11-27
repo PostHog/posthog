@@ -20,6 +20,7 @@ from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.helpers.email_utils import (
+    EmailLookupHandler,
     EmailNormalizer,
     reject_lookalike_email_characters,
     reject_plus_addressed_email,
@@ -250,7 +251,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 "A user with this email address already belongs to the organization.", code="existing_member"
             )
         # Service accounts cannot accept invites.
-        if User.objects.filter(email__iexact=email).exclude(type=UserType.HUMAN).exists():
+        if EmailLookupHandler.users_matching_email(email).exclude(type=UserType.HUMAN).exists():
             raise exceptions.ValidationError(
                 "This email address belongs to an account that can't be invited.", code="not_human"
             )
