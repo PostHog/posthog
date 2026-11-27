@@ -13,6 +13,9 @@ BATCH_ROWS = 5_000
 # A data file is read whole before parsing. Compaction writes 128 MiB files by default, so this only stops outliers.
 MAX_DATA_FILE_BYTES = 4 * 1024 * 1024 * 1024
 DOWNLOAD_DEADLINE_SECONDS = 30 * 60
+# Each kept position delete costs 8 bytes until the sync ends, so this holds them to about 400 MB.
+MAX_POSITION_DELETES = 50_000_000
+DELETE_BATCH_ROWS = 100_000
 # A long download reaches a safe point after each of these many bytes, so a worker shutdown can hand the run over.
 DOWNLOAD_SAFE_POINT_BYTES = 64 * 1024 * 1024
 

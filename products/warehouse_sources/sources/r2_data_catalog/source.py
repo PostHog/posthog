@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
     PERMISSION_MESSAGE,
     STORAGE_PERMISSION_MESSAGE,
     TABLE_NOT_FOUND_MESSAGE,
+    TOO_MANY_DELETES_MESSAGE,
     UNREACHABLE_MESSAGE,
     UNSUPPORTED_DELETES_MESSAGE,
     UNSUPPORTED_FORMAT_MESSAGE,
@@ -140,6 +141,7 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
                 UNSUPPORTED_DELETES_MESSAGE,
                 UNSUPPORTED_FORMAT_MESSAGE,
                 FILE_TOO_LARGE_MESSAGE,
+                TOO_MANY_DELETES_MESSAGE,
             )
         }
 

@@ -26,6 +26,7 @@ from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
     PERMISSION_MESSAGE,
     STORAGE_PERMISSION_MESSAGE,
     TABLE_NOT_FOUND_MESSAGE,
+    TOO_MANY_DELETES_MESSAGE,
     UNSUPPORTED_DELETES_MESSAGE,
     DataFile,
     IcebergColumn,
@@ -403,13 +404,28 @@ def test_position_deletes_apply_per_file_across_batches(monkeypatch: pytest.Monk
     assert _ids(result) == [2, 4, 6]
 
 
-def test_a_file_larger_than_the_cap_raises_a_non_retryable_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(r2_data_catalog, "MAX_DATA_FILE_BYTES", 100)
+@pytest.mark.parametrize(
+    ("cap", "deletes", "expected"),
+    [
+        ("MAX_DATA_FILE_BYTES", None, FILE_TOO_LARGE_MESSAGE),
+        # Deletes for a file the plan doesn't read don't count against the cap.
+        ("MAX_POSITION_DELETES", {"s3://lake/data/a.parquet": [0, 1], "s3://lake/data/other.parquet": [0]}, None),
+        ("MAX_POSITION_DELETES", {"s3://lake/data/a.parquet": [0, 1, 2]}, TOO_MANY_DELETES_MESSAGE),
+    ],
+)
+def test_reads_past_a_memory_cap_raise_a_non_retryable_error(
+    monkeypatch: pytest.MonkeyPatch, cap: str, deletes: dict[str, list[int]] | None, expected: str | None
+) -> None:
+    monkeypatch.setattr(r2_data_catalog, cap, 100 if cap == "MAX_DATA_FILE_BYTES" else 2)
 
-    result = _driver().run("analytics.events", FakeR2(with_deletes=False))
+    result = _driver().run("analytics.events", FakeR2(with_deletes=deletes is not None, delete_positions=deletes))
 
-    assert str(result.raised) == FILE_TOO_LARGE_MESSAGE
-    assert FILE_TOO_LARGE_MESSAGE in R2DataCatalogSource().get_non_retryable_errors()
+    if expected is None:
+        assert result.raised is None
+        assert _ids(result) == [3, 4, 5, 6]
+    else:
+        assert str(result.raised) == expected
+        assert expected in R2DataCatalogSource().get_non_retryable_errors()
 
 
 def test_table_without_a_snapshot_yields_an_empty_table_with_the_schema() -> None:

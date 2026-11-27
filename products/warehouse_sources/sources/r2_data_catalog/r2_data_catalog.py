@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.r2_data_catalog.settings import (
     CREDENTIAL_REFRESH_MARGIN_SECONDS,
     DEFAULT_CATALOG_HOST,
     DEFAULT_CREDENTIAL_LIFETIME_SECONDS,
+    DELETE_BATCH_ROWS,
     DISCOVERY_CONCURRENCY,
     DOWNLOAD_CHUNK_BYTES,
     DOWNLOAD_DEADLINE_SECONDS,
@@ -37,6 +38,7 @@ from products.warehouse_sources.sources.r2_data_catalog.settings import (
     MAX_DISCOVERED_NAMESPACES,
     MAX_DISCOVERED_TABLES,
     MAX_NAMESPACE_DEPTH,
+    MAX_POSITION_DELETES,
     R2_STORAGE_DOMAIN,
     REQUEST_TIMEOUT,
     SPOOL_MEMORY_BYTES,
@@ -84,6 +86,10 @@ INCREMENTAL_COLUMN_MISSING_MESSAGE = (
 )
 INVALID_WATERMARK_MESSAGE = (
     "The saved incremental value doesn't fit the type of the incremental column. Resync the table to start again."
+)
+TOO_MANY_DELETES_MESSAGE = (
+    "The Iceberg table has more position deletes than the import holds in memory. Compact the table to apply them, "
+    "then sync again."
 )
 FILE_TOO_LARGE_MESSAGE = (
     "A file of the Iceberg table is larger than the import reads in one piece. Compact the table into smaller "
@@ -683,10 +689,28 @@ def _identity_values(partition: Any, sources: Mapping[str, int]) -> dict[int, An
 
 def _group_deleted_positions(table: pa.Table) -> dict[str, np.ndarray]:
     grouped = table.group_by("file_path").aggregate([("pos", "list")])
+    lists = grouped.column("pos_list").combine_chunks()
     return {
-        str(path): np.asarray(positions, dtype=np.int64)
-        for path, positions in zip(grouped.column("file_path").to_pylist(), grouped.column("pos_list").to_pylist())
+        str(path): lists[index].values.to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
+        for index, path in enumerate(grouped.column("file_path").to_pylist())
     }
+
+
+def _read_position_deletes(
+    handle: IO[bytes], live_paths: pa.Array, deleted: dict[str, list[np.ndarray]], kept: int
+) -> int:
+    """Add the deletes of one file for the data files the plan reads, a batch at a time. Returns the kept count."""
+    for batch in pq.ParquetFile(handle).iter_batches(
+        batch_size=DELETE_BATCH_ROWS, columns=["file_path", "pos"], use_threads=False
+    ):
+        table = pa.Table.from_batches([batch])
+        table = table.filter(pc.is_in(table.column("file_path"), value_set=live_paths))
+        kept += table.num_rows
+        if kept > MAX_POSITION_DELETES:
+            raise R2DataCatalogError(TOO_MANY_DELETES_MESSAGE)
+        for target, positions in _group_deleted_positions(table).items():
+            deleted.setdefault(target, []).append(positions)
+    return kept
 
 
 def plan_read(
@@ -734,12 +758,11 @@ def plan_read(
 
     live_files = {path: data_file for path, data_file in data_files.items() if path not in removed}
     deleted: dict[str, list[np.ndarray]] = {}
+    live_paths = pa.array(sorted(live_files), type=pa.string())
+    kept = 0
     for path in sorted(delete_files - removed):
         with reader.open_file(path, safe_point=safe_point) as handle:
-            table = pq.read_table(handle, columns=["file_path", "pos"])
-        for target, positions in _group_deleted_positions(table).items():
-            if target in live_files:
-                deleted.setdefault(target, []).append(positions)
+            kept = _read_position_deletes(handle, live_paths, deleted, kept)
         if safe_point is not None:
             safe_point()
 
