@@ -94,6 +94,9 @@ export interface personEmailsLogicActions {
         id: string
         lookup: EmailLookup
     }
+    stopLookups: () => {
+        value: true
+    }
     waitToOpen: (asset: MessageAsset) => {
         asset: MessageAsset
     }
@@ -122,6 +125,7 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
     connect(() => ({ values: [featureFlagLogic, ['featureFlags']], actions: [featureFlagLogic, ['setFeatureFlags']] })),
     actions({
         lookUpOutcomes: (emails: MessageAsset[]) => ({ emails }),
+        stopLookups: true,
         setLookup: (id: string, lookup: EmailLookup) => ({ id, lookup }),
         openEmail: (asset: MessageAsset) => ({ asset }),
         waitToOpen: (asset: MessageAsset) => ({ asset }),
@@ -148,6 +152,7 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
             {
                 lookUpOutcomes: (_, { emails }) =>
                     Object.fromEntries(emails.map((email) => [email.invocation_id, 'looking' as const])),
+                stopLookups: () => null,
                 setLookup: (state, { id, lookup }) => (state ? { ...state, [id]: lookup } : state),
             },
         ],
@@ -198,8 +203,17 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
                 }
             },
             setFeatureFlags: () => {
-                if (values.outcomesShown && !values.lookups && !values.emailsLoading && values.emails.length) {
+                if (!values.outcomesShown) {
+                    if (values.lookups) {
+                        actions.stopLookups()
+                    }
+                } else if (!values.lookups && !values.emailsLoading && values.emails.length) {
                     actions.lookUpOutcomes(values.emails)
+                }
+            },
+            stopLookups: () => {
+                if (values.waitingToOpen) {
+                    actions.preview(values.waitingToOpen)
                 }
             },
             lookUpOutcomes: async ({ emails }, breakpoint) => {

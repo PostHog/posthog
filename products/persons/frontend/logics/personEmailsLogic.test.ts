@@ -21,9 +21,9 @@ const WORKFLOW = '0190a000-0000-7000-8000-000000000005'
 const OLD = '0190a000-0000-7000-8000-000000000006'
 const FLAGS = [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API, FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE]
 
-const asset = (invocation_id: string, sent_at: string): Record<string, string> => ({
+const asset = (invocation_id: string, sent_at: string, action_id = 'action-1'): Record<string, string> => ({
     invocation_id,
-    action_id: 'action-1',
+    action_id,
     function_id: 'flow-1',
     function_name: 'Password reset',
     parent_run_id: '',
@@ -67,7 +67,7 @@ const LOG = [
     logEntry(NO_OPEN, 'ada@example.com', 'delivered', false, false),
     logEntry(BOUNCED, 'ada@example.com', 'bounced', false, false),
     logEntry(NOT_SENT, 'ada@example.com', 'failed', false, false),
-    logEntry(OLD, 'ada@example.com', 'delivered', true, true, '2026-01-01T09:00:00Z'),
+    logEntry(OLD, 'ada@example.com', 'delivered', true, true, '2026-02-10T09:00:00Z'),
 ]
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -97,7 +97,8 @@ describe('personEmailsLogic', () => {
                         asset(BOUNCED, '2026-03-11T09:00:01Z'),
                         asset(NOT_SENT, '2026-03-10T10:00:01Z'),
                         asset(WORKFLOW, '2026-03-10T09:00:01Z'),
-                        asset(OLD, '2026-01-01T09:00:01Z'),
+                        asset(OLD, '2026-02-20T09:00:01Z'),
+                        asset(CLICKED, '2026-03-14T09:00:02Z', 'action-2'),
                     ],
                 ],
                 '/api/projects/:team_id/transactional_email_log/': async ({ request }) => {
@@ -148,11 +149,10 @@ describe('personEmailsLogic', () => {
 
     const hold = (...ids: string[]): { reached: Promise<void>; release: () => void } => {
         let release = (): void => {}
-        let waiting = ids.length
         const reached = new Promise<void>((resolve) => {
             held = {
                 ids,
-                reached: () => (--waiting === 0 ? resolve() : undefined),
+                reached: resolve,
                 answer: new Promise<void>((answer) => (release = answer)),
             }
         })
@@ -174,6 +174,7 @@ describe('personEmailsLogic', () => {
             'failed',
             'not_logged',
             'not_logged',
+            'clicked',
         ])
         expect(logic.values.outcomeColumnShown).toBe(true)
     })
@@ -191,6 +192,7 @@ describe('personEmailsLogic', () => {
             'failed',
             'not_logged',
             'not_logged',
+            'clicked',
         ])
     })
 
@@ -244,19 +246,34 @@ describe('personEmailsLogic', () => {
         expect(logic.values.previewed).toEqual(logic.values.emails[0])
     })
 
-    it('stops looking up once a flag turns off', async () => {
-        const firstLookups = hold(CLICKED, OPENED, NO_OPEN, BOUNCED)
+    it('stops looking up while a flag is off, and picks up again once it turns back on', async () => {
+        const lookups = hold(CLICKED, OPENED, NO_OPEN, BOUNCED, NOT_SENT, WORKFLOW, OLD)
         setFlags(true)
         logic = personEmailsLogic({ teamId: 1, personId: 'person-1' })
         logic.mount()
         logic.actions.loadEmails()
-        await firstLookups.reached
+        await lookups.reached
+        logic.actions.openEmail(logic.values.emails[0])
 
         setFlags(false)
-        firstLookups.release()
+        lookups.release()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(searches.sort()).toEqual([CLICKED, OPENED, NO_OPEN, BOUNCED].sort())
+        expect(logic.values.previewed).toEqual(logic.values.emails[0])
+        expect(searches.length).toBeLessThan(new Set(logic.values.emails.map((email) => email.invocation_id)).size)
         expect(logic.values.outcomeColumnShown).toBe(false)
+
+        setFlags(true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(lookupsInOrder()).toEqual([
+            'clicked',
+            'opened',
+            'delivered',
+            'bounced',
+            'failed',
+            'not_logged',
+            'not_logged',
+            'clicked',
+        ])
     })
 })
