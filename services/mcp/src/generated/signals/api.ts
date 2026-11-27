@@ -821,9 +821,9 @@ export const signalsReportsCreateBodyChartsItemCaptionMax = 500
 
 export const signalsReportsCreateBodyChartsMax = 20
 
-export const signalsReportsCreateBodySuggestedPromptsItemMax = 200
+export const signalsReportsCreateBodySuggestedPromptsItemMax = 2000
 
-export const signalsReportsCreateBodySuggestedPromptsMax = 3
+export const signalsReportsCreateBodySuggestedPromptsMax = 10
 
 export const signalsReportsCreateBodyLinksItemReasonMax = 500
 
@@ -992,7 +992,7 @@ export const SignalsReportsCreateBody = () => zod
             .max(signalsReportsCreateBodySuggestedPromptsMax)
             .optional()
             .describe(
-                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
+                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out."
             ),
         links: zod
             .array(
@@ -4267,9 +4267,9 @@ export const signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax = 40
 
 export const signalsScoutEditReportBodyMetricsMax = 6
 
-export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
+export const signalsScoutEditReportBodySuggestedPromptsItemMax = 2000
 
-export const signalsScoutEditReportBodySuggestedPromptsMax = 3
+export const signalsScoutEditReportBodySuggestedPromptsMax = 10
 
 export const signalsScoutEditReportBodyLinksItemReasonMax = 500
 
@@ -4568,7 +4568,7 @@ export const SignalsScoutEditReportBody = () => zod
             .max(signalsScoutEditReportBodySuggestedPromptsMax)
             .nullish()
             .describe(
-                "The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report."
+                "The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out. When every prompt you send is left out, the stored prompts stay as they were."
             ),
         links: zod
             .array(
@@ -4753,9 +4753,9 @@ export const signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax = 40
 
 export const signalsScoutEmitReportBodyMetricsMax = 6
 
-export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
+export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 2000
 
-export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
+export const signalsScoutEmitReportBodySuggestedPromptsMax = 10
 
 export const signalsScoutEmitReportBodyLinksItemReasonMax = 500
 
@@ -5028,7 +5028,7 @@ export const SignalsScoutEmitReportBody = () => zod
             .max(signalsScoutEmitReportBodySuggestedPromptsMax)
             .optional()
             .describe(
-                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
+                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out."
             ),
         links: zod
             .array(
@@ -5600,9 +5600,9 @@ export const signalsScoutSendMessageBodyRouteMax = 64
 
 export const signalsScoutSendMessageBodyReportIdMax = 64
 
-export const signalsScoutSendMessageBodyTitleMax = 150
+export const signalsScoutSendMessageBodyTitleMax = 80
 
-export const signalsScoutSendMessageBodyBodyMax = 3000
+export const signalsScoutSendMessageBodyBodyMax = 500
 
 export const signalsScoutSendMessageBodyDedupeKeyMax = 200
 
@@ -5624,12 +5624,12 @@ export const SignalsScoutSendMessageBody = () => zod
         title: zod
             .string()
             .max(signalsScoutSendMessageBodyTitleMax)
-            .describe('Short plain-text title. At most 150 characters.'),
+            .describe('Short plain-text title. At most 80 characters.'),
         body: zod
             .string()
             .max(signalsScoutSendMessageBodyBodyMax)
             .describe(
-                'Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.'
+                'Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.'
             ),
         dedupe_key: zod
             .string()

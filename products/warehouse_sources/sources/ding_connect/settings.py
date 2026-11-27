@@ -25,7 +25,7 @@ class DingConnectEndpointConfig:
 
 
 # DingConnect's REST API exposes reference/catalog lookups (Countries, Currencies, Regions,
-# Providers, ProviderStatus, Products, ProductDescriptions, Promotions, Balance,
+# Providers, ProviderStatus, Products, ProductDescriptions, Promotions, PromotionDescriptions, Balance,
 # ErrorCodeDescriptions) plus transaction history (TransferRecords). None of these expose a
 # server-side timestamp filter — the catalog endpoints are static lookups and ListTransferRecords
 # only accepts Skip/Take offset paging — so every table is full refresh. Transfer history is also
@@ -74,6 +74,12 @@ DING_CONNECT_ENDPOINTS: dict[str, DingConnectEndpointConfig] = {
         name="Promotions",
         path="/api/V1/GetPromotions",
         primary_keys=["ProviderCode", "CurrencyIso", "StartUtc"],
+    ),
+    # Same localization shape as ProductDescriptions, keyed by the LocalizationKey on each promotion.
+    "PromotionDescriptions": DingConnectEndpointConfig(
+        name="PromotionDescriptions",
+        path="/api/V1/GetPromotionDescriptions",
+        primary_keys=["LocalizationKey", "LanguageCode"],
     ),
     # GetBalance returns a single object rather than an Items list; we wrap it into one row keyed
     # on the currency so a full-refresh replace keeps exactly one current-balance row per currency.

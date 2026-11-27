@@ -4,14 +4,14 @@ import type { QuarantineLiftEntryApi, QuarantinedIdentifierEntryApi, SnapshotApi
  * Why a lift on merge cannot be requested for this snapshot, or null when it can.
  *
  * The lift waits for the default branch to render one exact picture. A changed or new
- * picture qualifies only after a reviewer approves it, and requesting the lift never approves it.
+ * picture qualifies only after a reviewer accepts it, and requesting the lift never accepts it.
  */
 export function liftOnMergeDisabledReason(snapshot: SnapshotApi): string | null {
     if (snapshot.result === 'removed') {
         return 'A removed snapshot has no picture for the default branch to render'
     }
     if (snapshot.result !== 'unchanged' && snapshot.review_state !== 'approved') {
-        return 'Approve the new picture first'
+        return 'Accept the new picture first'
     }
     return null
 }

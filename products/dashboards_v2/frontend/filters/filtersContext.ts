@@ -1,6 +1,7 @@
 import { createContext } from 'react'
 
-import type { SavedFilter, TimeRange } from '../dashboard/document/dashboardTypes'
+import type { SavedFilter } from '../dashboard/document/dashboardTypes'
+import { type TimeRange } from './time/timeRangeSchema'
 
 export type AppliedFilter<Config = unknown, Value = unknown> = {
     id: string

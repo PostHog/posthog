@@ -186,7 +186,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - In-flight action: `loading`, not a separate spinner
   - Disabled: say why with `disabledReason`, not `disabled`. It disables the control and shows the reason in a tooltip. `Button`, every menu item, `ComboboxItem`, `Checkbox`, `Switch`, `RadioGroupItem`, `ToggleGroupItem`, `SelectTrigger`, `SelectItem`, `NumberFieldRoot`, `Slider`, `ComboboxInput`, `ComboboxChips`, `Input`, `InputGroupInput` and `Textarea` take it. Never hand-wrap a disabled control in a Tooltip
     - A `Checkbox`, `Switch` or `RadioGroupItem` that can be disabled takes its label as `children`, so hovering the label shows the reason too. A sibling `FieldLabel` stays outside the tooltip. For a choice card, put `disabledReason` on the card's `FieldLabel`, not the control inside
-  - Leading icon: the first child, before the label. Trailing icon: the last child
+  - Leading icon: the first child, before the label. Trailing icon: the last child. Which one, or an ellipsis instead, follows the icon rule in §5
   - Indicator dot (unread, pending tasks): the Button `indicator` prop (`"default"`, or `"warning"` / `"destructive"` for a problem), never a hand-placed `span`. It sits on the top-right corner, outside the icon. Off the app background, set `--quill-button-indicator-ring` to the surface behind the button. Say what the dot means in the `aria-label`
   - Split button (main action plus a menu of variants): `ButtonGroup` holding the Button and an icon-only `DropdownMenuTrigger` with `IconChevronDown`
 - Switch vs Checkbox vs Toggle:
@@ -209,6 +209,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Never Select for actions; never restyle Buttons into menu rows (use `Item variant="menuItem"`)
   - A menu sizes to its longest row, never narrower than its trigger. Don't set a width on `DropdownMenuContent` unless the content needs a fixed one
   - A row with a second line takes `description` on `DropdownMenuItem` or `DropdownMenuSubTrigger`. Never stack the text yourself: the row has a fixed height until `description` tells it to grow
+  - Icons and the ellipsis on menu rows follow the icon rule in §5. A menu is a group of actions, so when one row has a leading icon every row in that group does. A row that needs more input before it runs ("Rename…", "Move to…") ends with `…`. In a scene menu bar, pass `opensFloatingUi` on `SceneMenuBarItem` rather than typing the ellipsis
   - A menu item that navigates calls the router in `onClick`. Never pass a Link through the item's `render`: the item already uses `render` for its row styling
   - Every list of choices shows what is chosen, in the same place: a radio dot for one choice, a check for several, in a gutter before the label. A chosen row is never told apart by color or a trailing mark alone
     - That gutter comes from Quill, so use the item as it is (`DropdownMenuRadioItem`, `DropdownMenuCheckboxItem`, `SelectItem`, `ComboboxItem`, `ItemRadio`, `ItemCheckbox`), and never add a check by hand. An option's label lines up with the other options, whether it is chosen or not. If the mark touches the label, fix the item in Quill, not at the call site
@@ -239,6 +240,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Default: layout + spacing, no container
   - Card: a self-contained unit the user acts on or scans as a peer (entity summary, settings block)
   - Cards may contain an `ItemGroup`; never nest cards; never wrap a whole page section in a card
+  - A Card that floats over the page (`fixed`, `absolute`, or given a `shadow-*`) takes `border border-border`. Card draws its outline with `box-shadow`, so any `shadow-*` class replaces the outline, and in dark mode the card loses its edge
 - Table vs Item list:
   - Table: rows share columns users compare, sort, or scan vertically (DataTable when sorting/filtering/selection is needed)
   - Rows the user picks for a bulk action: `DataTable` with `selectable`, never a checkbox column built by hand. It adds the header checkbox and shift-click range selection. Pass `getRowId`, `rowSelection` and `onRowSelectionChange`, keep the selection in the list's logic, and clear it when the filters change.
@@ -311,6 +313,15 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 
 - Text: use `Heading` (semantic level via `render={<h2 />}`, decoupled from size) and `Text`; never hand-roll `<p className="text-xs text-muted-foreground">`
 - Icons: use `IconPlus` for add and new actions, never `IconPlusSmall`. The small glyph looks undersized next to the other icons in a row of icon buttons
+- Icon or ellipsis on a labelled button or menu item: ask the icon questions in order and stop at the first yes, then ask the ellipsis question on its own. See the quill storybook story `Examples/Icon rules`
+  1. Does it reveal options or navigate somewhere? → trailing icon, the last child: `IconChevronDown` for a menu ("Export"), an arrow for a link out. A submenu trigger draws its own chevron
+  2. Is it an established, familiar symbol? → leading icon, the first child: `IconPlus` for "Create", `IconTrash` for "Delete"
+  3. Is it in a group of actions? → leading icon on every action in the group ("Duplicate", "Rename", "Share"), so the labels line up and scan as a set
+  4. No to all three → no icon
+  - Then, separately: does it need more input before it can happen? → end the label with an ellipsis (`…`, one character, not three dots). It combines with a leading icon: "Rename…" in a group of actions keeps its icon and its ellipsis. Alone, "Rename…" is a button with no icon
+  - No icon and no ellipsis → the label alone ("Publish")
+  - A trailing icon and an ellipsis never go together: the chevron already says something follows. A destructive action that only asks to confirm gets no ellipsis, because a confirmation is not more input
+  - Icon-only buttons are separate: see §3 Buttons
 - Body text uses the `text-xs` size: `<Text size="xs">`. `Text` defaults to `base`, so always pass `size="xs"` for body copy
 - Space a section's contents with the parent's `gap-*` (`gap-2` within a section). When a button sits beside the section's title, use `gap-1`, because the button makes the title row taller. Never give the contents, headings included, a bottom margin. The web app's global styles add margins to `h1`–`h6` and `p`, so pass `className="m-0"` on a `Heading`'s or `Text`'s `render` element
 - An inline link inside a sentence uses the same text size as the sentence: `<Button variant="link" size="inline">`. The other `Button` sizes set a control height and their own font size, so they never match the text around them. Don't patch one with `h-auto p-0`

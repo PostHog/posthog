@@ -1,0 +1,21 @@
+rules:
+    - id: quill-status-text-needs-foreground
+      message: |
+          In quill, `destructive`, `success`, `warning`, `info` and `completed` are pale background tints, not text
+          colors. This is the opposite of shadcn. Text in one of these colors comes out at about
+          1.1–1.4:1 contrast, which nobody can read, in both light and dark mode.
+
+          Use the `-foreground` token for text, icons and strokes: `text-destructive-foreground`,
+          `text-success-foreground`, `text-warning-foreground`, `text-info-foreground`. Keep the bare
+          name for backgrounds: `bg-destructive`. See "Status colors" in `packages/quill/README.md`.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          # Surfaces where quill's Tailwind theme is the only one in scope.
+          include:
+              - /packages/quill/packages
+              - /products/desktop/packages
+              - /products/*/mcp/apps
+              - /services/mcp/src/ui-apps
+      # The lookbehind skips CSS variable names such as `--color-text-info`.
+      pattern-regex: (?<![\w-])(text|fill|stroke)-(destructive|success|warning|info|completed)(?![\w-])

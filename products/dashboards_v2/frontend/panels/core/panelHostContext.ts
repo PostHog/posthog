@@ -1,6 +1,7 @@
 import { createContext } from 'react'
 
-export type QueryOutcome = 'success' | 'error'
+// `aborted` means the panel stopped waiting, such as when it unmounted, so it does not count as a failure.
+export type QueryOutcome = 'success' | 'error' | 'aborted'
 
 /** Told when a panel's query starts. The function it returns is called once the query ends. */
 export type QueryTiming = {
@@ -12,10 +13,8 @@ export type QueryTiming = {
 export type PanelHost = {
     /** A panel that loads data loads it again when this changes. */
     refresh: number
-    /** True while the host has no real data, such as in a project with no events. Panels show their `SampleData` part and run no queries. */
-    sampleData: boolean
     timing: QueryTiming | null
 }
 
 /** What the host passes down to every panel. A panel rendered on its own gets the defaults and works the same way. */
-export const PanelHostContext = createContext<PanelHost>({ refresh: 0, sampleData: false, timing: null })
+export const PanelHostContext = createContext<PanelHost>({ refresh: 0, timing: null })

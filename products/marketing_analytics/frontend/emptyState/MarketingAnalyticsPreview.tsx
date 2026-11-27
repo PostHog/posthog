@@ -1,5 +1,8 @@
 import './MarketingAnalyticsPreview.scss'
 
+import { Badge } from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook } from 'lib/utils/dom'
@@ -14,6 +17,7 @@ import { inStorybook } from 'lib/utils/dom'
  */
 export function MarketingAnalyticsPreview(): JSX.Element {
     const isStatic = inStorybook()
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <div className={cn('MarketingPreview', isStatic && 'MarketingPreview--static')}>
@@ -26,7 +30,7 @@ export function MarketingAnalyticsPreview(): JSX.Element {
                         <span className="MarketingPreview__live-dot" aria-hidden="true" />
                         Channels · 30 days
                     </span>
-                    <LemonTag size="small">example data</LemonTag>
+                    {todayRailNav ? <Badge>example data</Badge> : <LemonTag size="small">example data</LemonTag>}
                 </div>
                 <div className="MarketingPreview__goal-bar">
                     <span className="MarketingPreview__goal-label">Conversion goal</span>

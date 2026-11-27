@@ -1,10 +1,16 @@
-from typing import Any, Optional
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Optional
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.workload import Workload
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.utils import cast_timestamp_or_now
+from posthog.utils import cast_timestamp_or_now, relative_date_parse
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 EVENT_USAGE_APP_SOURCE = "event_usage"
 PROPERTY_USAGE_APP_SOURCE = "property_usage"
@@ -154,3 +160,61 @@ def log_event_usage_from_query_metadata(
         except Exception as e:
             # fail silently
             capture_exception(e)
+
+
+def _usage_window_start(team: "Team") -> str:
+    return relative_date_parse("30d", team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def fetch_most_used_event_names(team: "Team", *, limit: int, workload: Workload) -> list[str]:
+    """The team's event names that queries referenced in the last 30 days, most used first."""
+    rows = sync_execute(
+        """
+        SELECT instance_id
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+          AND app_source = %(app_source)s
+          AND metric_name = 'viewed'
+          AND timestamp >= toDateTime64(%(after)s, 6)
+        GROUP BY instance_id
+        ORDER BY sum(count) DESC, instance_id
+        LIMIT %(limit)s
+        """,
+        {
+            "team_id": team.pk,
+            "app_source": EVENT_USAGE_APP_SOURCE,
+            "after": _usage_window_start(team),
+            "limit": limit,
+        },
+        team_id=team.pk,
+        workload=workload,
+    )
+    return [instance_id.removeprefix("event:") for (instance_id,) in rows or []]
+
+
+def fetch_event_property_usage(team: "Team", property_names: Sequence[str], *, workload: Workload) -> dict[str, int]:
+    """How many times queries referenced each event property in the last 30 days. Unused names are left out."""
+    if not property_names:
+        return {}
+    names_by_instance_id = {property_usage_instance_id("event", name): name for name in property_names}
+    rows = sync_execute(
+        """
+        SELECT instance_id, sum(count)
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+          AND app_source = %(app_source)s
+          AND metric_name = 'viewed'
+          AND timestamp >= toDateTime64(%(after)s, 6)
+          AND instance_id IN %(instance_ids)s
+        GROUP BY instance_id
+        """,
+        {
+            "team_id": team.pk,
+            "app_source": PROPERTY_USAGE_APP_SOURCE,
+            "after": _usage_window_start(team),
+            "instance_ids": list(names_by_instance_id),
+        },
+        team_id=team.pk,
+        workload=workload,
+    )
+    return {names_by_instance_id[instance_id]: int(total) for instance_id, total in rows or []}

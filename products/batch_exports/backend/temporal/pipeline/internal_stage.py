@@ -329,6 +329,7 @@ class BatchExportInsertIntoInternalStageInputs:
     is_workflows: bool = False
     on_demand: bool = False
     destination_default_fields: list[BatchExportField] | None = None
+    use_new_events_schema: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -483,6 +484,7 @@ async def _stage_query_results(
             extra_query_parameters=extra_query_parameters,
             num_partitions=num_partitions,
             is_workflows=inputs.is_workflows,
+            new_events_schema_opt_in=inputs.use_new_events_schema,
         )
         query_or_model = stage_query.query
         query_parameters = stage_query.parameters
@@ -726,6 +728,7 @@ async def _get_query(
     filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None = None,
     num_partitions: int | None = None,
     is_workflows: bool = False,
+    new_events_schema_opt_in: bool = False,
     **parameters,
 ) -> _StageQuery:
     if fields is None:
@@ -782,7 +785,7 @@ async def _get_query(
         else:
             parameters["include_events"] = []
 
-        reads_new_events_table = batch_exports_read_new_events_table(team_id)
+        reads_new_events_table = batch_exports_read_new_events_table(team_id, export_opted_in=new_events_schema_opt_in)
         if reads_new_events_table:
             events_query = await _get_new_events_query(
                 team_id=team_id,

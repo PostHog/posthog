@@ -3,7 +3,7 @@ import React from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -20,6 +20,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { CleanQuarantinedSnapshots } from '../components/CleanQuarantinedSnapshots'
 import { CleanQuarantinedToggle } from '../components/CleanQuarantinedToggle'
+import { OlderRunBanner } from '../components/OlderRunBanner'
+import { ReviewDecisionsSummary } from '../components/ReviewDecisionsSummary'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
@@ -28,6 +30,7 @@ import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
+import { type DecisionFilter, type FinalizeButtonCopy, countChanges, personName } from '../lib/reviewDecisions'
 import { QuillFinalizeRunActions } from './QuillFinalizeRunActions'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
@@ -93,7 +96,10 @@ function SnapshotThumbnail({
     const isTheme = theme === 'dark' || theme === 'light'
     const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
 
-    const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
+    const isReviewed =
+        snapshot.review_state === 'approved' ||
+        snapshot.review_state === 'tolerated' ||
+        snapshot.review_state === 'rejected'
     const showBadge = isReviewed || isQuarantined
     // True iff the SnapshotChangeBadge will actually render. Mirrors
     // its visibility predicate so we don't show "hasDiff = true but
@@ -124,13 +130,21 @@ function SnapshotThumbnail({
                                 ? 'bg-warning'
                                 : snapshot.review_state === 'approved'
                                   ? 'bg-success'
-                                  : 'bg-muted'
+                                  : snapshot.review_state === 'rejected'
+                                    ? 'bg-danger'
+                                    : 'bg-muted'
                         }`}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }}
                     />
                     <span className="absolute top-[3px] right-[3px] z-10 text-white text-[10px] leading-none font-bold">
-                        {isQuarantined ? 'Q' : snapshot.review_state === 'approved' ? '✓' : '~'}
+                        {isQuarantined
+                            ? 'Q'
+                            : snapshot.review_state === 'approved'
+                              ? '✓'
+                              : snapshot.review_state === 'rejected'
+                                ? '✕'
+                                : '~'}
                     </span>
                 </>
             )}
@@ -197,6 +211,31 @@ function QuarantinedThumbnailsToggle({
         >
             {label}
         </button>
+    )
+}
+
+const DECISION_FILTER_LABELS: Record<DecisionFilter, string> = {
+    earlier: 'accepted on earlier commits',
+    rejected: 'rejected',
+    agent: 'accepted by an agent',
+}
+
+function DecisionFilterNotice({
+    filter,
+    count,
+    onClear,
+}: {
+    filter: DecisionFilter
+    count: number
+    onClear: () => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2 text-xs text-secondary">
+            <span>{`Showing ${countChanges(count)} ${DECISION_FILTER_LABELS[filter]}.`}</span>
+            <Link onClick={onClear} data-attr="visual-review-clear-decision-filter">
+                Show all
+            </Link>
+        </div>
     )
 }
 
@@ -276,7 +315,7 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifiersLoadFailed,
         repoFullName,
         isFinalizing,
-        isApprovingSnapshot,
+        decidingAction,
         isRecomputing,
         isRequestingLift,
         isCancellingLift,
@@ -289,11 +328,25 @@ export function VisualReviewRunScene(): JSX.Element {
         thumbnailBasePath,
         addImagesToComment,
         runNotFound,
+        decidesByPullRequest,
+        olderRunSituation,
+        decisionsLockedReason,
+        pullRequestClosed,
+        isHeadRun,
+        finalizeButton,
+        rejectionSummary,
+        filteredChangedSnapshots,
+        decisionFilter,
+        currentUserId,
+        selectedHeadPictureLine,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
         finalizeRun,
         approveSnapshot,
+        rejectSnapshot,
+        clearSnapshotDecision,
+        setDecisionFilter,
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
@@ -307,15 +360,16 @@ export function VisualReviewRunScene(): JSX.Element {
     } = useActions(visualReviewRunSceneLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const quarantinedNavCount = sortedChangedSnapshots.filter((s: SnapshotApi) =>
+    const quarantinedNavCount = filteredChangedSnapshots.filter((s: SnapshotApi) =>
         quarantinedIdentifierSet.has(s.identifier)
     ).length
+    // A rejected quarantined story still blocks finalize, so the rejection filter shows it.
     const isHiddenQuarantined = (s: SnapshotApi): boolean =>
-        quarantinedIdentifierSet.has(s.identifier) && s.id !== selectedSnapshot?.id
+        quarantinedIdentifierSet.has(s.identifier) && s.id !== selectedSnapshot?.id && decisionFilter !== 'rejected'
     const visibleNavSnapshots = showQuarantinedThumbnails
-        ? sortedChangedSnapshots
-        : sortedChangedSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
-    const hiddenQuarantinedCount = sortedChangedSnapshots.length - visibleNavSnapshots.length
+        ? filteredChangedSnapshots
+        : filteredChangedSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
+    const hiddenQuarantinedCount = filteredChangedSnapshots.length - visibleNavSnapshots.length
     const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
     // Stays out of view until the quarantined stories load, so the footer never offers an empty list.
     const showCleanQuarantinedToggle =
@@ -410,6 +464,7 @@ export function VisualReviewRunScene(): JSX.Element {
             s.result !== 'unchanged' && s.review_state === 'pending' && !quarantinedIdentifierSet.has(s.identifier)
     ).length
     const reviewApproved = snapshots.filter((s: SnapshotApi) => s.review_state === 'approved').length
+    const reviewRejected = snapshots.filter((s: SnapshotApi) => s.review_state === 'rejected').length
     const reviewTolerated = snapshots.filter((s: SnapshotApi) => s.review_state === 'tolerated').length
 
     // Diff summary (server-side counts)
@@ -436,7 +491,8 @@ export function VisualReviewRunScene(): JSX.Element {
                     s.review_state === 'approved'
             )
 
-    const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
+    const hasMore =
+        diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewRejected + reviewTolerated
 
     // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; the backend needs both the
     // job ID and the workflow run ID (it binds the rerun to the originating run), wired in via
@@ -453,20 +509,54 @@ export function VisualReviewRunScene(): JSX.Element {
         }
     }
 
+    // In ledger mode only the pull request's newest run takes a finalize, and its review progress drives the button.
+    const progress = run.progress
+    const showLedgerFinalize =
+        decidesByPullRequest &&
+        isHeadRun &&
+        !pullRequestClosed &&
+        !run.approved &&
+        !!progress &&
+        // Progress counts an accepted quarantined change as resolved, but finalize still records its picture.
+        (progress.approved + progress.rejected + progress.needs_review > 0 || reviewApproved > 0)
+    const showYamlFinalize =
+        !decidesByPullRequest &&
+        !isReportingOnly &&
+        !run.approved &&
+        !run.is_stale &&
+        (reviewPending > 0 || reviewApproved > 0)
+    const finalizeButtonCopy: FinalizeButtonCopy | null = showLedgerFinalize
+        ? finalizeButton
+        : showYamlFinalize
+          ? {
+                label: reviewPending > 0 ? `Accept ${reviewPending} and finalize` : 'Finalize run',
+                note: null,
+                tooltip: null,
+                disabledReason: null,
+            }
+          : null
+    const showAgentAccepts =
+        showLedgerFinalize &&
+        !!progress &&
+        progress.approved_via_mcp > 0 &&
+        progress.needs_review === 0 &&
+        progress.rejected === 0
+
     return (
         <SceneContent>
             <RunSceneHeader
                 repoFullName={repoFullName}
                 branch={run.branch}
                 actions={
-                    !isReportingOnly && !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
+                    finalizeButtonCopy ? (
                         todayRailNav ? (
                             <QuillFinalizeRunActions
                                 addImagesToComment={addImagesToComment}
                                 setAddImagesToComment={setAddImagesToComment}
                                 isFinalizing={isFinalizing}
                                 finalizeRun={finalizeRun}
-                                reviewPending={reviewPending}
+                                button={finalizeButtonCopy}
+                                onShowAgentAccepts={showAgentAccepts ? () => setDecisionFilter('agent') : undefined}
                             />
                         ) : (
                             <div className="flex flex-wrap items-center gap-2">
@@ -478,16 +568,37 @@ export function VisualReviewRunScene(): JSX.Element {
                                     info="The PR comment is always posted; tick this to attach the before/after snapshot images to it. Remembered for next time."
                                     data-attr="visual-review-add-images-to-comment"
                                 />
+                                {finalizeButtonCopy.note && (
+                                    <span className="flex items-center gap-1 text-xs text-secondary">
+                                        <span data-attr="visual-review-finalize-progress">
+                                            {finalizeButtonCopy.note}
+                                        </span>
+                                        {showAgentAccepts && (
+                                            <Link
+                                                onClick={() => setDecisionFilter('agent')}
+                                                data-attr="visual-review-show-agent-accepts"
+                                            >
+                                                Show them
+                                            </Link>
+                                        )}
+                                    </span>
+                                )}
                                 <LemonButton
                                     type="primary"
                                     onClick={finalizeRun}
                                     loading={isFinalizing}
+                                    tooltip={finalizeButtonCopy.tooltip ?? undefined}
+                                    disabledReason={finalizeButtonCopy.disabledReason ?? undefined}
                                     data-attr="visual-review-finalize-run"
                                 >
-                                    {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
+                                    {isFinalizing ? 'Finalizing…' : finalizeButtonCopy.label}
                                 </LemonButton>
                             </div>
                         )
+                    ) : decidesByPullRequest && run.approved ? (
+                        <LemonTag type="success" size="medium" data-attr="visual-review-finalized-by">
+                            Finalized by {personName(run.approved_by)}
+                        </LemonTag>
                     ) : undefined
                 }
             />
@@ -499,22 +610,37 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {run.is_stale && (
+            {decidesByPullRequest && pullRequestClosed ? (
                 <LemonBanner type="warning" className="mb-4">
-                    This run has been superseded by a newer run.{' '}
-                    {run.superseded_by_id && (
-                        <Link to={runPath(run.superseded_by_id, repoFullName ?? undefined)} className="font-semibold">
-                            View latest run
-                        </Link>
-                    )}
+                    {decisionsLockedReason}
                 </LemonBanner>
+            ) : olderRunSituation && run.head_run ? (
+                <OlderRunBanner
+                    situation={olderRunSituation}
+                    headRun={run.head_run}
+                    prNumber={run.pr_number}
+                    commitSha={run.commit_sha}
+                    headRunUrl={runPath(run.head_run.id, repoFullName ?? undefined)}
+                />
+            ) : (
+                run.is_stale && (
+                    <LemonBanner type="warning" className="mb-4">
+                        This run has been superseded by a newer run.{' '}
+                        {run.superseded_by_id && (
+                            <Link
+                                to={runPath(run.superseded_by_id, repoFullName ?? undefined)}
+                                className="font-semibold"
+                            >
+                                View latest run
+                            </Link>
+                        )}
+                    </LemonBanner>
+                )
             )}
 
             {run.stale_approval_count > 0 && (
                 <LemonBanner type="warning" className="mb-4">
-                    The baseline of {run.stale_approval_count} approved{' '}
-                    {run.stale_approval_count === 1 ? 'snapshot' : 'snapshots'} changed after the approval. Update the
-                    branch from the default branch to get a new run, then review it.
+                    {`The baseline of ${run.stale_approval_count} accepted ${run.stale_approval_count === 1 ? 'snapshot' : 'snapshots'} changed after ${run.stale_approval_count === 1 ? 'it was' : 'they were'} accepted. Update the branch from the default branch to get a new run, then review it.`}
                 </LemonBanner>
             )}
 
@@ -537,6 +663,10 @@ export function VisualReviewRunScene(): JSX.Element {
                         and pass the gate. (No baseline commit needed; approved changes are shipped via Finalize run.)
                     </LemonBanner>
                 )}
+
+            {isHeadRun && !run.approved && progress && (
+                <ReviewDecisionsSummary progress={progress} rejections={rejectionSummary} onShow={setDecisionFilter} />
+            )}
 
             {/* Snapshots panel — thumbnail strip as nav, diff viewer as body */}
             <div className="border rounded-lg overflow-hidden">
@@ -562,7 +692,12 @@ export function VisualReviewRunScene(): JSX.Element {
                                         ),
                                         reviewApproved > 0 && (
                                             <span key="appr" className="text-success">
-                                                {reviewApproved} approved
+                                                {reviewApproved} accepted
+                                            </span>
+                                        ),
+                                        reviewRejected > 0 && (
+                                            <span key="rej" className="text-danger">
+                                                {reviewRejected} rejected
                                             </span>
                                         ),
                                         reviewTolerated > 0 && <span key="tol">{reviewTolerated} tolerated</span>,
@@ -603,6 +738,14 @@ export function VisualReviewRunScene(): JSX.Element {
                             </>
                         )}
                     </div>
+
+                    {decisionFilter && (
+                        <DecisionFilterNotice
+                            filter={decisionFilter}
+                            count={filteredChangedSnapshots.length}
+                            onClear={() => setDecisionFilter(null)}
+                        />
+                    )}
 
                     {sortedChangedSnapshots.length > 0 && (
                         <div className="flex gap-1.5 overflow-x-auto px-3 pb-3">
@@ -709,11 +852,27 @@ export function VisualReviewRunScene(): JSX.Element {
                     {selectedSnapshot ? (
                         <SnapshotDiffViewer
                             snapshot={selectedSnapshot}
+                            reviewDecisions={
+                                decidesByPullRequest
+                                    ? {
+                                          finalized: run.approved,
+                                          currentUserId,
+                                          lockedReason: decisionsLockedReason,
+                                          decidingAction,
+                                          headPictureLine: selectedHeadPictureLine,
+                                          onAccept: (overrideRejection) =>
+                                              approveSnapshot(selectedSnapshot, overrideRejection),
+                                          onReject: (reason) => rejectSnapshot(selectedSnapshot, reason),
+                                          onUndo: (overrideRejection) =>
+                                              clearSnapshotDecision(selectedSnapshot, overrideRejection),
+                                      }
+                                    : null
+                            }
                             toleratedHashes={toleratedHashes}
                             toleratedHashesLoading={toleratedHashesLoading}
                             recentTolerations={recentTolerations}
                             onApprove={handleApproveSnapshot}
-                            isApproving={isApprovingSnapshot}
+                            isApproving={decidingAction === 'accept'}
                             onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
                             quarantineEntry={
                                 quarantinedIdentifiers.find(

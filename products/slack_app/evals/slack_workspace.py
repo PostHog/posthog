@@ -78,6 +78,8 @@ CURSOR = Member("U0CURSOR", "Cursor", is_bot=True)
 MEMBERS = (DANA, ANA, BEN, CHLOE, RAJ, MEI, POSTHOG, CLAUDE, CURSOR)
 BOT_IDS = frozenset(member.user_id for member in MEMBERS if member.is_bot)
 
+WORKSPACE_HOST = "hedgebox.slack.com"
+
 # The person every digest in the evals is for.
 PERSON = DANA
 
@@ -291,6 +293,37 @@ THREADS: tuple[Thread, ...] = (
             _m(CLAUDE, "On it. The indexer batches on a 10 minute timer, I'll propose a change.", 207),
         ),
     ),
+    Thread(
+        key="unanswered_usage_ask",
+        channel_id="C0GROWTH",
+        newsworthy=None,
+        work="open",
+        messages=(
+            _m(
+                MEI,
+                f"{_tag(DANA)} how many teams opened a shared folder link in their first week? I need the number for Thursday's growth review.",
+                230,
+            ),
+        ),
+    ),
+    Thread(
+        key="answered_by_person",
+        channel_id="C0SUPPORT",
+        newsworthy=None,
+        messages=(
+            _m(CHLOE, f"{_tag(DANA)} do existing teams keep the 30 day trial after Monday?", 245),
+            _m(DANA, "Yes, the 14 day trial is only for new signups.", 250),
+        ),
+    ),
+    Thread(
+        key="taken_by_teammate",
+        channel_id="C0BACKEND",
+        newsworthy=None,
+        messages=(
+            _m(ANA, "Folder exports with more than 10k files time out after 60 seconds.", 215),
+            _m(BEN, "I'm on it, looking at the export worker now.", 218),
+        ),
+    ),
 )
 
 BY_KEY = {thread.key: thread for thread in THREADS}
@@ -310,7 +343,8 @@ def people_messages(thread: Thread) -> list[dict[str, str]]:
 
 
 def permalink(thread: Thread) -> str:
-    return f"https://hedgebox.example.com/archives/{thread.channel_id}/p{thread.key}"
+    # A Slack-shaped link, because the daily focus agent's answer keeps only Slack links.
+    return f"https://{WORKSPACE_HOST}/archives/{thread.channel_id}/p{thread.key}"
 
 
 def text_of(thread: Thread) -> str:

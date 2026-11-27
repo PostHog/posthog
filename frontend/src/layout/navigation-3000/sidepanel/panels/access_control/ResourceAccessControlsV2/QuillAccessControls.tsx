@@ -7,6 +7,7 @@ import { AccessControlTabContainer } from './AccessControlTabContainer'
 import { QuillAccessControlDefaultSettings } from './QuillAccessControlDefaultSettings'
 import { QuillAccessControlFilters } from './QuillAccessControlFilters'
 import { QuillAccessControlTable } from './QuillAccessControlTable'
+import { QuillAccessDetailDialog } from './QuillAccessDetailDialog'
 import { QuillGroupedAccessControlRuleModal } from './QuillGroupedAccessControlRuleModal'
 import type { AccessControlSettingsEntry, AccessControlsTab } from './types'
 
@@ -41,6 +42,7 @@ export function QuillAccessControls({
         visibleResourceKeySet,
         filteredResourceKeySet,
         ruleModalState,
+        accessDetailInDialog,
     } = useValues(logic)
 
     const { setActiveTab, setSearchText, setFilters } = useActions(logic)
@@ -100,6 +102,7 @@ export function QuillAccessControls({
             </div>
 
             {ruleModalState && <QuillGroupedAccessControlRuleModal state={ruleModalState} />}
+            {accessDetailInDialog && <QuillAccessDetailDialog projectId={projectId} />}
         </>
     )
 }

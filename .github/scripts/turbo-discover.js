@@ -1065,11 +1065,7 @@ const DJANGO_SEGMENTS = {
     CorePOE: {
         // Keep in sync with the person-on-events pytest targets in
         // ci-backend.yml's "Run Core tests" step.
-        include: [
-            'posthog/clickhouse/',
-            'posthog/api/test/dashboards/test_dashboard.py',
-            'ee/clickhouse/',
-        ],
+        include: ['posthog/clickhouse/', 'ee/clickhouse/'],
         exclude: [
             'posthog/temporal/',
             'posthog/dags/',

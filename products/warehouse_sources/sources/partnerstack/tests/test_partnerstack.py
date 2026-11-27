@@ -5,7 +5,10 @@ from parameterized import parameterized
 
 from products.warehouse_sources.sources.partnerstack._config import PartnerStackSourceConfig
 from products.warehouse_sources.sources.partnerstack.partnerstack import (
+    FORBIDDEN_KEYS_MESSAGE,
+    INVALID_KEYS_MESSAGE,
     PAGE_SIZE,
+    UNREACHABLE_MESSAGE,
     PartnerStackResumeConfig,
     validate_credentials,
 )
@@ -110,6 +113,11 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, None),
+            (401, INVALID_KEYS_MESSAGE),
+            (403, FORBIDDEN_KEYS_MESSAGE),
+            (429, UNREACHABLE_MESSAGE),
+            (500, UNREACHABLE_MESSAGE),
+            (503, UNREACHABLE_MESSAGE),
         ]
     )
     def test_status_to_message(self, status: int, expected_message: str | None) -> None:
@@ -126,7 +134,7 @@ class TestValidateCredentials:
             valid, message = validate_credentials("pub", "priv")
 
         assert valid is False
-        assert message is not None
+        assert message == UNREACHABLE_MESSAGE
         assert {request.path for request in network.requests_log} == {"/api/v2/partnerships"}
 
 

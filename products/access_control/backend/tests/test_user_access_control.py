@@ -80,12 +80,11 @@ class BaseUserAccessControlTest(BaseTest):
 
 @pytest.mark.ee
 class TestUserAccessControl(BaseUserAccessControlTest):
-    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
-    def test_preloaded_users_match_single_user_permissions(self, most_specific: bool, entitled: bool) -> None:
-        self.organization.uses_most_specific_access_resolution = most_specific
+    @parameterized.expand([(False,), (True,)])
+    def test_preloaded_users_match_single_user_permissions(self, entitled: bool) -> None:
         if not entitled:
             self.organization.available_product_features = []
-        self.organization.save()
+            self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team)
@@ -352,11 +351,8 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert ac_user in matching_acs
         assert ac_role in matching_acs
         assert ac_role_2 in matching_acs
-        # Legacy resolution: the highest matching row decides
-        self.organization.uses_most_specific_access_resolution = False
-        self.organization.save()
-        self.user_access_control = UserAccessControl(self.user, self.team)
-        assert self.user_access_control.access_level_for_object(self.team) == "admin"
+        # The member's own row decides, not the highest matching row
+        assert self.user_access_control.access_level_for_object(self.team) == "member"
 
     def test_object_lookup_returns_only_the_rows_of_that_object(self):
         first = self._create_access_control(resource="dashboard", resource_id="first", access_level="none")
@@ -714,16 +710,6 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
         )
         assert serializer.get_user_access_level(obj) == "viewer"
 
-    def test_resource_level_takes_priority(self):
-        # Legacy resolution: resource-level rules beat the object's own default rule
-        self.organization.uses_most_specific_access_resolution = False
-        self.organization.save()
-        self.user_access_control = UserAccessControl(self.user, self.team)
-        self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
-        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
-        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
-        assert serializer.get_user_access_level(self.dashboard) == "editor"
-
     def test_object_rule_takes_priority_in_most_specific_mode(self):
         # Most-specific resolution: the object's own rule beats the resource level
         self.organization.uses_most_specific_access_resolution = True
@@ -758,9 +744,6 @@ class TestObjectDefaultDenyBeatsResourceGrant(BaseUserAccessControlTest):
         super().setUp()
         # The current user is not the creator, so the creator bypass does not apply
         self.private_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
-        self.organization.uses_most_specific_access_resolution = False
-        self.organization.save()
-        self.user_access_control = UserAccessControl(self.user, self.team)
 
     def _make_private_with_resource_grant(self, grant_subject: str = "project") -> None:
         self._create_access_control(
@@ -1043,28 +1026,6 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
         assert access_level == "viewer"
 
-    def test_mixed_access_controls_highest_wins(self):
-        """Test that when multiple access controls exist, highest level wins"""
-        # Create multiple access controls with different levels
-        self._create_access_control(
-            resource="dashboard",
-            resource_id=str(self.other_dashboard.id),
-            access_level="viewer",
-            organization_member=self.organization_membership,
-        )
-        self._create_access_control(
-            resource="dashboard",
-            resource_id=str(self.other_dashboard.id),
-            access_level="editor",
-            role=self.role_a,
-        )
-
-        self.organization.uses_most_specific_access_resolution = False
-        self.organization.save()
-        self.user_access_control = UserAccessControl(self.user, self.team)
-        access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
-        assert access_level == "editor"  # Legacy resolution: higher level wins across member and role rows
-
     def test_member_row_beats_role_row_in_most_specific_mode(self):
         self.organization.uses_most_specific_access_resolution = True
         self.organization.save()
@@ -1282,51 +1243,6 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
         access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
         assert access_level is None  # Global controls are ignored
-
-    def test_highest_level_wins_for_multiple_specific_controls(self):
-        """Test that highest level wins when multiple specific controls exist"""
-        # Create multiple specific access controls
-        self._create_access_control(
-            resource="dashboard",
-            resource_id=str(self.other_dashboard.id),
-            access_level="viewer",
-            organization_member=self.organization_membership,
-        )
-        self._create_access_control(
-            resource="dashboard",
-            resource_id=str(self.other_dashboard.id),
-            access_level="editor",
-            role=self.role_a,
-        )
-
-        self.organization.uses_most_specific_access_resolution = False
-        self.organization.save()
-        self.user_access_control = UserAccessControl(self.user, self.team)
-        access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
-        assert access_level == "editor"  # Legacy resolution: higher level wins
-
-    def test_mixed_member_and_role_controls(self):
-        """Test that both member and role controls are considered"""
-        # Create member-specific control
-        self._create_access_control(
-            resource="dashboard",
-            resource_id=str(self.other_dashboard.id),
-            access_level="viewer",
-            organization_member=self.organization_membership,
-        )
-        # Create role-specific control with higher level
-        self._create_access_control(
-            resource="dashboard",
-            resource_id=str(self.other_dashboard.id),
-            access_level="manager",
-            role=self.role_a,
-        )
-
-        self.organization.uses_most_specific_access_resolution = False
-        self.organization.save()
-        self.user_access_control = UserAccessControl(self.user, self.team)
-        access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
-        assert access_level == "manager"  # Legacy resolution: role control with higher level wins
 
     def test_project_specific_access_control(self):
         """Test project-specific access controls"""
@@ -2317,13 +2233,6 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
             self._create_access_control(resource=resource, resource_id=resource_id, access_level=level)
         self._clear_uac_caches()
 
-    def _resolve(self, table, uac=None):
-        uac = uac or self.user_with_no_role_access_control
-        rows = uac._get_access_controls(uac._access_controls_filters_for_object("warehouse_table", str(table.id)))
-        return uac._object_access_level_from_rows(
-            "warehouse_table", rows, fallback_parent_id=UserAccessControl._fallback_parent_id(table, "warehouse_table")
-        )
-
     @parameterized.expand(
         [
             ("system_default_when_nothing_set", {}, ("editor", "system_default", None, "warehouse_objects"), None),
@@ -2348,7 +2257,7 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         # reordered or mislabeled tier fails here instead of shipping a wrong "Based on …"
         self._apply_for_everyone(rules, self.sourced_table)
 
-        access = self._resolve(self.sourced_table)
+        access = self.user_with_no_role_access_control._resolved_object_access(self.sourced_table)
         assert access is not None
         actual = (
             access.access_level,
@@ -2456,26 +2365,6 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         assert resolved and access is not None
         assert (access.access_level, access.source) == ("member", "org_membership")
 
-    def test_tie_between_member_and_role_reports_the_member(self):
-        self._create_access_control(
-            resource="warehouse_table",
-            resource_id=str(self.sourced_table.id),
-            access_level="editor",
-            organization_member=self.membership,
-        )
-        self._create_access_control(
-            resource="warehouse_table", resource_id=str(self.sourced_table.id), access_level="editor", role=self.role_a
-        )
-        self._clear_uac_caches()
-
-        access = self._resolve(self.sourced_table, self.user_access_control)
-        assert access is not None
-        assert (access.access_level, access.source, access.source_subject) == (
-            "editor",
-            "object",
-            "member",
-        )
-
     def test_resource_resolution_reports_its_source(self):
         self._create_access_control(resource="warehouse_objects", access_level="viewer")
         self._create_access_control(resource="warehouse_objects", access_level="editor", role=self.role_a)
@@ -2515,11 +2404,6 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
         super().setUp()
         self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
-    def _use_resolution(self, most_specific: bool) -> None:
-        self.organization.uses_most_specific_access_resolution = most_specific
-        self.organization.save()
-        self.user_access_control = UserAccessControl(self.user, self.team)
-
     def _dashboard_ref(self) -> ObjectAccessRef:
         return ObjectAccessRef(
             resource="dashboard",
@@ -2530,21 +2414,16 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
 
     @parameterized.expand(
         [
-            (f"{scenario}_{'most_specific' if most_specific else 'legacy'}", scenario, most_specific, expected)
-            for most_specific in (False, True)
-            for scenario, expected in [
-                ("default", "editor"),
-                ("creator", "manager"),
-                ("org_admin", "manager"),
-                ("object_default_none", "none"),
-                ("object_member_viewer", "viewer"),
-                ("object_member_manager", "manager"),
-                ("resource_viewer", "viewer"),
-            ]
+            ("default", "editor"),
+            ("creator", "manager"),
+            ("org_admin", "manager"),
+            ("object_default_none", "none"),
+            ("object_member_viewer", "viewer"),
+            ("object_member_manager", "manager"),
+            ("resource_viewer", "viewer"),
         ]
     )
-    def test_ref_resolves_like_the_model(self, _name, scenario, most_specific, expected):
-        self._use_resolution(most_specific)
+    def test_ref_resolves_like_the_model(self, scenario, expected):
         if scenario == "creator":
             self.dashboard.created_by = self.user
             self.dashboard.save()
@@ -2575,9 +2454,7 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
             ref
         ) == self.user_access_control.check_can_modify_access_levels_for_object(self.dashboard)
 
-    @parameterized.expand([("legacy", False), ("most_specific", True)])
-    def test_project_level_none_matches_the_team(self, _name, most_specific):
-        self._use_resolution(most_specific)
+    def test_project_level_none_matches_the_team(self):
         self._create_access_control(resource="project", resource_id=str(self.team.id), access_level="none")
         self._clear_uac_caches()
 

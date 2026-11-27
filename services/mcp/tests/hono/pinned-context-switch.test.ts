@@ -9,12 +9,26 @@ import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import * as constants from '@/lib/constants'
-import { getPostHogClient } from '@/lib/posthog'
 import { hash } from '@/lib/utils'
 import type { SessionScopedState, State } from '@/tools/types'
 
 import { contextMillHandler, handlers } from '../workers/fixtures/handlers'
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
+const FLAGS_HOST = 'https://flags.posthog.invalid'
+const flagsAnswer: { enabled: ((key: string) => boolean) | undefined } = { enabled: undefined }
+
+vi.mock('@/lib/posthog/client', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/posthog/client')>()
+    const { PostHogMCP } = await import('@posthog/mcp-analytics')
+    const client = new PostHogMCP('phc_test', {
+        host: 'https://flags.posthog.invalid',
+        flushAt: 1,
+        flushInterval: 0,
+        disableCompression: true,
+    })
+    return { ...actual, getPostHogClient: () => client }
+})
 
 const PINNED_PROJECT = '1'
 const PINNED_ORG = '019d85ef-7e7d-0000-090c-f2f598b3949b'
@@ -37,6 +51,28 @@ function recordApiPath(request: StrictRequest<DefaultBodyType>): void {
 }
 
 const mswServer = setupServer(
+    http.post(`${FLAGS_HOST}/flags/`, async ({ request }) => {
+        const { flag_keys_to_evaluate: keys = [] } = (await request.json()) as { flag_keys_to_evaluate?: string[] }
+        const enabled = flagsAnswer.enabled
+        return HttpResponse.json({
+            flags: enabled
+                ? Object.fromEntries(
+                      keys.map((key) => [
+                          key,
+                          {
+                              key,
+                              enabled: enabled(key),
+                              reason: { code: 'condition_match' },
+                              metadata: { id: 1, version: 1 },
+                          },
+                      ])
+                  )
+                : {},
+            errorsWhileComputingFlags: false,
+            requestId: 'flags-request',
+        })
+    }),
+    http.post(`${FLAGS_HOST}/*`, () => HttpResponse.json({ status: 1 })),
     http.get('*/api/projects/:projectId/integrations/', () => HttpResponse.json({ results: [] })),
     http.get('*/api/projects/:projectId/', ({ params }) =>
         params.projectId === MISSING_PROJECT
@@ -615,17 +651,7 @@ describe('pinned project with switch-project (Hono)', () => {
             }
             mswServer.events.on('request:start', record)
             const localApi = vi.spyOn(constants, 'isLocalApi').mockReturnValue(false)
-            const flags = vi
-                .spyOn(getPostHogClient(), 'getAllFlagsAndPayloads')
-                .mockImplementation(async (_distinctId, options) => ({
-                    featureFlags: Object.fromEntries(
-                        (options?.flagKeys ?? []).map((key) => [
-                            key,
-                            key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
-                        ])
-                    ),
-                    featureFlagPayloads: {},
-                }))
+            flagsAnswer.enabled = (key) => key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG
             try {
                 const results = await postBatch(
                     Array.from({ length: 100 }, (_, index) => ({
@@ -641,7 +667,7 @@ describe('pinned project with switch-project (Hono)', () => {
                 expect(results.map(({ result }) => Boolean(result?.isError))).toEqual(Array(100).fill(false))
                 expect(counts.get('/api/personal_api_keys/@current')).toBe(1)
                 expect(counts.get('/api/users/@me/')).toBe(1)
-                expect(flags).toHaveBeenCalledTimes(new Set(projects).size)
+                expect(counts.get('/flags/')).toBe(new Set(projects).size)
                 expect(counts.get(`/api/organizations/${OTHER_ORG}/projects/`) ?? 0).toBe(scopedOrg ? 1 : 0)
                 for (const project of new Set(projects)) {
                     const org = project === OTHER_PROJECT ? OTHER_ORG : PINNED_ORG
@@ -655,7 +681,7 @@ describe('pinned project with switch-project (Hono)', () => {
                 )
             } finally {
                 mswServer.events.removeListener('request:start', record)
-                flags.mockRestore()
+                flagsAnswer.enabled = undefined
                 localApi.mockRestore()
             }
         }

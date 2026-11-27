@@ -44,21 +44,23 @@ class HogQLSchema:
 
         hogql_type = self._map_arrow_type(field.type)
 
-        if hogql_type is StringDatabaseField:
-            value = self._first_non_null(column)
-            if isinstance(value, str) and (value.startswith("{") or value.startswith("[")):
+        if pa.types.is_string(field.type):
+            value = self._first_non_null_bytes(column)
+            if value is not None and value.startswith((b"{", b"[")):
                 hogql_type = StringJSONDatabaseField
 
         self.schema[field.name] = hogql_type.__name__
 
     @staticmethod
-    def _first_non_null(column: pa.ChunkedArray):
+    def _first_non_null_bytes(column: pa.ChunkedArray) -> bytes | None:
+        # Read the raw bytes: Arrow does not validate UTF-8 on IPC or Parquet reads, so a source can
+        # hand us a string column whose bytes do not decode (a ClickHouse String holds any bytes).
         for chunk in column.chunks:
             if chunk.null_count == len(chunk):
                 continue
             i = pc.index(chunk.is_valid(), True).as_py()
             if i != -1:
-                return chunk[i].as_py()
+                return chunk.view(pa.binary())[i].as_py()
         return None
 
     def _map_arrow_type(self, arrow_type: pa.DataType) -> type[DatabaseField]:

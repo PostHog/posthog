@@ -156,6 +156,21 @@ Observation failures stop that probe and are logged. They do not change the agen
 }
 ```
 
+When `route_git_reads` is enabled, the flag also requires a payload naming each selected team, Scout skill and repository:
+
+```json
+{
+  "scouts": [{ "team_id": 123, "skill_name": "repository-review", "repository": "example/private" }]
+}
+```
+
+Every field must match the same entry.
+Selection uses the server-stamped Scout name and requires the `signals.scout_full_network` profile, read-only Git access and one private repository.
+Missing or invalid payloads, other Scouts belonging to the same actor, interactive runs, resume, snapshots and custom images are excluded.
+The workflow must support Git routing before enrollment starts.
+The payload narrows the rollout; existing actor, repository and credential authorization still applies.
+Enrollment without Git routing retains its existing selection behavior.
+
 The region must match `AGENT_EGRESS_REGION`. Use separate regional material and a certificate covering `*.egress.example.com`. The worker derives `run-<run UUID without hyphens>.egress.example.com` and binds it to the run's team, actor, execution and provisioned sandbox. No per-run configuration file is needed. Keys stay in worker mounts and the isolated relay; workflow history carries IDs, the configuration path and the enrollment mode.
 
 Set `renew_relay_certificate: true` in the enrollment or probe JSON only after selecting a relay image that supports certificate reload and `client_ca_file`. It defaults to false for existing images and executions. The worker installs the public enrollment CA in the sidecar and renews the same registered key halfway through the certificate's remaining lifetime. The renewal deadline is saved on the run so another worker can continue it.
@@ -284,6 +299,7 @@ Neither process accepts CONNECT or general upstream destinations.
 | -------------------------- | ---------------- | ---------------- |
 | `listen_address`           | `:8443`          | `127.0.0.1:8080` |
 | `admin_address`            | `127.0.0.1:9090` | `127.0.0.1:9090` |
+| `metrics_address`          | disabled         | disabled         |
 | `request_timeout_seconds`  | 30               | 300              |
 | `shutdown_timeout_seconds` | 10               | 10               |
 
@@ -294,6 +310,12 @@ Before adding streaming adapters, set and test these budgets together, leaving r
 
 Listener addresses must use IP literals. Administration must bind to loopback.
 It exposes `GET /livez`, `/readyz` and `/metrics` on its own listener; those routes do not exist on the request listener.
+Set `metrics_address` (for example, `:9092`) for a separate metrics listener that serves only `GET /metrics`.
+Restrict that port to the metrics scraper through network policy. Keep it off public Services and load balancers.
+The listener has no authentication; use loopback unless the deployment enforces that restriction.
+Each metrics endpoint allows one collection at a time and five scrapes per second, with a burst of five. Excess scrapes return 503 before collection.
+The listeners have separate budgets, so a busy network scraper cannot exhaust the loopback admin endpoint's capacity.
+Administration stays on loopback.
 Use `egress-proxy -config /run/egress/proxy.json -healthcheck ready` for a Kubernetes exec readiness probe, or `-healthcheck live` for liveness. The relay supports the same flags with its own configuration.
 The check calls the configured loopback listener directly, refuses redirects and exits nonzero on failure within two seconds. It needs no shell, upstream credentials or access to the TLS key files.
 Readiness checks local material and audit health, not registry or upstream availability.
@@ -319,6 +341,12 @@ The proxy writes versioned admission and completion events as JSON lines to stdo
 Events include a generated request ID, trusted run identity when authorization succeeds, operation, outcome, status and duration.
 They exclude tokens, raw URLs, headers and bodies.
 Prometheus counters distinguish unavailable authorization, rejected identity, relay transport failures and reload failures.
+The proxy exports `egress_certificate_expiration_timestamp_seconds{role}` for the loaded serving leaf and each configured CA bundle.
+The bounded roles are `server`, `server_ca`, `client_ca`, `registry_ca`, `git_grant_ca` and `git_upstream_ca`.
+Set the proxy's optional `server_ca_file` to the public issuer bundle to monitor its expiry; this does not change client authentication or upstream trust.
+Each bundle reports its earliest certificate expiry, including expired certificates retained during rotation. System trust stores are not reported.
+File changes become visible only after a successful reload or restart. A failed reload keeps the previous expiry values.
+Use cert-manager metrics to monitor upstream serving leaves, which the proxy does not load from files.
 
 Each request passing the rate limiter reserves room for both events before authorization.
 
