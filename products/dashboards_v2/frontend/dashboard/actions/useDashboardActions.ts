@@ -5,7 +5,7 @@ import { showAction } from '../../tiles/menu/appearanceActions'
 import { useDashboard } from '../core/dashboardContext'
 import { gridTabs } from '../document/dashboardTypes'
 import { everyTile } from '../document/tileTree'
-import { downloadImageAction } from './dashboardImage'
+import { imageActions } from './dashboardImage'
 
 /**
  * The dashboard's own actions, after the host's `dashboardActions`. `DashboardMenu` shows them; a host with its own menu,
@@ -19,6 +19,7 @@ export function useDashboardActions(): MenuAction[] {
         disabledReasonFor,
         onEdit,
         downloadImage,
+        copyImage,
         downloadingImage,
         dashboardActions,
         filters,
@@ -26,13 +27,18 @@ export function useDashboardActions(): MenuAction[] {
     const hasFilterTypes = !!filters && filters.types.length > 0
     const allowFilters = !!dashboard.allowFilters
     // The image shows only the tab on screen, so with several tabs the menu names it.
-    const label = gridTabs(dashboard).length > 1 ? `Download "${activeTab.title}" tab as image` : 'Download image'
+    const severalTabs = gridTabs(dashboard).length > 1
+    const downloadLabel = severalTabs ? `Download "${activeTab.title}" tab as image` : 'Download image'
+    const copyLabel = severalTabs ? `Copy "${activeTab.title}" tab as image` : 'Copy image'
     return useMemo(() => {
-        const actions: MenuAction[] = [
-            downloadImageAction(label, 'dashboard-v2-download-image', downloadingImage, (format) =>
-                downloadImage(format)
-            ),
-        ]
+        const actions: MenuAction[] = imageActions({
+            downloadLabel,
+            copyLabel,
+            dataAttrPrefix: 'dashboard-v2',
+            busy: downloadingImage,
+            download: (format) => downloadImage(format),
+            copy: () => copyImage(),
+        })
         const appearance = showAction(
             { key: 'tab-appearance', label: 'All tiles', dataAttr: 'dashboard-v2-tab-appearance' },
             everyTile(activeTab.tiles),
@@ -55,8 +61,10 @@ export function useDashboardActions(): MenuAction[] {
         }
         return dashboardActions ? dashboardActions(actions) : actions
     }, [
-        label,
+        downloadLabel,
+        copyLabel,
         downloadImage,
+        copyImage,
         downloadingImage,
         dashboardActions,
         activeTab.tiles,

@@ -6,12 +6,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { type Dashboard, activeGridTab, gridTabs } from '../document/dashboardTypes'
 import { findTile } from '../document/tileTree'
-import { type ImageFormat, downloadDashboardImage } from './dashboardImage'
+import { type ImageFormat, copyDashboardImage, downloadDashboardImage } from './dashboardImage'
 
 function imageWords(
     dashboard: Dashboard,
     activeTabId: string | null,
-    tileId: string | undefined
+    tileId: string | undefined,
+    done: 'downloaded' | 'copied'
 ): { file: string; pending: string; success: string } {
     const tile = tileId ? findTile(dashboard, tileId) : null
     if (tile?.panel.title) {
@@ -19,14 +20,14 @@ function imageWords(
         return {
             file: `${dashboard.title} ${title}`,
             pending: `Drawing "${title}"`,
-            success: `Image of "${title}" downloaded`,
+            success: `Image of "${title}" ${done}`,
         }
     }
     if (tile) {
         return {
             file: `${dashboard.title} tile`,
             pending: 'Drawing the tile',
-            success: 'Image of the tile downloaded',
+            success: `Image of the tile ${done}`,
         }
     }
     const tab = activeGridTab(dashboard, activeTabId).title
@@ -34,14 +35,14 @@ function imageWords(
         return {
             file: `${dashboard.title} ${tab}`,
             pending: `Drawing every tile on the "${tab}" tab`,
-            success: `Image of the "${tab}" tab downloaded`,
+            success: `Image of the "${tab}" tab ${done}`,
         }
     }
-    return { file: dashboard.title, pending: 'Drawing every tile', success: 'Image downloaded' }
+    return { file: dashboard.title, pending: 'Drawing every tile', success: `Image ${done}` }
 }
 
 /**
- * Downloads the tab under `rootRef`, or with `tileId` one tile, as an image. While it runs, `capturing` says what to
+ * Downloads or copies the tab under `rootRef`, or with `tileId` one tile, as an image. While it runs, `capturing` says what to
  * mount, so the image has no placeholders: the whole tab, or that tile only.
  */
 export function useDashboardImage(
@@ -51,10 +52,11 @@ export function useDashboardImage(
 ): {
     capturing: { tileId?: string } | null
     downloadImage: (format: ImageFormat, tileId?: string) => Promise<void>
+    copyImage: (tileId?: string) => Promise<void>
 } {
     const [capturing, setCapturing] = useState<{ tileId?: string } | null>(null)
-    const downloadImage = useCallback(
-        async (format: ImageFormat, tileId?: string): Promise<void> => {
+    const exportImage = useCallback(
+        async (tileId: string | undefined, format: ImageFormat | 'clipboard'): Promise<void> => {
             const page = rootRef.current
             const root = tileId ? page?.querySelector<HTMLElement>(`[data-dv2-tile="${CSS.escape(tileId)}"]`) : page
             if (!root) {
@@ -62,11 +64,15 @@ export function useDashboardImage(
             }
             setCapturing({ tileId })
             try {
-                const words = imageWords(dashboard, activeTabId, tileId)
-                await lemonToast.promise(downloadDashboardImage(root, words.file, format), {
+                const toClipboard = format === 'clipboard'
+                const words = imageWords(dashboard, activeTabId, tileId, toClipboard ? 'copied' : 'downloaded')
+                const image = toClipboard ? copyDashboardImage(root) : downloadDashboardImage(root, words.file, format)
+                await lemonToast.promise(image, {
                     pending: words.pending,
                     success: words.success,
-                    error: 'Could not create the image. Try again.',
+                    error: toClipboard
+                        ? 'Could not copy the image. Try again, or download it.'
+                        : 'Could not create the image. Try again.',
                 })
             } catch {
                 // The toast already says it failed.
@@ -76,5 +82,10 @@ export function useDashboardImage(
         },
         [rootRef, dashboard, activeTabId]
     )
-    return { capturing, downloadImage }
+    const downloadImage = useCallback(
+        (format: ImageFormat, tileId?: string) => exportImage(tileId, format),
+        [exportImage]
+    )
+    const copyImage = useCallback((tileId?: string) => exportImage(tileId, 'clipboard'), [exportImage])
+    return { capturing, downloadImage, copyImage }
 }
