@@ -7,8 +7,6 @@ from unittest.mock import patch
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
-from products.data_tools.backend.facade.models import DataWarehouseJoin  # isort: skip
-
 from posthog.hogql.compilation import compilation_budget
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -46,6 +44,7 @@ from products.data_modeling.backend.models.modeling import (
     ResolutionTimeoutError,
     get_parents_from_model_query,
 )
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 GET_PARENTS_TEST_CASES = [
