@@ -513,7 +513,8 @@ function windowsOf(phase: Phase): Phase[] {
 
 function seriesOver(
     { drive, timeline }: Pick<MeasureEvidence, 'drive' | 'timeline'>,
-    p99: (window: Phase, final: boolean, baseline: boolean) => WindowP99
+    p99: (window: Phase, final: boolean, baseline: boolean) => WindowP99,
+    { wholeMinutes = false } = {}
 ): Series | undefined {
     const { baseline, valve } = phasesOf(drive, timeline)
     const recent = recentBaselineOf(baseline)
@@ -523,7 +524,13 @@ function seriesOver(
     const reference = p99(recent, false, true)
     const usable = reference.value !== null && reference.clean && !reference.censored
     const bar = usable ? RECOVERY_BAR_MULTIPLE * reference.value! : null
-    const points = windowsOf(valve).map((window): SeriesPoint => {
+    const judged = wholeMinutes
+        ? {
+              from: valve.from,
+              to: valve.from + Math.floor((valve.to - valve.from) / SERIES_WINDOW_MS) * SERIES_WINDOW_MS,
+          }
+        : valve
+    const points = windowsOf(judged).map((window): SeriesPoint => {
         const { value, clean, censored, incomplete } = p99(window, window.to === valve.to, false)
         return {
             offsetS: seconds(window.from - valve.from),
@@ -551,8 +558,6 @@ const pointsOf = ({ baseline, bar, points }: Series, prefix = ''): Measured[] =>
     ),
 ]
 
-const NOT_WHOLE_MINUTES = 'the valve phase is not a whole number of minutes'
-
 function recoveryOf({ bar, points }: Series, unknown?: string): Measured {
     if (unknown !== undefined) {
         return { value: null, censored: true, unmeasured: unknown }
@@ -565,27 +570,32 @@ function recoveryOf({ bar, points }: Series, unknown?: string): Measured {
 
 function writeLatencySeries({ writer, drive, timeline }: MeasureEvidence): Series | undefined {
     const ends = writer.map(committedAt).sort((a, b) => a - b)
-    return seriesOver({ drive, timeline }, (window, _final, baseline) => {
-        // A probe counts in the minute it ended; the baseline takes only probes that start and end in it.
-        const ended = writer.filter(
-            (sample) => within(window, committedAt(sample)) && (!baseline || within(window, sample.at))
-        )
-        const committed = ended
-            .filter(({ ok }) => ok)
-            .map(({ latencyMs }) => latencyMs)
-            .sort((a, b) => a - b)
-        const failed = ended.some(({ ok }) => !ok)
-        // A silence that a minute boundary splits counts whole in both minutes, so take the probes either side.
-        const previous = ends.findLast((at) => at < window.from) ?? window.from
-        const next = ends.find((at) => at >= window.to) ?? window.to
-        const bounds = [previous, ...ends.filter((at) => within(window, at)), next]
-        const silent = bounds.some((at, i) => i > 0 && at - bounds[i - 1] > WRITER_PROBE_GAP_MS)
-        return {
-            value: committed.length === 0 ? null : nearestRank(committed, 0.99),
-            clean: !silent && !failed,
-            ...(silent ? { incomplete: true as const } : {}),
-        }
-    })
+    return seriesOver(
+        { drive, timeline },
+        (window, _final, baseline) => {
+            // A probe counts in the minute it ended; the baseline takes only probes that start and end in it.
+            const ended = writer.filter(
+                (sample) => within(window, committedAt(sample)) && (!baseline || within(window, sample.at))
+            )
+            const committed = ended
+                .filter(({ ok }) => ok)
+                .map(({ latencyMs }) => latencyMs)
+                .sort((a, b) => a - b)
+            const failed = ended.some(({ ok }) => !ok)
+            // A silence that a minute boundary splits counts whole in both minutes, so take the probes either side.
+            const previous = ends.findLast((at) => at < window.from) ?? window.from
+            const next = ends.find((at) => at >= window.to) ?? window.to
+            const inside = baseline ? ended.map(committedAt) : ends.filter((at) => within(window, at))
+            const bounds = [previous, ...inside.sort((a, b) => a - b), next]
+            const silent = bounds.some((at, i) => i > 0 && at - bounds[i - 1] > WRITER_PROBE_GAP_MS)
+            return {
+                value: committed.length === 0 ? null : nearestRank(committed, 0.99),
+                clean: !silent && !failed,
+                ...(silent ? { incomplete: true as const } : {}),
+            }
+        },
+        { wholeMinutes: true }
+    )
 }
 
 function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, Series][] {
@@ -708,15 +718,21 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
                 return []
             }
             const { from, to } = series.valve
-            const inFlight = evidence.writer.some(({ at, ...sample }) => at < to && committedAt({ at, ...sample }) > to)
-            // A minute split by the valve end, or a write the end cuts, holds evidence no point can place.
+            const settled = from + Math.floor((to - from) / SERIES_WINDOW_MS) * SERIES_WINDOW_MS
+            const inFlight = evidence.writer.some((sample) => sample.at < to && committedAt(sample) >= to)
+            // Recovery reads only whole minutes, so a write after the last of them may only confirm it.
+            const unsettled = evidence.writer.some((sample) => {
+                const end = committedAt(sample)
+                const late = !sample.ok || (series.bar !== null && sample.latencyMs > series.bar)
+                return settled < to && ((end >= settled && end < to && late) || (sample.at < settled && end >= settled))
+            })
             return [
                 recoveryOf(
                     series,
-                    (to - from) % SERIES_WINDOW_MS !== 0
-                        ? NOT_WHOLE_MINUTES
-                        : inFlight
-                          ? 'a write probe was in flight at the valve end'
+                    inFlight
+                        ? 'a write probe was in flight at the valve end'
+                        : unsettled
+                          ? 'a write after the last whole minute of the valve failed or passed the bar'
                           : undefined
                 ),
             ]

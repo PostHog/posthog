@@ -457,7 +457,11 @@ describe('measurements', () => {
         )
     })
 
-    type Latency = number | 'failed' | { failedAfterMs: number } | { startsLateMs: number; latencyMs: number }
+    type Latency =
+        | number
+        | 'failed'
+        | { failedAfterMs: number; startsLateMs?: number }
+        | { startsLateMs: number; latencyMs: number }
 
     const latencyWriter = (latency: (second: number) => Latency): WriterSample[] =>
         everySecondOf(0, 1500).map((second): WriterSample => {
@@ -468,7 +472,13 @@ describe('measurements', () => {
                 : typeof ms === 'number'
                   ? { ...at, latencyMs: ms, ok: true, inRecovery: false }
                   : 'failedAfterMs' in ms
-                    ? { ...at, latencyMs: ms.failedAfterMs, ok: false, sqlstate: '57014' }
+                    ? {
+                          at: at.at + (ms.startsLateMs ?? 0),
+                          monoMs: at.monoMs + (ms.startsLateMs ?? 0),
+                          latencyMs: ms.failedAfterMs,
+                          ok: false,
+                          sqlstate: '57014',
+                      }
                     : {
                           at: at.at + ms.startsLateMs,
                           monoMs: at.monoMs + ms.startsLateMs,
@@ -478,7 +488,7 @@ describe('measurements', () => {
         })
 
     const THREE_MINUTE_VALVE: ValveTimelineEntry[] = [{ ...VALVE, releasedAt: isoAt(880) }]
-    const NOT_WHOLE_MINUTES = 'the valve phase is not a whole number of minutes'
+    const UNSETTLED_REMAINDER = 'a write after the last whole minute of the valve failed or passed the bar'
     const IN_FLIGHT_AT_END = 'a write probe was in flight at the valve end'
     const SPLIT_SCRAPES = 'a scrape interval that crosses a minute boundary cannot say which side its pickups fell on'
 
@@ -586,7 +596,20 @@ describe('measurements', () => {
             ],
         ],
         [
-            'leaves recovery unknown for a valve that is not a whole number of minutes, though its slow tail falls in its own point',
+            'reads recovery over the whole minutes of a valve whose clean remainder follows them',
+            (second) => (between(700, 759)(second) ? 400 : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'leaves recovery unknown when a write in the remainder after the last whole minute is slow',
             (second) => (second === 915 ? 400 : 10),
             [{ ...VALVE, releasedAt: isoAt(920.5) }],
             [
@@ -595,9 +618,49 @@ describe('measurements', () => {
                 { key: 't0', value: 10 },
                 { key: 't60', value: 10 },
                 { key: 't120', value: 10 },
-                { key: 't180', value: 400 },
-                { key: 'recovery_seconds', value: null, censored: true, unmeasured: NOT_WHOLE_MINUTES },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSETTLED_REMAINDER },
             ],
+        ],
+        [
+            'leaves recovery unknown when a write fails in the remainder after the last whole minute',
+            (second) => (second === 905 ? 'failed' : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSETTLED_REMAINDER },
+            ],
+        ],
+        [
+            'leaves recovery unknown when a write fails exactly at the valve end',
+            (second) => (second === 879 ? { failedAfterMs: 1000 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: IN_FLIGHT_AT_END },
+            ],
+        ],
+        [
+            'leaves the bar unset when a probe that started before the baseline hides a gap in it',
+            (second) => (second === 669 ? { failedAfterMs: 2000, startsLateMs: 500 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: null, censored: true },
+                { key: 'bar', value: null, censored: true },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+            (second) => !between(670, 679)(second),
+            { startedAt: atS(0), warmedAt: atS(670), endedAt: atS(1500) },
         ],
         [
             'leaves recovery unknown when a write is still in flight at the valve end',
