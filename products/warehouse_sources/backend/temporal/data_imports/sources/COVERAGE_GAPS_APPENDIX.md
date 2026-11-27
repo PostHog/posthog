@@ -11668,10 +11668,10 @@ Diffed against: <https://pipelinercrm.eu.apidog.com/>
 - [ ] `ProcessActivityLogs and ProcessActivityLogLines` — step/stage transition history for opportunities, the basis of sales-velocity and stage-conversion analysis (high) — skipped: these are Automatizer workflow run logs, not opportunity stage history
 - [x] `SalesUnits (and SalesUnitClientRelations)` — lookup resolving the sales unit IDs stamped on every account, contact, lead and opportunity we sync (high)
 - [x] `Currencies and CurrencyExchangeRates` — lookup for the currency IDs on opportunity and product values; without it multi-currency pipelines can't be normalized (high)
-- [ ] `Processes (and ProcessTemplates)` — the sales process each Step belongs to - the parent lookup for the synced steps table (high)
-- [ ] `AccountTypes, ContactTypes, LeadTypes, OpportunityTypes, TaskTypes, AppointmentTypes` — type lookups resolving the type IDs on the core records already synced (high)
-- [ ] `Quotes (and QuoteProcesses, QuoteTypes)` — quoting is a first-class Pipeliner object tied to opportunities and completely absent today (medium)
-- [ ] `ContactAccountRelations and ContactAccountAccountRoleRelations` — join table between the synced contacts and accounts, including the contact's role at the account (medium)
+- [ ] `Processes (and ProcessTemplates)` — the sales process each Step belongs to - the parent lookup for the synced steps table (high) — Skipped: Both contain Automatizer workflow definitions, not sales stages or their parent records.
+- [x] `AccountTypes, ContactTypes, LeadTypes, OpportunityTypes, TaskTypes, AppointmentTypes` — type lookups resolving the type IDs on the core records already synced (high)
+- [x] `Quotes (and QuoteProcesses, QuoteTypes)` — quoting is a first-class Pipeliner object tied to opportunities and completely absent today (medium)
+- [x] `ContactAccountRelations and ContactAccountAccountRoleRelations` — join table between the synced contacts and accounts, including the contact's role at the account (medium)
 - [ ] `Forecasts and Targets/TargetRelations` — quota and forecast figures - the denominator for pipeline attainment reporting (medium)
 - [ ] `Emails and EmailEvents` — email activity and open/click events tied to CRM records (medium)
 - [ ] `Calls and TextMessages` — call and SMS touchpoints not represented by tasks or appointments (medium)
