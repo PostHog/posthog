@@ -260,11 +260,16 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
     const rampJudgesConvergence =
         convergence.unfinishedJobs !== 0 ||
         invariants.some(({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined)
+    const unjudgedPastBreak = invariants.filter(
+        ({ crossedBy, unjudged }) => ramp.end === 'broke' && crossedBy === undefined && unjudged !== undefined
+    )
     const unramped = withRamp(
         unrampedStatusOf({
             ...verdict,
             bars: [],
-            invariants: invariants.filter(({ crossedBy }) => crossedBy === undefined),
+            invariants: invariants.filter(
+                (invariant) => invariant.crossedBy === undefined && !unjudgedPastBreak.includes(invariant)
+            ),
             convergence: rampJudgesConvergence ? { ...read, converged: true } : read,
         }),
         ramp
@@ -276,6 +281,7 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
               ? { status: 'failed' as const, statusReason: `the ramp ran to its last step, but ${recorded.join('; ')}` }
               : { ...unramped, statusReason: [unramped.statusReason, ...recorded].join('; ') }
     const notJudged = [
+        ...unjudgedPastBreak.map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`),
         ...verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`),
         ...(unread === undefined ? [] : [unreadReasonOf(unread)]),
     ]

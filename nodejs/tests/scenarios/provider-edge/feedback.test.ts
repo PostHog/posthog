@@ -484,8 +484,10 @@ describe('provider edge SES feedback', () => {
         holding = true
         await sendTracked()
 
+        const askedAt = Date.now()
         const answered = await feedbackLanded(50)
 
+        expect(Date.now() - askedAt).toBeGreaterThanOrEqual(50)
         expect(answered).toEqual({ head: 1, feedbackInFlight: 1 })
     })
 

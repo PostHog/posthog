@@ -26,6 +26,8 @@ const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email cl
 
 const BROKEN = { name: 'at_least_once', passed: false, observed: 2, violation: 'run-1 email: lost', unitIds: ['run-1'] }
 
+const IN_FLIGHT = 'feedback in flight at the final read: the edge was still posting the feedback of 2 sends'
+
 const UNJUDGED: InvariantResult = {
     name: 'no_loss',
     passed: false,
@@ -325,11 +327,12 @@ describe('statusOf', () => {
                 invariants: [
                     { ...BROKEN, crossedBy: 'run-1' },
                     { name: 'refused_at_intake', passed: false, observed: 3, unitIds: ['run-9'], crossedBy: 'run-9' },
+                    { ...UNJUDGED, unjudged: IN_FLIGHT },
                 ],
                 ramp: { end: 'broke', sustainedScale: 1, reason: 'refused_at_intake broke at the 2x step' },
             },
             'failed',
-            'the ramp broke: refused_at_intake broke at the 2x step',
+            `the ramp broke: refused_at_intake broke at the 2x step; no_loss was not judged: ${IN_FLIGHT}`,
         ],
         [
             'a run that held but whose judge could not read the final state',
