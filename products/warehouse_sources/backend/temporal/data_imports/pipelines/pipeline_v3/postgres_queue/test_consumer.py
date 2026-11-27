@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DestinationConfigurationError,
     DestinationDeliveryError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.postgres import (
+    CONNECTION_CLOSED_DETAIL,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     INCOMPLETE_RUN_ERROR,
 )
@@ -553,8 +556,14 @@ class TestProcessSingle:
                     "port on the destination, and allow PostHog's IP addresses through your firewall."
                 ),
             ),
+            DestinationDeliveryError("Prod", PostgreSQLConnectionError(CONNECTION_CLOSED_DETAIL)),
         ],
-        ids=["non_reportable_s3_blip", "destination_connect_exhausted", "destination_connect_timeout"],
+        ids=[
+            "non_reportable_s3_blip",
+            "destination_connect_exhausted",
+            "destination_connect_timeout",
+            "destination_connection_closed",
+        ],
     )
     @pytest.mark.asyncio
     async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self, error: Exception):
