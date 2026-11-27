@@ -89,7 +89,7 @@ READERS: dict[str, str] = {
         "firing chart draws the rows the insight stack owns; moved alerts draw from their copies (G3)"
     ),
     "products/logs/backend/temporal/activities.py": "legacy logs evaluator",
-    "products/logs/backend/alert_creation.py": "alert limit counts rows (A6-A8)",
+    "products/logs/backend/alert_creation.py": "alert limit counts the logs rows the platform does not own (G3)",
     "products/alerts/backend/llm_detector_limits.py": "AI cap counts insight-owned rows, then copies (G3)",
     "products/logs/backend/alert_deletion.py": "deletes the row with its copy (G2)",
     "products/logs/backend/native_alerts.py": "validates a native alert as an unsaved row and saves nothing (G3)",
@@ -128,7 +128,7 @@ READERS: dict[str, str] = {
     "products/alerts/backend/facade/api.py::insight_ids_with_alerts": "insights with a row or a native alert (B3)",
     "products/alerts/backend/facade/api.py::get_alert_team_id": "team of an alert with a row (G2)",
     "products/alerts/backend/presentation/views/insight_alerts.py": "embeds rows with their copy's settings (B3)",
-    "products/dashboards/backend/presentation/views/dashboard.py::tile_insight_prefetches": (
+    "products/alerts/backend/facade/api.py::insight_alerts_prefetch": (
         "dashboard tiles prefetch rows, shown with their copy's settings (B3)"
     ),
     "posthog/hogql/database/schema/system.py::<module>": "`system.alerts` and `system.logs_alerts` (B1, B3)",

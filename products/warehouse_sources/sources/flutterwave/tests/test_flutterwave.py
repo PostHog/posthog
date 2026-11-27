@@ -158,6 +158,54 @@ class TestFanOut:
         statements = [request for request in result.requests if request.path == "/v3/wallet/statement"]
         assert [(r.param("currency"), r.param("type"), r.param("page")) for r in statements] == [("USD", "D", "3")]
 
+    def test_payout_subaccount_transactions_walk_every_wallet_and_stamp_its_reference(self) -> None:
+        result = _run_v3(
+            "payout_subaccount_transactions",
+            route(
+                {
+                    "/payout-subaccounts": [_payout_subaccounts("PSB", "PSA")],
+                    "/payout-subaccounts/PSA/transactions": [
+                        _statement_page([{"reference": "a", "type": "C"}], total_pages=2),
+                        _statement_page([{"reference": "b", "type": "D"}], total_pages=2),
+                    ],
+                    "/payout-subaccounts/PSB/transactions": [
+                        ScriptedResponse(status=400, json={"status": "error", "message": "No transactions found"})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["account_reference"], row["reference"]) for row in result.rows] == [("PSA", "a"), ("PSA", "b")]
+        walks = [request for request in result.requests if request.path.endswith("/transactions")]
+        assert [(r.path, r.param("page")) for r in walks] == [
+            ("/v3/payout-subaccounts/PSA/transactions", "1"),
+            ("/v3/payout-subaccounts/PSA/transactions", "2"),
+            ("/v3/payout-subaccounts/PSB/transactions", "1"),
+        ]
+        assert {r.param("from") for r in walks} == {"2016-01-01"}
+        assert {r.param("account_reference") for r in walks} == {None}
+        assert result.saved_states == [
+            FlutterwaveResumeConfig(next_page=2, fan_out_value="PSA"),
+            FlutterwaveResumeConfig(fan_out_value="PSB"),
+        ]
+
+    def test_payout_subaccount_transactions_resume_at_the_saved_wallet_and_page(self) -> None:
+        result = _run_v3(
+            "payout_subaccount_transactions",
+            route(
+                {
+                    "/payout-subaccounts": [_payout_subaccounts("PSA", "PSB")],
+                    "/payout-subaccounts/PSB/transactions": [_statement_page([{"reference": "c"}], total_pages=3)],
+                }
+            ),
+            resume_state=FlutterwaveResumeConfig(next_page=3, fan_out_value="PSB"),
+        )
+
+        assert result.raised is None
+        walks = [request for request in result.requests if request.path.endswith("/transactions")]
+        assert [(r.path, r.param("page")) for r in walks] == [("/v3/payout-subaccounts/PSB/transactions", "3")]
+
     def test_banks_reads_each_country_and_stamps_it_on_the_rows(self) -> None:
         result = _run_v3(
             "banks", always(ScriptedResponse(json={"status": "success", "data": [{"id": 1, "code": "044"}]}))
@@ -191,6 +239,71 @@ class TestFanOut:
             (2, "Failed"),
             (3, "Reversed"),
         ]
+
+
+def _payout_subaccounts(*references: str) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"status": "success", "data": [{"id": i, "account_reference": r} for i, r in enumerate(references)]}
+    )
+
+
+class TestPayoutSubaccounts:
+    @parameterized.expand(
+        [
+            ("rows_in_data", _payout_subaccounts("PSA1", "PSA2")),
+            (
+                "rows_under_payout_subaccounts",
+                ScriptedResponse(
+                    json={
+                        "status": "success",
+                        "data": {
+                            "payout_subaccounts": [
+                                {"id": 0, "account_reference": "PSA1"},
+                                {"id": 1, "account_reference": "PSA2"},
+                            ],
+                            "cursor": {"next": 1, "limit": 2, "has_more_items": False},
+                        },
+                    }
+                ),
+            ),
+            ("single_row_in_data", _payout_subaccounts("PSA1")),
+            ("no_rows", ScriptedResponse(json={"status": "success", "data": []})),
+        ]
+    )
+    def test_reads_both_documented_response_shapes(self, name: str, response: ScriptedResponse) -> None:
+        result = _run_v3("payout_subaccounts", [response])
+
+        assert result.raised is None
+        expected = {"rows_in_data": ["PSA1", "PSA2"], "rows_under_payout_subaccounts": ["PSA1", "PSA2"]}
+        assert [row["account_reference"] for row in result.rows] == expected.get(
+            name, ["PSA1"] if name == "single_row_in_data" else []
+        )
+        assert len(result.requests) == 1
+
+    def test_follows_next_cursor_until_has_more_is_false(self) -> None:
+        result = _run_v3(
+            "payout_subaccounts",
+            [
+                _cursor_page("payout_subaccounts", [{"id": 1, "account_reference": "PSA1"}], "1271", True),
+                _cursor_page("payout_subaccounts", [{"id": 2, "account_reference": "PSA2"}], "1272", False),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2]
+        assert result.params("next_cursor") == [None, "1271"]
+        assert result.saved_states == [FlutterwaveResumeConfig(next_cursor="1271")]
+
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _run_v3(
+            "payout_subaccounts",
+            [_cursor_page("payout_subaccounts", [{"id": 3, "account_reference": "PSA3"}], None, False)],
+            resume_state=FlutterwaveResumeConfig(next_cursor="1271"),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [3]
+        assert result.params("next_cursor") == ["1271"]
 
 
 class TestDateWindow:
@@ -229,6 +342,8 @@ class TestDateWindow:
             ("subscriptions",),
             ("subaccounts",),
             ("beneficiaries",),
+            ("payout_subaccounts",),
+            ("balances",),
         ]
     )
     def test_endpoints_without_a_window_never_send_one(self, endpoint: str) -> None:

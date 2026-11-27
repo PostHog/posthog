@@ -10,20 +10,42 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.events_received import quoted
 from products.experiments.backend.health.context import ExposureCohort, ExposureEvents, HealthContext
-from products.experiments.backend.health.skips import NOT_ON_ARCHIVED, CheckOutcome, not_applicable, not_checked
+from products.experiments.backend.health.skips import (
+    NOT_ON_ARCHIVED,
+    NOT_ON_WAREHOUSE_NATIVE_EXPOSURES,
+    CheckOutcome,
+    CheckValues,
+    not_applicable,
+    not_checked,
+)
 
 # pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 COHORT_FORCES_VARIANT = "cohort_forces_variant"
 COHORT_IN_RELEASE_CONDITIONS = "cohort_in_release_conditions"
 
 
+def exposure_filters_values(ctx: HealthContext) -> CheckValues:
+    events = ctx.exposure_events
+    if ctx.archived or events is None or not events.cohort_ids:
+        return {}
+    return {
+        ExperimentHealthValueKey.COHORT_COUNT: len(events.cohort_ids),
+        ExperimentHealthValueKey.DYNAMIC_COHORT_COUNT: sum(
+            1 for cohort in ctx.exposure_cohorts if not cohort.is_static
+        ),
+    }
+
+
 def exposure_filters(ctx: HealthContext) -> CheckOutcome:
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
+    if ctx.warehouse_native_exposures:
+        return not_applicable(NOT_ON_WAREHOUSE_NATIVE_EXPOSURES)
     events = ctx.exposure_events
     if events is None:
         return not_checked("Couldn't check because the exposure criteria can't be read")

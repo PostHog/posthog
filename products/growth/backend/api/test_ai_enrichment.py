@@ -531,7 +531,6 @@ class TestAIEnrichmentAPI(APIBaseTest):
             _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
 
         get_client.assert_called_once_with(
-            product="growth",
             ai_product="growth",
             properties={"ai_feature": "ai_enrichment", "surface": "staff_run"},
         )

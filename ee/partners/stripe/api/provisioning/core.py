@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import secrets
 import unicodedata
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, router, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
@@ -21,23 +23,36 @@ import structlog
 
 from posthog.accessible_teams import AccessibleTeams
 from posthog.api.authentication import password_reset_token_generator
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.activity_logging.personal_api_key_utils import OrganizationAdminKeyActionContext
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, lock_oauth_connection
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
+from posthog.project_creation_limits import (
+    PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE,
+    PROJECT_LIMIT_MESSAGES,
+    ProjectLimit,
+    member_can_create_projects,
+    organization_project_limit_reached,
+)
 from posthog.tasks.email import send_provisioning_welcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+from ee.billing.billing_manager import BillingManager
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.partners.stripe.api.provisioning.analytics import capture_provisioning_event
+from ee.partners.stripe.api.provisioning.billing import try_activate_billing_with_spt
 from ee.partners.stripe.api.provisioning.constants import (
     ANALYTICS_SERVICE_ID,
     AUTH_CODE_TTL_SECONDS,
@@ -137,6 +152,27 @@ def lock_application(application_id: Any) -> OAuthApplication | None:
     return OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
 
 
+def lock_partner_connections_for_team(application_id: Any, team_id: int) -> None:
+    """Take the connection lock of every user whose tokens from ``application_id`` cover ``team_id``.
+
+    Token refresh holds the connection lock while it copies a refresh token's teams into new tokens.
+    A removal that takes these locks first, before the application row lock as
+    ``lock_oauth_connection`` requires, waits for a refresh in flight and makes a later refresh read
+    the narrowed teams. Must be called inside ``transaction.atomic()``.
+    """
+    user_ids = set(
+        OAuthAccessToken.objects.filter(application_id=application_id, scoped_teams__contains=[team_id]).values_list(
+            "user_id", flat=True
+        )
+    ) | set(
+        OAuthRefreshToken.objects.filter(application_id=application_id, scoped_teams__contains=[team_id]).values_list(
+            "user_id", flat=True
+        )
+    )
+    for user_id in sorted(user_id for user_id in user_ids if user_id is not None):
+        lock_oauth_connection(user_id=user_id, application_id=application_id)
+
+
 # ---------------------------------------------------------------------------
 # Account requests
 # ---------------------------------------------------------------------------
@@ -179,6 +215,34 @@ def mint_auth_code(
     return code
 
 
+PROJECT_CREATION_FORBIDDEN_CODE = "forbidden"
+PROJECT_LIMIT_REACHED_CODE = "project_limit_reached"
+
+# Connect and read timeouts, in seconds, for the billing read that resource creation waits on.
+BILLING_FEATURES_REFRESH_TIMEOUT = (5, 10)
+
+
+class ProjectCreationRefusedError(Exception):
+    """Raised instead of creating a project that the user may not create, or that the organization has no room for."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _assert_user_can_create_project(user: User, organization: Organization) -> None:
+    membership = OrganizationMembership.objects.filter(organization=organization, user=user).first()
+    if membership is None or not member_can_create_projects(user, organization):
+        raise ProjectCreationRefusedError(PROJECT_CREATION_FORBIDDEN_CODE, PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE)
+
+
+def _assert_organization_can_add_project(organization: Organization) -> None:
+    reached_limit = organization_project_limit_reached(organization)
+    if reached_limit is not None:
+        raise ProjectCreationRefusedError(PROJECT_LIMIT_REACHED_CODE, PROJECT_LIMIT_MESSAGES[reached_limit])
+
+
 def resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:
     """Pick a team for an existing user during email-based account linking.
 
@@ -209,6 +273,8 @@ def resolve_team_for_existing_user(user: User, requested_team_id: int | None = N
     # TODO: latent bug - memberships is unordered, so which organization hosts
     # the new project is arbitrary for multi-org users.
     organization = memberships[0].organization
+    _assert_user_can_create_project(user, organization)
+    _assert_organization_can_add_project(organization)
     return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
 
@@ -236,7 +302,11 @@ def handle_existing_user(
         )
         raise SpecError("forbidden", ACCOUNT_NOT_LINKABLE_MESSAGE, request_id=request_id, status=403)
 
-    team = resolve_team_for_existing_user(user, requested_team_id)
+    try:
+        team = resolve_team_for_existing_user(user, requested_team_id)
+    except ProjectCreationRefusedError as refused:
+        capture_provisioning_event("account_request", "error", error_code=refused.code)
+        raise SpecError(refused.code, refused.message, request_id=request_id, status=403)
     if team is None:
         capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
         raise SpecError("team_resolution_failed", "Could not resolve a project for this user", request_id=request_id)
@@ -469,6 +539,20 @@ def add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> No
                 rt.save(update_fields=["scoped_teams"])
 
 
+def _strip_team_or_delete(refresh_token: OAuthRefreshToken, team_id: int) -> None:
+    """Remove ``team_id`` from a refresh token, deleting the token when it was its last team.
+
+    An empty ``scoped_teams`` means unrestricted, so a token left with no teams would refresh into
+    access to every team of its user.
+    """
+    remaining = [t for t in (refresh_token.scoped_teams or []) if t != team_id]
+    if not remaining:
+        refresh_token.delete()
+        return
+    refresh_token.scoped_teams = remaining
+    refresh_token.save(update_fields=["scoped_teams"])
+
+
 def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
     """Strip ``team_id`` from every access/refresh token this partner holds, for every user.
 
@@ -504,27 +588,27 @@ def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) 
             remaining = [t for t in (at.scoped_teams or []) if t != team_id]
             refresh_tokens = OAuthRefreshToken.objects.select_for_update().filter(access_token=at)
             if not remaining:
-                refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
+                # Deleted, not emptied: an empty scoped_teams means unrestricted, and a revoked
+                # refresh token stays usable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
+                refresh_tokens.delete()
                 at.delete()
                 continue
             at.scoped_teams = remaining
             at.save(update_fields=["scoped_teams"])
             for rt in refresh_tokens:
-                rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
-                rt.save(update_fields=["scoped_teams"])
+                _strip_team_or_delete(rt, team_id)
 
         if orphan_filter:
             # Orphan refresh tokens (where the access token was already rotated
-            # or deleted) still carry scope. Strip the team from those too.
+            # or deleted) still carry scope. Strip the team from those too, revoked ones included,
+            # because a rotated token stays usable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
             orphan_refresh = OAuthRefreshToken.objects.select_for_update().filter(
                 scoped_teams__contains=[team_id],
                 access_token__isnull=True,
-                revoked__isnull=True,
                 **orphan_filter,
             )
             for rt in orphan_refresh:
-                rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
-                rt.save(update_fields=["scoped_teams"])
+                _strip_team_or_delete(rt, team_id)
 
 
 # ---------------------------------------------------------------------------
@@ -549,12 +633,37 @@ def _ensure_team_in_token_scopes(
     return team, [*scoped_teams, team.id]
 
 
+def _activate_billing_for_new_project(base_team: Team, user: User, payment_credentials: Any) -> None:
+    """Start the paid plan from the request's payment token before the project limit is checked.
+
+    The resource view activates billing only after it resolves the team, so without this a new
+    organization with a payment token is refused on the free plan's one-project limit.
+    """
+    organization = base_team.organization
+    if organization_project_limit_reached(organization) != ProjectLimit.PLAN:
+        return
+    if not try_activate_billing_with_spt(payment_credentials, base_team, user):
+        return
+
+    # Activation does not store the paid plan's features on the organization, so read them.
+    license = get_cached_instance_license()
+    if not license:
+        return
+    try:
+        BillingManager(license).update_available_product_features(
+            organization, timeout=BILLING_FEATURES_REFRESH_TIMEOUT
+        )
+    except Exception:
+        capture_exception(additional_properties={"organization_id": str(organization.id)})
+
+
 def resolve_or_create_project_team(
     project_id: str,
     scoped_teams: list[int],
     user: User,
     configuration: dict,
     access_token: OAuthAccessToken,
+    payment_credentials: Any = None,
 ) -> tuple[Team | None, list[int]]:
     """Look up or create a team for the given project_id.
 
@@ -580,9 +689,24 @@ def resolve_or_create_project_team(
             return None, scoped_teams
         return _ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
-    base_team = Team.objects.get(id=scoped_teams[0])
+    base_team = Team.objects.select_related("organization").get(id=scoped_teams[0])
     if not user_can_access_team(user, base_team):
         return None, scoped_teams
+
+    try:
+        # The role check runs first so that a refused user does not start a paid plan.
+        _assert_user_can_create_project(user, base_team.organization)
+        _activate_billing_for_new_project(base_team, user, payment_credentials)
+        _assert_organization_can_add_project(base_team.organization)
+    except ProjectCreationRefusedError as refused:
+        capture_provisioning_event(
+            "resource_created",
+            "error",
+            partner=access_token.application,
+            error_code=refused.code,
+            project_id=project_id,
+        )
+        raise SpecError(refused.code, refused.message, status=403)
 
     # TODO: latent bug - project_name is unvalidated; a non-string or over-long
     # value fails at the DB layer (500) where the spec calls for a 400
@@ -673,8 +797,64 @@ def validate_label_prefix(raw: Any) -> str | None:
     return stripped
 
 
+def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
+    """Delete the personal API keys ``app`` minted for ``team_id``, for every member of the team.
+
+    The partner holds every key it minted for the project, whichever member it connected as,
+    so removing the resource or rotating its credentials ends all of them.
+
+    A key reaches the project when its project restriction names the project, or when it has
+    no project restriction, and in both cases its organization restriction must cover the
+    project's organization, the same intersection authentication applies. A key with no
+    organization restriction and no project restriction reaches the project only when its
+    owner belongs to the project's organization.
+
+    Deletes key by key so the activity log records each deletion. The deletions are actions of
+    the project's organization, so a row in another organization the key reaches names no actor.
+    Keys the user created themselves carry no ``provisioned_by``, so they are never matched.
+    """
+    in_scope = Q(scoped_teams__contains=[team_id])
+    acting_organization: AbstractContextManager[object] = nullcontext()
+    organization_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is not None:
+        no_team_restriction = Q(scoped_teams=[]) | Q(scoped_teams__isnull=True)
+        no_organization_restriction = Q(scoped_organizations=[]) | Q(scoped_organizations__isnull=True)
+        restricted_to_organization = Q(scoped_organizations__contains=[str(organization_id)])
+        in_scope = (in_scope & (no_organization_restriction | restricted_to_organization)) | (
+            no_team_restriction
+            & (
+                restricted_to_organization
+                | (no_organization_restriction & Q(user__organization_membership__organization_id=organization_id))
+            )
+        )
+        acting_organization = OrganizationAdminKeyActionContext(str(organization_id))
+
+    # The writer, because a replica can lag behind a key the mint just committed.
+    keys = (
+        PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey))
+        .filter(provisioned_by=app)
+        .filter(in_scope)
+        .distinct()
+    )
+
+    deleted = 0
+    with acting_organization:
+        for key in keys:
+            key.delete()
+            deleted += 1
+
+    return deleted
+
+
 def maybe_create_provisioned_pat(
-    user: User, team: Team, granted_scope: str | None, label_prefix: str | None = None
+    user: User,
+    team: Team,
+    app: OAuthApplication | None,
+    granted_scope: str | None,
+    label_prefix: str | None = None,
+    *,
+    access_token: OAuthAccessToken | None = None,
+    replace_existing: bool = False,
 ) -> str | None:
     """Create a Personal API Key for the provisioned user and return the raw value.
 
@@ -690,27 +870,74 @@ def maybe_create_provisioned_pat(
 
     ``label_prefix`` should be pre-validated by ``validate_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
+
+    ``access_token`` is the bearer token of the request. The mint locks its row and mints
+    nothing when the row is gone or no longer has the team in scope, so a mint that races a
+    session revocation or a resource removal cannot leave a working key behind. Those paths
+    change the token rows before they delete the keys, so both sides take their row locks
+    in the same order.
+
+    ``replace_existing`` first deletes every key ``app`` minted earlier for the team, in the
+    same transaction as the mint. It deletes them even when no new key is minted, including
+    when the bearer row is gone, because an ordinary token refresh also deletes that row.
+    A rotation therefore always ends the earlier keys. It locks every access token ``app``
+    holds for the team, not only the bearer, so two rotations through different bearers run
+    one after the other and the later one deletes the key the earlier one returned.
     """
     pat_scopes = [s for s in (granted_scope or "").split() if s] or list(STRIPE_CONTRACTED_SCOPES)
-    # TODO: latent bug - every call mints a new PAT without revoking earlier
-    # ones, so rotate_credentials accumulates live keys instead of rotating
-    # them. A correct fix needs a provenance marker on PersonalAPIKey (or the
-    # provisioned key id recorded on TeamProvisioningConfig) so revocation can
-    # target only provisioned keys - scope alone is ambiguous with keys a user
-    # created via /api/personal_api_keys/ carrying the same team/org scope.
+
+    with transaction.atomic():
+        # The application lock comes first, then the token locks, then the key deletion: the order
+        # token refresh and the revocation paths lock rows in, so none of them can deadlock with a mint.
+        if app is not None:
+            lock_application(app.pk)
+        if replace_existing and app is not None:
+            locked_token_ids = _lock_app_access_tokens_for_team(app, team.id)
+            bearer_covers_team = access_token is None or access_token.pk in locked_token_ids
+            delete_provisioned_pats(app, team_id=team.id)
+        else:
+            bearer_covers_team = access_token is None or _lock_access_token_for_team(access_token, team.id)
+
+        if not bearer_covers_team:
+            return None
+
+        return _mint_provisioned_pat(user, team, app, pat_scopes, label_prefix)
+
+
+def _lock_access_token_for_team(access_token: OAuthAccessToken, team_id: int) -> bool:
+    locked = OAuthAccessToken.objects.select_for_update().filter(pk=access_token.pk, scoped_teams__contains=[team_id])
+    return locked.values_list("pk", flat=True).first() is not None
+
+
+def _lock_app_access_tokens_for_team(app: OAuthApplication, team_id: int) -> set[int]:
+    # Primary key order, the same order resource removal locks these rows in, so the two cannot deadlock.
+    locked = (
+        OAuthAccessToken.objects.select_for_update()
+        .filter(application=app, scoped_teams__contains=[team_id])
+        .order_by("pk")
+    )
+    return set(locked.values_list("pk", flat=True))
+
+
+def _mint_provisioned_pat(
+    user: User, team: Team, app: OAuthApplication | None, pat_scopes: list[str], label_prefix: str | None
+) -> str | None:
     try:
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
         # PersonalAPIKey.label is stored as a CharField(max_length=40); cap the
         # final string to match so we never violate the column constraint.
         label = label_base[:PROVISIONED_PAT_LABEL_MAX_LENGTH]
 
-        minted = mint_personal_api_key(
-            user,
-            label=label,
-            scopes=pat_scopes,
-            teams=AccessibleTeams.for_user(user, [team.id]),
-            organization_ids=[str(team.organization_id)],
-        )
+        # A savepoint, so a failed insert does not abort the caller's transaction.
+        with transaction.atomic():
+            minted = mint_personal_api_key(
+                user,
+                label=label,
+                scopes=pat_scopes,
+                teams=AccessibleTeams.for_user(user, [team.id]),
+                organization_ids=[str(team.organization_id)],
+                provisioned_by=app,
+            )
 
         return minted.value
     except Exception:

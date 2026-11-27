@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -77,3 +78,10 @@ export default meta
 
 type Story = StoryObj<{}>
 export const Settings: Story = {}
+
+export const SettingsQuill: Story = {
+    parameters: {
+        featureFlags: [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { snapshotBrowsers: [] },
+    },
+}

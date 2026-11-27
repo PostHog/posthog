@@ -16,7 +16,7 @@ and none for anything else. Liquid alone would loop over an object's key and val
 
 import re
 import math
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from typing import Literal
 
 from posthog.dataclasses import frozen
@@ -101,6 +101,10 @@ class TextValue:
     liquid: str | None = None
     # A variable the app passes, printed like a Handlebars value.
     value_path: str | None = None
+    # Prints HTML unescaped, so it's only valid in page text.
+    raw: bool = False
+    # Prints the tag itself when the app passes no value.
+    stays_when_missing: bool = False
 
 
 TextSplitter = Callable[[str], Iterator["str | TextValue"]]
@@ -132,6 +136,9 @@ class HandlebarsToLiquid:
         dialect: Dialect,
         root_value: Callable[[str], str | None] = lambda _name: None,
         split_text: TextSplitter | None = None,
+        root_path: str = "variables",
+        variable_names: Collection[str] = (),
+        allows_raw: bool = True,
     ) -> None:
         self.is_html = is_html
         self._dialect = dialect
@@ -139,6 +146,11 @@ class HandlebarsToLiquid:
         self.converted: list[str] = []
         self._root_value = root_value
         self._split_text = split_text
+        self._root_path = root_path
+        # Stay under `variables` when `root_path` is something else.
+        self._variable_names = variable_names
+        self._allows_raw = allows_raw
+        self.read_root = False
         self._html = HtmlContext() if is_html else None
         self._loop_names: list[str] = []
         self._after_raw_html = False
@@ -148,24 +160,30 @@ class HandlebarsToLiquid:
         self._converted_root = ""
 
     def convert(self, nodes: tuple[object, ...]) -> str:
-        converted = self._nodes(nodes, (_Frame(this="variables"),))
+        converted = self._nodes(nodes, (_Frame(this=self._root_path),))
+        return self._within_limit(converted)
+
+    @staticmethod
+    def _within_limit(liquid: str) -> str:
         # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
-        if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
+        if len(liquid.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
             raise OutputTooLarge
-        return converted
+        return liquid
 
     # Nodes ------------------------------------------------------------------------------------------------------------
 
     def _nodes(self, nodes: tuple[object, ...], frames: tuple[_Frame, ...]) -> str:
         out: list[str] = []
-        for node in nodes:
+        for index, node in enumerate(nodes):
+            following = nodes[index + 1] if index + 1 < len(nodes) else None
             if isinstance(node, _Text):
                 for piece in self._text(node.text):
                     _append(out, self._spend(piece, literal=True))
             elif isinstance(node, _Liquid):
                 _append(out, self._spend(self._kept(node.liquid, node.printed), literal=True))
             elif isinstance(node, _Output):
-                _append(out, self._spend(self._output(node, frames), literal=True))
+                after = following.text if isinstance(following, _Text) else ""
+                _append(out, self._spend(self._output(node, frames, after), literal=True))
             elif isinstance(node, _Block):
                 _append(out, self._block(node, frames))
         return "".join(out)
@@ -185,38 +203,57 @@ class HandlebarsToLiquid:
         return chunk
 
     def _text(self, text: str) -> Iterator[str]:
-        for piece in self._split_text(text) if self._split_text else (text,):
+        pieces = list(self._split_text(text)) if self._split_text else [text]
+        for index, piece in enumerate(pieces):
+            following = pieces[index + 1] if index + 1 < len(pieces) else ""
             if isinstance(piece, str):
                 self._feed(piece)
                 yield _literal_text(piece)
-            elif (piece.liquid or piece.value_path) and self._value_fits(raw=False, in_attribute=piece.in_attribute):
-                self._feed("x")
+                continue
+            whole = (
+                piece.in_attribute
+                and not piece.raw
+                and self._is_whole_unquoted_value(following if isinstance(following, str) else "")
+            )
+            if (piece.liquid or piece.value_path) and (whole or self._piece_fits(piece)):
+                liquid = self._text_value(piece)
+                yield _in_quotes(liquid) if whole else self._attribute_safe(liquid)
+                self._feed('"x"' if whole else "x")
+                self._after_raw_html = self._after_raw_html or (piece.raw and self.is_html)
                 self.converted.append(piece.source)
-                liquid = self._print(piece.value_path, False) if piece.value_path else piece.liquid or ""
-                yield self._attribute_safe(liquid)
             else:
                 self.unsupported.append(piece.source)
                 self._feed(piece.source)
                 yield _literal_text(piece.source)
 
-    def _output(self, node: _Output, frames: tuple[_Frame, ...]) -> str:
+    def _text_value(self, piece: TextValue) -> str:
+        if piece.value_path is None:
+            return piece.liquid or ""
+        value = self._print_piece(piece.value_path, raw=piece.raw)
+        if not piece.stays_when_missing:
+            return value
+        return f"{{% if {piece.value_path} == nil %}}{_literal_text(piece.source)}{{% else %}}{value}{{% endif %}}"
+
+    def _output(self, node: _Output, frames: tuple[_Frame, ...], following: str = "") -> str:
         if self.is_html and _ENTITY.search(node.source):
             return self._literal(node.source)
         body, raw = node.body, node.raw
         self._converted_root = ""
         if body.startswith("&"):
             body, raw = body[1:].strip(), True
+        raw = raw and self._allows_raw
         try:
             liquid, raw = self._output_liquid(body, raw, frames)
         except (_Unsupported, _Unconvertible):
             return self._literal(node.source)
-        if not self._value_fits(raw=raw, in_attribute=True):
+        whole = not raw and self._is_whole_unquoted_value(following)
+        if not whole and not self._value_fits(raw=raw, in_attribute=True):
             return self._literal(node.source)
-        self._feed("x")
+        self._feed('"x"' if whole else "x")
         self._after_raw_html = self._after_raw_html or (raw and self.is_html)
         if self._converted_root:
             self.converted.append(self._converted_root)
-        return self._attribute_safe(liquid)
+        return _in_quotes(liquid) if whole else self._attribute_safe(liquid)
 
     def _output_liquid(self, body: str, raw: bool, frames: tuple[_Frame, ...]) -> tuple[str, bool]:
         expression = _parse_expression(body)
@@ -227,6 +264,8 @@ class HandlebarsToLiquid:
             if len(frames) == 1 and (special := self._root_value(name)) is not None:
                 self._converted_root = name
                 return special, False
+            if (special := self._special(name, frames)) is not None:
+                return special, False
             return self._print(self._path(name, frames), raw), raw
         if self._dialect != "sendgrid":
             raise _Unsupported
@@ -235,6 +274,8 @@ class HandlebarsToLiquid:
             date = f'{self._value_path(params[0], frames)} | date: {date_format}, "UTC"'
             return self._print(date, False, may_be_a_list=False), False
         if name == "insert" and len(params) <= 2:
+            if isinstance(params[0], _Path) and (special := self._special(params[0].source, frames)) is not None:
+                return special, False
             value = self._value_path(params[0], frames)
             if len(params) == 1:
                 return self._print(value, raw), raw
@@ -376,7 +417,7 @@ class HandlebarsToLiquid:
         (collection,) = block.params
         if not isinstance(collection, _Path):
             raise _Unsupported
-        source = self._path(collection.source, frames)
+        source = self._value_path(collection, frames)
         names = block.block_params
         loop_name = names[0] if names and self._free_name(names[0]) else self._next_loop_name()
         frame = _Frame(
@@ -441,7 +482,7 @@ class HandlebarsToLiquid:
         (target,) = block.params
         if not isinstance(target, _Path):
             raise _Unsupported
-        this = self._path(target.source, frames)
+        this = self._value_path(target, frames)
         # Handlebars adds no level for a context that is already the current one, so `../` inside would point
         # one level further up than the frames say.
         if this == frames[-1].this:
@@ -523,8 +564,11 @@ class HandlebarsToLiquid:
             named = self._block_param(parts[0], frames)
             if named is not None:
                 base, parts = named, parts[1:]
-        if not all(_SEGMENT.fullmatch(part) for part in parts) or (not parts and base == "variables"):
+        if not all(_SEGMENT.fullmatch(part) for part in parts) or (not parts and base == self._root_path):
             raise _Unsupported
+        if base == self._root_path and parts[0] in self._variable_names:
+            base = "variables"
+        self.read_root = self.read_root or base == self._root_path
         return ".".join([base, *parts])
 
     def _block_param(self, name: str, frames: tuple[_Frame, ...]) -> str | None:
@@ -538,8 +582,22 @@ class HandlebarsToLiquid:
                 return "forloop.index0"
         return None
 
+    def _special(self, source: str, frames: tuple[_Frame, ...]) -> str | None:
+        """What a name with a meaning of its own converts to, written in a way that still reads the top level."""
+        read_root = self.read_root
+        base, _, name = self._path(source, frames).rpartition(".")
+        special = self._root_value(name) if base == self._root_path else None
+        if special is not None:
+            self.read_root = read_root
+            self._converted_root = name
+        return special
+
     def _value_path(self, param: object, frames: tuple[_Frame, ...]) -> str:
         if not isinstance(param, _Path):
+            raise _Unsupported
+        # It isn't a value of the recipient's, so nothing can test, count or format it.
+        if self._special(param.source, frames) is not None:
+            self._converted_root = ""
             raise _Unsupported
         return self._path(param.source, frames)
 
@@ -646,8 +704,8 @@ class HandlebarsToLiquid:
     # HTML context -----------------------------------------------------------------------------------------------------
 
     def _value_fits(self, *, raw: bool, in_attribute: bool) -> bool:
-        """Whether a value sits where Liquid escapes it the way Handlebars does: page text, or a quoted attribute
-        that holds no script or style."""
+        """Whether a value sits where Liquid escapes it the way Handlebars does: page text, the page title, or a quoted
+        attribute that holds no script or style."""
         if self._html is None:
             return True
         where = self._html.where()
@@ -655,7 +713,26 @@ class HandlebarsToLiquid:
             return False
         if where == "text":
             return True
+        if where == "title":
+            return not raw and in_attribute
         return where == "value" and in_attribute and not raw and self._html.plain_attribute()
+
+    def _print_piece(self, value: str, *, raw: bool) -> str:
+        return self._print(value, raw, may_be_a_list=not raw)
+
+    def _piece_fits(self, piece: TextValue) -> bool:
+        return self._value_fits(raw=piece.raw, in_attribute=piece.in_attribute)
+
+    def _is_whole_unquoted_value(self, following: str) -> bool:
+        """Whether the next value is all of an attribute written without quotes, as in `<a href={{x}}>`. Converting it
+        adds the quotes, so a space in the value can't start another attribute."""
+        return (
+            self._html is not None
+            and not self._html.untrusted
+            and self._html.state == "before_value"
+            and self._html.plain_attribute()
+            and following[:1] in ("\t", "\n", "\f", "\r", " ", ">")
+        )
 
     def _feed(self, text: str) -> None:
         if self._html is not None:
@@ -745,6 +822,10 @@ def _date_format(param: object) -> str:
 def _literal_text(text: str) -> str:
     # Handlebars prints `{%` as it stands. Liquid would read it as a tag.
     return text.replace("{%", '{{ "{%" }}')
+
+
+def _in_quotes(liquid: str) -> str:
+    return f'"{liquid.replace('"', "&quot;")}"'
 
 
 def _joined(chunks: list[str]) -> str:

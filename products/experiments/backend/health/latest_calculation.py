@@ -28,7 +28,8 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_validation import event_last_seen, metric_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.recalculation import get_latest_recalculation
+from products.experiments.backend.recalculation.payloads import RUN_ENTRY_HIDDEN_MESSAGE, entries_of_current_configs
+from products.experiments.backend.recalculation.runs import get_latest_recalculation
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
 
 # The calculation doesn't apply the reader's warehouse access, so the names that HogQL suggests in its message can name
@@ -49,9 +50,10 @@ def load_latest_calculation(experiment: Experiment, *, team_config: TeamExperime
 
 
 def _load_latest_calculation(experiment: Experiment, team_config: TeamExperimentsConfig) -> LatestCalculation:
+    calculation_configs = build_calculation_configs(experiment, team_config=team_config)
     # Metrics that share a uuid share one result and one error on the page.
     configs: dict[str, MetricCalculationConfig] = {}
-    for calculation_config in build_calculation_configs(experiment, team_config=team_config):
+    for calculation_config in calculation_configs:
         configs.setdefault(calculation_config.metric_id, calculation_config)
     # The results page shows the latest run that finished. Without one it shows the daily points, which hold no
     # failures, or else the run in progress, whose errors can still change, so the check waits for a finished run.
@@ -64,7 +66,7 @@ def _load_latest_calculation(experiment: Experiment, team_config: TeamExperiment
             completed_count=0,
             completed_exposures_paths=frozenset(),
         )
-    metric_errors = run.metric_errors if isinstance(run.metric_errors, dict) else {}
+    metric_errors = entries_of_current_configs(run.metric_errors, calculation_configs)
     results = MetricResultStore(experiment_id=experiment.id)
     rows = {row.metric_uuid: row for row in results.for_run(run, with_result=False)}
     failures = tuple(
@@ -212,8 +214,14 @@ def _shown_failure(
     if error.get("error_type") == RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE and row is not None:
         error = {}
     message = error.get("message")
-    if not isinstance(message, str):
-        message = row.error_message if row is not None and row.status == ExperimentMetricResult.Status.FAILED else None
+    failed_row_message = (
+        row.error_message if row is not None and row.status == ExperimentMetricResult.Status.FAILED else None
+    )
+    # The page shows `RUN_ENTRY_HIDDEN_MESSAGE` for an entry stored before entries carried a calculation key, because
+    # such an entry can come from an earlier config. The failed row matches a key of the current config, the same rule
+    # that a keyed entry passes, and the run's results serve its text. So the check words the failure from that text.
+    if not isinstance(message, str) or (message == RUN_ENTRY_HIDDEN_MESSAGE and failed_row_message):
+        message = failed_row_message
     if not message:
         return None
     error_type = error.get("error_type")

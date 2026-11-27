@@ -36,6 +36,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import UserRateThrottle
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
@@ -1679,6 +1680,7 @@ class CustomPropertySourceViewSet(
                 external_data_schema_id=data.external_data_schema,
                 column_property_map=data.column_property_map,
                 column_descriptions=data.column_descriptions,
+                missing_row_behavior=data.missing_row_behavior,
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
@@ -1695,6 +1697,7 @@ class CustomPropertySourceViewSet(
             mapped_column_count=len(data.column_property_map or {}),
             reads_warehouse_table=data.external_data_schema is not None,
             is_enabled=data.is_enabled,
+            missing_row_behavior=data.missing_row_behavior,
         )
         return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
@@ -3008,6 +3011,8 @@ class EventStreamViewSet(
     every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
     destination that is re-provisioned inside the same transaction as every write, so
     config and delivery can't drift apart."""
+
+    permission_classes = [CDPPropertyAccessPermission]
 
     scope_object = "account"
     serializer_class = EventStreamSerializer

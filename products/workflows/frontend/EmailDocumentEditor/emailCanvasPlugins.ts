@@ -82,8 +82,10 @@ export const EmailVisibilityBadges = Extension.create({
     },
 })
 
-function isHtmlBlockSelected(selection: Selection): boolean {
-    return selection instanceof NodeSelection && selection.node.type.name === 'emailHtml'
+const KEPT_WHEN_TYPED_OVER = ['emailHtml', 'emailSection', 'emailColumns']
+
+function isBlockOfContentSelected(selection: Selection): boolean {
+    return selection instanceof NodeSelection && KEPT_WHEN_TYPED_OVER.includes(selection.node.type.name)
 }
 
 export const EmailBlockKeymap = Extension.create({
@@ -95,10 +97,19 @@ export const EmailBlockKeymap = Extension.create({
         }
         // The first press selects the text of the block being edited, as most editors do, so a delete right after it
         // can't take the whole email. A second press selects everything.
-        let emptyBlockPress: Selection | null = null
+        let firstPress: Selection | null = null
+        // Any edit or cursor move replaces the selection, so only an immediate second press matches it.
+        const keepsSelection = (selection: Selection): boolean => {
+            const isSecondPress = firstPress === selection
+            firstPress = isSecondPress ? null : selection
+            return !isSecondPress
+        }
         const selectBlockText = (): boolean => {
             const { selection, tr } = this.editor.state
             const { $from, $to } = selection
+            if (selection instanceof NodeSelection && selection.node.isBlock) {
+                return keepsSelection(selection)
+            }
             if (!$from.parent.isTextblock || !$from.sameParent($to)) {
                 return false
             }
@@ -106,12 +117,9 @@ export const EmailBlockKeymap = Extension.create({
             const end = $from.end()
             // An empty block has nothing to select, so the first press there keeps the cursor where it is.
             if (start === end) {
-                // Any edit or cursor move replaces the selection, so only an immediate second press matches it.
-                const secondPress = emptyBlockPress === selection
-                emptyBlockPress = secondPress ? null : selection
-                return !secondPress
+                return keepsSelection(selection)
             }
-            emptyBlockPress = null
+            firstPress = null
             if (selection.from === start && selection.to === end) {
                 return false
             }
@@ -125,8 +133,8 @@ export const EmailBlockKeymap = Extension.create({
             new Plugin({
                 key: new PluginKey('emailClickOutOfNode'),
                 props: {
-                    // A key pressed on a selected HTML block would replace it, and an imported email is one whole block.
-                    handleTextInput: (view) => isHtmlBlockSelected(view.state.selection),
+                    // A key pressed on a selected block would replace it with all it holds. An imported email is one whole block.
+                    handleTextInput: (view) => isBlockOfContentSelected(view.state.selection),
                     // Chrome leaves the native selection on a selected block inside a column when the click lands
                     // elsewhere, so the block stayed selected and the next keystroke replaced it.
                     handleClick: (view, pos, event) => {

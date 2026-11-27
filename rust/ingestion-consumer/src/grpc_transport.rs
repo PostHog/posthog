@@ -644,6 +644,10 @@ impl WorkerStreamRunner {
     /// means new work was held in `pending`, or the queue closed under
     /// the wait and the ledger still drains; `Err` ends the stream.
     ///
+    /// With nothing outstanding the ack stream is still watched: a worker
+    /// that drains ends its side and waits for this side to end too, so
+    /// waiting only for new work would hold its shutdown open.
+    ///
     /// The ack-progress watchdog bounds how long the oldest un-acked
     /// sub-batch may sit unacked. Each entry carries its own deadline, armed
     /// when it was sent, so the watchdog keys on the oldest (front) entry,
@@ -659,20 +663,36 @@ impl WorkerStreamRunner {
         ledger: &mut VecDeque<LedgerEntry>,
     ) -> Result<Option<AckEvent>, StreamEnd> {
         let Some(front) = ledger.front() else {
-            let next = match self.idle_close {
-                Some(after) => match tokio::time::timeout(after, queue.recv()).await {
-                    Ok(next) => next,
-                    Err(_) => return Err(StreamEnd::Idle),
-                },
-                None => queue.recv().await,
-            };
-            return match next {
-                Some(send) => {
-                    pending.extend(send);
-                    Ok(None)
+            let idle_timer = async {
+                match self.idle_close {
+                    Some(after) => tokio::time::sleep(after).await,
+                    None => std::future::pending().await,
                 }
-                None => Err(StreamEnd::QueueClosed),
             };
+            tokio::pin!(idle_timer);
+            loop {
+                // Order matters: see the worker's end before sending new work
+                // onto its stream, and take waiting work before the idle timer
+                // closes the stream.
+                tokio::select! {
+                    biased;
+                    ack = acks.message() => match ack {
+                        // A greeting does not restart the idle window.
+                        Ok(Some(IngestStreamResponse {
+                            msg: Some(ingest_stream_response::Msg::Ready(_)) | None,
+                        })) => continue,
+                        ack => return Ok(Some(ack)),
+                    },
+                    next = queue.recv() => return match next {
+                        Some(send) => {
+                            pending.extend(send);
+                            Ok(None)
+                        }
+                        None => Err(StreamEnd::QueueClosed),
+                    },
+                    _ = &mut idle_timer => return Err(StreamEnd::Idle),
+                }
+            }
         };
         let watchdog = tokio::time::sleep_until(front.deadline);
         tokio::select! {

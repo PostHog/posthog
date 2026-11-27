@@ -198,6 +198,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Select: fixed options, no text input, up to ~15 items
   - Select and Combobox triggers follow the button size rule. Their popup items are always default size, so an `sm` trigger opens a menu bigger than itself. This includes a `Button` that opens a picker
   - Combobox: one or many values from a long or async list, filterable; multi-select shows chips; no free text
+  - A `Button` that opens a Combobox or Autocomplete with its input inside the popup renders through `ComboboxTrigger` or `AutocompleteTrigger` (`render={<Button />}`). Never open the popup from the Button's `onClick` and pass its ref as `anchor`: the popup does not know the Button is its trigger, so the Button gets no `aria-expanded` and does not stay pressed while the popup is open. `ComboboxTrigger` draws the chevron, so don't add `SelectTriggerIcon`. Pass `showChevron={false}` only for a Button that shows no chevron, such as an "Add" button
   - Actions in a Combobox (settings, "New …") are list items, never footer buttons. See section 8
   - Autocomplete: free text with optional suggestions; search, command pickers
   - Filterable DropdownMenu (`DropdownMenuFilterProvider`, `DropdownMenuInput`, `DropdownMenuEmpty`, `DropdownMenuList`): search the rows of a menu or submenu that is already open, such as a list's filter menu. Use Combobox instead when the control is a field that holds a value, needs chips, or lists more than about 1,000 options, because a filterable menu keeps every row mounted
@@ -214,6 +215,11 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
     - That gutter comes from Quill, so use the item as it is (`DropdownMenuRadioItem`, `DropdownMenuCheckboxItem`, `SelectItem`, `ComboboxItem`, `ItemRadio`, `ItemCheckbox`), and never add a check by hand. An option's label lines up with the other options, whether it is chosen or not. If the mark touches the label, fix the item in Quill, not at the call site
     - Before handoff, open every list you touched with a value chosen and look at it. A list with nothing chosen hides this bug
   - Icon-only menu trigger: `aria-label` and a tooltip with the same string, as for any icon-only button
+  - A trigger that only shows on hover (a row's "More" button, revealed with `group-hover:opacity-100`) stays visible while its menu or popover is open. Otherwise the pointer moves into the menu, the row loses hover, and the trigger vanishes, leaving the menu anchored to nothing
+    - On the trigger itself, add `data-[popup-open]:opacity-100`. When a wrapper does the hiding, add `has-[[data-popup-open]]:opacity-100` to the wrapper. Base UI sets `data-popup-open` on every trigger while its popup is open
+    - Add `focus-visible:opacity-100` (or `focus-within:opacity-100` on a wrapper) too, so keyboard users can reach the trigger
+    - Precedent: `products/release/frontend/ReleaseMetricTileMenu.tsx`, the Table `group-hover/row` story in `packages/quill/packages/primitives/src/table.stories.tsx`
+    - Before handoff, open the menu and move the pointer into it. The trigger must still show
 - A list of clickable rows (tickets, programs, recent items) → `CardGroup` of `Card size="sm"`, each holding one full-width `<button>` or `<a>`. Item has no clickable variant. `Item tone` is for callouts only, such as a warning or an incident notice
 - Switching views: Tabs (sections of one page; `variant="line"` for page-level) | ToggleGroup (2–4 display modes) | Select (many views, low priority)
 - Filtering a list, anywhere (a scene, a sidebar pane, a side panel, a picker inside a menu):

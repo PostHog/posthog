@@ -45,7 +45,7 @@ from products.experiments.backend.health.skips import (
     not_checked,
 )
 from products.experiments.backend.hogql_queries.error_handling import ERROR_TYPE_MESSAGES
-from products.experiments.backend.recalculation import RECALCULATION_WINDOW_TOO_LONG_MESSAGE
+from products.experiments.backend.recalculation.admission import RECALCULATION_WINDOW_TOO_LONG_MESSAGE
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
 from products.experiments.stats.shared.statistics import StatisticError
 
@@ -172,18 +172,24 @@ _EXPOSURE_QUERY = _Wording(
 )
 
 
-def metric_calculation_values(ctx: HealthContext) -> CheckValues:
-    calculation = ctx.latest_calculation
-    if calculation is None or calculation.metric_count == 0:
-        return {}
+def calculated_metric_values(calculation: LatestCalculation) -> dict[ExperimentHealthValueKey, int | str | None]:
     finished_at = calculation.finished_at
     return {
         ExperimentHealthValueKey.METRIC_COUNT: calculation.metric_count,
         ExperimentHealthValueKey.COMPLETED_METRIC_COUNT: calculation.completed_count,
-        ExperimentHealthValueKey.FAILED_METRIC_COUNT: len(calculation.failures),
         ExperimentHealthValueKey.CALCULATED_AT: None
         if finished_at is None
         else finished_at.astimezone(UTC).isoformat(),
+    }
+
+
+def metric_calculation_values(ctx: HealthContext) -> CheckValues:
+    calculation = ctx.latest_calculation
+    if calculation is None or calculation.metric_count == 0:
+        return {}
+    return {
+        **calculated_metric_values(calculation),
+        ExperimentHealthValueKey.FAILED_METRIC_COUNT: len(calculation.failures),
     }
 
 

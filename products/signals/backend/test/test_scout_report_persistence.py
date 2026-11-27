@@ -21,6 +21,7 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
     SafetyJudgment,
+    SourceIssue,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     SummaryChange,
@@ -47,6 +48,7 @@ from products.signals.backend.scout_report import (
     InvalidScoutReportError,
     ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
+    SourceIssueAlreadyReportedError,
     append_report_note,
     create_scout_report,
     record_content_revision,
@@ -217,6 +219,38 @@ class TestScoutReportPersistence(BaseTest):
             )
         assert raised.value.existing.report_id == first.report_id
         assert raised.value.existing.status == SignalReport.Status.READY
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+
+    @parameterized.expand(
+        [
+            ("another filing", "emission-2", SourceIssueAlreadyReportedError),
+            ("retry", "emission-1", ScoutReportAlreadyEmittedError),
+        ]
+    )
+    def test_create_refuses_an_issue_a_concurrent_filing_reported(
+        self, _name: str, idempotency_key: str, raised_type: type[Exception]
+    ) -> None:
+        # Both calls passed the emit path's unlocked pre-check while the other was judging. The check
+        # under the lock is what stops the second report, and a retry must still get its own report back.
+        run = self._make_run()
+        issue = SourceIssue.github("acme/widgets", 42)
+
+        def emit(key: str) -> str:
+            return create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+                run=run,
+                source_issues=[issue],
+                idempotency_key=key,
+            ).report_id
+
+        first_report_id = emit("emission-1")
+        with pytest.raises(raised_type) as raised:
+            emit(idempotency_key)
+        assert raised.value.existing.report_id == first_report_id  # type: ignore[attr-defined]
         assert SignalReport.objects.filter(team=self.team).count() == 1
 
     @parameterized.expand([(False,), (True,)])

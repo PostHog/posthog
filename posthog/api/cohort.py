@@ -35,6 +35,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
+from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
@@ -42,6 +43,7 @@ from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMP
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.fields import LengthFirstListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -118,6 +120,7 @@ from products.cohorts.backend.cohort_enablement import (
     RealtimeLimitReached,
     RealtimeTurnOnRefused,
     flag_calls_table_refusal,
+    prepare_again,
     refuse_edit_over_plan_limits,
     turn_realtime_off,
     turn_realtime_on,
@@ -161,7 +164,7 @@ from products.cohorts.backend.realtime_state import (
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_config
 from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
@@ -358,6 +361,44 @@ class CohortFilterBytecodeResult:
     condition_hash: str | None = None
 
 
+# The compiler checks calls against the Python Hog library, which differs from the evaluator's Rust one here.
+_ONLY_IN_REALTIME_EVALUATOR = frozenset({"tryBase64Decode"})
+_MISSING_FROM_REALTIME_EVALUATOR = frozenset({"print", "run", "sleep"})
+
+
+class _CalledFunctionNames(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_call(self, node: ast.Call):
+        self.names.add(node.name)
+        super().visit_call(node)
+
+
+def _compile_cohort_leaf(expr: ast.Expr, team: Team) -> CohortFilterBytecodeResult:
+    context = HogQLContext(team_id=team.id)
+    bytecode = create_bytecode(
+        expr,
+        supported_functions=set(_ONLY_IN_REALTIME_EVALUATOR),
+        context=context,
+        cohort_membership_supported=True,
+        null_safe_comparisons=True,
+    ).bytecode
+    called = _CalledFunctionNames()
+    called.visit(expr)
+    for name in sorted(called.names & _MISSING_FROM_REALTIME_EVALUATOR):
+        context.add_error(message=f"Hog function `{name}` is not implemented")
+    if context.errors:
+        # The realtime evaluator scores a call to a function it lacks as a non-match, with no error.
+        messages = "; ".join(error.message for error in context.errors if error.message)
+        return CohortFilterBytecodeResult(error=messages or "Bytecode compilation failed")
+    condition_hash = (
+        hashlib.sha256(json.dumps(bytecode, sort_keys=True).encode()).hexdigest()[:16] if bytecode else None
+    )
+    return CohortFilterBytecodeResult(bytecode=bytecode, condition_hash=condition_hash)
+
+
 def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> CohortFilterBytecodeResult:
     """
     Generate HogQL bytecode for cohort filter data.
@@ -371,12 +412,7 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> CohortFilt
             # Unsupported behavioral filters return None → skip bytecode
             if expr is None:
                 return CohortFilterBytecodeResult(error="Unsupported behavioral filter for realtime bytecode")
-            bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
-            condition_hash = None
-            if bytecode:
-                bytecode_str = json.dumps(bytecode, sort_keys=True)
-                condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
-            return CohortFilterBytecodeResult(bytecode=bytecode, condition_hash=condition_hash)
+            return _compile_cohort_leaf(expr, team)
 
         # Check if it's a cohort filter referencing another cohort
         if filter_data.get("type") == "cohort":
@@ -400,17 +436,7 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> CohortFilt
                 return CohortFilterBytecodeResult()
 
         property_obj = Property(**filter_data)
-        expr = property_to_expr(property_obj, team)
-        bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
-
-        # Generate conditionHash from bytecode
-        condition_hash = None
-        if bytecode:
-            # Create a stable hash of the bytecode by converting to JSON string
-            bytecode_str = json.dumps(bytecode, sort_keys=True)
-            condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
-
-        return CohortFilterBytecodeResult(bytecode=bytecode, condition_hash=condition_hash)
+        return _compile_cohort_leaf(property_to_expr(property_obj, team), team)
     except Exception as e:
         logger.warning(f"Failed to generate bytecode for cohort filter: {e}")
         return CohortFilterBytecodeResult(error=str(e))
@@ -428,12 +454,14 @@ class FilterBytecodeMixin(BaseModel):
             team = info.context.get("team")
             if team:
                 result = generate_cohort_filter_bytecode(self.model_dump(exclude_none=True), team)
-                if result.bytecode:
-                    self.bytecode = result.bytecode
-                if result.condition_hash:
-                    self.conditionHash = result.condition_hash
                 if result.error:
+                    self.bytecode = None
+                    self.conditionHash = None
                     self.bytecode_error = result.error
+                elif result.bytecode:
+                    self.bytecode = result.bytecode
+                    self.conditionHash = result.condition_hash
+                    self.bytecode_error = None
         return self
 
 
@@ -765,7 +793,8 @@ class CohortRealtimeRequestSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(
         help_text="True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and "
         "starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts "
-        "with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. "
+        "with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is "
+        "already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. "
         "PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the "
         "cohort.",
     )
@@ -918,7 +947,26 @@ class CohortCalculationHistoryQuerySerializer(serializers.Serializer):
     )
 
 
+class CohortCalculationQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(required=False, help_text="Text of the query.")
+    query_id = serializers.CharField(required=False, help_text="ClickHouse query ID.")
+    query_ms = serializers.IntegerField(required=False, help_text="Query duration in milliseconds.")
+    memory_mb = serializers.IntegerField(required=False, help_text="Peak memory the query used, in megabytes.")
+    read_rows = serializers.IntegerField(required=False, help_text="Rows the query read.")
+    written_rows = serializers.IntegerField(required=False, help_text="Rows the query wrote.")
+
+
+@extend_schema_field(CohortCalculationQuerySerializer(many=True, allow_null=True))
+class CohortCalculationQueriesField(serializers.JSONField):
+    pass
+
+
 class CohortCalculationHistorySerializer(serializers.ModelSerializer):
+    queries = CohortCalculationQueriesField(
+        read_only=True,
+        allow_null=True,
+        help_text="Queries the calculation ran, in order. Each entry only has the keys that were recorded.",
+    )
     duration_seconds = serializers.ReadOnlyField()
     is_completed = serializers.ReadOnlyField()
     is_successful = serializers.ReadOnlyField()
@@ -947,6 +995,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_written_rows",
             "main_query",
         ]
+        read_only_fields = fields
 
 
 class CohortCalculationHistoryResponseSerializer(serializers.Serializer):
@@ -1368,9 +1417,9 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         "see membership changes within about a minute. `building` / `rebuilding`: PostHog is "
         "preparing the cohort from past events, and flags cannot target it yet. "
         "`needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and "
-        "realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the "
-        "cohort can't be realtime, so its membership only comes from the once-a-day calculation. See "
-        "`reason`. `person_properties`: it matches on person properties, which flags read "
+        "realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, "
+        "it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the "
+        "once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read "
         "directly, so they can always target it. `static`: it is a fixed list of people.",
     )
     ready_at = serializers.DateTimeField(
@@ -1390,10 +1439,13 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         "`includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. "
         "`history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it "
         "matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test "
-        "users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan "
-        "allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its "
-        "criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a "
-        "`daily` cohort whose stored criteria don't show why.",
+        "users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, "
+        "one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria "
+        "look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: "
+        "`too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. "
+        "`unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so "
+        "PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't "
+        "show why.",
     )
     history_limit_days = serializers.IntegerField(
         allow_null=True,
@@ -2146,7 +2198,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         new_properties = _flat_properties(self._effective_filters_after_update(attrs))
         if team is None or next(_hidden_event_references(new_properties), None) is None:
             return
-        mode = get_flag_evaluations_read_mode(team.organization_id)
+        mode = get_flag_evaluations_read_config(team.organization_id, team_id=team.id).mode
         if mode == FlagEvaluationsMode.EVENTS:
             return
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
@@ -3317,7 +3369,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         request_serializer=CohortRealtimeRequestSerializer,
         responses={200: CohortSerializer},
         description="Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort "
-        "it includes as criteria, and PostHog prepares them from past events before feature flags can target them.",
+        "it includes as criteria, and PostHog prepares them from past events before feature flags can target them. "
+        "Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.",
     )
     @action(methods=["POST"], detail=True, required_scopes=["cohort:write"])
     def realtime(self, request: ValidatedRequest, **kwargs) -> Response:
@@ -3327,9 +3380,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         enabled: bool = request.validated_data["enabled"]
         before = cohort.to_dict()
+        retried = False
         if enabled:
+            was_on = cohort.realtime_enabled
             try:
                 turn_realtime_on(cohort.team_id, cohort.pk, can_edit=_can_edit(self.user_access_control))
+                if was_on:
+                    retried = bool(prepare_again(cohort.team_id, cohort.pk))
             except RealtimeLimitReached as error:
                 _report_realtime_limit_reached(request, cohort, error, "switch")
                 raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
@@ -3355,7 +3412,15 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             report_user_action(
                 cast(User, request.user),
                 "cohort realtime enabled" if enabled else "cohort realtime disabled",
-                cohort.get_analytics_metadata(),
+                {**cohort.get_analytics_metadata(), "cohort_id": cohort.pk},
+                team=cohort.team,
+                request=request,
+            )
+        if retried:
+            report_user_action(
+                cast(User, request.user),
+                "cohort realtime retried",
+                {**cohort.get_analytics_metadata(), "cohort_id": cohort.pk},
                 team=cohort.team,
                 request=request,
             )

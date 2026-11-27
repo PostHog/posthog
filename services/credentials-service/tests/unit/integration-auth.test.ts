@@ -578,6 +578,43 @@ describe('integration public keys', () => {
             expect(keys.entries().map(([deployment]) => deployment)).toEqual([WEB])
         })
 
+        // A stray file makes the reload fail, and the removed key must still stop working.
+        it.each([
+            ['nothing else', {}],
+            ['a stray file', { 'stray.txt': 'oops' }],
+        ])('refuses every caller when a reload removes the last key file and leaves %s', async (_label, extra) => {
+            const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
+            dirs.push(dir)
+            await writeFile(join(dir, `${WEB}.pub`), webPem)
+            const keys = new IntegrationKeyLoader(dir)
+            await keys.load()
+
+            await rm(join(dir, `${WEB}.pub`))
+            await Promise.all(Object.entries(extra).map(([name, contents]) => writeFile(join(dir, name), contents)))
+            await keys.reload()
+
+            expect(await codeFor(verifier({ keys }).verify(await mint()))).toBe('bad_signature')
+        })
+
+        // The README rotation ends by removing the old block from the file. A refused reload must
+        // still revoke that block, and keep the new one working.
+        it('stops accepting a key whose block a refused reload removed', async () => {
+            const next = generateKeyPairSync('ed25519')
+            const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
+            dirs.push(dir)
+            await writeFile(join(dir, `${WEB}.pub`), `${publicPem(next.publicKey)}\n${webPem}`)
+            const keys = new IntegrationKeyLoader(dir)
+            await keys.load()
+
+            await writeFile(join(dir, `${WEB}.pub`), publicPem(next.publicKey))
+            await writeFile(join(dir, 'stray.txt'), 'oops')
+            await keys.reload()
+
+            const v = verifier({ keys })
+            expect(await codeFor(v.verify(await mint()))).toBe('bad_signature')
+            expect((await v.verify(await mint({ signWith: next.privateKey }))).deployment).toBe(WEB)
+        })
+
         it('keeps the previous keys when one file cannot be read', async () => {
             const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
             dirs.push(dir)

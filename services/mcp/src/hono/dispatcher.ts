@@ -47,7 +47,7 @@ import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { GuidanceEngine } from './guidance/engine'
 import { InstructionsBuilder } from './instructions'
 import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
-import { initDurationSeconds, initTotal } from './metrics'
+import { initDurationSeconds, initStepDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { SkillCatalogService } from './skill-catalog-service'
@@ -611,6 +611,9 @@ class McpDispatcher {
             const instructions = this.instructionsBuilder.build(state)
 
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
+            for (const [step, seconds] of Object.entries(state.stepSeconds)) {
+                initStepDurationSeconds.observe({ step }, seconds)
+            }
             initTotal.inc({ status: 'success' })
 
             void trackInitEvent(state)
