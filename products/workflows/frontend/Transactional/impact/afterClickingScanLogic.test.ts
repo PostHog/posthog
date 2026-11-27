@@ -96,8 +96,18 @@ describe('afterClickingScanLogic', () => {
     let retrieveAnswers: [number, unknown][]
     let retrieveGate: Promise<void>
     let retrievedPaths: string[]
+    let capturedEvents: { event: string; properties: unknown }[]
+
+    function captured(event: string): unknown[] {
+        return capturedEvents.filter((captured) => captured.event === event).map(({ properties }) => properties)
+    }
 
     beforeEach(() => {
+        capturedEvents = []
+        jest.spyOn(posthog, 'capture').mockImplementation((event, properties) => {
+            capturedEvents.push({ event, properties })
+            return undefined
+        })
         sessionsAnswer = [200, SESSIONS]
         sessionsParams = []
         createAnswer = [202, scanRequest('running', [scanSession('session-a'), scanSession('session-b')])]
@@ -148,7 +158,6 @@ describe('afterClickingScanLogic', () => {
     ])(
         'scans the listed sessions with a $source question and follows the scan until it finishes',
         async ({ questionKey, question, source }) => {
-            const capture = jest.spyOn(posthog, 'capture')
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.scanState).toEqual({ kind: 'questions', sessionCount: 2, hasMore: false })
 
@@ -194,17 +203,11 @@ describe('afterClickingScanLogic', () => {
             setTabHidden(false)
             await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * 3)
             expect(retrievedPaths).toEqual(Array(3).fill(pollPath(REQUEST_ID)))
-            expect(capture).toHaveBeenCalledWith(
-                'transactional email impact question asked',
-                expect.objectContaining({ source, question_key: questionKey })
-            )
-            expect(
-                capture.mock.calls.filter(([event]) => event === 'transactional email impact scan finished')
-            ).toEqual([
-                [
-                    'transactional email impact scan finished',
-                    { sessions: 2, sessions_with_result: 1, sessions_skipped: 0, credits_used_up: false },
-                ],
+            expect(captured('transactional email impact question asked')).toEqual([
+                expect.objectContaining({ source, question_key: questionKey }),
+            ])
+            expect(captured('transactional email impact scan finished')).toEqual([
+                { sessions: 2, sessions_with_result: 1, sessions_skipped: 0, credits_used_up: false },
             ])
         }
     )
@@ -229,41 +232,106 @@ describe('afterClickingScanLogic', () => {
             finished: [{ sessions: 2, sessions_with_result: 0, sessions_skipped: 2, credits_used_up: true }],
         },
         {
-            name: 'some sessions are skipped',
+            name: 'the scanner is busy',
+            answer: [
+                202,
+                scanRequest('completed', [
+                    scanSession('session-a', SUCCEEDED),
+                    scanSession('session-b', { state: 'skipped', scan_outcome: 'skipped_limit' }),
+                ]),
+            ],
+            state: {
+                kind: 'finished',
+                withResult: 1,
+                scanned: 1,
+                skipped: { busy: 1, quota: 0, questionLimit: 0, unscannable: 0 },
+            },
+            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
+        },
+        {
+            name: 'the question reached its credit limit',
             answer: [
                 202,
                 scanRequest('completed', [
                     scanSession('session-a', SUCCEEDED),
                     scanSession('session-b', { state: 'skipped', scan_outcome: 'skipped_scanner_limit' }),
-                    scanSession('session-c', { state: 'skipped', scan_outcome: 'skipped_limit' }),
                 ]),
             ],
             state: {
                 kind: 'finished',
                 withResult: 1,
                 scanned: 1,
-                skipped: { busy: 1, quota: 0, questionLimit: 1, unscannable: 0 },
+                skipped: { busy: 0, quota: 0, questionLimit: 1, unscannable: 0 },
             },
-            finished: [{ sessions: 3, sessions_with_result: 1, sessions_skipped: 2, credits_used_up: false }],
+            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
         },
         {
-            name: 'some recordings are never watched',
+            name: 'a scan fails to start',
             answer: [
                 202,
                 scanRequest('completed', [
                     scanSession('session-a', SUCCEEDED),
                     scanSession('session-b', { state: 'failed', scan_outcome: 'failed' }),
-                    scanSession('session-c', { state: 'ineligible' }),
-                    scanSession('session-d', { state: 'failed', scan_outcome: null }),
                 ]),
             ],
             state: {
                 kind: 'finished',
                 withResult: 1,
                 scanned: 1,
-                skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 3 },
+                skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 1 },
             },
-            finished: [{ sessions: 4, sessions_with_result: 1, sessions_skipped: 3, credits_used_up: false }],
+            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
+        },
+        {
+            name: 'a session has no recording to watch',
+            answer: [
+                202,
+                scanRequest('completed', [
+                    scanSession('session-a', SUCCEEDED),
+                    scanSession('session-b', { state: 'ineligible', observation_id: 'observation-b' }),
+                ]),
+            ],
+            state: {
+                kind: 'finished',
+                withResult: 1,
+                scanned: 1,
+                skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 1 },
+            },
+            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
+        },
+        {
+            name: 'the worker drops a scan before it begins',
+            answer: [
+                202,
+                scanRequest('completed', [
+                    scanSession('session-a', SUCCEEDED),
+                    scanSession('session-b', { state: 'lost' }),
+                ]),
+            ],
+            state: {
+                kind: 'finished',
+                withResult: 1,
+                scanned: 1,
+                skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 1 },
+            },
+            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
+        },
+        {
+            name: 'a scan never gets an outcome',
+            answer: [
+                202,
+                scanRequest('completed', [
+                    scanSession('session-a', SUCCEEDED),
+                    scanSession('session-b', { state: 'failed', scan_outcome: null }),
+                ]),
+            ],
+            state: {
+                kind: 'finished',
+                withResult: 1,
+                scanned: 1,
+                skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 1 },
+            },
+            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
         },
         {
             name: 'the server fails',
@@ -276,18 +344,13 @@ describe('afterClickingScanLogic', () => {
         async ({ answer, state, finished }) => {
             await expectLogic(logic).toFinishAllListeners()
             createAnswer = answer
-            const capture = jest.spyOn(posthog, 'capture')
 
             await expectLogic(logic, () =>
                 logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
             )
                 .toFinishAllListeners()
                 .toMatchValues({ scanState: state })
-            expect(
-                capture.mock.calls
-                    .filter(([event]) => event === 'transactional email impact scan finished')
-                    .map(([, properties]) => properties)
-            ).toEqual(finished)
+            expect(captured('transactional email impact scan finished')).toEqual(finished)
         }
     )
 
@@ -427,7 +490,6 @@ describe('afterClickingScanLogic', () => {
         let failOldScan: () => void = () => {}
         createGate = new Promise((resolve) => (failOldScan = resolve))
         createAnswer = [500, {}]
-        const capture = jest.spyOn(posthog, 'capture')
         logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
 
         logic.actions.setDays(1)
@@ -451,7 +513,7 @@ describe('afterClickingScanLogic', () => {
         unsubscribe()
 
         expect(shown).not.toContain('questions')
-        expect(capture).not.toHaveBeenCalledWith('transactional email impact scan failed', expect.anything())
+        expect(captured('transactional email impact scan failed')).toEqual([])
     })
 
     test.each([
