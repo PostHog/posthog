@@ -1,9 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { adventCalendarAccessLogic } from './adventCalendarAccessLogic'
 import { AdventShareButton } from './AdventShareButton'
@@ -14,16 +16,15 @@ export const scene: SceneExport = {
 }
 
 export function AdventCalendarScene(): JSX.Element {
-    const { hasCalendar, flagsSettled } = useValues(adventCalendarAccessLogic)
-    const { leaveWithoutCalendar } = useActions(adventCalendarAccessLogic)
+    const { calendarAccess, onCalendarRoute } = useValues(adventCalendarAccessLogic)
 
     useEffect(() => {
-        if (flagsSettled && !hasCalendar) {
-            leaveWithoutCalendar()
+        if (calendarAccess === 'denied' && onCalendarRoute) {
+            router.actions.replace(urls.workflows())
         }
-    }, [flagsSettled, hasCalendar, leaveWithoutCalendar])
+    }, [calendarAccess, onCalendarRoute])
 
-    if (!flagsSettled || !hasCalendar) {
+    if (calendarAccess !== 'calendar') {
         return <SpinnerOverlay sceneLevel />
     }
 

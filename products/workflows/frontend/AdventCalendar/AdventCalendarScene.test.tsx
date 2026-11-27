@@ -1,6 +1,5 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,121 +10,85 @@ import { initKeaTests } from '~/test/init'
 
 import { AdventCalendarScene } from './AdventCalendarScene'
 
-type ReloadStatus = 'loaded' | 'error'
-
 describe('AdventCalendarScene', () => {
-    let finishFlagLoad: (status: ReloadStatus) => Promise<void>
-    const originalFeatureFlags = posthog.featureFlags
-
     beforeEach(() => {
         window.localStorage.clear()
         jest.useFakeTimers()
-        initKeaTests()
-        appLogic.mount()
-        router.actions.push(urls.workflowsAdventCalendar())
-        let resolveLoad: (result: { status: ReloadStatus }) => void = () => {}
-        const reloadFeatureFlagsAsync = (): Promise<{ status: ReloadStatus }> =>
-            new Promise((resolve) => {
-                resolveLoad = resolve
-            })
-        finishFlagLoad = async (status) => {
-            await act(async () => resolveLoad({ status }))
-        }
-        Object.assign(posthog, { featureFlags: { reloadFeatureFlagsAsync } })
     })
 
     afterEach(() => {
+        cleanup()
         jest.useRealTimers()
-        Object.assign(posthog, { featureFlags: originalFeatureFlags })
     })
+
+    const openCalendar = ({
+        cachedFlags = {} as Record<string, boolean>,
+        url = urls.workflowsAdventCalendar(),
+    } = {}): void => {
+        window.localStorage.setItem('lib.logic.featureFlagLogic.featureFlags', JSON.stringify(cachedFlags))
+        initKeaTests()
+        appLogic.mount()
+        router.actions.push(url)
+        render(<AdventCalendarScene />)
+    }
 
     const pathname = (): string => router.values.location.pathname
-    const showsCalendar = (): boolean => !!screen.queryByText('THE WORKFLOWS ADVENT CALENDAR')
-    const showsSpinner = (): boolean => !!document.querySelector('.SpinnerOverlay')
-    const setCalendarFlag = (enabled: boolean): void =>
-        act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]: enabled }))
+    const screenState = (): { calendar: boolean; spinner: boolean } => ({
+        calendar: !!screen.queryByText('THE WORKFLOWS ADVENT CALENDAR'),
+        spinner: !!document.querySelector('.SpinnerOverlay'),
+    })
+    const flagsArrive = (calendar: boolean): void =>
+        act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]: calendar }))
+    const flagsTimeOut = (): void => act(() => jest.advanceTimersByTime(3000))
+
+    it('shows the calendar to a visitor with the flag', () => {
+        openCalendar()
+        flagsArrive(true)
+
+        expect({ pathname: pathname(), ...screenState() }).toEqual({
+            pathname: expect.stringMatching(/\/workflows\/advent$/),
+            calendar: true,
+            spinner: false,
+        })
+    })
 
     it.each([
-        ['the shared link', urls.workflowsAdventCalendar()],
-        ['an encoded path', urls.workflowsAdventCalendar().replace('advent', '%61dvent')],
-    ])('sends a visitor without the calendar on %s to Workflows once a fresh flag load agrees', async (_, url) => {
-        router.actions.push(url)
-        const { unmount } = render(<AdventCalendarScene />)
-        setCalendarFlag(false)
-        expect({ pathname: pathname(), showsSpinner: showsSpinner() }).toEqual({
-            pathname: expect.stringMatching(/\/workflows\/(advent|%61dvent)$/),
-            showsSpinner: true,
-        })
-
-        await finishFlagLoad('loaded')
+        ['their flags come back off', urls.workflowsAdventCalendar(), () => flagsArrive(false)],
+        ['their flags time out', urls.workflowsAdventCalendar(), flagsTimeOut],
+        ['the link is encoded', urls.workflowsAdventCalendar().replace('advent', '%61dvent'), () => flagsArrive(false)],
+    ])('sends a visitor without the calendar to Workflows when %s', (_, url, settleFlags) => {
+        openCalendar({ url })
+        settleFlags()
 
         expect(pathname()).toMatch(/\/workflows$/)
-        unmount()
     })
 
-    it.each([
-        ['another scene', urls.insights(), /\/insights$/],
-        [
-            'the calendar written another way',
-            urls.workflowsAdventCalendar().replace('advent', '%61dvent'),
-            /\/workflows$/,
-        ],
-    ])('settles a visitor who moved to %s during the flag load', async (_, destination, expected) => {
-        const { unmount } = render(<AdventCalendarScene />)
-        setCalendarFlag(false)
-        act(() => router.actions.push(destination))
+    it('shows a spinner and no calendar while flags are unknown', () => {
+        openCalendar()
 
-        await finishFlagLoad('loaded')
-
-        expect(pathname()).toMatch(expected)
-        unmount()
+        expect({ pathname: pathname(), ...screenState() }).toEqual({
+            pathname: expect.stringMatching(/\/workflows\/advent$/),
+            calendar: false,
+            spinner: true,
+        })
     })
 
-    it('sends a visitor who went back to the calendar during the flag load to Workflows', async () => {
-        const { unmount } = render(<AdventCalendarScene />)
-        setCalendarFlag(false)
+    it('leaves a visitor who moved on before flags arrived where they went', () => {
+        openCalendar()
         act(() => router.actions.push(urls.insights()))
-        await finishFlagLoad('loaded')
+        flagsArrive(false)
 
-        act(() => router.actions.push(urls.workflowsAdventCalendar()))
-        await finishFlagLoad('loaded')
-
-        expect(pathname()).toMatch(/\/workflows$/)
-        unmount()
+        expect(pathname()).toMatch(/\/insights$/)
     })
 
-    it('keeps a visitor whose early flags missed the calendar but the fresh load has it', async () => {
-        const { unmount } = render(<AdventCalendarScene />)
-        setCalendarFlag(false)
+    it('shows the calendar from cached flags when the flag request is blocked', () => {
+        openCalendar({ cachedFlags: { [FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]: true } })
+        flagsTimeOut()
 
-        setCalendarFlag(true)
-        await finishFlagLoad('loaded')
-
-        expect({ pathname: pathname(), showsCalendar: showsCalendar() }).toEqual({
+        expect({ pathname: pathname(), ...screenState() }).toEqual({
             pathname: expect.stringMatching(/\/workflows\/advent$/),
-            showsCalendar: true,
+            calendar: true,
+            spinner: false,
         })
-        unmount()
-    })
-
-    it('sends a visitor to Workflows when flags time out and the flag load fails', async () => {
-        const { unmount } = render(<AdventCalendarScene />)
-        act(() => jest.advanceTimersByTime(3000))
-
-        await finishFlagLoad('error')
-
-        expect(pathname()).toMatch(/\/workflows$/)
-        unmount()
-    })
-
-    it('keeps a visitor with the calendar on it', async () => {
-        setCalendarFlag(true)
-        const { unmount } = render(<AdventCalendarScene />)
-
-        expect({ pathname: pathname(), showsCalendar: showsCalendar() }).toEqual({
-            pathname: expect.stringMatching(/\/workflows\/advent$/),
-            showsCalendar: true,
-        })
-        unmount()
     })
 })
