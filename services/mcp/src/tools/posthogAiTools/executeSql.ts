@@ -26,7 +26,8 @@ export const executeSqlHandler: ToolBase<typeof schema, ExecuteSqlResult>['handl
             ...(params.connectionId !== undefined && { connectionId: params.connectionId }),
             ...(params.sendRawQuery !== undefined && { sendRawQuery: params.sendRawQuery }),
         },
-        { idempotent: true }
+        // A read-only transaction still allows side effects such as Postgres `pg_notify`, so raw SQL is never repeated.
+        { idempotent: !params.sendRawQuery }
     )
 
     return result.structured_content

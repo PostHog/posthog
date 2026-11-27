@@ -878,6 +878,21 @@ describe('ApiClient', () => {
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
 
+        it('does not repeat a raw execute-sql call whose outcome is unknown', async () => {
+            const mockFetch = stubFetch()
+
+            await settle(
+                executeSqlHandler(skillContext(), {
+                    query: "SELECT pg_notify('jobs', 'run')",
+                    truncate: true,
+                    connectionId: 'conn_1',
+                    sendRawQuery: true,
+                })
+            )
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
         const stubStalledFetch = (): ReturnType<typeof vi.fn> => {
             const mockFetch = vi.fn(
                 (_url: string, init?: RequestInit) =>
