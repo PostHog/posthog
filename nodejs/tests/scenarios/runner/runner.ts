@@ -697,6 +697,8 @@ export function createRunner(
                     seed: card.seed,
                     startedAt: driveStartedAt,
                     endsAt: driveStartedAt + durationMs(card.drive.for),
+                    terminationGraceMs:
+                        profile.terminationGrace === undefined ? undefined : durationMs(profile.terminationGrace),
                 })
                 const windowOpen = new AbortController()
                 void sleep(Math.max(0, driveStartedAt + durationMs(card.drive.for) - Date.now()), undefined, {

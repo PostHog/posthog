@@ -65,6 +65,7 @@ export interface Judge {
     evidence(): {
         journal: JournalEntry[]
         truth: TruthRecord[]
+        truthFrom: number
         fetchRetries: number
         unread?: string
         unsettled?: string
@@ -295,6 +296,7 @@ export function createJudge({
         evidence: () => ({
             journal: [...journal],
             truth: [...truth],
+            truthFrom,
             fetchRetries,
             ...(unread !== undefined && { unread }),
             ...(unsettled !== undefined && { unsettled }),

@@ -2,6 +2,7 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import { Registry, collectDefaultMetrics } from 'prom-client'
 
+import type { RoleTermination } from '../environment/supervisor'
 import type { WriterSample } from '../probe/writer-probe'
 import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
@@ -63,6 +64,7 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     journal: [],
     truth: [],
     fetchRetries: 3,
+    truthFrom: 0,
     samples: [],
     missed: [],
     host: [],
@@ -189,6 +191,127 @@ describe('measurements', () => {
     ])('keeps the largest resident set of each role across its replicas over %s', (_story, samples) => {
         expect(measure([{ name: 'role_rss_max_bytes', params: {} }], evidence({ samples }))).toEqual([
             { name: 'role_rss_max_bytes', key: ROLE, value: 900, unit: 'bytes' },
+        ])
+    })
+
+    const at = (ms: number): string => new Date(FROM + ms).toISOString()
+    const terminated = (exit: Partial<RoleTermination>): ValveTimelineEntry => ({
+        valve: 'role.terminate',
+        target: 'cdp-cyclotron-worker-email',
+        requestedAt: at(5000),
+        appliedAt: at(5000),
+        exit: { signalledAt: at(5000), ...exit },
+    })
+    const resent = [
+        { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
+        { ...record(2, 'run-a-1', 42_000), invocationId: 'inv-a' },
+    ]
+
+    it.each([
+        ['a role that stopped on SIGTERM', [{ exitedAt: at(8000), code: 0 }], [{ key: 'sigterm', value: 3000 }]],
+        [
+            'a role that needed the SIGKILL',
+            [{ killedAt: at(15_000), exitedAt: at(15_200), signal: 'SIGKILL' }],
+            [
+                {
+                    key: 'sigterm',
+                    value: null,
+                    censored: true,
+                    unmeasured: 'a SIGKILL exit is not measured in this release',
+                },
+            ],
+        ],
+        [
+            'a role that exited on its own as its grace ran out',
+            [{ killedAt: at(15_000), exitedAt: at(15_010), code: 0 }],
+            [{ key: 'sigterm', value: 10_010 }],
+        ],
+        [
+            'two terminated roles',
+            [
+                { exitedAt: at(8000), code: 0 },
+                { exitedAt: at(9000), code: 0 },
+            ],
+            [
+                {
+                    value: null,
+                    censored: true,
+                    unmeasured: 'the card terminates more than one role, so its exits have no stable key',
+                },
+            ],
+        ],
+        [
+            'a role killed by another valve during its grace',
+            [{ exitedAt: at(7000), signal: 'SIGKILL' }],
+            [
+                {
+                    key: 'sigterm',
+                    value: null,
+                    censored: true,
+                    unmeasured: 'a SIGKILL exit is not measured in this release',
+                },
+            ],
+        ],
+        [
+            'a role whose exit never arrived',
+            [{}],
+            [{ key: 'sigterm', value: null, censored: true, unmeasured: 'cdp-cyclotron-worker-email did not exit' }],
+        ],
+    ])('times how long %s took to exit after the signal', (_story, exits, measured) => {
+        expect(measure([{ name: 'role_exit_ms', params: {} }], evidence({ timeline: exits.map(terminated) }))).toEqual(
+            measured.map((value) => ({ name: 'role_exit_ms', unit: 'ms', ...value }))
+        )
+    })
+
+    it('leaves role_exit_ms unmeasured on a card with a second terminate entry that never fired', () => {
+        const pending: ValveTimelineEntry = {
+            valve: 'role.terminate',
+            target: 'cdp-cyclotron-worker-email',
+            requestedAt: at(0),
+        }
+
+        expect(
+            measure(
+                [{ name: 'role_exit_ms', params: {} }],
+                evidence({ timeline: [terminated({ exitedAt: at(8000), code: 0 }), pending] })
+            )
+        ).toEqual([
+            {
+                name: 'role_exit_ms',
+                unit: 'ms',
+                value: null,
+                censored: true,
+                unmeasured: 'the card terminates more than one role, so its exits have no stable key',
+            },
+        ])
+    })
+
+    it('leaves lease_reclaim_ms unmeasured in this release, though a stranded send went out again', () => {
+        const timeline = [terminated({ exitedAt: at(10_000), code: 0 })]
+
+        expect(measure([{ name: 'lease_reclaim_ms', params: {} }], evidence({ timeline, truth: resent }))).toEqual([
+            {
+                name: 'lease_reclaim_ms',
+                unit: 'ms',
+                value: null,
+                censored: true,
+                unmeasured: 'not measured in this release',
+            },
+        ])
+    })
+
+    it('leaves resent_invocations unmeasured in this release, though this run sent one invocation twice', () => {
+        const journal = [offered('run-a-1', 0)]
+
+        expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ journal, truth: resent }))).toEqual([
+            {
+                name: 'resent_invocations',
+                unit: 'invocations',
+                key: 'total',
+                value: null,
+                censored: true,
+                unmeasured: 'not measured: a run-scoped resend count is a follow-up',
+            },
         ])
     })
 

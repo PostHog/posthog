@@ -57,6 +57,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         steps: readonly Step[]
         timeline: readonly ValveTimelineEntry[]
         counters?: CounterReading
+        truthFrom: number
         unread?: string
         horizonAt?: number
         converged?: boolean
@@ -168,6 +169,46 @@ export const deliveryLatencyMs: MeasurementDefinition = {
                   { key: 'max', value: latencies.at(-1)! },
               ]
     },
+}
+
+const terminationsOf = (
+    timeline: readonly ValveTimelineEntry[]
+): (ValveTimelineEntry & Required<Pick<ValveTimelineEntry, 'exit'>>)[] =>
+    timeline.flatMap((entry) => (entry.exit === undefined ? [] : [{ ...entry, exit: entry.exit }]))
+
+const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
+
+export const roleExitMs: MeasurementDefinition = {
+    name: 'role_exit_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: ({ timeline }) => {
+        const terminations = terminationsOf(timeline)
+        if (timeline.filter(({ valve }) => valve === 'role.terminate').length > 1) {
+            return [unmeasured('the card terminates more than one role, so its exits have no stable key')]
+        }
+        return terminations.map(({ target, exit }) =>
+            exit.exitedAt === undefined
+                ? { key: 'sigterm', ...unmeasured(`${target} did not exit`) }
+                : exit.signal === 'SIGKILL'
+                  ? { key: 'sigterm', ...unmeasured('a SIGKILL exit is not measured in this release') }
+                  : { key: 'sigterm', value: Date.parse(exit.exitedAt) - Date.parse(exit.signalledAt) }
+        )
+    },
+}
+
+export const leaseReclaimMs: MeasurementDefinition = {
+    name: 'lease_reclaim_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: () => [unmeasured('not measured in this release')],
+}
+
+export const resentInvocations: MeasurementDefinition = {
+    name: 'resent_invocations',
+    params: z.object({}).strict(),
+    unit: 'invocations',
+    measure: () => [{ key: 'total', ...unmeasured('not measured: a run-scoped resend count is a follow-up') }],
 }
 
 export type Phase = { from: number; to: number }
@@ -820,6 +861,9 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    roleExitMs,
+    leaseReclaimMs,
+    resentInvocations,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]
