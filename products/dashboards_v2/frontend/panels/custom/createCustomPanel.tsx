@@ -15,7 +15,7 @@ import {
 // No "add tile" entry either: the team's code decides where its contents go.
 export function createCustomPanel({
     packages,
-    allowedCustomizations = [],
+    allowedCustomizations = ['backgroundColor'],
 }: {
     packages: ContentPackage[]
     allowedCustomizations?: TileCustomization[]
@@ -38,6 +38,11 @@ export function createCustomPanel({
         addTileOptions: [],
         Component: Custom,
         Loading: CustomLoading,
-        menuActions: (actions, context) => contentOf(context.panel)?.menuActions?.(actions, context) ?? [],
+        menuActions: (actions, context) => {
+            const content = contentOf(context.panel)
+            const kept = content?.menuActions?.(actions, context) ?? []
+            const background = content?.backgroundColor && actions.find((action) => action.key === 'background-color')
+            return background && !kept.includes(background) ? [...kept, background] : kept
+        },
     })
 }

@@ -2,7 +2,7 @@ type MenuActionBase = {
     /**
      * Stable, so a panel type's `menuActions` or a host's `tileActions`, `tilePlacementActions` and `dashboardActions` can
      * find an action by it. Built in for a content tile: `download`, `copy`, `parts`, `background-color`, plus a chart's
-     * `chart-type` and `chart-options`. Built in for a section: `rename`, `download`, `copy`, `auto-layout`, `parts`. Built
+     * `chart-type` and `chart-options`. Built in for a section: `rename`, `download`, `copy`, `auto-layout`, `parts`, `background-color`. Built
      * in for where a tile sits: `slideshow`, `move`, `add-to-tab`, `duplicate`, `remove`, and `duplicate` and `remove` for a section. Built in for the
      * dashboard: `download`, `copy`, `tab-appearance`, `allow-filters`.
      */
@@ -39,7 +39,7 @@ export type MenuAction = MenuActionBase & ({ loading?: false } | { loading: true
 
 /** In menu order, after the ungrouped actions. */
 export const MENU_GROUPS = [
-    { group: 'dashboard', label: 'Dashboard' },
+    { group: 'dashboard', label: 'Tile' },
     { group: 'view', label: 'View & share' },
     { group: 'display', label: 'Display' },
 ] as const
