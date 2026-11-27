@@ -52,37 +52,33 @@ def parse_owner_groups(*texts: str) -> list[OwnerGroup]:
     return list(groups.values())
 
 
-def _with_group_handles(slack: SlackIntegration, groups: list[OwnerGroup], known: dict[str, str]) -> list[OwnerGroup]:
-    """Fill in the handles a tag left out, from Slack or else from what an earlier refresh stored.
-
-    Without `usergroups:read` a group the channel never named keeps its id and an empty handle.
-    """
-    wanted = {group.id for group in groups if not group.handle}
-    if wanted and not slack.missing_scopes([SLACK_USERGROUPS_SCOPE]):
-        known = {**known, **_workspace_group_handles(slack, wanted)}
-    return [group if group.handle else OwnerGroup(id=group.id, handle=known.get(group.id, "")) for group in groups]
+@frozen
+class _GroupLookup:
+    handles: dict[str, str]
+    # False when another refresh holds the workspace read or Slack failed, so a handle may still arrive soon.
+    answered: bool
 
 
-def _workspace_group_handles(slack: SlackIntegration, wanted: set[str]) -> dict[str, str]:
+def _workspace_group_handles(slack: SlackIntegration, wanted: set[str]) -> _GroupLookup:
     # `usergroups.list` returns every group in the workspace, so one read serves all its channels for a day.
     workspace_id = slack.integration.integration_id
     key = f"slack_app_usergroup_handles:{workspace_id}"
     cached: dict[str, str] | None = cache.get(key)
     if cached is not None and wanted <= cached.keys():
-        return cached
+        return _GroupLookup(handles=cached, answered=True)
     # At most one read per workspace in the retry window, so a burst of refreshes, a group created after the
     # cache was filled, or a read that always fails cannot spend the workspace's rate limit.
     if not cache.add(f"{key}:read", 1, timeout=GROUP_LOOKUP_RETRY_SECONDS):
-        return cached or {}
+        return _GroupLookup(handles=cached or {}, answered=False)
     try:
         # `team_id` is required for an org-wide Enterprise Grid install. Disabled groups still name an owner.
         response = slack.client.usergroups_list(team_id=workspace_id, include_disabled=True)
     except Exception:
         logger.warning("slack_app_usergroups_lookup_failed", exc_info=True)
-        return cached or {}
+        return _GroupLookup(handles=cached or {}, answered=False)
     handles = {str(row.get("id")): str(row.get("handle") or "") for row in response.get("usergroups") or []}
     cache.set(key, handles, timeout=METADATA_REFRESH_SECONDS)
-    return handles
+    return _GroupLookup(handles=handles, answered=True)
 
 
 def _stored_group_handles(slack_workspace_id: str, slack_channel_id: str) -> dict[str, str]:
@@ -176,9 +172,16 @@ def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str
     # Slack escapes &, < and > in this text. Tags are read before unescaping, so an escaped `&lt;` cannot form one.
     raw_topic = str((channel.get("topic") or {}).get("value") or "")
     raw_purpose = str((channel.get("purpose") or {}).get("value") or "")
-    groups = _with_group_handles(
-        slack, parse_owner_groups(raw_topic, raw_purpose), _stored_group_handles(slack_workspace_id, slack_channel_id)
-    )
+    groups = parse_owner_groups(raw_topic, raw_purpose)
+    known = _stored_group_handles(slack_workspace_id, slack_channel_id)
+    wanted = {group.id for group in groups if not group.handle}
+    lookup_answered = True
+    if wanted and not slack.missing_scopes([SLACK_USERGROUPS_SCOPE]):
+        lookup = _workspace_group_handles(slack, wanted)
+        known = {**known, **lookup.handles}
+        lookup_answered = lookup.answered
+    # Without `usergroups:read` a group the channel never named keeps its id and an empty handle.
+    groups = [group if group.handle else OwnerGroup(id=group.id, handle=known.get(group.id, "")) for group in groups]
     SlackChannel.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_channel_id=slack_channel_id,
@@ -188,4 +191,7 @@ def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str
             "owner_groups": [dataclasses.asdict(group) for group in groups],
         },
     )
+    if not lookup_answered:
+        # The handles may arrive in a moment, so the next mention may retry before the day is over.
+        cache.set(_refresh_slot_key(slack.integration.id, slack_channel_id), 1, timeout=GROUP_LOOKUP_RETRY_SECONDS)
     return True
