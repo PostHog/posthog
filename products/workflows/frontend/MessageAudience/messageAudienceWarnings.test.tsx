@@ -5,17 +5,30 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig } from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    EarlyAccessFeatureStage,
+    EarlyAccessFeatureType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
+import { enrolledPeopleAudience } from 'products/early_access_features/frontend/enrolledPeopleAudience'
+
+import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
 import { broadcastWizardLogic } from '../Broadcasts/broadcastWizardLogic'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { TRIGGER_PREFILL_PARAM } from '../Workflows/workflowTriggerPrefill'
-import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
+import { DRAFT_SOURCE_PARAM } from './aiEmailDraft'
+import { MessageAudience, MessageAudienceDestination } from './messageAudience'
 import { MessageAudienceButton } from './MessageAudienceButton'
 import { loadMessageAudienceWarnings } from './messageAudienceWarnings'
+import { EMAIL_PREFILL_PARAM } from './messageDrafts'
 
 const SUSPENDED = 'Email sending is suspended for this project. Workflow and broadcast emails are not being delivered.'
 const LIST_MATCHING = '"Signups" is still matching people. You can launch when it finishes.'
@@ -42,6 +55,8 @@ const audience: MessageAudience = {
 }
 
 type Answer = object | 'fails' | 'hangs'
+
+const PAGE_SIZE = 100
 
 interface Environment {
     suspended?: boolean | 'hangs'
@@ -76,9 +91,17 @@ function useEnvironmentMocks(environments: Record<string, Environment>): void {
                 if (!Array.isArray(senders)) {
                     return answer(senders)
                 }
-                return found.morePages
-                    ? { count: senders.length + 1, results: senders, next: 'page-2' }
-                    : { count: senders.length, results: senders, next: null }
+                if (!found.morePages) {
+                    return { count: senders.length, results: senders, next: null }
+                }
+                const page = Array.from({ length: PAGE_SIZE }, (_, index) => ({
+                    ...senders[index % senders.length],
+                    id: index + 1,
+                }))
+                const next = new URL(request.url)
+                next.searchParams.set('limit', String(PAGE_SIZE))
+                next.searchParams.set('offset', String(PAGE_SIZE))
+                return { count: PAGE_SIZE + 1, results: page, next: next.toString() }
             },
             '/api/projects/:team_id/cohorts/:id/': ({ params }) => {
                 const found = environment(params)
@@ -290,37 +313,71 @@ describe('message audience warnings', () => {
         }
     })
 
-    const audienceInOpenedEditor: Record<MessageAudienceDestination, () => Promise<unknown>> = {
+    const earlyAccessFeature = {
+        id: 'feature-1',
+        name: 'Dark mode',
+        description: 'A darker theme',
+        stage: EarlyAccessFeatureStage.Beta,
+        feature_flag: { id: 1, key: 'dark-mode' },
+    } as EarlyAccessFeatureType
+    const earlyAccess = enrolledPeopleAudience(earlyAccessFeature, 'early_access')
+    const asParam = (value: unknown): string | undefined =>
+        value === undefined || typeof value === 'string' ? value : JSON.stringify(value)
+
+    const openedEditor: Record<MessageAudienceDestination, () => Promise<unknown>> = {
         workflow: async () => {
-            const trigger = router.values.searchParams[TRIGGER_PREFILL_PARAM]
+            const { searchParams } = router.values
             const logic = workflowLogic({
                 id: 'new',
-                triggerPrefill: typeof trigger === 'string' ? trigger : JSON.stringify(trigger),
+                triggerPrefill: asParam(searchParams[TRIGGER_PREFILL_PARAM]),
+                emailPrefill: asParam(searchParams[EMAIL_PREFILL_PARAM]),
+                draftSource: asParam(searchParams[DRAFT_SOURCE_PARAM]),
+                entrySource: asParam(searchParams[SOURCE_PREFILL_PARAM]),
             })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            return logic.values.workflow.actions.find((action) => action.type === 'trigger')?.config
+            const { actions } = logic.values.workflow
+            const trigger = actions.find((action) => action.type === 'trigger')?.config
+            const email = actions.find((action) => action.type === 'email_sandbox' || action.type === 'function_email')
+            return {
+                trigger: trigger?.type,
+                step: email?.type,
+                subject: (email?.config as Record<string, any> | undefined)?.inputs?.email?.value?.subject,
+                draftSource: asParam(searchParams[DRAFT_SOURCE_PARAM]),
+            }
         },
         broadcast: async () => {
             const logic = broadcastWizardLogic({ id: 'new' })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            return logic.values.audienceProperties
+            return { audience: logic.values.audienceProperties, name: logic.values.name }
         },
     }
 
-    it.each<{ destination: MessageAudienceDestination; label: string; warning: string; audience: unknown }>([
+    it.each<{ destination: MessageAudienceDestination; label: string; warning: string; path: string; opens: unknown }>([
         {
             destination: 'workflow',
             label: 'Build a custom workflow',
             warning: TEST_SENDER_FOR_WORKFLOW,
-            audience: { type: 'batch', filters: { properties: audience.properties } },
+            path: urls.workflowNew(),
+            opens: {
+                trigger: 'event',
+                step: 'email_sandbox',
+                subject: earlyAccess.workflowEmail?.subject,
+                draftSource: JSON.stringify(earlyAccess.draftSource),
+            },
         },
-        { destination: 'broadcast', label: 'Send a one-time email', warning: NO_SENDER, audience: audience.properties },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            warning: NO_SENDER,
+            path: urls.broadcastNew(),
+            opens: { audience: earlyAccess.properties, name: earlyAccess.broadcastName },
+        },
     ])(
         'asks before a $destination with no sender, and Continue opens it',
-        async ({ destination, label, warning, ...opened }) => {
-            useEnvironmentMocks({ [projectId()]: { senders: [], sandbox: testSender } })
+        async ({ label, warning, path, destination, opens }) => {
+            useEnvironmentMocks({ [projectId()]: { senders: [], sandbox: { ...testSender, integration_id: 12 } } })
             window.POSTHOG_APP_CONTEXT = {
                 ...window.POSTHOG_APP_CONTEXT!,
                 resource_access_control: {
@@ -328,7 +385,6 @@ describe('message audience warnings', () => {
                     [AccessControlResourceType.Workflow]: AccessControlLevel.Editor,
                 },
             }
-            const earlyAccess: MessageAudience = { ...audience, source: 'early_access' }
             router.actions.push('/project/997/early_access_features/1')
             render(<MessageAudienceButton audience={earlyAccess} label="Email opted-in users" />)
 
@@ -340,14 +396,9 @@ describe('message audience warnings', () => {
             expect(router.values.location.pathname).toEqual('/project/997/early_access_features/1')
 
             fireEvent.click(screen.getByText('Continue'))
-            await waitFor(() => {
-                const { pathname, search, hash } = router.values.location
-                expect(`${pathname}${search}${hash}`).toEqual(
-                    `/project/${projectId()}${messageAudienceUrl(earlyAccess, destination)}`
-                )
-            })
+            await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
             await waitFor(() => expect(screen.queryByText(warning)).not.toBeInTheDocument())
-            expect(await audienceInOpenedEditor[destination]()).toEqual(opened.audience)
+            expect(await openedEditor[destination]()).toEqual(opens)
         }
     )
 })
