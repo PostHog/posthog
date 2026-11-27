@@ -48,7 +48,7 @@ def accessible_experiment_ids(
     nothing is filtered out then. Soft-deleted experiments stay in: a deleted experiment's
     historical data keeps the access level the experiment had, rather than opening up.
     """
-    queryset: QuerySet[Experiment] = Experiment.objects.filter(team_id=team_id)
+    queryset: QuerySet[Experiment] = Experiment.objects.for_team(team_id).including_deleted()
     if experiment_ids is not None:
         if not experiment_ids:
             return set()
