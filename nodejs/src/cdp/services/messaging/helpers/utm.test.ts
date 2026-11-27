@@ -272,22 +272,6 @@ describe('addUtmTagsToEmail', () => {
             html: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=old">x</a>',
             expected: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=old">x</a>',
         },
-        ...[null, 'run-1'].flatMap((runId) =>
-            [
-                'https://example.com/login?ph_workflow_run=old&amp;token=abc&lowbar;123',
-                'https://example.com/login?ph_workflow_run=old&amp;token=abc&#95x',
-            ].map((href) => ({
-                case: `leaves a link with a character reference the tagger cannot decode, ${href}, for run ${runId}`,
-                runId,
-                html: `<a href="${href}">x</a>`,
-                expected: `<a href="${href}">x</a>`,
-            }))
-        ),
-        {
-            case: 'tags a link whose decoded href holds a literal ampersand',
-            html: '<a href="https://example.com/docs/AT&amp;T;?ph_workflow_run=old">x</a>',
-            expected: '<a href="https://example.com/docs/AT&amp;T;?ph_workflow_run=run-1">x</a>',
-        },
         {
             case: 'only removes run ids of earlier sends for a team that turned the tag off',
             runId: null,

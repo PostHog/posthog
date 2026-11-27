@@ -4,7 +4,7 @@ import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
 import { throwIfDeadlinePassed } from '~/cdp/utils/deadline'
 import { LiquidRenderBudget, LiquidRenderer } from '~/cdp/utils/liquid'
 
-import { decodeHtmlEntitiesInHref, hasUndecodableCharacterReference } from '../email-tracking.service'
+import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
 import { escapeHtml } from './escape-html'
 import { WORKFLOW_RUN_PARAM, isNeverClickTracked, removeWorkflowRunTag } from './link-tags'
 import { addUtmTagsToEmailLegacy } from './utm-legacy'
@@ -63,15 +63,6 @@ const attributeValue = (attribute: Attribute): string | undefined => attribute[2
 
 const isOptedOutOfUtmTags = ({ attributes }: Anchor): boolean =>
     attributes.some((attribute) => attributeName(attribute) === 'data-ph-no-utm')
-
-const hrefOf = (attributes: Attribute[]): Attribute | undefined =>
-    attributes.find((attribute) => attributeName(attribute) === 'href')
-
-const hasUndecodableHref = ({ attributes }: Anchor): boolean => {
-    const href = hrefOf(attributes)
-    const value = href ? attributeValue(href) : undefined
-    return value !== undefined && hasUndecodableCharacterReference(value)
-}
 
 /**
  * Renders each custom value as Liquid with the recipient's data. A value that fails to render is
@@ -202,7 +193,7 @@ const tagAnchor = (anchor: string, tagger: LinkTagger): string => {
     if (tagger.isOptedOut({ html: anchor, attributes })) {
         return anchor
     }
-    const href = hrefOf(attributes)
+    const href = attributes.find((attribute) => attributeName(attribute) === 'href')
     const value = href ? attributeValue(href) : undefined
     if (!href || value === undefined) {
         return anchor
@@ -283,8 +274,7 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
     const isTaggable = (parsed: URL): boolean =>
         parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain && !isSigned(parsed)
     return addTagsToEmailLinks(html, {
-        isOptedOut: (anchor) =>
-            isNeverClickTracked(anchor.html) || isOptedOutOfUtmTags(anchor) || hasUndecodableHref(anchor),
+        isOptedOut: (anchor) => isNeverClickTracked(anchor.html) || isOptedOutOfUtmTags(anchor),
         tagUrl: (url) => {
             if (runId !== null) {
                 return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isTaggable)
