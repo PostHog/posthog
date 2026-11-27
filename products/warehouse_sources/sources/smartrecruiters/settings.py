@@ -208,6 +208,24 @@ SMARTRECRUITERS_ENDPOINTS: dict[str, SmartRecruitersEndpointConfig] = {
 
 ENDPOINTS = tuple(SMARTRECRUITERS_ENDPOINTS)
 
+# The per-application tables read every application on each sync (interviews take two requests
+# for each), and the audit log needs an administrator key, so these start off.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {
+    name: False for name, config in SMARTRECRUITERS_ENDPOINTS.items() if config.per_application
+} | {"audit_events": False}
+
+PER_APPLICATION_DESCRIPTION = (
+    "Reads each job application of every candidate on every sync, so it takes a long time on large accounts."
+)
+SCHEMA_DESCRIPTIONS: dict[str, str] = {
+    "audit_events": "Needs an API key of a user with the Administrator role.",
+    **{
+        name: PER_APPLICATION_DESCRIPTION
+        for name, config in SMARTRECRUITERS_ENDPOINTS.items()
+        if config.per_application
+    },
+}
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in SMARTRECRUITERS_ENDPOINTS.items() if config.incremental_fields
 }
