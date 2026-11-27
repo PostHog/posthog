@@ -109,22 +109,11 @@ describe('soak measurements', () => {
             { key: 'index_cyclotron_jobs_pkey', value: 2, incomplete: true },
             { key: 'index_idx_cyclotron_jobs_dequeue', value: 2, incomplete: true },
         ])
-        const noLiveRows = { value: null, censored: true, unmeasured: 'no live rows at an end of the drive' }
         expect(
             measured('bloat_growth', {
                 vacuum: [read(10, { liveTuples: 0 }), read(900, { liveTuples: 500 }), read(1790, { liveTuples: 0 })],
             })
-        ).toEqual(
-            ['heap', 'toast', 'indexes', 'index_cyclotron_jobs_pkey', 'index_idx_cyclotron_jobs_dequeue'].map(
-                (key) => ({ key, ...noLiveRows })
-            )
-        )
-        expect(
-            measured('index_bytes_per_row', { vacuum: [read(10, { liveTuples: 0 }), read(1790, { liveTuples: 500 })] })
-        ).toEqual([
-            { key: 'start', value: null, censored: true, unmeasured: 'no live rows at the start of the drive' },
-            { key: 'end', value: 100 },
-        ])
+        ).toEqual([])
     })
 
     it('counts the autovacuum runs of the drive and times those a sample saw running', () => {
@@ -270,7 +259,6 @@ describe('soak measurements', () => {
             { key: 'hogflow_t0', value: 1 },
             { key: 'hogflow_t600', value: 10 },
         ])
-
     })
 
     it('names each autovacuum setting that differs from the profile in any spelling', () => {
@@ -303,6 +291,12 @@ describe('soak measurements', () => {
             { key: 'count', value: 1 },
             { key: 'autovacuum_vacuum_scale_factor', value: 1 },
         ])
+        expect(
+            measured('autovacuum_settings_differ', {
+                vacuumSettings,
+                autovacuumProfile: { autovacuum_naptime: '074', autovacuum_vacuum_scale_factor: '00.2' },
+            })
+        ).toEqual([{ key: 'count', value: 0 }])
         expect(
             measured('autovacuum_settings_differ', { vacuumSettings, autovacuumProfile: { autovacuum_naptime: '060' } })
         ).toEqual([

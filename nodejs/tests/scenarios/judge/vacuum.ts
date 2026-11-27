@@ -161,6 +161,15 @@ const UNIT_SCALE: Record<string, number> = {
     d: 86_400_000,
 }
 
+const integerOf = (number: string): number =>
+    /^-?0[xX]/.test(number)
+        ? parseInt(number, 16)
+        : /^-?0\d+$/.test(number)
+          ? /[89]/.test(number)
+              ? NaN
+              : parseInt(number, 8)
+          : Number(number)
+
 function settingValueOf(value: string, { unit, vartype }: SettingType): string {
     const text = value.trim()
     if (vartype === 'bool') {
@@ -171,12 +180,13 @@ function settingValueOf(value: string, { unit, vartype }: SettingType): string {
               ? 'off'
               : text
     }
-    const [, number, suffix] = /^(-?(?:0|[1-9]\d*)(?:\.\d+)?)\s*([a-zA-Z]*)$/.exec(text) ?? []
+    const [, number, suffix] = /^(-?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?))\s*([a-zA-Z]*)$/.exec(text) ?? []
     if (number === undefined || (vartype !== 'integer' && vartype !== 'real')) {
         return text
     }
     const scale = suffix ? UNIT_SCALE[suffix] : unit ? UNIT_SCALE[unit] : 1
-    return scale === undefined ? text : String(Number(number) * scale)
+    const parsed = vartype === 'integer' ? integerOf(number) : Number(number)
+    return scale === undefined || Number.isNaN(parsed) ? text : String(parsed * scale)
 }
 
 const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
