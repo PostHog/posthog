@@ -109,6 +109,9 @@ class TestObservationRequestAPI(APIBaseTest):
 
         read = client.get(f"{self.url}{body['id']}/")
         self.assertEqual(read.status_code, 200, read.json())
+        # A key call skips the scanner and observation access filters, so it must not list another caller's requests.
+        listed = client.get(self.url, {"reference": "job-7"})
+        self.assertEqual(listed.status_code, 403, listed.json())
 
     @parameterized.expand(
         [
