@@ -45,6 +45,7 @@ import type { NotebookAppBlockKindEnumApi } from '../generated/api.schemas'
 import {
     appCellTitle,
     appSourceCells,
+    clearRemovedSelectionTargets,
     emptyAppLayout,
     mergeAppCellOutput,
     moveAppBlock,
@@ -612,7 +613,12 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
                 blocks: values.layout.blocks.map((block) => (block.id === id ? { ...block, ...patch } : block)),
             }),
         removeBlock: ({ id }) => {
-            actions.changeLayout({ ...values.layout, blocks: values.layout.blocks.filter((block) => block.id !== id) })
+            actions.changeLayout(
+                clearRemovedSelectionTargets({
+                    ...values.layout,
+                    blocks: values.layout.blocks.filter((block) => block.id !== id),
+                })
+            )
             actions.selectBlock(null)
         },
         duplicateBlock: ({ id }) => {
@@ -652,11 +658,13 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
                     children: 'Remove tab',
                     status: 'danger',
                     onClick: () =>
-                        actions.changeLayout({
-                            ...values.layout,
-                            tabs: values.layout.tabs.filter((tab) => tab.id !== id),
-                            blocks: values.layout.blocks.filter((block) => block.tab_id !== id),
-                        }),
+                        actions.changeLayout(
+                            clearRemovedSelectionTargets({
+                                ...values.layout,
+                                tabs: values.layout.tabs.filter((tab) => tab.id !== id),
+                                blocks: values.layout.blocks.filter((block) => block.tab_id !== id),
+                            })
+                        ),
                 },
                 secondaryButton: { children: 'Cancel' },
             })

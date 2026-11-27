@@ -2,18 +2,23 @@ import './NotebookAppBuilder.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useId, useMemo, useState } from 'react'
+import posthog from 'posthog-js'
+import { useId, useMemo, useRef, useState } from 'react'
 
 import { LemonBanner, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { ApiConfig } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { cn } from 'lib/utils/css-classes'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { objectsEqual } from 'lib/utils/objects'
+import { reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { appSourceCells } from './notebookAppLayout'
+import { resolveAppSelection } from './notebookAppSelection'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
@@ -43,6 +48,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
     const { changeInput } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
+    const selectionSequence = useRef(0)
     const chartInputFilters = Object.fromEntries(
         variables.map((v) => [
             v.name,
@@ -96,17 +102,53 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 selectedId={null}
                 canInteract
                 onInput={changeInput}
-                renderOutput={(cell) =>
-                    cell.type === 'component' && cell.tagName === 'SQLV2' ? (
+                renderOutput={(cell, block) => {
+                    if (cell.type !== 'component' || cell.tagName !== 'SQLV2') {
+                        return undefined
+                    }
+                    const selection = block.selection
+                    const select = async (row: Record<string, unknown>): Promise<void> => {
+                        if (!selection) {
+                            return
+                        }
+                        const sequence = ++selectionSequence.current
+                        try {
+                            const input = await resolveAppSelection(selection, row, variables)
+                            if (!input || sequence !== selectionSequence.current || !logic.isMounted()) {
+                                return
+                            }
+                            changeInput(input.name, input.value)
+                            if (selection.tab_id && layout.tabs.some((tab) => tab.id === selection.tab_id)) {
+                                setActiveTab(selection.tab_id)
+                            }
+                            posthog.capture('notebook app result selected', {
+                                short_id: shortId,
+                                conditional: !!selection.condition,
+                            })
+                        } catch (error) {
+                            if (isChunkLoadError(error)) {
+                                lemonToast.error('Reload the app to use this selection.', {
+                                    button: { label: 'Reload', action: () => reloadAfterChunkLoadError(error) },
+                                })
+                                return
+                            }
+                            lemonToast.error(
+                                'Could not apply the selection. Check the Hog condition in the app builder.'
+                            )
+                        }
+                    }
+                    return (
                         <PublishedNotebookQuery
                             cell={cell}
                             sessionId={sessionId}
                             current={results?.outputs[cell.id]}
                             pinned={publishedResults[cell.id]}
                             chartInputFilters={chartInputFilters}
+                            selectionColumn={selection?.column}
+                            onSelectResultRow={selection ? select : undefined}
                         />
-                    ) : undefined
-                }
+                    )
+                }}
                 onSource={(node) => router.actions.push(urls.notebook(shortId), {}, { node })}
             />
         </main>

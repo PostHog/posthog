@@ -48,7 +48,7 @@ export function NotebookAppCanvas({
     onSource?: (id: string) => void
     onInput: (name: string, value: NotebookVariableValue) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
-    renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
+    renderOutput?: (cell: NotebookBlockNode, block: NotebookAppLayoutApi['blocks'][number]) => JSX.Element | undefined
 }): JSX.Element {
     const cellsById = useMemo(() => {
         const index = new Map<string, NotebookBlockNode>()

@@ -102,7 +102,7 @@ const meta: Meta = {
                         published_at: '2026-10-18T12:00:00Z',
                         results_as_of: '2026-10-18T09:00:00Z',
                         title: notebook.title,
-                        layout,
+                        layout: saved.app_published,
                         markdown: getMarkdownNotebookMarkdown(buildContent(appBuilderDemoVariables, true)),
                         variables: appBuilderDemoVariables,
                         has_previous: false,
@@ -305,6 +305,71 @@ export const Published: Story = {
         )
     },
 }
+export const ResultSelection: Story = {
+    beforeEach: () => {
+        const report = structuredClone(layout)
+        const table = report.blocks.find((block) => block.node_id === 'growth-table')!
+        table.tab_id = 'overview'
+        table.selection = {
+            column: 'week',
+            variable: 'week',
+            tab_id: 'details',
+            condition: 'row.signups >= 110 and inputs.include_trials',
+            condition_bytecode: [
+                '_H',
+                1,
+                33,
+                110,
+                32,
+                'signups',
+                32,
+                'row',
+                1,
+                2,
+                14,
+                32,
+                'include_trials',
+                32,
+                'inputs',
+                1,
+                2,
+                3,
+                2,
+            ],
+        }
+        const chart = report.blocks.find((block) => block.node_id === 'weekly-signups')!
+        chart.selection = table.selection
+        saved = { ...saved, app_draft: report, app_published: report }
+    },
+    parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const chart = (await canvas.findByRole('img', { name: /chart with 2 data series/i }, { timeout: 60000 }))
+            .parentElement!
+        chart.scrollIntoView({ block: 'center' })
+        const point = (): { clientX: number; clientY: number } => {
+            const { left, top, width, height } = chart.getBoundingClientRect()
+            return { clientX: left + width * 0.8, clientY: top + height * 0.5 }
+        }
+        await waitFor(() => {
+            fireEvent.mouseMove(chart, point())
+            expect(within(document.body).getByText('Filter the app by this value')).toBeVisible()
+        })
+        fireEvent.click(chart, point())
+        await waitFor(() =>
+            expect(canvas.getByRole('tab', { name: 'Data and methodology' })).toHaveAttribute('aria-selected', 'true')
+        )
+        await userEvent.click(canvas.getByRole('tab', { name: 'Overview' }))
+        const row = await canvas.findByText('2026-10-12', {}, { timeout: 60000 })
+        await userEvent.click(row)
+        await waitFor(() =>
+            expect(canvas.getByRole('tab', { name: 'Data and methodology' })).toHaveAttribute('aria-selected', 'true')
+        )
+        await userEvent.click(canvas.getByRole('tab', { name: 'Overview' }))
+        await waitFor(() => expect(canvas.getByLabelText('Starting week')).toHaveTextContent('October 12, 2026'))
+    },
+}
+
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
     play: async ({ canvasElement }) => {

@@ -9,6 +9,8 @@ import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
+
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
 from posthog.utils import flag_identity, get_safe_cache, safe_cache_set
@@ -69,6 +71,41 @@ class NotebookAppCellDisplay(models.TextChoices):
     BOTH = "both", "Source and output"
 
 
+class CompiledSelectionConditionField(serializers.ListField):
+    def get_value(self, dictionary: Any) -> Any:
+        # A stored layout can include bytecode from an earlier save. Only the server compiles the current condition.
+        return serializers.empty
+
+
+class NotebookAppSelectionSerializer(serializers.Serializer):
+    column = serializers.CharField(max_length=256, help_text="Result column whose selected value sets the input.")
+    variable = serializers.CharField(max_length=80, help_text="Published input to update.")
+    tab_id = serializers.CharField(
+        max_length=80, allow_blank=True, default="", help_text="Tab to open after selection."
+    )
+    condition = serializers.CharField(
+        max_length=1200, allow_blank=True, default="", help_text="Optional Hog condition over row, value, and inputs."
+    )
+    condition_bytecode = CompiledSelectionConditionField(
+        child=serializers.JSONField(),
+        required=False,
+        help_text="Hog bytecode compiled by the server for this selection.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        from posthog.hogql.compiler.bytecode import to_bytecode
+
+        try:
+            attrs["condition_bytecode"] = to_bytecode(attrs["condition"]) if attrs["condition"] else []
+        except ExposedHogQLError as error:
+            raise serializers.ValidationError({"condition": str(error)}) from error
+        except (BaseHogQLError, RecursionError) as error:
+            raise serializers.ValidationError(
+                {"condition": "Could not compile this condition. Try a simpler expression."}
+            ) from error
+        return attrs
+
+
 class NotebookAppBlockSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=80, help_text="Stable component identifier within the app.")
     kind = serializers.ChoiceField(choices=NotebookAppBlockKind.choices, help_text="Type of app component.")
@@ -93,6 +130,9 @@ class NotebookAppBlockSerializer(serializers.Serializer):
         max_length=100,
         default=list,
         help_text="Allowed values for a dropdown.",
+    )
+    selection = NotebookAppSelectionSerializer(
+        required=False, allow_null=True, help_text="Action when a viewer selects a result."
     )
     min = serializers.FloatField(default=0, help_text="Slider minimum.")
     max = serializers.FloatField(default=100, help_text="Slider maximum.")
@@ -146,6 +186,13 @@ class NotebookAppLayoutSerializer(serializers.Serializer):
             raise serializers.ValidationError("Tab and component IDs must be unique.")
         if any(block["tab_id"] not in tab_ids for block in attrs["blocks"]):
             raise serializers.ValidationError("Every component must belong to an existing tab.")
+        inputs = {block["variable"] for block in attrs["blocks"] if block["kind"] == "input"}
+        for block in attrs["blocks"]:
+            if selection := block.get("selection"):
+                if block["kind"] != "cell" or selection["variable"] not in inputs:
+                    raise serializers.ValidationError("A result selection must set an input included in the app.")
+                if selection["tab_id"] and selection["tab_id"] not in tab_ids:
+                    raise serializers.ValidationError("Choose an existing tab for the result selection.")
         return attrs
 
 

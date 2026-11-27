@@ -123,6 +123,16 @@ export const notebooksCreateBodyAppDraftOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksCreateBodyAppDraftOneBlocksItemOptionsMax = 100
 
+export const notebooksCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax = 1200
+
 export const notebooksCreateBodyAppDraftOneBlocksItemMinDefault = 0
 export const notebooksCreateBodyAppDraftOneBlocksItemMaxDefault = 100
 export const notebooksCreateBodyAppDraftOneBlocksItemStepDefault = 1
@@ -166,6 +176,16 @@ export const notebooksCreateBodyAppPublishedOneBlocksItemInputKindDefault = `aut
 export const notebooksCreateBodyAppPublishedOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksCreateBodyAppPublishedOneBlocksItemOptionsMax = 100
+
+export const notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax = 1200
 
 export const notebooksCreateBodyAppPublishedOneBlocksItemMinDefault = 0
 export const notebooksCreateBodyAppPublishedOneBlocksItemMaxDefault = 100
@@ -316,6 +336,38 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksCreateBodyAppDraftOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(notebooksCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax)
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(notebooksCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax)
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(notebooksCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax)
+                                            .default(notebooksCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault)
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(notebooksCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax)
+                                            .default(
+                                                notebooksCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksCreateBodyAppDraftOneBlocksItemMinDefault)
@@ -438,6 +490,40 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksCreateBodyAppPublishedOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax)
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax)
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax)
+                                            .default(
+                                                notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax)
+                                            .default(
+                                                notebooksCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksCreateBodyAppPublishedOneBlocksItemMinDefault)
@@ -522,6 +608,16 @@ export const notebooksUpdateBodyAppDraftOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksUpdateBodyAppDraftOneBlocksItemOptionsMax = 100
 
+export const notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneConditionMax = 1200
+
 export const notebooksUpdateBodyAppDraftOneBlocksItemMinDefault = 0
 export const notebooksUpdateBodyAppDraftOneBlocksItemMaxDefault = 100
 export const notebooksUpdateBodyAppDraftOneBlocksItemStepDefault = 1
@@ -565,6 +661,16 @@ export const notebooksUpdateBodyAppPublishedOneBlocksItemInputKindDefault = `aut
 export const notebooksUpdateBodyAppPublishedOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksUpdateBodyAppPublishedOneBlocksItemOptionsMax = 100
+
+export const notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneConditionMax = 1200
 
 export const notebooksUpdateBodyAppPublishedOneBlocksItemMinDefault = 0
 export const notebooksUpdateBodyAppPublishedOneBlocksItemMaxDefault = 100
@@ -715,6 +821,38 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksUpdateBodyAppDraftOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneColumnMax)
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneVariableMax)
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneTabIdMax)
+                                            .default(notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault)
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneConditionMax)
+                                            .default(
+                                                notebooksUpdateBodyAppDraftOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksUpdateBodyAppDraftOneBlocksItemMinDefault)
@@ -837,6 +975,40 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksUpdateBodyAppPublishedOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneColumnMax)
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneVariableMax)
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax)
+                                            .default(
+                                                notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneConditionMax)
+                                            .default(
+                                                notebooksUpdateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksUpdateBodyAppPublishedOneBlocksItemMinDefault)
@@ -921,6 +1093,16 @@ export const notebooksPartialUpdateBodyAppDraftOneBlocksItemOptionsItemMax = 100
 
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemOptionsMax = 100
 
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneConditionMax = 1200
+
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemMinDefault = 0
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemMaxDefault = 100
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemStepDefault = 1
@@ -964,6 +1146,16 @@ export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemInputKindDefault
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemOptionsMax = 100
+
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneConditionMax = 1200
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemMinDefault = 0
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemMaxDefault = 100
@@ -1114,6 +1306,42 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneColumnMax)
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneVariableMax)
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneTabIdMax)
+                                            .default(
+                                                notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksPartialUpdateBodyAppDraftOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksPartialUpdateBodyAppDraftOneBlocksItemMinDefault)
@@ -1238,6 +1466,48 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(
+                                                notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneColumnMax
+                                            )
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(
+                                                notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneVariableMax
+                                            )
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(
+                                                notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax
+                                            )
+                                            .default(
+                                                notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksPartialUpdateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksPartialUpdateBodyAppPublishedOneBlocksItemMinDefault)
@@ -1314,6 +1584,16 @@ export const notebooksAppPreviewCreateBodyBlocksItemInputKindDefault = `auto`
 export const notebooksAppPreviewCreateBodyBlocksItemOptionsItemMax = 1000
 
 export const notebooksAppPreviewCreateBodyBlocksItemOptionsMax = 100
+
+export const notebooksAppPreviewCreateBodyBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksAppPreviewCreateBodyBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksAppPreviewCreateBodyBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksAppPreviewCreateBodyBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksAppPreviewCreateBodyBlocksItemSelectionOneConditionDefault = ``
+export const notebooksAppPreviewCreateBodyBlocksItemSelectionOneConditionMax = 1200
 
 export const notebooksAppPreviewCreateBodyBlocksItemMinDefault = 0
 export const notebooksAppPreviewCreateBodyBlocksItemMaxDefault = 100
@@ -1406,6 +1686,36 @@ export const NotebooksAppPreviewCreateBody = /* @__PURE__ */ zod.object({
                     .max(notebooksAppPreviewCreateBodyBlocksItemOptionsMax)
                     .optional()
                     .describe('Allowed values for a dropdown.'),
+                selection: zod
+                    .union([
+                        zod.object({
+                            column: zod
+                                .string()
+                                .max(notebooksAppPreviewCreateBodyBlocksItemSelectionOneColumnMax)
+                                .describe('Result column whose selected value sets the input.'),
+                            variable: zod
+                                .string()
+                                .max(notebooksAppPreviewCreateBodyBlocksItemSelectionOneVariableMax)
+                                .describe('Published input to update.'),
+                            tab_id: zod
+                                .string()
+                                .max(notebooksAppPreviewCreateBodyBlocksItemSelectionOneTabIdMax)
+                                .default(notebooksAppPreviewCreateBodyBlocksItemSelectionOneTabIdDefault)
+                                .describe('Tab to open after selection.'),
+                            condition: zod
+                                .string()
+                                .max(notebooksAppPreviewCreateBodyBlocksItemSelectionOneConditionMax)
+                                .default(notebooksAppPreviewCreateBodyBlocksItemSelectionOneConditionDefault)
+                                .describe('Optional Hog condition over row, value, and inputs.'),
+                            condition_bytecode: zod
+                                .array(zod.unknown())
+                                .optional()
+                                .describe('Hog bytecode compiled by the server for this selection.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Action when a viewer selects a result.'),
                 min: zod
                     .number()
                     .default(notebooksAppPreviewCreateBodyBlocksItemMinDefault)
@@ -1673,6 +1983,16 @@ export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemOptionsItemMax
 
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemOptionsMax = 100
 
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax = 1200
+
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemMinDefault = 0
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemMaxDefault = 100
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemStepDefault = 1
@@ -1716,6 +2036,16 @@ export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemInputKindD
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemOptionsMax = 100
+
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax = 1200
 
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemMinDefault = 0
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemMaxDefault = 100
@@ -1870,6 +2200,48 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax
+                                            )
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax
+                                            )
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax
+                                            )
+                                            .default(
+                                                notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemMinDefault)
@@ -1996,6 +2368,48 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax
+                                            )
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax
+                                            )
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax
+                                            )
+                                            .default(
+                                                notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemMinDefault)
@@ -2108,6 +2522,16 @@ export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemOptionsItemMax
 
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemOptionsMax = 100
 
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax = 1200
+
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemMinDefault = 0
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemMaxDefault = 100
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemStepDefault = 1
@@ -2151,6 +2575,16 @@ export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemInputKindD
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemOptionsMax = 100
+
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax = 1200
 
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemMinDefault = 0
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemMaxDefault = 100
@@ -2305,6 +2739,48 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax
+                                            )
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax
+                                            )
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax
+                                            )
+                                            .default(
+                                                notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksKernelRestartCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemMinDefault)
@@ -2431,6 +2907,48 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax
+                                            )
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax
+                                            )
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax
+                                            )
+                                            .default(
+                                                notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemMinDefault)
@@ -2515,6 +3033,16 @@ export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemOptionsItemMax =
 
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemOptionsMax = 100
 
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax = 1200
+
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemMinDefault = 0
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemMaxDefault = 100
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemStepDefault = 1
@@ -2558,6 +3086,16 @@ export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemInputKindDef
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemOptionsMax = 100
+
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax = 1200
 
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemMinDefault = 0
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemMaxDefault = 100
@@ -2710,6 +3248,48 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStartCreateBodyAppDraftOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax
+                                            )
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax
+                                            )
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax
+                                            )
+                                            .default(
+                                                notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksKernelStartCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksKernelStartCreateBodyAppDraftOneBlocksItemMinDefault)
@@ -2836,6 +3416,48 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax
+                                            )
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax
+                                            )
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax
+                                            )
+                                            .default(
+                                                notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksKernelStartCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemMinDefault)
@@ -2920,6 +3542,16 @@ export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemOptionsItemMax = 
 
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemOptionsMax = 100
 
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax = 1200
+
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemMinDefault = 0
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemMaxDefault = 100
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemStepDefault = 1
@@ -2963,6 +3595,16 @@ export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemInputKindDefa
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemOptionsMax = 100
+
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax = 256
+
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax = 80
+
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault = ``
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax = 80
+
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault = ``
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax = 1200
 
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemMinDefault = 0
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemMaxDefault = 100
@@ -3115,6 +3757,46 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStopCreateBodyAppDraftOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneColumnMax
+                                            )
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneVariableMax
+                                            )
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneTabIdMax)
+                                            .default(
+                                                notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksKernelStopCreateBodyAppDraftOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksKernelStopCreateBodyAppDraftOneBlocksItemMinDefault)
@@ -3241,6 +3923,48 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemOptionsMax)
                                 .optional()
                                 .describe('Allowed values for a dropdown.'),
+                            selection: zod
+                                .union([
+                                    zod.object({
+                                        column: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneColumnMax
+                                            )
+                                            .describe('Result column whose selected value sets the input.'),
+                                        variable: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneVariableMax
+                                            )
+                                            .describe('Published input to update.'),
+                                        tab_id: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdMax
+                                            )
+                                            .default(
+                                                notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneTabIdDefault
+                                            )
+                                            .describe('Tab to open after selection.'),
+                                        condition: zod
+                                            .string()
+                                            .max(
+                                                notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneConditionMax
+                                            )
+                                            .default(
+                                                notebooksKernelStopCreateBodyAppPublishedOneBlocksItemSelectionOneConditionDefault
+                                            )
+                                            .describe('Optional Hog condition over row, value, and inputs.'),
+                                        condition_bytecode: zod
+                                            .array(zod.unknown())
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Action when a viewer selects a result.'),
                             min: zod
                                 .number()
                                 .default(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemMinDefault)

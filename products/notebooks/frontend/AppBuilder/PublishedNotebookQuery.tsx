@@ -1,8 +1,10 @@
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import type { NotebookComponentBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getSqlV2PropsFromQueryProp } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 
+import { getBreakdownValueKey } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { applyVisualizationType, columnsFromResponse } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -40,6 +42,30 @@ function publishedVisualization(
     return viz
 }
 
+export function rowForChartSelection(
+    result: Pick<HogQLQueryResponse, 'columns' | 'results'>,
+    column: string,
+    value: unknown,
+    index: number,
+    breakdownColumn?: string | null,
+    breakdown?: string
+): Record<string, unknown> | null {
+    const columns = result.columns ?? []
+    let row = result.results[index]
+    if (breakdown !== undefined) {
+        const x = columns.indexOf(column)
+        const group = columns.indexOf(breakdownColumn ?? '')
+        const matches = result.results.filter(
+            (candidate) => candidate[x] === value && getBreakdownValueKey(candidate[group]) === breakdown
+        )
+        if (matches.length !== 1) {
+            return null
+        }
+        row = matches[0]
+    }
+    return row ? Object.fromEntries(columns.map((name, i) => [name, row[i]])) : null
+}
+
 function rowSummary(rows: SavedRows, count: number): string {
     switch (rows) {
         case 'partial':
@@ -67,11 +93,15 @@ export function PublishedNotebookQuery({
     pinned,
     sessionId,
     chartInputFilters,
+    selectionColumn,
+    onSelectResultRow,
 }: {
     cell: NotebookComponentBlockNode
     current?: ViewerOutput
     pinned?: PublishedRunResult
     sessionId: string
+    onSelectResultRow?: QueryContext['onSelectResultRow']
+    selectionColumn?: string
     chartInputFilters: QueryContext['chartInputFilters']
 }): JSX.Element {
     const attributes = { ...cell.props, ...getSqlV2PropsFromQueryProp(cell.props) }
@@ -95,6 +125,26 @@ export function PublishedNotebookQuery({
     )
     const key = sessionId + '-' + cell.id + '-' + (current?.generation ?? 'published')
     const height = publishedQueryHeight(viz.display, attributes.height)
+    const filters: QueryContext['chartInputFilters'] =
+        selectionColumn && onSelectResultRow
+            ? {
+                  [selectionColumn]: (value, index, breakdown) => {
+                      const row = rowForChartSelection(
+                          result,
+                          selectionColumn,
+                          value,
+                          index,
+                          viz.chartSettings?.seriesBreakdownColumn,
+                          breakdown
+                      )
+                      if (row) {
+                          onSelectResultRow(row)
+                      } else {
+                          lemonToast.info('This chart point does not identify a single result row.')
+                      }
+                  },
+              }
+            : chartInputFilters
     return (
         <div className="NotebookAppBuilder__published-query min-w-0">
             <div className="flex min-h-0 flex-col overflow-auto" style={{ height }}>
@@ -103,7 +153,7 @@ export function PublishedNotebookQuery({
                     uniqueKey={'SQLEditor-notebook-app-' + key}
                     query={viz}
                     cachedResults={result}
-                    context={{ chartInputFilters }}
+                    context={{ chartInputFilters: filters, onSelectResultRow }}
                     readOnly
                     embedded
                 />

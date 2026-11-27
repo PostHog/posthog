@@ -91,5 +91,8 @@ it('filters by the raw clicked event when two points have the same displayed lab
     })
     chart.props.onPointClick('events', 0, 'Pageview')
     chart.props.onPointClick('events', 1, 'Pageview')
-    expect(filter.mock.calls).toEqual([['$pageview'], ['Pageview']])
+    expect(filter.mock.calls).toEqual([
+        ['$pageview', 0, undefined],
+        ['Pageview', 1, undefined],
+    ])
 })

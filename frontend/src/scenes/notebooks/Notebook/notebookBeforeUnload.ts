@@ -1,3 +1,5 @@
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+
 import type { NotebookSyncStatus } from '../types'
 
 export type ShouldWarnBeforeLeavingNotebookInput = {
@@ -27,7 +29,10 @@ export function shouldWarnBeforeLeavingNotebook(input: ShouldWarnBeforeLeavingNo
         return false
     }
     // Ignore in-page URL updates (side panel, hash params, comment selection, ...).
-    if (input.newPathname === input.currentPathname) {
+    if (
+        input.newPathname === input.currentPathname ||
+        input.newPathname === removeProjectIdIfPresent(input.currentPathname)
+    ) {
         return false
     }
     if (input.newPathname && !input.hasMountedEditor) {

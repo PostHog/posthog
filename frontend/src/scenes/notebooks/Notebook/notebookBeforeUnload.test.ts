@@ -26,13 +26,15 @@ describe('shouldWarnBeforeLeavingNotebook', () => {
         expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, isEditable: false })).toBe(false)
     })
 
-    it('does not warn for in-page URL updates (same pathname)', () => {
-        expect(
-            shouldWarnBeforeLeavingNotebook({
-                ...baseInput,
-                newPathname: '/project/1/notebooks/abc',
-            })
-        ).toBe(false)
+    it.each(['/project/1/notebooks/abc', '/notebooks/abc'])(
+        'keeps the current notebook open when navigation uses %s',
+        (newPathname) => {
+            expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, newPathname })).toBe(false)
+        }
+    )
+
+    it('warns when navigating to the same notebook identifier in another project', () => {
+        expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, newPathname: '/project/2/notebooks/abc' })).toBe(true)
     })
 
     it('warns when navigating to a different pathname', () => {

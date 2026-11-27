@@ -741,6 +741,31 @@ export const NotebookAppInputKindEnumApi = {
     Slider: 'slider',
 } as const
 
+export interface NotebookAppSelectionApi {
+    /**
+     * Result column whose selected value sets the input.
+     * @maxLength 256
+     */
+    column: string
+    /**
+     * Published input to update.
+     * @maxLength 80
+     */
+    variable: string
+    /**
+     * Tab to open after selection.
+     * @maxLength 80
+     */
+    tab_id?: string
+    /**
+     * Optional Hog condition over row, value, and inputs.
+     * @maxLength 1200
+     */
+    condition?: string
+    /** Hog bytecode compiled by the server for this selection. */
+    condition_bytecode?: unknown[]
+}
+
 /**
  * * `output` - Output
  * * `source` - Source
@@ -817,6 +842,8 @@ export interface NotebookAppBlockApi {
      * @items.maxLength 1000
      */
     options?: string[]
+    /** Action when a viewer selects a result. */
+    selection?: NotebookAppSelectionApi | null
     /** Slider minimum. */
     min?: number
     /** Slider maximum. */

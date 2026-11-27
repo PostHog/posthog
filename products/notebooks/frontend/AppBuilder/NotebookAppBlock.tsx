@@ -23,7 +23,7 @@ export function NotebookAppBlock({
     canInteract,
     onInput,
     onCellOutput,
-    renderOutput,
+    renderOutput: renderBlockOutput,
 }: {
     block: NotebookAppBlockApi
     cell?: NotebookBlockNode
@@ -33,7 +33,7 @@ export function NotebookAppBlock({
     canInteract: boolean
     onInput: (name: string, value: NotebookVariableValue) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
-    renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
+    renderOutput?: (cell: NotebookBlockNode, block: NotebookAppBlockApi) => JSX.Element | undefined
 }): JSX.Element {
     if (block.kind === 'divider') {
         return <hr aria-label={block.title || undefined} />
@@ -63,6 +63,7 @@ export function NotebookAppBlock({
             </LemonBanner>
         )
     }
+    const renderOutput = renderBlockOutput && ((outputCell: NotebookBlockNode) => renderBlockOutput(outputCell, block))
     const source =
         cell.type === 'component' && typeof cell.props.code === 'string' ? cell.props.code : serializeNode(cell)
     return (
