@@ -23,6 +23,7 @@ from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -38,12 +39,8 @@ from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, res
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
 from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.first_report_completion import complete_first_report_investigation
-from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
-from products.signals.backend.first_report_scout import (
-    FirstReportRunInProgress,
-    lock_first_report_start,
-    set_first_report_state,
-)
+from products.signals.backend.first_report_experiment import FirstReportExperiment, dispatched_first_report_experiment
+from products.signals.backend.first_report_scout import FirstReportRunInProgress, lock_first_report_start
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
@@ -74,6 +71,7 @@ from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPT
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
     MEMORY_UPKEEP_SCOUT,
+    OWN_SCRATCHPAD_STALE_DAYS,
     FirstReportScoutRunSummary,
     SignalScoutRunSummary,
     build_run_prompt,
@@ -93,7 +91,11 @@ from products.signals.backend.scout_harness.team_limits import (
     withheld_skills_for_team,
 )
 from products.signals.backend.scout_harness.tool_catalogue import scout_held_mcp_tools, scout_tool_access_enabled
-from products.signals.backend.scout_harness.tools.scratchpad import has_live_entry_created_by
+from products.signals.backend.scout_harness.tools.scratchpad import (
+    ScratchpadCounts,
+    count_live_entries_created_by,
+    has_live_entry_created_by,
+)
 from products.signals.backend.scout_harness.trial_launch import (
     TrialLaunch,
     assert_trial_model_access,
@@ -535,19 +537,7 @@ async def _arun_signals_scout(
     # model+runtime as a pair, and overriding one without the other would mis-route.
     experiment = None
     if skill.name == FIRST_REPORT_SCOUT and agent_runtime is None and trial is None:
-        experiment = await database_sync_to_async(resolve_first_report_experiment, thread_sensitive=False)(team)
-        if experiment is None or experiment.agent_runtime is None:
-            await database_sync_to_async(set_first_report_state, thread_sensitive=False)(team.id, "incomplete")
-            return RunResult(
-                run_id=None,
-                task_run_id=None,
-                status=None,
-                last_message=None,
-                runtime_s=0.0,
-                skill_name=skill.name,
-                skill_version=skill.version,
-                skip_reason="first-report experiment disabled" if experiment is None else "first-report control arm",
-            )
+        experiment = await database_sync_to_async(dispatched_first_report_experiment, thread_sensitive=False)(team)
         agent_runtime = experiment.agent_runtime
     preserve_trial_model = skill.origin == "canonical" and skill.name in canonical_scouts_preserving_trial_model()
     if trial is None and experiment is None and not preserve_trial_model:
@@ -999,19 +989,44 @@ def _memory_upkeep_is_live(team: Team) -> bool:
     upkeep run that wrote nothing leaves the section off. The enabled check matters because the
     scout's cursor never expires: without it, every other scout keeps reading learnings that stopped
     changing when the upkeep scout was switched off. Every scout run reads the team's whole
-    scratchpad, so there is no per-user access to check. A failed read is False: the section is
-    optional steering.
+    scratchpad, so there is no per-user access to check. The runner sets no ambient team scope and
+    the scratchpad manager is fail-closed, so the read opens its own scope on the canonical team,
+    where scratchpad rows are stored. A failed read is False: the section is optional steering.
     """
     try:
+        canonical_team_id = team.parent_team_id or team.id
         enabled = (
-            SignalScoutConfig.objects.for_team(team.parent_team_id or team.id, canonical=True)
+            SignalScoutConfig.objects.for_team(canonical_team_id, canonical=True)
             .filter(skill_name=MEMORY_UPKEEP_SCOUT, status__in=SignalScoutConfig.RUNNABLE_STATUSES)
             .exists()
         )
-        return enabled and has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
+        if not enabled:
+            return False
+        with team_scope(canonical_team_id, canonical=True):
+            return has_live_entry_created_by(team_id=canonical_team_id, skill_name=MEMORY_UPKEEP_SCOUT)
     except Exception as error:
         capture_exception(error)
         return False
+
+
+def _own_scratchpad_counts(team: Team, skill_name: str) -> ScratchpadCounts | None:
+    """The counts for the prompt's *Your scratchpad* section, or None when the read fails.
+
+    The runner sets no ambient team scope and the scratchpad manager is fail-closed, so the read
+    opens its own scope on the canonical team, where scratchpad rows are stored. A failed read is
+    None, because the section is optional steering.
+    """
+    canonical_team_id = team.parent_team_id or team.id
+    try:
+        with team_scope(canonical_team_id, canonical=True):
+            return count_live_entries_created_by(
+                team_id=canonical_team_id,
+                skill_name=skill_name,
+                updated_before=timezone.now() - timedelta(days=OWN_SCRATCHPAD_STALE_DAYS),
+            )
+    except Exception as error:
+        capture_exception(error)
+        return None
 
 
 ACTIVITY_SUMMARY_SEARCH_TOOL = "activity-summary-search"
@@ -1299,6 +1314,12 @@ async def _spawn_and_run(
         team, user_id
     )
     memory_upkeep_is_live = await database_sync_to_async(_memory_upkeep_is_live, thread_sensitive=False)(team)
+    # A private trial reads and writes its own memory overlay, so the team's counts do not apply to it.
+    own_scratchpad = (
+        None
+        if trial is not None
+        else await database_sync_to_async(_own_scratchpad_counts, thread_sensitive=False)(team, skill.name)
+    )
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
         team, user_id, config
     )
@@ -1320,6 +1341,7 @@ async def _spawn_and_run(
         github_read_access=github_guidance,
         project_has_governed_metrics=project_has_governed_metrics,
         memory_upkeep_is_live=memory_upkeep_is_live,
+        own_scratchpad=own_scratchpad,
         activity_summary_search_available=activity_summary_search,
         inbox_reports_search_available=inbox_reports_search,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve

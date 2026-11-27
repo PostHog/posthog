@@ -575,7 +575,8 @@ def _issue_tag_rule_key() -> str:
 
 
 class ErrorTrackingIssueTagRule(TeamScopedRootMixin, UUIDModel):
-    """A team's issue tag. Its label applies to a new issue when `bytecode` matches the issue's first event."""
+    """A team's issue tag. Its label applies to a new issue when `bytecode` matches the issue's first event, and to
+    another issue when the daily sweep finds a matching event of the past day."""
 
     # The unique constraint leads with team, so it serves the per-team rules read without a separate team index.
     team = models.ForeignKey(
@@ -584,6 +585,8 @@ class ErrorTrackingIssueTagRule(TeamScopedRootMixin, UUIDModel):
     key = models.CharField(max_length=64, default=_issue_tag_rule_key)
     label = models.CharField(max_length=128)
     description = models.TextField(blank=True, default="")
+    # A name from contracts.IssueTagColor, which the API validates. Null shows the tag in a color that the frontend picks from its label.
+    color = models.CharField(max_length=16, null=True, blank=True)
     filters = models.JSONField(null=False, blank=False)
     bytecode = models.JSONField(null=False, blank=False)
     # Stored on each answer as question_version, so an edit can tell old answers from new ones.

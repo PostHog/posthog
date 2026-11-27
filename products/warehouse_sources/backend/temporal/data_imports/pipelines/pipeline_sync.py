@@ -223,7 +223,7 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
             schema_id,
             team_id,
             updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()},
-            extra_model_fields={"last_synced_at": job.created_at},
+            extra_model_fields={"last_synced_at": job.created_at, "last_checked_at": job.created_at},
         )
 
     await _update()

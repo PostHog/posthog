@@ -8,12 +8,16 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.models import Element, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -21,12 +25,17 @@ from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import (
+    PropertyAccess,
+    create_access_control,
+    set_member_property_access,
+)
 from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.transactional_email_log import _bucket_starts
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import destroy_workflow
@@ -48,15 +57,19 @@ NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
 DELAYED_SEND_MINUTES_AGO = 15 * 24 * 60
 IMPACT_COUNTS = {
-    "sent": 9,
-    "delivered": 7,
-    "opened": 5,
+    "sent": 10,
+    "delivered": 8,
+    "opened": 6,
     "clicked": 5,
-    "not_clicked": 3,
+    "not_clicked": 2,
     "untracked": 2,
+    "clicks_untracked": 1,
     "window_days": 7,
+    "sessions": 2,
+    "link_tagging_enabled": True,
 }
 LONG_ID_SENDS = 20
+CLICKED_SENDS_PAST_ONE_BATCH = 60
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 
 
@@ -196,6 +209,21 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert results[0]["template_name"] == "Password reset"
         assert results[0]["sending_domain"] == "mail.example.com"
 
+    @parameterized.expand([("restricted", 403), ("granted", 200), ("admin", 200)])
+    def test_send_list_follows_property_access(self, _flag, access: PropertyAccess, expected: int) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        message_id = self._send(10, "a@example.com", [("sent", 1, "")])
+
+        responses = [
+            self.client.get(self._url()),
+            self.client.get(self._url(f"{message_id}/")),
+            self.client.get(self._url(f"{message_id}/activity/")),
+            self.client.get(self._url("stats/")),
+            self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id}),
+        ]
+
+        assert [response.status_code == 403 for response in responses] == [expected == 403] * 5
+
     @parameterized.expand(
         [
             ("part_of_the_recipient", {"search": "JANE"}, ["jane@example.com"], False),
@@ -299,14 +327,27 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_shows_a_send_with_tracking_off_as_sent_without_a_reason(self, _flag):
         message_id = self._send(10, "jane@example.com", [("sent", 1, "untracked"), ("delivered", 2, "")])
         sent_id = self._send(5, "bob@example.com", [("sent", 1, "untracked")])
+        clicks_off_id = self._send(4, "kim@example.com", [("sent", 1, "clicks_untracked"), ("opened", 2, "")])
         relayed_id = self._send(3, "ann@example.com", [("sent", 1, "relayed")])
 
         body = self.client.get(self._url(f"{sent_id}/")).json()
         delivered_body = self.client.get(self._url(f"{message_id}/")).json()
+        clicks_off_body = self.client.get(self._url(f"{clicks_off_id}/")).json()
         relayed_body = self.client.get(self._url(f"{relayed_id}/")).json()
 
         assert (body["status"], body["reason"]) == ("sent", None)
+        assert [b["tracking"] for b in (body, delivered_body, clicks_off_body, relayed_body)] == [
+            {"opens": False, "clicks": False},
+            {"opens": False, "clicks": False},
+            {"opens": True, "clicks": False},
+            {"opens": True, "clicks": True},
+        ]
         assert [(event["kind"], event["reason"]) for event in body["timeline"]] == [("queued", None), ("sent", None)]
+        assert [(event["kind"], event["reason"]) for event in clicks_off_body["timeline"]] == [
+            ("queued", None),
+            ("sent", None),
+            ("opened", None),
+        ]
         assert [(event["kind"], event["reason"]) for event in delivered_body["timeline"]] == [
             ("queued", None),
             ("sent", None),
@@ -320,10 +361,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         listed = self.client.get(self._url()).json()["results"]
         assert [(row["recipient"], row["status"], row["reason"]) for row in listed] == [
             ("ann@example.com", "sent", "relayed"),
+            ("kim@example.com", "sent", None),
             ("bob@example.com", "sent", None),
             ("jane@example.com", "delivered", None),
         ]
         assert self.client.get(self._url(), {"reason": "untracked"}).json()["results"] == []
+        assert self.client.get(self._url(), {"reason": "clicks_untracked"}).json()["results"] == []
         assert [row["message_id"] for row in self.client.get(self._url(), {"reason": "relayed"}).json()["results"]] == [
             relayed_id
         ]
@@ -677,9 +720,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"recipients": 4, "converted": 2, "revenue": 55.0, "median_hours_to_convert": 5.0}
 
-    def _seed_impact_sends(self) -> None:
+    def _seed_impact_sends(self) -> dict[str, str]:
         create_person(team=self.team, distinct_ids=["clicker", "clicker-phone"])
-        for name in ["early", "slow", "sent-two-days-late", "reader", "late", "bounced"]:
+        for name in ["early", "slow", "sent-two-days-late", "reader", "late", "bounced", "clicks-off"]:
             create_person(team=self.team, distinct_ids=[name])
         delivered = [("sent", 1, ""), ("delivered", 2, "")]
         clicked_an_hour_in = [*delivered, ("opened", 60, ""), ("clicked", 3600, "")]
@@ -703,9 +746,17 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             (5_000, "late", [("sent", 1, "untracked"), ("delivered", 2, "")], timedelta(days=7, hours=1)),
             (6_000, "bounced", [("sent", 1, "untracked"), ("bounced", 2, "")], timedelta(hours=1)),
             (7_000, None, [("sent", 1, ""), ("clicked", 3600, "")], None),
+            (
+                8_000,
+                "clicks-off",
+                [("sent", 1, "clicks_untracked"), ("delivered", 2, ""), ("opened", 60, "")],
+                timedelta(hours=1),
+            ),
         ]
+        message_ids: dict[str, str] = {}
         for minutes_ago, distinct_id, statuses, purchase_after_send in sends:
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", statuses)
+            message_ids[str(distinct_id)] = message_id
             sent_at = NOW - timedelta(minutes=minutes_ago)
             if distinct_id:
                 self._record_distinct_id(message_id, distinct_id, f"{distinct_id}@example.com", sent_at)
@@ -715,22 +766,56 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                     team=self.team, event="purchase", distinct_id=purchaser, timestamp=sent_at + purchase_after_send
                 )
         other_workflow = create_workflow_for_test(team_id=self.team.id, name="Welcome").id
-        self._send(500, "clicker@example.com", clicked_an_hour_in, workflow_id=other_workflow)
+        welcome_id = self._send(500, "clicker@example.com", clicked_an_hour_in, workflow_id=other_workflow)
         self._send(400, "reader@example.com", [("sent", 1, "untracked")], workflow_id=other_workflow)
+        landings = [
+            ("clicker", "clicker-session", message_ids["clicker"]),
+            ("clicker", "clicker-session", message_ids["clicker"]),
+            ("early", "early-session", message_ids["early"]),
+            ("reader", "opened-only-session", message_ids["reader"]),
+            ("clicker", "welcome-session", welcome_id),
+            ("early", "untagged-session", None),
+        ]
+        for distinct_id, session_id, run_id in landings:
+            self._land(distinct_id, session_id, run_id)
+        self._land("early", "autocapture-only-session", message_ids["early"], event="$autocapture")
         flush_persons_and_events()
+        return message_ids
+
+    def _land(
+        self,
+        distinct_id: str,
+        session_id: str,
+        run_id: str | None,
+        at: datetime = NOW - timedelta(minutes=5),
+        event: str = "$pageview",
+    ) -> None:
+        query = f"?plan=pro&ph_workflow_run={run_id}" if run_id else "?plan=pro"
+        _create_event(
+            team=self.team,
+            event=event,
+            distinct_id=distinct_id,
+            timestamp=at,
+            properties={"$current_url": f"https://example.com/reset{query}", "$session_id": session_id},
+        )
 
     def _impact(self, **params: str) -> dict:
         response = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id, **params})
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
 
-    def test_impact_counts_how_far_this_workflows_sends_got(self, _flag):
+    @parameterized.expand([("link tagging on", True, 2), ("link tagging off", False, None)])
+    def test_impact_counts_how_far_this_workflows_sends_got(self, _flag, _name, link_tagging_enabled, sessions):
+        self.team.workflows_config.email_workflow_run_link_tag_enabled = link_tagging_enabled
+        self.team.workflows_config.save()
         self._seed_impact_sends()
 
         assert self._impact(date_from=(NOW - timedelta(days=29)).isoformat()) == {
             **IMPACT_COUNTS,
             "after_click": None,
             "without_click": None,
+            "sessions": sessions,
+            "link_tagging_enabled": link_tagging_enabled,
         }
 
     def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
@@ -739,13 +824,40 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert self._impact(event="purchase", date_from=(NOW - timedelta(days=29)).isoformat()) == {
             **IMPACT_COUNTS,
             "after_click": {"sends": 3, "converted": 2},
-            "without_click": {"sends": 3, "converted": 2},
+            "without_click": {"sends": 2, "converted": 2},
         }
+
+    def test_keeps_the_funnel_and_conversions_when_the_session_count_fails(self, _flag):
+        self._seed_impact_sends()
+        timeout = wrap_clickhouse_query_error(ServerException("Timeout exceeded", code=159))
+
+        def time_out_the_session_count(query, *args, **kwargs):
+            if kwargs["query_type"] == "transactional_email_impact_sessions":
+                raise timeout
+            return execute_hogql_query(query, *args, **kwargs)
+
+        with (
+            patch(
+                "products.messaging.backend.services.transactional_email_log.execute_hogql_query",
+                side_effect=time_out_the_session_count,
+            ),
+            patch("products.messaging.backend.services.transactional_email_log.capture_exception") as reported,
+        ):
+            impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=29)).isoformat())
+
+        assert impact == {
+            **IMPACT_COUNTS,
+            "after_click": {"sends": 3, "converted": 2},
+            "without_click": {"sends": 2, "converted": 2},
+            "sessions": None,
+        }
+        reported.assert_called_once_with(timeout, {"workflow_id": str(self.workflow_id), "team_id": self.team.id})
 
     def test_counts_conversions_of_sends_whose_ids_overflow_the_teams_clickhouse_query_size(self, _flag):
         long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
         for minutes_ago, distinct_id in enumerate(long_distinct_ids, start=10):
-            create_person(team=self.team, distinct_ids=[distinct_id])
+            if minutes_ago % 2:
+                create_person(team=self.team, distinct_ids=[distinct_id])
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
             sent_at = NOW - timedelta(minutes=minutes_ago)
             self._record_distinct_id(message_id, distinct_id, f"{distinct_id}@example.com", sent_at)
@@ -761,16 +873,87 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert impact["without_click"] == {"sends": LONG_ID_SENDS, "converted": LONG_ID_SENDS}
 
+    def test_counts_a_session_once_when_its_sends_fall_in_two_query_batches(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_ids = [
+            self._send(minutes_ago, f"reader-{minutes_ago}@example.com", clicked)
+            for minutes_ago in range(10, 10 + CLICKED_SENDS_PAST_ONE_BATCH)
+        ]
+        self._land("reader", "shared-session", message_ids[0])
+        self._land("reader", "shared-session", message_ids[-1])
+        self._land("reader", "first-batch-session", message_ids[0])
+        self._land("reader", "second-batch-session", message_ids[-1])
+        flush_persons_and_events()
+
+        with patch.dict(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+        ):
+            impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert (impact["clicked"], impact["sessions"]) == (CLICKED_SENDS_PAST_ONE_BATCH, 3)
+
+    def test_counts_sessions_of_the_newest_clicked_sends_with_ties_broken_by_message_id(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        dropped = self._send(30, "first@example.com", clicked, message_id="11111111-1111-4111-8111-111111111111")
+        kept = self._send(30, "second@example.com", clicked, message_id="22222222-2222-4222-8222-222222222222")
+        self._land("first", "dropped-session", dropped)
+        self._land("second", "kept-session", kept)
+        self._land("second", "kept-second-session", kept)
+        flush_persons_and_events()
+
+        with patch("products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", 1):
+            impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert impact["sessions"] == 2
+
+    def test_has_no_session_count_when_a_batch_fills_the_row_limit(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(30, "reader@example.com", clicked)
+        self._land("reader", "first-session", message_id)
+        self._land("reader", "second-session", message_id)
+        flush_persons_and_events()
+
+        with patch("products.messaging.backend.services.transactional_email_log.MAX_SELECT_RETURNED_ROWS", 1):
+            impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert (impact["clicked"], impact["sessions"]) == (1, None)
+
     def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
         welcomed: list[str] = []
         with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": 0}}):
-            few = self._impact_queries_after_adding_sends(welcomed, 3)
-            more = self._impact_queries_after_adding_sends(welcomed, 3)
+            few = len(self._impact_query_types_after_adding_sends(welcomed, 3))
+            more = len(self._impact_query_types_after_adding_sends(welcomed, 3))
 
         assert few > 0
         assert more == few
 
-    def _impact_queries_after_adding_sends(self, welcomed: list[str], count: int) -> int:
+    def test_counts_each_send_to_one_distinct_id_that_a_single_conversion_follows(self, _flag):
+        create_person(team=self.team, distinct_ids=["repeat"])
+        for minutes_ago in (180, 120):
+            message_id = self._send(minutes_ago, "repeat@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            self._record_distinct_id(message_id, "repeat", "repeat@example.com", NOW - timedelta(minutes=minutes_ago))
+        _create_event(team=self.team, event="purchase", distinct_id="repeat", timestamp=NOW - timedelta(minutes=60))
+        flush_persons_and_events()
+
+        impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert impact["without_click"] == {"sends": 2, "converted": 2}
+
+    def test_labels_the_message_asset_lookup_impact_runs_in_clickhouses_query_log(self, _flag):
+        self._impact_query_types_after_adding_sends([], 1)
+
+        rows = sync_execute(
+            """
+            SELECT DISTINCT JSONExtractString(log_comment, 'query_type') FROM system.query_log
+            WHERE type = 'QueryFinish' AND event_date >= yesterday() AND current_database = currentDatabase()
+              AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s
+              AND arrayExists(table -> endsWith(table, '.message_assets'), tables)
+            """,
+            {"team_id": self.team.id},
+        )
+        assert rows == [("message_assets_for_invocations",)]
+
+    def _impact_query_types_after_adding_sends(self, welcomed: list[str], count: int) -> list[str]:
         for _ in range(count):
             name = f"welcome-{len(welcomed)}"
             welcomed.append(name)
@@ -785,27 +968,33 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert impact["without_click"] == {"sends": len(welcomed), "converted": len(welcomed)}
         sync_execute("SYSTEM FLUSH LOGS")
-        [(queries,)] = sync_execute(
+        rows = sync_execute(
             """
-            SELECT uniqExact(query_id) FROM system.query_log
+            SELECT any(JSONExtractString(log_comment, 'query_type')) FROM system.query_log
             WHERE event_time_microseconds >= fromUnixTimestamp64Micro(%(since_micros)s) AND current_database = currentDatabase()
               AND position(query, %(impact_request)s) > 0
+            GROUP BY query_id
             """,
             {
                 "since_micros": since_micros,
                 "impact_request": f"request:_api_projects_{self.team.id}_transactional_email_log_impact_",
             },
         )
-        return queries
+        return [query_type for (query_type,) in rows]
 
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
-        self._seed_impact_sends()
+        slow_id = self._seed_impact_sends()["slow"]
         slow_sent_at = NOW - timedelta(minutes=SLOW_SEND_MINUTES_AGO)
+        period_end = slow_sent_at + timedelta(days=1)
+        self._land("slow", "in-the-period", slow_id, at=slow_sent_at + timedelta(hours=2))
+        self._land("slow", "in-the-week-after", slow_id, at=period_end + timedelta(days=6))
+        self._land("slow", "past-the-week-after", slow_id, at=period_end + timedelta(days=8))
+        flush_persons_and_events()
 
         assert self._impact(
             event="purchase",
             date_from=(slow_sent_at - timedelta(hours=1)).isoformat(),
-            date_to=(slow_sent_at + timedelta(days=1)).isoformat(),
+            date_to=period_end.isoformat(),
         ) == {
             "sent": 1,
             "delivered": 1,
@@ -813,9 +1002,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "clicked": 1,
             "not_clicked": 0,
             "untracked": 0,
+            "clicks_untracked": 0,
             "window_days": 7,
             "after_click": {"sends": 1, "converted": 1},
             "without_click": {"sends": 0, "converted": 0},
+            "sessions": 2,
+            "link_tagging_enabled": True,
         }
 
     def test_counts_a_send_with_tracking_off_in_the_period_it_was_queued_in(self, _flag):
@@ -916,6 +1108,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_counts_conversions_only_with_query_access(self, _flag):
+        clicked_id = self._send(30, "jane@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")])
+        self._land("jane", "jane-session", clicked_id)
+        flush_persons_and_events()
         self._deny_member("query")
 
         funnel = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id})
@@ -923,8 +1118,28 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         results = self.client.get(self._url("results/"), {"workflow_id": self.workflow_id, "event": "purchase"})
 
         assert funnel.status_code == status.HTTP_200_OK, funnel.json()
+        assert (funnel.json()["clicked"], funnel.json()["sessions"], funnel.json()["link_tagging_enabled"]) == (
+            1,
+            None,
+            True,
+        )
         assert conversions.status_code == status.HTTP_403_FORBIDDEN, conversions.json()
         assert results.status_code == status.HTTP_403_FORBIDDEN, results.json()
+
+    def test_impact_reads_the_default_link_tag_setting_without_saving_workflow_settings(self, _flag):
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.id).delete()
+
+        impact = self._impact()
+
+        assert impact["link_tagging_enabled"] is True
+        assert not TeamWorkflowsConfig.objects.filter(team_id=self.team.id).exists()
+
+    def test_counts_no_sessions_when_nobody_clicked(self, _flag):
+        self._send(30, "jane@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+
+        impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert (impact["delivered"], impact["clicked"], impact["sessions"]) == (1, 0, 0)
 
     def test_names_a_send_from_code_by_its_template_key_and_links_its_code_email(self, _flag):
         workflow_id = str(create_code_email_workflow(team_id=self.team.id, key="order-shipped"))

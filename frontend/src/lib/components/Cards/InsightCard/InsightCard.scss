@@ -19,7 +19,8 @@
         }
     }
 
-    &:has([data-bi-filter-status='unaffected']) {
+    &:has([data-bi-filter-status='unaffected']),
+    &:has([data-insight-filter-status='unaffected']) {
         opacity: 0.3;
     }
 
@@ -29,6 +30,11 @@
 
     &--details-shown {
         z-index: var(--z-raised);
+    }
+
+    // Anywhere on the card, so the link is at hand while reading the chart.
+    &:hover .CardMeta__copy-link {
+        opacity: 1;
     }
 
     .ErrorBoundary {

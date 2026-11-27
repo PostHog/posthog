@@ -193,8 +193,22 @@ def _inactive_detail(app: OAuthApplication) -> str:
         return ORGANIZATION_LINK_REQUIRED_MESSAGE
     if ensure_review_running(app) is not None:
         return "PostHog is reviewing this client before it can provision. Register again in a few minutes to check."
-    if CIMDProvisioningReview.objects.filter(application=app, status=ProvisioningReviewStatus.NEEDS_HUMAN).exists():
+    review_status = CIMDProvisioningReview.objects.filter(application=app).values_list("status", flat=True).first()
+    if review_status == ProvisioningReviewStatus.NEEDS_HUMAN:
         return "PostHog staff are reviewing this client before it can provision. Register again later to check."
+    # The message from staff is for the organization's admins, so only the way to read it goes here.
+    if review_status in (ProvisioningReviewStatus.DECLINED, ProvisioningReviewStatus.CHANGES_REQUESTED):
+        verdict = (
+            "PostHog declined this client for provisioning"
+            if review_status == ProvisioningReviewStatus.DECLINED
+            else "PostHog needs changes or more information before this client can provision"
+        )
+        return (
+            f"{verdict}. An admin of the PostHog organization linked to this client can read why and ask for another "
+            "review in organization settings, under OAuth applications. If no organization is linked yet, an "
+            "organization admin creates a CIMD verification token in organization settings, and you publish it in "
+            "your client metadata document, then register again."
+        )
     return "Provisioning is deactivated for this client"
 
 

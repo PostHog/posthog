@@ -43,19 +43,21 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
             }
         `,
         'node.js': dedent`
-            const enabledVariant = await client.getFeatureFlag('flag-key', 'distinct_id_of_your_user')
+            const flags = await client.evaluateFlags('distinct_id_of_your_user', { flagKeys: ['flag-key'] })
+            const enabledVariant = flags.getFlag('flag-key')
             if (enabledVariant === 'variant-key') {  // replace 'variant-key' with the key of your variant
                 // Do something differently for this user
                 // Optional: fetch the payload
-                const matchedFlagPayload = await client.getFeatureFlagPayload('flag-key', 'distinct_id_of_your_user', enabledVariant)
+                const matchedFlagPayload = flags.getFlagPayload('flag-key')
             }
         `,
         python: dedent`
-            enabled_variant = posthog.get_feature_flag('flag-key', 'distinct_id_of_your_user')
+            flags = posthog.evaluate_flags('distinct_id_of_your_user', flag_keys=['flag-key'])
+            enabled_variant = flags.get_flag('flag-key')
             if enabled_variant == 'variant-key': # replace 'variant-key' with the key of your variant
                 # Do something differently for this user
                 # Optional: fetch the payload
-                matched_flag_payload = posthog.get_feature_flag_payload('flag-key', 'distinct_id_of_your_user')
+                matched_flag_payload = flags.get_flag_payload('flag-key')
         `,
         php: dedent`
             $enabledVariant = PostHog::getFeatureFlag('flag-key', 'distinct_id_of_your_user')
@@ -72,15 +74,22 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
             end
         `,
         go: dedent`
-            enabledVariant, err := client.GetFeatureFlag(posthog.FeatureFlagPayload{
-                Key:        "flag-key",
+            flags, err := client.EvaluateFlags(posthog.EvaluateFlagsPayload{
                 DistinctId: "distinct_id_of_your_user",
+                FlagKeys:   []string{"flag-key"},
             })
             if err != nil {
                 // Handle error (e.g. capture error and fallback to default behaviour)
             }
+            var enabledVariant interface{}
+            if flags != nil {
+                enabledVariant = flags.GetFlag("flag-key")
+            }
             if enabledVariant == "variant-key" { // replace 'variant-key' with the key of your variant
                 // Do something differently for this user
+                // Optional: fetch the payload
+                matchedFlagPayload := flags.GetFlagPayload("flag-key")
+                _ = matchedFlagPayload
             }
         `,
         dotnet: dedent`

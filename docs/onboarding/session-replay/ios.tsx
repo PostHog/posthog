@@ -32,7 +32,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                     <CalloutBox type="fyi" title="Using CocoaPods?">
                         <Markdown>
                             {
-                                'Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (`pod "PostHog", "~> 3.0"`), but [CocoaPods trunk becomes read-only on December 2, 2026](https://blog.cocoapods.org/CocoaPods-Specs-Repo/). After that, existing 3.x versions stay installable, but new releases only ship through Swift Package Manager. To switch, see the [iOS migration guide](https://github.com/PostHog/posthog-ios/blob/main/MIGRATION.md).'
+                                'Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (`pod "PostHog", "~> 3.0"`), but [CocoaPods trunk becomes read-only on December 2, 2026](https://blog.cocoapods.org/CocoaPods-Specs-Repo/). After that, existing 3.x versions stay installable, but new releases only ship through Swift Package Manager. To switch, see the [iOS migration guide](https://posthog.com/docs/libraries/ios/migration).'
                             }
                         </Markdown>
                     </CalloutBox>

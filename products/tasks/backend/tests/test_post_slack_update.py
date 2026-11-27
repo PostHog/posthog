@@ -102,6 +102,34 @@ class TestPostSlackUpdate(TestCase):
         mock_post_pr_opened.assert_called_once()
         mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/1")
 
+    @parameterized.expand([("deactivated", False, 0, 1), ("unset", None, 1, 0)])
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_pr_opened_card_skips_only_deactivated_organizations(
+        self, _name, is_active, expected_cards, expected_progress_clears, mock_task_run_class, _mock_update_reaction
+    ):
+        organization = Organization.objects.create(name="Org", is_active=is_active)
+        team = Team.objects.create(organization=organization, name="Team")
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED,
+            output={"pr_url": "https://github.com/org/repo/pull/1"},
+            team_id=team.id,
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+        cards: list[str] = []
+        progress_clears: list[bool] = []
+
+        with (
+            patch.object(
+                SlackThreadHandler, "post_pr_opened", side_effect=lambda pr_url, *args, **kwargs: cards.append(pr_url)
+            ),
+            patch.object(SlackThreadHandler, "delete_progress", side_effect=lambda: progress_clears.append(True)),
+        ):
+            post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        assert len(cards) == expected_cards
+        assert len(progress_clears) == expected_progress_clears
+
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch("products.tasks.backend.models.TaskRun")
@@ -204,7 +232,7 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "post_or_update_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch("products.tasks.backend.models.TaskRun")
-    def test_in_progress_with_pr_keeps_eyes_reaction(
+    def test_in_progress_with_pr_does_not_bring_back_the_eyes_reaction(
         self,
         mock_task_run_class,
         _mock_post_pr_opened,
@@ -221,8 +249,8 @@ class TestPostSlackUpdate(TestCase):
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
         mock_post_progress.assert_not_called()
-        # Task is still running (PR opened mid-run) — reaction stays :eyes:.
-        mock_update_reaction.assert_called_once_with("eyes")
+        # The answer may already have removed the :eyes:, so a PR landing after it must not add it again.
+        mock_update_reaction.assert_not_called()
 
     @parameterized.expand(
         [
@@ -279,7 +307,6 @@ class TestPostSlackUpdate(TestCase):
             reply_target_slack_user_id=expected_target,
             bot_authored=False,
         )
-        mock_update_reaction.assert_called_once_with("eyes")
         mock_post_progress.assert_not_called()
         mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/1")
         mock_run.save.assert_not_called()

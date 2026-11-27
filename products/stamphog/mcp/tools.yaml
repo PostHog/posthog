@@ -229,7 +229,11 @@ tools:
             posts a real GitHub approval, anything else posts a comment. The review runs in the background, so this
             returns the run right away (status `queued`). Poll `code-review-approvals-runs-get` with its id for the
             verdict and reasoning. When a run already covers the PR's current head, that run is returned with `created:
-            false` instead of starting another.
+            false` instead of starting another. The one exception is a head that auto-approval refused: it reviews it
+            again when people changed what the reviewer reads since then (the title or description, a trusted person's
+            comment or review, or a review thread resolved or reopened), at most three times per head. Bot comments do
+            not count, and returning to evidence a review already saw starts nothing. After the third, push a change to
+            get another review.
         feature_flag: stamphog
     code-review-approvals-runs-get:
         operation: code_review_approvals_runs_retrieve

@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTable } from './AiVisibilityTable'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { PROMPT_CHECKS_PAGE_SIZE, contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
@@ -17,9 +20,9 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
     const count = checks?.count ?? 0
 
     const errorBanner = (
-        <LemonBanner type="error" action={{ children: 'Try again', onClick: () => setChecksPage(checksPage) }}>
+        <AiVisibilityBanner type="error" action={{ children: 'Try again', onClick: () => setChecksPage(checksPage) }}>
             Couldn't load the check history. Try again, and if it keeps happening contact support.
-        </LemonBanner>
+        </AiVisibilityBanner>
     )
 
     if (checksFailed && !checks) {
@@ -29,13 +32,13 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
             {checksFailed && errorBanner}
-            <LemonTable
+            <AiVisibilityTable
                 size="small"
                 dataSource={checks?.results ?? []}
                 rowKey="id"
                 loading={checksLoading}
                 emptyState="No checks yet"
-                rowClassName={(check) => (check.id === selectedCheck?.id ? 'bg-surface-secondary' : null)}
+                rowClassName={(check) => (check.id === selectedCheck?.id ? 'bg-fill-selected' : null)}
                 pagination={{
                     controlled: true,
                     pageSize: PROMPT_CHECKS_PAGE_SIZE,
@@ -50,14 +53,15 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
                         title: 'Checked',
                         key: 'created_at',
                         render: (_, check) => (
-                            <Link
-                                subtle
+                            <Button
+                                variant="link-foreground"
+                                size="sm"
                                 onClick={() => selectCheck(check)}
                                 className="whitespace-nowrap"
                                 data-attr="content-autopilot-prompt-check-select"
                             >
                                 {humanFriendlyDetailedTime(check.created_at)}
-                            </Link>
+                            </Button>
                         ),
                     },
                     {
@@ -75,8 +79,13 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
                         key: 'result',
                         render: (_, { mode, cited, check_failed, target_best_position }) =>
                             mode === 'no_search' && !check_failed ? (
-                                <Tooltip title="This engine answers without searching the web, so it never cites a page.">
-                                    <LemonTag type="muted">No search</LemonTag>
+                                <Tooltip>
+                                    <TooltipTrigger render={<span className="inline-flex" />}>
+                                        <AiVisibilityTag type="muted">No search</AiVisibilityTag>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        This engine answers without searching the web, so it never cites a page.
+                                    </TooltipContent>
                                 </Tooltip>
                             ) : (
                                 <ContentAutopilotCheckResult

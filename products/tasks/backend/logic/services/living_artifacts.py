@@ -16,7 +16,6 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -42,7 +41,7 @@ from products.tasks.backend.constants import (
     is_html_artifact,
 )
 from products.tasks.backend.facade.contracts import LivingArtifactVersionContent, LivingArtifactVersionPreview
-from products.tasks.backend.models import TaskArtifact, TaskRun
+from products.tasks.backend.models import TaskArtifact, TaskRun, team_task_artifacts_s3_prefix
 
 logger = structlog.get_logger(__name__)
 
@@ -553,7 +552,7 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
 
 # The task part of TaskRun.get_artifact_s3_prefix. Keep the two formats the same.
 def _task_artifact_s3_prefix(artifact: TaskArtifact) -> str:
-    return f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{artifact.team_id}/task_{artifact.task_id}/"
+    return f"{team_task_artifacts_s3_prefix(artifact.team_id)}task_{artifact.task_id}/"
 
 
 def _find_source_artifact(

@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.sources.confluent_cloud._config import ConfluentCloudSourceConfig
 from products.warehouse_sources.sources.confluent_cloud.settings import ENDPOINTS
 from products.warehouse_sources.sources.confluent_cloud.source import ConfluentCloudSource
@@ -90,3 +92,48 @@ class TestConfluentCloudSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["db_incremental_field_last_value"] is None
         assert kwargs["resource_ids"] == []
+
+    @pytest.mark.parametrize(
+        "schema_name, expected_incremental, expected_default",
+        [
+            ("kafka_metrics", True, True),
+            ("connector_metrics", True, False),
+            ("metric_descriptors", False, True),
+            ("environments", False, False),
+            ("kafka_clusters", False, False),
+            ("costs", True, False),
+        ],
+    )
+    def test_schema_sync_defaults(self, schema_name, expected_incremental, expected_default):
+        (schema,) = self.source.get_schemas(self.config, self.team_id, names=[schema_name])
+
+        assert schema.supports_incremental is expected_incremental
+        assert schema.should_sync_default is expected_default
+
+    @pytest.mark.parametrize(
+        "url, expected_fragment",
+        [
+            (
+                "https://api.confluent.cloud/billing/v1/costs?start_date=2026-06-01&end_date=2026-06-29",
+                "can't read costs",
+            ),
+            ("https://api.confluent.cloud/org/v2/environments?page_size=100", "can't view environments or clusters"),
+            ("https://api.confluent.cloud/cmk/v2/clusters?environment=env-1&page_size=100", "can't view environments"),
+            ("https://api.telemetry.confluent.cloud/v2/metrics/cloud/query", "MetricsViewer role"),
+        ],
+    )
+    def test_403_maps_to_the_message_for_its_api(self, url, expected_fragment):
+        response = requests.Response()
+        response.status_code = 403
+        response.reason = "Forbidden"
+        response.url = url
+        with pytest.raises(requests.HTTPError) as error:
+            response.raise_for_status()
+
+        # The sync shows the first entry whose pattern matches.
+        message = next(
+            friendly
+            for pattern, friendly in self.source.get_non_retryable_errors().items()
+            if friendly and pattern.lower() in str(error.value).lower()
+        )
+        assert expected_fragment in message

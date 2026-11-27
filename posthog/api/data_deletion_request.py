@@ -64,7 +64,13 @@ class HogQLVariablesField(serializers.JSONField):
 
 
 class DataDeletionRequestInputSerializer(serializers.Serializer):
-    query = serializers.CharField(help_text="HogQL query that selects one event UUID column.")
+    query = serializers.CharField(
+        help_text=(
+            "HogQL query that selects one event UUID column. When some of the project's $feature_flag_called "
+            "events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid "
+            "from posthog.flag_evaluations, for example with UNION ALL."
+        )
+    )
     variables = HogQLVariablesField(
         default=dict,
         help_text="Variables referenced by the HogQL query.",
@@ -132,7 +138,6 @@ class DataDeletionRequestSerializer(serializers.ModelSerializer):
             "query",
             "variables",
             "submission_id",
-            "count",
             "created_by_id",
             "created_by_staff",
             "created_at",
@@ -145,7 +150,6 @@ class DataDeletionRequestSerializer(serializers.ModelSerializer):
             "id": {"help_text": "Deletion request identifier."},
             "status": {"help_text": "Current deletion workflow status."},
             "submission_id": {"help_text": "Client-generated idempotency identifier."},
-            "count": {"help_text": "Number of selected events, when calculated."},
             "created_by_staff": {"help_text": "Whether the submitter was a PostHog staff user."},
             "created_at": {"help_text": "Time when the request was submitted."},
             "updated_at": {"help_text": "Time when the request last changed."},

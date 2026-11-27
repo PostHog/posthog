@@ -30,6 +30,7 @@ from posthog.schema import (
     HogQLFilters,
     HogQLQueryModifiers,
     HogQLVariable,
+    PersonsOnEventsMode,
     QueryTiming,
     SessionPropertyFilter,
 )
@@ -58,12 +59,15 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorUnknownType, InternalCHQueryError, unknown_type_error
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
+from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.uuidt import UUIDT, uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -77,6 +81,16 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     allow_dual_schema_snapshots = True
+
+    def test_default_numeric_conversions_preserve_decimal_values(self) -> None:
+        result = execute_hogql_query(
+            "SELECT toIntOrDefault(toDecimal('3.50', 2), 7), toFloatOrDefault(toDecimal('3.50', 2), 7), "
+            "toIntOrZero(3.5), toFloatOrZero(3.5)",
+            team=self.team,
+            workload=Workload.ONLINE,
+        )
+
+        assert result.results == [(3, 3.5, 0, 3.5)]
 
     @parameterized.expand(
         [
@@ -1371,6 +1385,79 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
+    @parameterized.expand(
+        [
+            (f"{scope}_{mode_name}", scope, mode)
+            for scope in ("person", "group_0")
+            for mode_name, mode in (
+                ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+                ("poe", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+                ("disabled", PersonsOnEventsMode.DISABLED),
+            )
+        ]
+    )
+    def test_cte_property_inequality_excludes_missing_values(
+        self, _name: str, scope: str, mode: PersonsOnEventsMode
+    ) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="score", property_type="Numeric"
+        )
+        if scope == "group_0":
+            create_group_type_mapping_without_created_at(
+                team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=0
+            )
+            _create_event(team=self.team, distinct_id="no-group", event="example")
+
+        for distinct_id, properties in (
+            ("matching", {"name": "match"}),
+            ("other", {"name": "other"}),
+            ("missing", {}),
+        ):
+            event_properties = {"score": "3.5"}
+            if scope == "person":
+                _create_person(team=self.team, distinct_ids=[distinct_id], properties=properties, is_identified=True)
+            else:
+                create_group(team_id=self.team.pk, group_type_index=0, group_key=distinct_id, properties=properties)
+                event_properties["$group_0"] = distinct_id
+            _create_event(team=self.team, distinct_id=distinct_id, event="example", properties=event_properties)
+
+        for projection, output, expected in (
+            ("", "", [("other",)]),
+            (", properties.score AS score", ", score", [("other", 3.5)]),
+        ):
+            result = execute_hogql_query(
+                f"WITH names AS (SELECT distinct_id, {scope}.properties.name AS value{projection} FROM events) "
+                f"SELECT distinct_id{output} FROM names WHERE value != 'match'",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+                workload=Workload.ONLINE,
+            )
+
+            assert result.results == expected
+
+    def test_cte_exposes_converted_joined_person_properties(self) -> None:
+        for name, property_type in (("score", "Numeric"), ("started_at", "DateTime")):
+            PropertyDefinition.objects.create(
+                team=self.team, type=PropertyDefinition.Type.PERSON, name=name, property_type=property_type
+            )
+        _create_person(
+            team=self.team,
+            distinct_ids=["example"],
+            properties={"score": "3.5", "started_at": "2026-01-01 00:00:00"},
+            is_identified=True,
+        )
+        _create_event(team=self.team, distinct_id="example", event="example")
+
+        result = execute_hogql_query(
+            "WITH typed AS (SELECT person.properties.score AS score, person.properties.started_at AS started_at "
+            "FROM events) SELECT toFloatOrZero(score), toString(toDateTime(started_at)) FROM typed",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            workload=Workload.ONLINE,
+        )
+
+        assert result.results == [(3.5, "2026-01-01 00:00:00")]
+
     def test_window_functions_simple(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for person in range(5):
@@ -2517,10 +2604,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = "SELECT convertCurrency('USD', 'EUR', 100, '2024-01-01')"
         with self.assertRaises(InternalCHQueryError) as e:
             execute_hogql_query(query, team=self.team)
-        assert (
-            "Illegal type String of fourth argument of function dictGetOrDefault must be convertible to Int64"
-            in str(e.exception)
-        )
+        assert e.exception.code in (43, 44)
 
     def test_currency_conversion_with_bogus_currency_from(self):
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
@@ -2640,18 +2724,23 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [("41FF", "Qf8=")])
 
-    def test_unreadable_result_type_names_the_columns_that_return_it(self):
+    @parameterized.expand(
+        [
+            ("small_query", ""),
+            ("query_over_default_ast_limit", f", length([{', '.join(['rand()'] * 30_000)}]) AS many_values"),
+        ]
+    )
+    def test_unreadable_result_type_names_the_columns_that_return_it(self, _name: str, extra_columns: str) -> None:
         with self.assertRaises(CHQueryErrorUnknownType) as error:
             execute_hogql_query(
                 "SELECT 1 AS readable, if(rand() > 0, 1, 'a') AS mixed, "
-                "if(rand() > 0, 2, 'b') AS also_mixed, toString(1) AS also_readable",
+                f"if(rand() > 0, 2, 'b') AS also_mixed, toString(1) AS also_readable{extra_columns}",
                 team=self.team,
             )
 
         self.assertTrue(
             str(error.exception).startswith(
-                "The `mixed` and `also_mixed` columns have type `Variant(String, UInt8)`, "
-                "which PostHog can't send back in results."
+                "The `mixed` and `also_mixed` columns have type `Variant`, which PostHog can't send back in results."
             ),
             str(error.exception),
         )

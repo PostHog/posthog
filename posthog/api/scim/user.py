@@ -8,6 +8,7 @@ from django_scim.adapters import SCIMUser
 from scim2_filter_parser.attr_paths import AttrPath
 
 from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
+from posthog.helpers.user_email_change import UserEmailChange
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
@@ -248,18 +249,9 @@ class PostHogSCIMUser(SCIMUser):
             raise ValueError("Email is required")
 
         with transaction.atomic():
-            # Do not allow changing email to another user's email
-            existing_user_with_email = EmailLookupHandler.users_matching_email(email).exclude(id=self.obj.id).first()
-            if existing_user_with_email:
-                raise ValueError("Email belongs to another user")
-
-            _validate_email_domain_is_verified(email, self._config.organization)
-            # Org must also own the current email domain to prevent cross-tenant account takeover
-            _validate_email_domain_is_verified(self.obj.email, self._config.organization)
-
+            self._apply_email(email)
             self.obj.first_name = name_data.get("givenName", "")
             self.obj.last_name = name_data.get("familyName", "")
-            self.obj.email = EmailNormalizer.normalize(email)
             self.obj.save()
 
             SCIMProvisionedUser.objects.upsert(
@@ -357,12 +349,22 @@ class PostHogSCIMUser(SCIMUser):
         return None
 
     def _apply_email(self, email: str) -> None:
-        if EmailLookupHandler.users_matching_email(email).exclude(id=self.obj.id).exists():
+        change = UserEmailChange(user=self.obj, new_email=email)
+        # A PUT carries the email on every update, so most requests do not change it.
+        changes_email = EmailNormalizer.normalize(email) != EmailNormalizer.normalize(self.obj.email)
+        if changes_email:
+            taken = change.is_taken()
+        else:
+            taken = EmailLookupHandler.users_matching_email(email).exclude(id=self.obj.id).exists()
+        if taken:
             raise ValueError("Email belongs to another user")
         _validate_email_domain_is_verified(email, self._config.organization)
         # Org must also own the current email domain to prevent cross-tenant account takeover
         _validate_email_domain_is_verified(self.obj.email, self._config.organization)
-        self.obj.email = EmailNormalizer.normalize(email)
+        if changes_email:
+            change.apply(keep_session_key=None)
+        else:
+            self.obj.email = EmailNormalizer.normalize(email)
 
     def _write_attribute(self, path: AttrPath, value: Union[str, list, dict]) -> bool:
         """

@@ -6,7 +6,11 @@ from typing import Any, Optional
 from django.db import models
 
 from posthog.management.migration_analysis.models import OperationRisk
-from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_properly_staged
+from posthog.management.migration_analysis.utils import (
+    VolatileFunctionDetector,
+    check_drop_properly_staged,
+    sql_run_at_migration_time,
+)
 
 # Base URL for migration safety documentation
 SAFE_MIGRATIONS_DOCS_URL = (
@@ -98,9 +102,11 @@ class AddFieldAnalyzer(OperationAnalyzer):
             score=1,
             reason="Adding nullable field requires brief lock",
             details={"model": op.model_name, "field": op.name},
-            guidance="""This operation acquires a brief lock but doesn't rewrite the table.
+            guidance=f"""This operation doesn't rewrite the table, but it needs an ACCESS EXCLUSIVE lock.
 
-Deployment uses lock timeouts with automatic retries, so lock contention will cause retries rather than connection pile-up.""",
+While the lock request waits behind running queries, every new query on the table waits behind it, until `lock_timeout` cancels the request. Each deploy retry repeats that wait. On a busy table this queues traffic.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#altering-hot-tables)""",
         )
 
     def _risk_not_null_no_default(self, op) -> OperationRisk:
@@ -496,7 +502,7 @@ class RunSQLAnalyzer(OperationAnalyzer):
         sql_original = str(op.sql)
         sql_without_comments = re.sub(r"--[^\n]*", "", sql_original)  # Remove -- comments
         sql_without_comments = re.sub(r"#[^\n]*", "", sql_without_comments)  # Remove # comments
-        sql = sql_without_comments.upper()
+        sql = sql_run_at_migration_time(sql_without_comments).upper()
 
         # CREATE EXTENSION takes a lock only on pg_extension, not on user tables.
         # Django's typed wrappers (TrigramExtension etc.) emit IF NOT EXISTS, so

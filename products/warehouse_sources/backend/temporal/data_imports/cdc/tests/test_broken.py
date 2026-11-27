@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 from contextlib import contextmanager
 
 import pytest
@@ -8,7 +9,11 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import BILLING_LIMIT_EXPIRED_REASON
-from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import clear_slot_loss_markers, mark_cdc_broken
+from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (
+    _capture_is_stale,
+    clear_slot_loss_markers,
+    mark_cdc_broken,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -175,3 +180,35 @@ def test_a_recreated_slot_lifts_only_the_markers_of_a_lost_slot(team, reason, cl
     source.refresh_from_db()
     assert ("cdc_broken" in schema.sync_type_config) is not cleared
     assert source.status == (ExternalDataSource.Status.RUNNING if cleared else ExternalDataSource.Status.ERROR)
+
+
+_NOW = dt.datetime(2026, 11, 25, 12, 0, tzinfo=dt.UTC)
+
+
+@pytest.mark.parametrize(
+    "tables, stale",
+    [
+        pytest.param([(6 * 60, 17 * 60)], False, id="within_three_intervals"),
+        pytest.param([(6 * 60, 19 * 60)], True, id="past_three_intervals"),
+        pytest.param([(10, 90)], False, id="short_interval_waits_for_the_two_hour_floor"),
+        pytest.param([(10, 150)], True, id="short_interval_past_the_floor"),
+        pytest.param([(6 * 60, 19 * 60), (6 * 60, 60)], False, id="the_newest_run_counts"),
+        pytest.param([(10, 150), (6 * 60, 3 * 60)], True, id="the_shortest_interval_counts"),
+        pytest.param([(6 * 60, None)], True, id="never_ran"),
+        pytest.param([(6 * 60, "naive")], True, id="a_stamp_without_a_timezone_is_ignored"),
+    ],
+)
+def test_capture_is_stale(tables, stale):
+    def config(ago):
+        if ago is None:
+            return {}
+        if ago == "naive":
+            return {"cdc_last_run_at": _NOW.replace(tzinfo=None).isoformat()}
+        return {"cdc_last_run_at": (_NOW - dt.timedelta(minutes=ago)).isoformat()}
+
+    schemas = [
+        ExternalDataSchema(sync_frequency_interval=dt.timedelta(minutes=interval), sync_type_config=config(ago))
+        for interval, ago in tables
+    ]
+
+    assert _capture_is_stale(schemas, _NOW) is stale

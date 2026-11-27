@@ -29,13 +29,6 @@
             "intents": ["llm_evaluations", "llm_datasets"]
         },
         {
-            "path": "Taggers",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_tags",
-            "intents": ["llm_analytics"]
-        },
-        {
             "path": "Prompts",
             "category": "AI engineering",
             "iconType": null,
@@ -367,6 +360,7 @@
             "type": null,
             "intents": []
         },
+        { "path": "Tags", "category": "Schema", "iconType": "tag", "type": null, "intents": [] },
         {
             "path": "Event definitions",
             "category": "Schema",

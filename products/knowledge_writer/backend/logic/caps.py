@@ -14,7 +14,7 @@ from .records import PULL_REQUEST_FAILURE_STATE_KEY, PULL_REQUEST_STATE_KEY
 
 logger = structlog.get_logger(__name__)
 
-DAILY_RUN_CAP = 60
+DAILY_RUN_CAP = 120
 OPEN_PULL_REQUEST_CAP = 10
 
 
