@@ -6,12 +6,15 @@ from django.db.models import QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import OrganizationMembership, User
+from posthog.api.utils import action
+from posthog.models import OrganizationMembership, PersonalAPIKey, User
+from posthog.models.utils import strict_fetch
 from posthog.permissions import OrganizationAdminReadPermissions, TimeSensitiveActionPermission
 from posthog.service_accounts import operations
 from posthog.utils import posthoganalytics
@@ -47,6 +50,50 @@ class ServiceAccountWriteSerializer(serializers.Serializer):
         return attrs
 
 
+class ServiceAccountAPIKeySerializer(serializers.ModelSerializer):
+    id = serializers.CharField(read_only=True, help_text="Identifier of the API key.")
+    mask_value = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Masked hint identifying the key, never its secret."
+    )
+    scopes = serializers.ListField(
+        child=serializers.CharField(), read_only=True, help_text="API scopes granted to the key."
+    )
+    scoped_teams = serializers.ListField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        allow_null=True,
+        help_text="Project IDs the key is restricted to. Empty or null means no project restriction.",
+    )
+    scoped_organizations = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        allow_null=True,
+        help_text="Organization IDs the key is restricted to. Empty or null means no organization restriction.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the key was created.")
+    last_used_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the key last authenticated a request."
+    )
+    expires_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the key expires. Null means it never expires."
+    )
+
+    class Meta:
+        model = PersonalAPIKey
+        extra_kwargs = {"label": {"read_only": True, "help_text": "Name given to the API key."}}
+        fields = [
+            "id",
+            "label",
+            "mask_value",
+            "scopes",
+            "scoped_teams",
+            "scoped_organizations",
+            "created_at",
+            "last_used_at",
+            "expires_at",
+        ]
+
+
 @extend_schema(extensions={"x-product": "core"})
 class ServiceAccountViewSet(
     TeamAndOrgViewSetMixin,
@@ -55,6 +102,7 @@ class ServiceAccountViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "organization_member"
+    scope_object_read_actions = ["list", "retrieve", "api_keys"]
     queryset = OrganizationMembership.objects.none()
     serializer_class = ServiceAccountSerializer
     permission_classes = [OrganizationAdminReadPermissions, TimeSensitiveActionPermission]
@@ -66,6 +114,13 @@ class ServiceAccountViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return operations.service_accounts(self.organization)
+
+    @extend_schema(operation_id="service_accounts_api_keys_list", responses=ServiceAccountAPIKeySerializer(many=True))
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def api_keys(self, request: Request, **kwargs: Any) -> Response:
+        membership = self.get_object()
+        keys = strict_fetch(PersonalAPIKey.objects.filter(user_id=membership.user_id).order_by("-created_at", "id"))
+        return Response(ServiceAccountAPIKeySerializer(keys, many=True).data)
 
     @validated_request(ServiceAccountWriteSerializer, responses={201: ServiceAccountSerializer})
     def create(self, request: ValidatedRequest, **kwargs) -> Response:

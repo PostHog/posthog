@@ -66,11 +66,15 @@ class TestServiceAccountAPI(APIBaseTest):
         assert self.client.patch(f"{self.url}{self.account.uuid}/", {"name": "Renamed"}).status_code == 200
         assert self.client.post(self.url, {"name": "New bot"}).status_code == 201
 
-    @parameterized.expand(["get", "post", "retrieve", "patch"])
+    @parameterized.expand(["get", "post", "retrieve", "patch", "api_keys"])
     def test_members_cannot_manage_accounts(self, method) -> None:
         self.organization.memberships.filter(user=self.user).update(level=OrganizationMembership.Level.MEMBER)
         url = self.url if method in ("get", "post") else f"{self.url}{self.account.uuid}/"
-        response = getattr(self.client, "get" if method == "retrieve" else method)(url, {"name": "Changed"})
+        if method == "api_keys":
+            url += "api_keys/"
+        response = getattr(self.client, "get" if method in ("retrieve", "api_keys") else method)(
+            url, {"name": "Changed"}
+        )
         assert response.status_code == 403
         self.account.refresh_from_db()
         assert self.account.first_name == "Deploy"
@@ -83,14 +87,26 @@ class TestServiceAccountAPI(APIBaseTest):
         assert [account["id"] for account in response.json()["results"]] == [str(self.account.uuid)]
         assert response.json()["results"][0]["user"]["type"] == UserType.SERVICE_ACCOUNT
 
-    @parameterized.expand([("human", "get"), ("human", "patch"), ("other_org", "get"), ("other_org", "patch")])
+    @parameterized.expand(
+        [
+            ("human", "get"),
+            ("human", "patch"),
+            ("other_org", "get"),
+            ("other_org", "patch"),
+            ("human", "api_keys"),
+            ("other_org", "api_keys"),
+        ]
+    )
     def test_rejects_targets_outside_service_accounts_in_this_organization(self, target, method) -> None:
         if target == "human":
             user = self.user
         else:
             other_org = Organization.objects.create(name="Other organization")
             user = User.objects.create_and_join(other_org, "other@example.com", None, type=UserType.SERVICE_ACCOUNT)
-        response = getattr(self.client, method)(f"{self.url}{user.uuid}/", {"name": "Changed"})
+        url = f"{self.url}{user.uuid}/"
+        if method == "api_keys":
+            url += "api_keys/"
+        response = getattr(self.client, "get" if method == "api_keys" else method)(url, {"name": "Changed"})
         assert response.status_code == 404
         user.refresh_from_db()
         assert user.first_name != "Changed"
@@ -138,6 +154,8 @@ class TestServiceAccountAPI(APIBaseTest):
             ("patch", "organization_member:write", 200),
             ("post", "organization_member:write", 201),
             ("get", "insight:read", 403),
+            ("api_keys", "organization_member:read", 200),
+            ("api_keys", "insight:read", 403),
         ]
     )
     def test_personal_api_key_scopes(self, method, scope, expected_status) -> None:
@@ -148,7 +166,9 @@ class TestServiceAccountAPI(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         url = f"{self.url}{self.account.uuid}/" if method == "patch" else self.url
-        response = getattr(self.client, method)(url, {"name": "Renamed"})
+        if method == "api_keys":
+            url = f"{self.url}{self.account.uuid}/api_keys/"
+        response = getattr(self.client, "get" if method == "api_keys" else method)(url, {"name": "Renamed"})
         assert response.status_code == expected_status, response.json()
 
     def test_token_cannot_manage_an_organization_outside_its_scope(self) -> None:
@@ -165,4 +185,47 @@ class TestServiceAccountAPI(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         assert self.client.get(self.url).status_code == 403
+        assert self.client.get(f"{self.url}{self.account.uuid}/api_keys/").status_code == 403
         assert self.client.post(self.url, {"name": "Forbidden"}).status_code == 403
+
+    @parameterized.expand([False, True])
+    def test_api_keys_returns_only_selected_account_metadata(self, unrestricted: bool) -> None:
+        self.flag.return_value = False
+        other = User.objects.create_and_join(
+            self.organization, "another-bot@example.com", None, type=UserType.SERVICE_ACCOUNT
+        )
+        token = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            user=self.account,
+            label="Report reader",
+            secure_value=hash_key_value(token),
+            mask_value="phx_...demo",
+            scopes=["insight:read"],
+            scoped_teams=None if unrestricted else [self.team.id],
+            scoped_organizations=None if unrestricted else [str(self.organization.id)],
+        )
+        for user in (self.user, other):
+            PersonalAPIKey.objects.create(
+                user=user, label="Other key", secure_value=hash_key_value(generate_random_token_personal())
+            )
+        response = self.client.get(f"{self.url}{self.account.uuid}/api_keys/")
+        assert response.status_code == 200
+        keys = response.json()
+        assert [item["id"] for item in keys] == [str(key.id)]
+        assert keys[0]["label"] == "Report reader"
+        assert keys[0]["scoped_teams"] == (None if unrestricted else [self.team.id])
+        assert keys[0]["scoped_organizations"] == (None if unrestricted else [str(self.organization.id)])
+        assert keys[0]["scopes"] == ["insight:read"]
+        assert set(keys[0]) == {
+            "id",
+            "label",
+            "mask_value",
+            "scopes",
+            "scoped_teams",
+            "scoped_organizations",
+            "created_at",
+            "last_used_at",
+            "expires_at",
+        }
+        assert token not in response.content.decode()
+        assert key.secure_value not in response.content.decode()

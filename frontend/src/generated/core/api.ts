@@ -115,6 +115,7 @@ import type {
     SCIMTokenResponseApi,
     SearchIntentRequestApi,
     SearchIntentResponseApi,
+    ServiceAccountAPIKeyApi,
     ServiceAccountApi,
     ServiceAccountWriteApi,
     ServiceAccountsListParams,
@@ -1597,6 +1598,21 @@ export const serviceAccountsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedServiceAccountWriteApi),
+    })
+}
+
+export const getServiceAccountsApiKeysListUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/service_accounts/${id}/api_keys/`
+}
+
+export const serviceAccountsApiKeysList = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ServiceAccountAPIKeyApi[]> => {
+    return apiMutator<ServiceAccountAPIKeyApi[]>(getServiceAccountsApiKeysListUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

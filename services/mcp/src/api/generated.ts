@@ -119802,6 +119802,42 @@ export namespace Schemas {
       region_url?: string | null;
     }
 
+    export interface ServiceAccountAPIKey {
+      /** Identifier of the API key. */
+      readonly id: string;
+      /** Name given to the API key. */
+      readonly label: string;
+      /**
+         * Masked hint identifying the key, never its secret.
+         * @nullable
+         */
+      readonly mask_value: string | null;
+      /** API scopes granted to the key. */
+      readonly scopes: readonly string[];
+      /**
+         * Project IDs the key is restricted to. Empty or null means no project restriction.
+         * @nullable
+         */
+      readonly scoped_teams: readonly number[] | null;
+      /**
+         * Organization IDs the key is restricted to. Empty or null means no organization restriction.
+         * @nullable
+         */
+      readonly scoped_organizations: readonly string[] | null;
+      /** When the key was created. */
+      readonly created_at: string;
+      /**
+         * When the key last authenticated a request.
+         * @nullable
+         */
+      readonly last_used_at: string | null;
+      /**
+         * When the key expires. Null means it never expires.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+    }
+
     export interface ServiceAccountAccessUpdate {
       /** Gateway server to share or stop sharing. */
       gateway_server_id: string;
