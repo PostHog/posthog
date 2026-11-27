@@ -2665,7 +2665,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Can't update keys: get_feature_flag_key on Experiment",
+            "Can't update keys: feature_flag_key on Experiment",
         )
 
     def test_draft_experiment_doesnt_have_FF_active(self):

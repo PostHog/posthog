@@ -194,8 +194,6 @@ def replace_tags(*, team: Team, experiment_id: int, tags: list[str]) -> None:
     replace_tags_on_object(tags, _one_in_project(team, experiment_id, include_deleted=True).get())
 
 
-# The update data of the service names these fields by the sources of the experiment serializer fields.
-_UPDATE_DATA_KEYS = {"feature_flag_key": "get_feature_flag_key", "create_in_folder": "_create_in_folder"}
 _NOT_UPDATE_DATA = frozenset({"allow_unknown_events", "feature_flag_config", "tags", "feature_flag_rule_id"})
 
 
@@ -214,7 +212,7 @@ def apply_update(
         raise ValidationError("feature_flag_rule_id cannot change after the experiment is created.")
     # In the declaration order of the contract, which is the order of the validated data of the serializer.
     update_data = {
-        _UPDATE_DATA_KEYS.get(field.name, field.name): getattr(update, field.name)
+        field.name: getattr(update, field.name)
         for field in fields(update)
         if field.name in update.fields_set and field.name not in _NOT_UPDATE_DATA
     }

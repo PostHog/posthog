@@ -621,7 +621,7 @@ def _resolve_scalar_updates(update_data: dict, original: Mapping, current_values
     field names, sorted.
     """
     conflicts: list[str] = []
-    scalar_fields = sorted(set(update_data) - CONCURRENCY_MERGEABLE_FIELDS - {"get_feature_flag_key"})
+    scalar_fields = sorted(set(update_data) - CONCURRENCY_MERGEABLE_FIELDS - {"feature_flag_key"})
     for field in scalar_fields:
         mine = _scalar_merge_view(field, update_data[field])
         current = _scalar_merge_view(field, current_values.get(field, _SCALAR_MISSING))
@@ -3506,7 +3506,7 @@ class ExperimentService:
         return {
             field: (experiment.holdout_id if field == "holdout" else getattr(experiment, field, _SCALAR_MISSING))
             for field in update_data
-            if field not in CONCURRENCY_MERGEABLE_FIELDS and field != "get_feature_flag_key"
+            if field not in CONCURRENCY_MERGEABLE_FIELDS and field != "feature_flag_key"
         }
 
     def _update_is_noop(
@@ -3678,7 +3678,7 @@ class ExperimentService:
                     resolution="merged",
                     versions_behind=current_version - client_version,
                     base_snapshot_sent=True,
-                    merged_fields=sorted(set(update_data) - {"get_feature_flag_key"}),
+                    merged_fields=sorted(set(update_data) - {"feature_flag_key"}),
                 )
             resolution_version = current_version
 
@@ -3833,7 +3833,7 @@ class ExperimentService:
 
         update_saved_metrics = "saved_metrics_ids" in update_data
         saved_metrics_data: list[dict] = update_data.pop("saved_metrics_ids", []) or []
-        update_data.pop("get_feature_flag_key", None)
+        update_data.pop("feature_flag_key", None)
 
         # --- validate updated fields (BEFORE any mutation) --------------------
         # Run the pure payload validations that can raise 400 *before* the flag
@@ -4285,7 +4285,7 @@ class ExperimentService:
             update_fields = set(update_data.keys())
 
             # Remove internal fields that are handled separately
-            update_fields.discard("get_feature_flag_key")
+            update_fields.discard("feature_flag_key")
 
             disallowed_fields = update_fields - allowed_fields
             if disallowed_fields:
@@ -4332,8 +4332,8 @@ class ExperimentService:
         }
         extra_keys = set(update_data.keys()) - expected_keys
 
-        if feature_flag.key == update_data.get("get_feature_flag_key"):
-            extra_keys.discard("get_feature_flag_key")
+        if feature_flag.key == update_data.get("feature_flag_key"):
+            extra_keys.discard("feature_flag_key")
 
         if extra_keys:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
