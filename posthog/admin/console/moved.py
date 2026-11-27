@@ -70,7 +70,7 @@ class MovedToConsole:
             target = url.format(**{name: quote(str(value), safe="") for name, value in url_kwargs.items()})
             # The old URL's query rides along, except a name the target sets from the path, such as the team, which a
             # second value in the query would override.
-            set_by_target = {name for name, _value in parse_qsl(urlsplit(target).query)}
+            set_by_target = {name for name, _value in parse_qsl(urlsplit(target).query, keep_blank_values=True)}
             query = "&".join(
                 part
                 for part in request.META.get("QUERY_STRING", "").split("&")
