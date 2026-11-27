@@ -533,14 +533,20 @@ def _map(args: list[str]) -> str:
     return f"map(ARRAY[{', '.join(args[::2])}], ARRAY[{', '.join(args[1::2])}])"
 
 
+_TRANSFORM_SEARCH = "__hogql_transform_search"
+
+
 def _transform(args: list[str]) -> str:
     if len(args) not in {3, 4}:
         raise _invalid_arguments("transform", "transform expects three or four arguments in Trino mode.")
     value, source, target = args[:3]
-    fallback = args[3] if len(args) == 4 else value
+    bound_value = f"{_TRANSFORM_SEARCH}[1]"
+    bound_source = f"{_TRANSFORM_SEARCH}[2]"
+    fallback = args[3] if len(args) == 4 else bound_value
     return (
-        f"CASE WHEN contains({source}, {value}) "
-        f"THEN element_at({target}, array_position({source}, {value})) ELSE {fallback} END"
+        f"element_at(transform(ARRAY[ROW({value}, {source})], {_TRANSFORM_SEARCH} -> "
+        f"CASE WHEN contains({bound_source}, {bound_value}) "
+        f"THEN element_at({target}, array_position({bound_source}, {bound_value})) ELSE {fallback} END), 1)"
     )
 
 

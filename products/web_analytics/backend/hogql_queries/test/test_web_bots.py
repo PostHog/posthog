@@ -24,7 +24,7 @@ HUMAN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 # or label arrives as \' rather than ''. See posthog/hogql/escape_sql.py.
 _STRING = re.compile(r"'(?:[^'\\]|\\.)*'")
 _LITERAL_ARRAY = re.compile(rf"\[{_STRING.pattern}(?:, {_STRING.pattern}){{19,}}\]")
-_IP_GROUP_MATCH = re.compile(r"\bin\(tupleElement\(IPv6CIDRToRange\(")
+_IP_GROUP_MATCH = re.compile(r"\b(?:in|transform)\(tupleElement\(IPv6CIDRToRange\(")
 _ADJACENT_IP_GROUPS = re.compile(r"/\* bot ip range \*/(?:, /\* bot ip range \*/)+")
 
 # Both the pattern list and each label list run one entry longer than the table, because
