@@ -1,6 +1,7 @@
-import type { ToolListApi, ToolListItemApi } from '../../generated/api.schemas'
+import type { ToolListApi, ToolListItemApi, ToolTraceShareListApi } from '../../generated/api.schemas'
 
 export const TOOLS_URL = '/api/projects/:team_id/ai_observability/tools/'
+export const TOOL_TRACE_SHARES_URL = '/api/projects/:team_id/ai_observability/tools/trace_shares/'
 
 export function makeToolListItem(overrides: Partial<ToolListItemApi> = {}): ToolListItemApi {
     return {
@@ -33,4 +34,8 @@ export function makeToolListPage(keys: string[], overrides: Partial<ToolListApi>
         order: 'calls',
         ...overrides,
     }
+}
+
+export function makeToolTraceShares(shares: [key: string, traceShare: number][]): ToolTraceShareListApi {
+    return { items: shares.map(([key, traceShare]) => ({ key, traceShare })) }
 }

@@ -26,6 +26,15 @@ export function withFailed<T>(loads: CellLoads<T>, ids: string[]): CellLoads<T> 
     return next
 }
 
+/** Fails the ids whatever they show, for a read whose failure makes a value already on screen stale. */
+export function withEveryFailed<T>(loads: CellLoads<T>, ids: string[]): CellLoads<T> {
+    const next = new Map(loads)
+    for (const id of ids) {
+        next.set(id, { status: 'error' })
+    }
+    return next
+}
+
 export function withLoaded<T>(loads: CellLoads<T>, values: [id: string, value: T][]): CellLoads<T> {
     const next = new Map(loads)
     for (const [id, value] of values) {
