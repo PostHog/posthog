@@ -500,6 +500,7 @@ def _card(
         lookers=tuple(CardLooker(slack_user_id=p.slack_user_id, display_name=p.display_name) for p in lookers),
         approved_by_login=approved_by_login,
         requester_card_count=request.requester_card_count,
+        from_link_post=request.requested_via == BroadcastRequestSource.SLACK_LINK,
     )
 
 

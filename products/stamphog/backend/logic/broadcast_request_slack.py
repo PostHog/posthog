@@ -51,6 +51,10 @@ STOP_LOOKING_ACTION_ID = f"{ACTION_ID_PREFIX}stop_looking"
 ACTIONS_BLOCK_ID = "stamphog_broadcast_actions"
 
 _SOURCE = "stamphog"
+ALLOW_BROADCAST_HINT = (
+    "Next time, comment `@posthog stamp --allow-broadcast` on the pull request, or set `allow_broadcast` "
+    "in the MCP review request. Stamphog reviews it first and posts in this channel only if it doesn't approve."
+)
 # Enough findings to say why stamphog did not approve. The full review is on the pull request.
 _MAX_FINDINGS = 5
 _MAX_FINDING_CHARS = 300
@@ -128,6 +132,8 @@ class BroadcastRequestCard:
     lookers: tuple[CardLooker, ...]
     approved_by_login: str
     requester_card_count: int | None = None
+    # A card that a pull request link opened, whose poster may not know the command that asks Stamphog first.
+    from_link_post: bool = False
 
 
 def _mention_or_name(slack_user_id: str, name: str) -> str:
@@ -253,6 +259,8 @@ def card_blocks(card: BroadcastRequestCard) -> list[dict[str, Any]]:
         if card.lookers:
             buttons.append(_button("Stop looking", STOP_LOOKING_ACTION_ID, value))
         blocks.append({"type": "actions", "block_id": ACTIONS_BLOCK_ID, "elements": buttons})
+    if card.from_link_post:
+        blocks.append(context_block(ALLOW_BROADCAST_HINT))
     return [_verbatim(block) for block in blocks]
 
 

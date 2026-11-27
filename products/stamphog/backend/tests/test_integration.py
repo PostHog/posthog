@@ -5107,6 +5107,7 @@ def test_a_pull_request_link_in_the_broadcast_channel_asks_people_without_a_revi
     blocks = _rendered(card["blocks"])
     assert f"Asked by <@{POSTER}>" in blocks
     assert "Stamphog is reviewing" not in blocks
+    assert "@posthog stamp --allow-broadcast" in blocks
     assert _link_replies() == []
 
     # A push reaches the people looking in the thread of the post, and no review of the new head holds it.
