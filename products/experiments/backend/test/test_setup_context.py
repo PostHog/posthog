@@ -20,7 +20,6 @@ from posthog.exceptions import ClickHouseQueryTimeOut
 
 from products.actions.backend.facade.testing import create_action
 from products.experiments.backend import setup_context as setup_context_module
-from products.experiments.backend.facade import contracts as experiment_contracts
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -34,7 +33,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.presentation import serializers as experiment_serializers
 from products.experiments.backend.presentation.serializers import RunningTimeBaselineStatsSerializer
 from products.experiments.backend.running_time_calculator import BaselineStats, calculate_baseline_value
 from products.experiments.backend.setup_context import (
@@ -197,66 +195,13 @@ class TestClassifyLib(SimpleTestCase):
         } <= SERVER_LIBS
 
 
-class TestResponseCoversEveryFact(SimpleTestCase):
-    """The response serializer is built by hand beside the dataclasses it renders.
-
-    A dataclass field the serializer forgets is dropped silently. A serializer field the dataclass
-    doesn't have raises while rendering, and that happens outside the per-section guard, so it
-    fails the whole endpoint rather than one section.
-    """
-
-    PAIRS = [
-        ("ExperimentSetupContext", "ExperimentSetupContextResponseSerializer"),
-        ("TeamDefaults", "ExperimentSetupTeamDefaultsSerializer"),
-        ("SdkLibProfile", "ExperimentSetupSdkLibSerializer"),
-        ("LibActivity", "ExperimentSetupLibActivitySerializer"),
-        ("SdkProfile", "ExperimentSetupSdkProfileSerializer"),
-        ("LibReach", "ExperimentSetupLibReachSerializer"),
-        ("TargetSurface", "ExperimentSetupTargetSurfaceSerializer"),
-        ("FunnelBaselineStats", "ExperimentSetupFunnelBaselineSerializer"),
-        ("MeanCountBaselineStats", "ExperimentSetupMeanCountBaselineSerializer"),
-        ("CandidateMetric", "ExperimentSetupCandidateMetricSerializer"),
-        ("ExperimentOutcome", "ExperimentSetupOutcomeSerializer"),
-        ("PreviousExperiment", "ExperimentSetupPreviousExperimentSerializer"),
-        ("PreviousExperimentsSummary", "ExperimentSetupPreviousExperimentsSummarySerializer"),
-        ("PreviousExperiments", "ExperimentSetupPreviousExperimentsSerializer"),
-        ("SharedMetricUsage", "ExperimentSetupSharedMetricSerializer"),
-        ("SharedMetrics", "ExperimentSetupSharedMetricsSerializer"),
-    ]
-    # Inputs and internal helpers, which the response never carries.
-    UNRENDERED = {
-        "SetupContextInputs",
-        "SetupContextSection",
-        "TimeWindow",
-        "CustomExposure",
-        "OutcomeMetric",
-    }
-
-    @parameterized.expand(PAIRS)
-    def test_serializer_renders_exactly_the_dataclass_fields(self, dataclass_name: str, serializer_name: str) -> None:
-        dataclass_type = getattr(setup_context_module, dataclass_name)
-        serializer = getattr(experiment_serializers, serializer_name)()
-
-        assert {field.name for field in dataclasses.fields(dataclass_type)} == set(serializer.fields)
-
-    def test_every_dataclass_in_the_response_is_covered(self) -> None:
-        declared = {
-            name
-            for name, value in vars(setup_context_module).items()
-            if dataclasses.is_dataclass(value)
-            and getattr(value, "__module__", None) in (setup_context_module.__name__, experiment_contracts.__name__)
-        }
-
-        assert declared - self.UNRENDERED == {dataclass_name for dataclass_name, _ in self.PAIRS}
-
-
 class TestCreationSkillNamesRealFields(SimpleTestCase):
     """The creation skill tells an agent which fields to read, in prose beside the dataclasses.
 
     A renamed or removed field leaves the skill naming a path that is never in the response, and
     the agent reads null instead of the fact the rule needs. Nothing else connects the two, and a
     skill is not exercised by any test that runs the endpoint. Checked against the dataclasses
-    rather than the serializer because `TestResponseCoversEveryFact` already ties those together.
+    rather than the serializer because the response serializers derive their fields from them.
 
     Every markdown file in the skill counts, because a rule can move between SKILL.md and a
     reference at any time.
