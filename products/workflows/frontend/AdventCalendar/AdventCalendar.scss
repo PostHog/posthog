@@ -27,6 +27,16 @@
         var(--color-posthog-brand-orange-saturation),
         var(--color-posthog-brand-orange-lightness)
     );
+    --color-accent-hover: hsl(
+        var(--color-posthog-brand-orange-hue),
+        var(--color-posthog-brand-orange-saturation),
+        calc(var(--color-posthog-brand-orange-lightness) + 10%)
+    );
+    --color-accent-active: hsl(
+        var(--color-posthog-brand-orange-hue),
+        var(--color-posthog-brand-orange-saturation),
+        calc(var(--color-posthog-brand-orange-lightness) + 15%)
+    );
     --text-3000: var(--text-3000-light);
     --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
     --secondary-3000-button-border: var(--secondary-3000-button-border-light);
