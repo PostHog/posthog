@@ -1,5 +1,3 @@
-import itertools
-
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -222,7 +220,7 @@ class TestReconcileSesTenantStates(BaseTest):
                 team=team, kind="email", integration_id=f"{team.id}.example.com", config={"provider": "ses"}
             )
         clock = FakeClock()
-        ses = FakeSesTenantReader(clock, call_seconds=0.4)
+        ses = FakeSesTenantReader(clock, call_seconds=[0.4, 2.0, 0.4, 0.4])
 
         with (
             patch("products.workflows.backend.tasks.ses_tenant_state.SESProvider", return_value=ses),
@@ -230,9 +228,7 @@ class TestReconcileSesTenantStates(BaseTest):
         ):
             reconcile_ses_tenant_states()
 
-        gaps = [later - earlier for earlier, later in itertools.pairwise(ses.called_at)]
-        assert len(ses.called_at) == len(teams)
-        assert min(gaps) >= 1.5
+        assert ses.called_at == [0.0, 1.5, 3.5, 5.0]
 
 
 class FakeClock:
@@ -247,11 +243,11 @@ class FakeClock:
 
 
 class FakeSesTenantReader:
-    def __init__(self, clock: FakeClock, *, call_seconds: float) -> None:
+    def __init__(self, clock: FakeClock, *, call_seconds: list[float]) -> None:
         self.clock = clock
-        self.call_seconds = call_seconds
+        self.call_seconds = iter(call_seconds)
         self.called_at: list[float] = []
 
     def get_tenant_reputation(self, team_id: int) -> None:
         self.called_at.append(self.clock.now)
-        self.clock.now += self.call_seconds
+        self.clock.now += next(self.call_seconds)
