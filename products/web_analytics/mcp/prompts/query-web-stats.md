@@ -27,7 +27,7 @@ Same filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properti
 
 Performance hints:
 
-- Leave `compareFilter` off unless the user asks for period-over-period — enabling it roughly doubles query cost.
+- Leave `compareFilter` off unless the user asks for period-over-period — enabling it roughly doubles query cost. With compare on and no `date_to`, the window is clipped to complete days (today is left out) so both periods hold the same whole days; say so when you report the change.
 - `limit` is capped at 200 by the wrapper. Prefer 10–25 unless the user explicitly asks for more.
 
 Use `read-data-schema` to validate property names/values when needed.

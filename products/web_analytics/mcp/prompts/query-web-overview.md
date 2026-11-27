@@ -11,7 +11,7 @@ Use `query-trends` instead for per-event counts — pageviews, sign-ups, button 
 # Inputs
 
 - `dateRange` — defaults to last 7 days when omitted. Keep ranges short — there is no enforced upper bound and large windows on the slow path can be expensive.
-- `compareFilter: { compare: true }` — return prior-period values for change %. **Roughly doubles query cost** because it runs the same aggregation over the previous period — leave it off unless the user explicitly asks for a comparison.
+- `compareFilter: { compare: true }` — return prior-period values for change %. **Roughly doubles query cost** because it runs the same aggregation over the previous period — leave it off unless the user explicitly asks for a comparison. With a relative `dateRange` and no `date_to`, the comparison runs over **complete days** (today's partial day is dropped, e.g. `-7d` becomes the last 7 whole days against the 7 before them), so the two periods carry the same weekday mix. Tell the user the window ends yesterday; pass an explicit `date_to` to include today.
 - `properties` — event/person/session/cohort filters. Same operator semantics as `query-trends` — see that prompt. Defaults to `[]`.
 - `filterTestAccounts` — exclude internal/test users.
 - `doPathCleaning` — apply team's path-cleaning rules.

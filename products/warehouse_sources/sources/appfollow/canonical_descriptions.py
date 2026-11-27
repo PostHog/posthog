@@ -215,4 +215,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "answer_user_id": "Id of the AppFollow user who replied.",
         },
     },
+    "reviews_version_stats": {
+        "description": "Daily review tag counts by app version for each tracked app.",
+        "docs_url": "https://docs.api.appfollow.io/reference/stat_reviews_by_version_api_v2_reviews_stats_version_get-1",
+        "columns": {
+            "ext_id": "External store ID of the app.",
+            "date": "Day of the reviews in the statistics.",
+            "tags": "Review tag counts grouped by app version.",
+            "bt_tags": "Bug tracker tag counts grouped by app version.",
+            "versions": "App versions in the statistics.",
+        },
+    },
+    "featured_apps": {
+        "description": "App Store featuring events for tracked apps and their collection countries, refreshed over the last year.",
+        "docs_url": "https://docs.api.appfollow.io/reference/featured_apps__for_app_store__api_v2_aso_featured_get-1",
+        "columns": {
+            "ext_id": "External store ID of the app.",
+            "country": "Country code of the store where the event occurred.",
+            "date": "Day of the featuring event.",
+            "feature": "Featuring section, such as today, apps, or games.",
+            "type": "Type of featuring event.",
+            "title": "Title of the featuring event.",
+            "pos": "Position of the feature in its section.",
+            "app_pos": "Position of the app within the feature.",
+            "app_cnt": "Number of apps in the feature.",
+        },
+    },
+    "console_ratings": {
+        "description": "Daily Google Play Console ratings and user counts for tracked Google Play apps. Requires the Console integration in AppFollow.",
+        "docs_url": "https://docs.api.appfollow.io/reference/console__google_play_api_v2_meta_ratings_console_gp_get",
+        "columns": {
+            "ext_id": "Google Play package name of the app.",
+            "collection_name": "Name of the collection that provides the Console integration.",
+            "date": "Day of the measurement.",
+            "metric": "Measurement type, either ratings or users.",
+            "value": "Rating or user count for the day, as selected by metric.",
+        },
+    },
 }

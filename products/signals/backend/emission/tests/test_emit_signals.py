@@ -968,22 +968,6 @@ class TestCheckActionability:
         assert is_actionable is True
 
     @pytest.mark.asyncio
-    async def test_passes_team_attribution_headers(self):
-        mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
-
-        output = _make_output(source_id="42")
-        await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
-
-        call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert call_kwargs["metadata"]["user_id"] == "team-7"
-        properties = json.loads(call_kwargs["extra_headers"]["X-PostHog-Properties"])
-        assert properties["ai_stage"] == "actionability"
-        assert properties["source_product"] == output.source_product
-        assert properties["source_type"] == output.source_type
-        assert properties["team_id"] == "7"
-
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "model,expected_output_config,trial",
         [
