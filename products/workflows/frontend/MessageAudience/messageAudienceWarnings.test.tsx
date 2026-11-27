@@ -116,7 +116,7 @@ function useEnvironmentMocks(environments: Record<string, Environment>): void {
                 return [500, { detail: 'down' }]
             },
             '/api/projects/:team_id/hog_flows/': async ({ params, request }) => {
-                environment(params)?.createRequests?.push(await request.json())
+                environment(params)?.createRequests?.push((await request.json()) as Record<string, unknown>)
                 return [500, { detail: 'down' }]
             },
         },
@@ -374,7 +374,13 @@ describe('message audience warnings', () => {
         },
     }
 
-    it.each<{ destination: MessageAudienceDestination; label: string; warning: string; path: string; opens: unknown }>([
+    it.each<{
+        destination: MessageAudienceDestination
+        label: string
+        warning: string
+        path: string
+        opens: Record<string, unknown>
+    }>([
         {
             destination: 'workflow',
             label: 'Build a custom workflow',

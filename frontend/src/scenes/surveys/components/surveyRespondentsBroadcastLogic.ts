@@ -167,7 +167,9 @@ export const surveyRespondentsBroadcastLogic = kea<surveyRespondentsBroadcastLog
 
     listeners(() => ({
         // The click on the entry point, before any outcome, so abandoned attempts count too.
-        emailRespondents: () => captureMessageAudienceClicked(SOURCE, 'broadcast'),
+        emailRespondents: () => {
+            captureMessageAudienceClicked(SOURCE, 'broadcast')
+        },
         emailRespondentsFailure: () => {
             lemonToast.error("Couldn't save these respondents. Try again.")
         },
