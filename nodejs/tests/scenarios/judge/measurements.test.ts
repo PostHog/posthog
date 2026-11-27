@@ -702,7 +702,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: 60 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
             ],
         ],
         [
@@ -714,7 +714,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: 60 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
             ],
         ],
         [
@@ -738,7 +738,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: 60 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
             ],
         ],
         [
@@ -793,7 +793,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5, censored: true },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: 60 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
             ],
         ],
         [
@@ -805,7 +805,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 0.5 },
                 { key: 'hogflow_t60', value: null, censored: true, incomplete: true },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: 120 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
             ],
         ],
     ])('pickup p99 %s', (_story, samples, measured) => {

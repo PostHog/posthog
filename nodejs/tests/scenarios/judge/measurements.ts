@@ -707,7 +707,9 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         name: 'pickup_recovery_seconds',
         params: z.object({}).strict(),
         unit: 's',
-        measure: (evidence) => pickupSeries(evidence).map(([key, series]) => ({ key, ...recoveryOf(series) })),
+        // A scrape interval that crosses a minute boundary cannot say which side its pickups fell on, so no minute can
+        // prove it recovered. The readout reads the per-minute p99s instead.
+        measure: (evidence) => pickupSeries(evidence).map(([key]) => ({ key, value: null, censored: true as const })),
     },
     {
         name: 'baseline_claims_per_second',
