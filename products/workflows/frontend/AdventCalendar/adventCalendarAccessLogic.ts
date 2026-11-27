@@ -12,6 +12,11 @@ function isRequestError(error: unknown): boolean {
     return typeof error === 'string' && (REQUEST_ERRORS.includes(error) || error.startsWith('api_error_'))
 }
 
+function calendarFlagFailed(): boolean {
+    const details = posthog.get_property('$feature_flag_details')
+    return typeof details === 'object' && details?.[FLAG]?.failed === true
+}
+
 function lastLoadFailedBeforeMount(): boolean {
     const errors = posthog.get_property('$feature_flag_errors')
     return (
@@ -85,12 +90,12 @@ export const adventCalendarAccessLogic = kea<adventCalendarAccessLogicType>([
         ],
     }),
     afterMount(({ actions, cache }) => {
-        actions.setLastLoadFailed(lastLoadFailedBeforeMount())
+        actions.setLastLoadFailed(lastLoadFailedBeforeMount() || calendarFlagFailed())
         cache.disposables.add(
             () =>
                 posthog.onFeatureFlags((_flags, _variants, context) => {
                     if (typeof context?.errorsLoading === 'boolean') {
-                        actions.setLastLoadFailed(context.errorsLoading)
+                        actions.setLastLoadFailed(context.errorsLoading || calendarFlagFailed())
                     }
                 }),
             'flagLoads',

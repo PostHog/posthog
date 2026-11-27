@@ -17,6 +17,7 @@ type Step =
 type Visit = {
     pageFlags: Record<string, boolean | string> | null | 'no page object'
     errorsBeforeMount?: unknown
+    flagDetails?: unknown
     steps: Step[]
 }
 
@@ -112,6 +113,41 @@ describe('adventCalendarAccessLogic', () => {
             [false],
         ],
         [
+            'a successful retry that failed to evaluate the calendar flag shows the page decision',
+            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: { failed: true } }, steps: [failed(), succeeded()] },
+            [true, true],
+        ],
+        [
+            'a successful load that failed to evaluate the calendar flag shows the page decision',
+            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: { failed: true } }, steps: [succeeded()] },
+            [true],
+        ],
+        [
+            'a calendar flag that failed to evaluate before mount shows the page decision',
+            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: { failed: true } }, steps: [noOutcome()] },
+            [true],
+        ],
+        [
+            'flag details that are not an object keep the flag',
+            { pageFlags: { [FLAG]: true }, flagDetails: 'failed', steps: [succeeded()] },
+            [false],
+        ],
+        [
+            'flag details without the calendar flag keep the flag',
+            { pageFlags: { [FLAG]: true }, flagDetails: { 'other-flag': { failed: true } }, steps: [succeeded()] },
+            [false],
+        ],
+        [
+            'a calendar flag detail that is not an object keeps the flag',
+            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: null }, steps: [succeeded()] },
+            [false],
+        ],
+        [
+            'a failed marker that is not a boolean keeps the flag',
+            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: { failed: 'true' } }, steps: [succeeded()] },
+            [false],
+        ],
+        [
             'a failed load on a page without the identity object keeps the stored flag',
             { pageFlags: 'no page object', steps: [failed({ [FLAG]: true })] },
             [true],
@@ -131,16 +167,20 @@ describe('adventCalendarAccessLogic', () => {
             { pageFlags: { [FLAG]: 'true' }, steps: [failed()] },
             [false],
         ],
-    ])('%s', (_name, { pageFlags, errorsBeforeMount, steps }, expected) => {
+    ])('%s', (_name, { pageFlags, errorsBeforeMount, flagDetails, steps }, expected) => {
         if (pageFlags !== 'no page object') {
             window.POSTHOG_USER_IDENTITY_WITH_FLAGS = { distinctID: 'person-1', featureFlags: pageFlags }
         }
         if (errorsBeforeMount !== undefined) {
             window.POSTHOG_GLOBAL_ERRORS = { onFeatureFlagsLoadError: true }
-            jest.mocked(posthog.get_property).mockImplementation((key) =>
-                key === '$feature_flag_errors' ? errorsBeforeMount : undefined
-            )
         }
+        jest.mocked(posthog.get_property).mockImplementation((key) =>
+            key === '$feature_flag_errors'
+                ? errorsBeforeMount
+                : key === '$feature_flag_details'
+                  ? flagDetails
+                  : undefined
+        )
         initKeaTests()
         const logic = adventCalendarAccessLogic()
         logic.mount()
