@@ -58,13 +58,13 @@ from products.experiments.backend.temporal.models import (
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalculation.activities import calculate_experiment_metric_for_recalculation
-from products.experiments.backend.temporal.recalculation.discovery import _discover_experiment_metrics_sync
-from products.experiments.backend.temporal.recalculation.logic import (
+from products.experiments.backend.temporal.recalculation.attempt_records import _capacity_retry_delay_seconds
+from products.experiments.backend.temporal.recalculation.calculation import (
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
-    _capacity_retry_delay_seconds,
     _record_metric_out_of_time_failure_sync,
 )
+from products.experiments.backend.temporal.recalculation.discovery import _discover_experiment_metrics_sync
 from products.experiments.backend.temporal.recalculation.progress import _update_recalculation_progress_sync
 from products.experiments.backend.temporal.recalculation.run_state import RECALCULATION_PAUSED_ERROR_TYPE
 from products.experiments.backend.test.utils import patch_calculation_key_version
@@ -94,7 +94,7 @@ def _update(update: RecalculationProgressUpdate):
 
 
 def _record_out_of_time(failure: MetricOutOfTimeFailure) -> None:
-    with patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"):
+    with patch("products.experiments.backend.temporal.recalculation.calculation.close_old_connections"):
         _record_out_of_time_raw(failure)
 
 
@@ -110,7 +110,7 @@ def _calculate(
     calculation_key_version: int = 1,
     task_queue: str = "",
 ):
-    with patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"):
+    with patch("products.experiments.backend.temporal.recalculation.calculation.close_old_connections"):
         return _calculate_experiment_metric_for_recalculation_sync(
             experiment_id,
             metric_uuid,
@@ -127,7 +127,7 @@ def _calculate(
 
 @contextmanager
 def _patched_runner() -> Iterator[MagicMock]:
-    with patch("products.experiments.backend.temporal.recalculation.logic.ExperimentQueryRunner") as mock_runner:
+    with patch("products.experiments.backend.temporal.recalculation.calculation.ExperimentQueryRunner") as mock_runner:
         # A MagicMock in this attribute can't be stored in `metric_errors`.
         mock_runner.return_value.exposures_path = None
         yield mock_runner
@@ -976,7 +976,9 @@ class TestCalculateActivity(BaseTest):
 
         with (
             _patched_runner() as mock_runner,
-            patch("products.experiments.backend.temporal.recalculation.logic.random.uniform", return_value=47.5),
+            patch(
+                "products.experiments.backend.temporal.recalculation.attempt_records.random.uniform", return_value=47.5
+            ),
         ):
             mock_runner.return_value.run.side_effect = exc
             with pytest.raises((type(exc), ApplicationError)):
@@ -1139,8 +1141,10 @@ class TestCalculateActivity(BaseTest):
 
         with (
             _patched_runner() as mock_runner,
-            patch("products.experiments.backend.temporal.recalculation.logic.capture_exception") as mock_capture,
-            patch("products.experiments.backend.temporal.recalculation.logic.random.uniform", return_value=47.5),
+            patch("products.experiments.backend.temporal.recalculation.calculation.capture_exception") as mock_capture,
+            patch(
+                "products.experiments.backend.temporal.recalculation.attempt_records.random.uniform", return_value=47.5
+            ),
         ):
             mock_runner.return_value.run.side_effect = exc
 
@@ -1477,7 +1481,7 @@ class TestCalculateActivity(BaseTest):
         computed.model_dump.return_value = {"variant_results": []}
         with (
             patch(
-                "products.experiments.backend.temporal.recalculation.logic.ExperimentQueryRunner",
+                "products.experiments.backend.temporal.recalculation.calculation.ExperimentQueryRunner",
                 side_effect=change_settings_then_build_runner,
             ),
             patch.object(ExperimentQueryRunner, "run", return_value=computed),
@@ -1596,7 +1600,7 @@ class TestCalculateActivity(BaseTest):
 
         with (
             _patched_runner() as mock_runner,
-            patch("products.experiments.backend.temporal.recalculation.logic.capture_exception") as mock_capture,
+            patch("products.experiments.backend.temporal.recalculation.calculation.capture_exception") as mock_capture,
         ):
             mock_runner.return_value.run.side_effect = RuntimeError("x" * 5000)
             with pytest.raises(RuntimeError):
@@ -1620,8 +1624,8 @@ class TestCalculateActivity(BaseTest):
             seen["tags"] = get_query_tags().model_copy()
 
         with (
-            patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"),
-            patch("products.experiments.backend.temporal.recalculation.logic.cancel_query_on_cluster", _capture),
+            patch("products.experiments.backend.temporal.recalculation.calculation.close_old_connections"),
+            patch("products.experiments.backend.temporal.recalculation.calculation.cancel_query_on_cluster", _capture),
         ):
             _cancel_raw(str(recalc.id), "m1", 3)
 
@@ -1646,7 +1650,7 @@ class TestCapacityRetryDelay(SimpleTestCase):
         # and a sustained one is polled constantly. The cap keeps the sum of the waits inside the metric's
         # schedule_to_close budget.
         with patch(
-            "products.experiments.backend.temporal.recalculation.logic.random.uniform", return_value=low
+            "products.experiments.backend.temporal.recalculation.attempt_records.random.uniform", return_value=low
         ) as uniform:
             assert _capacity_retry_delay_seconds(attempt) == low
         uniform.assert_called_once_with(low, high)
@@ -1826,13 +1830,13 @@ class TestCalculateActivityCancellation:
         busy_default_executor.submit(calculations_running.wait)
         try:
             with (
-                patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"),
+                patch("products.experiments.backend.temporal.recalculation.calculation.close_old_connections"),
                 patch(
                     "products.experiments.backend.temporal.recalculation.run_state._get_recalc_state",
                     return_value=SimpleNamespace(team_id=1),
                 ),
                 patch(
-                    "products.experiments.backend.temporal.recalculation.logic.cancel_query_on_cluster",
+                    "products.experiments.backend.temporal.recalculation.calculation.cancel_query_on_cluster",
                     lambda team_id, query_id: killed.append(query_id),
                 ),
             ):
@@ -1851,7 +1855,7 @@ class TestCalculateActivityCancellation:
         try:
             with (
                 restored_asyncify_executor() as configure_asyncify_executor,
-                patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"),
+                patch("products.experiments.backend.temporal.recalculation.calculation.close_old_connections"),
                 patch(
                     "products.experiments.backend.temporal.recalculation.activities._cancel_metric_query_sync",
                     AsyncMock(),
@@ -2063,7 +2067,10 @@ class TestRecalculationAnalytics(BaseTest):
         with _record_captures() as captured:
             with (
                 _patched_runner() as mock_runner,
-                patch("products.experiments.backend.temporal.recalculation.logic.random.uniform", return_value=47.5),
+                patch(
+                    "products.experiments.backend.temporal.recalculation.attempt_records.random.uniform",
+                    return_value=47.5,
+                ),
             ):
                 mock_runner.return_value.run.side_effect = exc
                 with pytest.raises((type(exc), ApplicationError)):
