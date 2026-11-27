@@ -108,8 +108,9 @@ NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
 CAPTURE_V1_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_INTERNAL_ENDPOINT", "/i/v1/analytics/events")
 CAPTURE_V1_AI_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_AI_INTERNAL_ENDPOINT", "/i/v1/ai/events")
 CAPTURE_V1_INTERNAL_MAX_ATTEMPTS = get_from_env("CAPTURE_V1_INTERNAL_MAX_ATTEMPTS", type_cast=int, default=4)
-CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES = get_from_env(
-    "CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES", type_cast=int, default=0 if TEST else 3
+# First retry wait; it doubles per attempt. Zero under test, where no capture service runs.
+CAPTURE_V1_INTERNAL_RETRY_BASE_SECONDS = get_from_env(
+    "CAPTURE_V1_INTERNAL_RETRY_BASE_SECONDS", type_cast=float, default=0.0 if TEST else 0.1
 )
 CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
     "CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS", type_cast=float, default=5.0
