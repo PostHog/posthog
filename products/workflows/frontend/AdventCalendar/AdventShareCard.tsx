@@ -3,7 +3,7 @@ import './AdventShareCard.scss'
 
 import { forwardRef } from 'react'
 
-import { ADVENT_LAST_DAY, ADVENT_YEAR } from './adventContent'
+import { ADVENT_LAST_DAY } from './adventContent'
 import type { AdventGraph } from './adventGraph'
 import { adventPaletteStyle } from './adventPalette'
 import { AdventPictureBackdrop } from './AdventPictureBackdrop'
@@ -26,9 +26,9 @@ export const AdventShareCard = forwardRef<HTMLDivElement, AdventShareCardProps>(
                     <AdventPictureCast graph={graph} />
                 </div>
                 <div className="AdventShare__plaque">
-                    <span className="AdventShare__eyebrow">{`PostHog advent calendar ${ADVENT_YEAR}`}</span>
+                    <span className="AdventShare__eyebrow">{`${openCount} of ${ADVENT_LAST_DAY} doors open`}</span>
                     <span className="AdventShare__headline" translate="no">
-                        {`${openCount} of ${ADVENT_LAST_DAY} doors open`}
+                        A very merry PostHog
                     </span>
                     <span className="AdventShare__label">Made with PostHog Workflows</span>
                 </div>

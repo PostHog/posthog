@@ -1,55 +1,13 @@
 import posthog from 'posthog-js'
-import type { ReactNode } from 'react'
-
-import {
-    ContextMenu,
-    ContextMenuCheckboxItem,
-    ContextMenuContent,
-    ContextMenuGroup,
-    ContextMenuItem,
-    ContextMenuLabel,
-    ContextMenuRadioGroup,
-    ContextMenuRadioItem,
-    ContextMenuSeparator,
-    ContextMenuSub,
-    ContextMenuSubContent,
-    ContextMenuSubTrigger,
-    ContextMenuTrigger,
-} from '@posthog/quill'
 
 import { downloadImageAction } from '../../dashboard/actions/dashboardImage'
-import { type DashboardState, useDashboard } from '../../dashboard/dashboardContext'
+import { type DashboardState, useDashboard } from '../../dashboard/core/dashboardContext'
 import { type SavedPanel, type SectionPanel, gridTabs, panelRef } from '../../dashboard/document/dashboardTypes'
 import { everyTile } from '../../dashboard/document/tileTree'
 import type { DashboardEdit } from '../../dashboard/edits/dashboardEdits'
 import type { MenuAction } from '../../menu/menuAction'
-import { MenuActionList, type MenuParts } from '../../menu/MenuActionList'
 import { findPanel } from '../../panels/core/panelSpec'
-import { backgroundColorAction, showAction } from '../../presentation/tileAppearance'
-
-const CONTEXT_MENU_PARTS: MenuParts = {
-    Group: ContextMenuGroup,
-    Label: ContextMenuLabel,
-    Separator: ContextMenuSeparator,
-    Item: ContextMenuItem,
-    CheckboxItem: ContextMenuCheckboxItem,
-    Sub: ContextMenuSub,
-    SubTrigger: ContextMenuSubTrigger,
-    SubContent: ContextMenuSubContent,
-    RadioGroup: ContextMenuRadioGroup,
-    RadioItem: ContextMenuRadioItem,
-}
-
-function isUsable(action: MenuAction): boolean {
-    if (action.disabledReason) {
-        return false
-    }
-    return action.submenu ? action.submenu.some(isUsable) : true
-}
-
-export function hasTileMenu(actions: MenuAction[]): boolean {
-    return actions.some(isUsable)
-}
+import { backgroundColorAction, showAction } from './appearanceActions'
 
 /**
  * What a content tile does to itself: its image, parts, background and the panel type's own entries, such as a chart's
@@ -224,33 +182,4 @@ export function useSectionPlacementActions(id: string, panel: SectionPanel): Men
         },
     ]
     return tilePlacementActions ? tilePlacementActions(actions, { id, panel }) : actions
-}
-
-/**
- * Opens the tile's actions on right-click. When the person may use none of them, it renders the children alone so the
- * browser's own menu still shows.
- */
-export function TileContextMenu({ actions, children }: { actions: MenuAction[]; children: ReactNode }): JSX.Element {
-    if (!hasTileMenu(actions)) {
-        return <>{children}</>
-    }
-    return (
-        <ContextMenu>
-            <ContextMenuTrigger
-                render={
-                    // A tile inside a section has its own menu, so its right-click must not also open the section's.
-                    <div
-                        className="TileContextMenu__trigger contents"
-                        onContextMenu={(event) => event.stopPropagation()}
-                    />
-                }
-            >
-                {children}
-            </ContextMenuTrigger>
-            {/* Returning focus to the trigger would blur a rename input the menu just opened. */}
-            <ContextMenuContent finalFocus={false}>
-                <MenuActionList actions={actions} parts={CONTEXT_MENU_PARTS} />
-            </ContextMenuContent>
-        </ContextMenu>
-    )
 }

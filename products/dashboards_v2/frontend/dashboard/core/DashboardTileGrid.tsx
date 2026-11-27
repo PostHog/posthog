@@ -2,29 +2,29 @@ import './DashboardTileGrid.css'
 
 import { memo, useCallback, useContext, useRef } from 'react'
 
-import { useDashboard } from '../dashboard/dashboardContext'
-import { type SavedPanel, type Tile, type TilePlace, isSectionPanel } from '../dashboard/document/dashboardTypes'
-import { findTile } from '../dashboard/document/tileTree'
-import type { DropTarget } from '../grid/drag/dropTargets'
-import { type OnSectionRows, TileGrid } from '../grid/TileGrid'
-import { CapturingTileContext, TileMountContext, useTileMounted } from '../grid/tileMounting'
-import type { PanelType } from '../panels/core/panelDefinition'
-import { findPanel } from '../panels/core/panelSpec'
-import { PanelCard } from './card/PanelCard'
-import { PanelCardPlaceholder } from './card/PanelCardPlaceholder'
-import { useContentTileActions, useContentTilePlacementActions } from './menu/TileContextMenu'
-import { type SectionGridProps, SectionTile } from './SectionTile'
+import type { DropTarget } from '../../grid/drag/dropTargets'
+import { type OnSectionRows, TileGrid } from '../../grid/TileGrid'
+import { CapturingTileContext, TileMountContext, useTileMounted } from '../../grid/tileMounting'
+import type { PanelType } from '../../panels/core/panelDefinition'
+import { findPanel } from '../../panels/core/panelSpec'
+import { ContentTile } from '../../tiles/core/ContentTile'
+import { ContentTilePlaceholder } from '../../tiles/core/ContentTilePlaceholder'
+import { useContentTileActions, useContentTilePlacementActions } from '../../tiles/menu/tileMenuActions'
+import { type SectionGridProps, SectionTile } from '../../tiles/SectionTile'
+import { type SavedPanel, type Tile, type TilePlace, isSectionPanel } from '../document/dashboardTypes'
+import { findTile } from '../document/tileTree'
+import { useDashboard } from './dashboardContext'
 
-type ContentTileProps = {
+type DashboardContentTileProps = {
     id: string
     panel: SavedPanel
     editable: boolean
 }
 
-type WindowedContentTileProps = ContentTileProps & { panels: PanelType[] }
+type WindowedContentTileProps = DashboardContentTileProps & { panels: PanelType[] }
 
 // Kept apart from `WindowedContentTile`, so a tile reads the dashboard state only once its card mounts.
-function ContentTile({ id, panel, editable }: ContentTileProps): JSX.Element {
+function DashboardContentTile({ id, panel, editable }: DashboardContentTileProps): JSX.Element {
     const { panels, disabledReasonFor, onEdit } = useDashboard()
     const actions = useContentTileActions(id, panel)
     const placementActions = useContentTilePlacementActions(id, panel)
@@ -35,7 +35,7 @@ function ContentTile({ id, panel, editable }: ContentTileProps): JSX.Element {
     onEditRef.current = onEdit
     const setConfig = useCallback((config: unknown) => onEditRef.current({ edit: 'setPanelConfig', id, config }), [id])
     return (
-        <PanelCard
+        <ContentTile
             panel={panel}
             panels={panels}
             actions={actions}
@@ -57,9 +57,9 @@ function WindowedContentTile({ id, panel, editable, panels }: WindowedContentTil
         <>
             <span ref={sentinel} aria-hidden className="DashboardTileGrid__sentinel" />
             {mounted ? (
-                <ContentTile id={id} panel={panel} editable={editable} />
+                <DashboardContentTile id={id} panel={panel} editable={editable} />
             ) : (
-                <PanelCardPlaceholder panel={panel} definition={findPanel(panels, panel.type)} editable={editable} />
+                <ContentTilePlaceholder panel={panel} definition={findPanel(panels, panel.type)} editable={editable} />
             )}
         </>
     )

@@ -6,13 +6,13 @@ import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
 import { PanelLoading } from '../../panels/core/PanelView'
-import { isPartShown } from '../../presentation/tileParts'
+import { isPartShown } from './tileParts'
 
 /**
  * What a tile shows before its card mounts: the card's header and the panel type's loading state, so a tile that
  * scrolls into view already looks like itself. It reads no dashboard state, so off-screen tiles stay cheap.
  */
-export function PanelCardPlaceholder({
+export function ContentTilePlaceholder({
     panel,
     definition,
     editable,
@@ -24,7 +24,7 @@ export function PanelCardPlaceholder({
     const showHeader = isPartShown(panel, 'header', panelSlots(definition))
     const Loading = definition?.Loading ?? PanelLoading
     return (
-        <Card size="sm" className={clsx('dash-PanelCard', editable && !showHeader && 'TileGrid__handle')} aria-busy>
+        <Card size="sm" className={clsx('dash-ContentTile', editable && !showHeader && 'TileGrid__handle')} aria-busy>
             {showHeader && (
                 <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                     <CardTitle className="TileGrid__text truncate">{panel.title}</CardTitle>

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { Button } from '@posthog/quill'
 
-import { dashboardSceneLogic } from './dashboardSceneLogic'
+import { savedDashboardLogic } from './savedDashboardLogic'
 
 const LABELS = {
     saved: 'Saved',
@@ -10,9 +10,9 @@ const LABELS = {
     saving: 'Saving…',
 }
 
-export function BoardSaveStatus(): JSX.Element | null {
-    const { saveState } = useValues(dashboardSceneLogic)
-    const { saveBoard } = useActions(dashboardSceneLogic)
+export function SaveStatus(): JSX.Element | null {
+    const { saveState } = useValues(savedDashboardLogic)
+    const { saveBoard } = useActions(savedDashboardLogic)
     // Without a board there is nothing to save, such as the fixture shown at `/dashboard-v2`.
     if (!saveState || saveState === 'conflict') {
         return null

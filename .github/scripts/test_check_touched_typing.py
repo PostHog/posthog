@@ -1,0 +1,263 @@
+from __future__ import annotations
+
+import sys
+import json
+import difflib
+import textwrap
+import importlib.util
+from datetime import date
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import pytest
+
+if TYPE_CHECKING:
+    from check_touched_typing import Report
+
+SCRIPT_PATH = Path(__file__).with_name("check_touched_typing.py")
+SPEC = importlib.util.spec_from_file_location("check_touched_typing", SCRIPT_PATH)
+assert SPEC is not None and SPEC.loader is not None
+check_touched_typing = importlib.util.module_from_spec(SPEC)
+sys.modules["check_touched_typing"] = check_touched_typing
+SPEC.loader.exec_module(check_touched_typing)
+
+OLD_MODULE = textwrap.dedent(
+    """
+    def untouched(a):
+        return a
+
+
+    def edited(a):
+        value = a
+        return value
+    """
+).lstrip()
+
+LEGACY_FUNCTION = "def legacy(a):\n    first = a\n    second = first + 1\n    third = second + 1\n    return third\n"
+
+
+def file_diff(path: str, before: str | None, after: str | None) -> str:
+    header = [f"diff --git a/{path} b/{path}"]
+    if before is None:
+        header.append("new file mode 100644")
+    header.append("--- /dev/null" if before is None else f"--- a/{path}")
+    header.append("+++ /dev/null" if after is None else f"+++ b/{path}")
+    body = difflib.unified_diff((before or "").splitlines(), (after or "").splitlines(), n=0, lineterm="")
+    return "\n".join([*header, *list(body)[2:]]) + "\n"
+
+
+def run(files: dict[str, tuple[str | None, str | None]]) -> Report:
+    diff = "".join(file_diff(path, before, after) for path, (before, after) in files.items())
+    sources = {path: after for path, (_, after) in files.items() if after is not None}
+    return check_touched_typing.build_report(diff, sources.get)
+
+
+def summary(report: Report) -> list[tuple[str, str, str]]:
+    return sorted((f.path, f.name, f.kind) for f in report.findings)
+
+
+@pytest.mark.parametrize(
+    "files,expected",
+    [
+        pytest.param(
+            {"posthog/thing.py": (OLD_MODULE, OLD_MODULE.replace("value = a", "value = a * 2"))},
+            [("posthog/thing.py", "edited", "edited")],
+            id="edit-inside-old-function-flags-only-that-function",
+        ),
+        pytest.param(
+            {"posthog/thing.py": (OLD_MODULE, OLD_MODULE + "\n\ndef added(a):\n    return a\n")},
+            [("posthog/thing.py", "added", "new")],
+            id="new-function-in-old-file",
+        ),
+        pytest.param(
+            {
+                "posthog/existing.py": (OLD_MODULE, OLD_MODULE.replace("value = a", "value = a * 2")),
+                "posthog/fresh.py": (None, "def fresh(a):\n    return a\n"),
+            },
+            [("posthog/existing.py", "edited", "edited"), ("posthog/fresh.py", "fresh", "new file")],
+            id="new-file-marker-stays-on-its-own-file",
+        ),
+        pytest.param(
+            {
+                "posthog/old_home.py": (OLD_MODULE, None),
+                "posthog/new_home.py": (None, OLD_MODULE),
+            },
+            [],
+            id="functions-moved-to-a-new-file-are-not-flagged",
+        ),
+        pytest.param(
+            {
+                "posthog/old_home.py": (LEGACY_FUNCTION, None),
+                "posthog/new_home.py": (None, LEGACY_FUNCTION.replace("first + 1", "first + 2")),
+            },
+            [("posthog/new_home.py", "legacy", "edited")],
+            id="a-moved-function-edited-in-a-new-file-is-not-new",
+        ),
+        pytest.param(
+            {
+                "posthog/old_home.py": ("class Old:\n    def __init__(self):\n        self.x = 1\n", None),
+                "posthog/new_home.py": (None, "class New:\n    def __init__(self):\n        self.y = 2\n"),
+            },
+            [("posthog/new_home.py", "__init__", "new file")],
+            id="a-shared-signature-alone-is-not-a-move",
+        ),
+        pytest.param(
+            {
+                "posthog/thing.py": (
+                    OLD_MODULE,
+                    OLD_MODULE.replace("    value = a", "    value = a\n    pass"),
+                ),
+                "posthog/other.py": ("def other() -> None:\n    pass\n", "def other() -> None:\n    return None\n"),
+            },
+            [("posthog/thing.py", "edited", "edited")],
+            id="a-body-edit-that-repeats-a-line-removed-elsewhere-still-counts",
+        ),
+        pytest.param(
+            {
+                "posthog/thing.py": (
+                    OLD_MODULE.replace("    value = a\n", "    value = a\n    print(value)\n"),
+                    OLD_MODULE,
+                )
+            },
+            [("posthog/thing.py", "edited", "edited")],
+            id="a-deletion-only-edit-counts",
+        ),
+        pytest.param(
+            {"posthog/fresh.py": (None, "def one_liner(a): return a\n")},
+            [("posthog/fresh.py", "one_liner", "new file")],
+            id="a-one-line-function-in-a-new-file",
+        ),
+        pytest.param(
+            {"posthog/fresh.py": (None, '"""Tokens generated by the SDK."""\n\n\ndef fresh(a):\n    return a\n')},
+            [("posthog/fresh.py", "fresh", "new file")],
+            id="a-docstring-that-says-generated-does-not-skip-the-file",
+        ),
+        pytest.param(
+            {
+                "posthog/thing.py": (
+                    OLD_MODULE,
+                    "class Holder:\n" + textwrap.indent(OLD_MODULE.replace("(a)", "(self, a)"), "    "),
+                )
+            },
+            [("posthog/thing.py", "edited", "edited"), ("posthog/thing.py", "untouched", "edited")],
+            id="a-signature-change-is-an-edit-even-when-the-body-only-moved",
+        ),
+        pytest.param(
+            {"posthog/thing.py": (OLD_MODULE, OLD_MODULE.replace("def edited(a):", "def edited(a: int) -> int:"))},
+            [],
+            id="annotating-a-touched-function-clears-it",
+        ),
+        pytest.param(
+            {
+                "posthog/thing.py": (
+                    'QUERY = """\n-- old comment\n"""\n' + OLD_MODULE,
+                    'QUERY = """\n++ new comment\n"""\n' + OLD_MODULE.replace("value = a", "value = a * 2"),
+                )
+            },
+            [("posthog/thing.py", "edited", "edited")],
+            id="changed-lines-that-look-like-file-headers",
+        ),
+        pytest.param(
+            {"posthog/tests/test_thing.py": (None, "def helper(a):\n    return a\n")},
+            [],
+            id="tests-are-skipped",
+        ),
+    ],
+)
+def test_touched_functions(files: dict[str, tuple[str | None, str | None]], expected: list) -> None:
+    assert summary(run(files)) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected_missing",  # an empty list means the function is not flagged
+    [
+        pytest.param(
+            "class A:\n    def m(self, a):\n        pass\n", ["parameter `a`", "return type"], id="self-exempt"
+        ),
+        pytest.param(
+            "class A:\n    @staticmethod\n    def m(a):\n        pass\n",
+            ["parameter `a`"],
+            id="staticmethod-return-off",
+        ),
+        pytest.param(
+            "class A:\n    def __init__(self, a: int):\n        pass\n", ["return type"], id="init-needs-none"
+        ),
+        pytest.param("def f(a):  # noqa: ANN001, ANN201\n    pass\n", [], id="noqa-on-def-line"),
+        pytest.param("def f(a):  # noqa: ANN001\n    pass\n", ["return type"], id="noqa-exempts-only-its-rule"),
+        pytest.param(
+            "# ruff: noqa: ANN401\ndef f(a):\n    pass\n",
+            ["parameter `a`", "return type"],
+            id="file-noqa-for-other-rules",
+        ),
+        pytest.param(
+            "# ruff: noqa: ANN201\ndef f(a):\n    pass\n", ["parameter `a`"], id="file-noqa-exempts-only-its-rule"
+        ),
+        pytest.param(
+            "from typing import overload\n@overload\ndef f(a: int) -> int: ...\ndef f(a):\n    return a\n",
+            [],
+            id="overload-implementation-skipped",
+        ),
+    ],
+)
+def test_annotation_rules_match_ruff(source: str, expected_missing: list[str]) -> None:
+    report = run({"posthog/thing.py": (None, source)})
+    missing = [f.missing for f in report.findings]
+    assert missing == ([expected_missing] if expected_missing else [])
+
+
+def test_any_and_ignore_deltas_skip_tests_prose_and_moves() -> None:
+    report = run(
+        {
+            "posthog/thing.py": (
+                "x: Any = 1  # type: ignore\n",
+                "x: dict[str, Any] = {}\ny: Any = 2\n# Any team member may call this.\n",
+            ),
+            "posthog/test/test_thing.py": (None, "z: Any = 3\n"),
+            "posthog/old_home.py": ("MOVED: Any = 4\n", None),
+            "posthog/new_home.py": (None, "MOVED: Any = 4\n"),
+            "posthog/gone.py": ("GONE: Any = 5\n", None),
+            "posthog/added.py": (None, "ADDED: Any = 6\n"),
+        }
+    )
+    assert (report.any_delta, report.ignore_delta) == (1, -1)
+
+
+@pytest.mark.parametrize(
+    "blocking_from,expected_exit,expected_outcome",
+    [
+        (date(2000, 1, 1), 1, "which fails the Python code quality job."),
+        (date.max, 0, f"which fails the Python code quality job from {date.max.isoformat()}."),
+    ],
+    ids=["after-the-blocking-date", "before-the-blocking-date"],
+)
+def test_new_file_findings_fail_only_after_the_date(
+    tmp_path: Path, blocking_from: date, expected_exit: int, expected_outcome: str
+) -> None:
+    report = run(
+        {
+            "posthog/existing.py": (OLD_MODULE, OLD_MODULE.replace("value = a", "value = a * 2")),
+            "posthog/fresh.py": (None, "def fresh(a):\n    return a\n"),
+        }
+    )
+    report_path = tmp_path / "report.json"
+    report_path.write_text(report.to_json(blocking_from))
+    assert check_touched_typing.enforce_new_files(str(report_path)) == expected_exit
+
+    section = json.loads(report_path.read_text())["section"]
+    assert section["status"] == "alert"
+    assert expected_outcome in section["body"]
+
+    edited_only = json.loads(report.to_json(date(2000, 1, 1)))
+    edited_only["findings"] = [f for f in edited_only["findings"] if f["kind"] != "new file"]
+    report_path.write_text(json.dumps(edited_only))
+    assert check_touched_typing.enforce_new_files(str(report_path)) == 0
+
+
+def test_github_annotation_escapes_an_author_controlled_path(capsys: pytest.CaptureFixture[str]) -> None:
+    report = run({"posthog/evil,line=1,title=Blocked::See PR.py": (None, "def fresh(a):\n    return a\n")})
+    check_touched_typing.print_github_annotations(report)
+    properties = capsys.readouterr().out.split("::")[1]
+    assert (
+        properties
+        == "warning file=posthog/evil%2Cline=1%2Ctitle=Blocked%3A%3ASee PR.py,line=1,title=Untyped function (new file)"
+    )

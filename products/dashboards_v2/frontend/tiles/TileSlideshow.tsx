@@ -5,10 +5,10 @@ import { useEffect } from 'react'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { Button, Dialog, DialogContent, DialogTitle } from '@posthog/quill'
 
-import { useDashboard } from '../dashboard/dashboardContext'
+import { useDashboard } from '../dashboard/core/dashboardContext'
 import { type SavedPanel, type Tile, isSectionPanel } from '../dashboard/document/dashboardTypes'
 import { inReadingOrder } from '../grid/layout/gridTiles'
-import { PanelCard } from './card/PanelCard'
+import { ContentTile } from './core/ContentTile'
 
 /** A tab's content tiles in the order a person reads them, the tiles in a section where the section sits. */
 function contentTilesInOrder(tiles: Tile[]): { id: string; panel: SavedPanel }[] {
@@ -47,7 +47,7 @@ export function TileSlideshow(): JSX.Element {
         <Dialog open={!!panel} onOpenChange={(open) => !open && showSlideshow(null)}>
             <DialogContent size="wide" className="TileSlideshow" data-attr="dashboard-v2-tile-slideshow">
                 <DialogTitle className="sr-only">{panel?.title || 'Tile'}</DialogTitle>
-                {panel && <PanelCard panel={panel} panels={panels} />}
+                {panel && <ContentTile panel={panel} panels={panels} />}
                 <Button
                     size="icon"
                     variant="outline"
