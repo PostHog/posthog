@@ -241,4 +241,95 @@ describe('SesTransport', () => {
             }).toEqual({ outcome: 'before_connect', message: expect.stringContaining(reason), counted: 1 })
         }
     )
+    const answerSesError = (response: ServerResponse, status: number, errorType: string): void => {
+        response
+            .writeHead(status, {
+                'content-type': 'application/json',
+                'x-amzn-errortype': errorType,
+                connection: 'close',
+            })
+            .end(JSON.stringify({ message: errorType }))
+    }
+
+    const SES = ['127.0.0.1']
+    const NOTHING_LISTENS = ['127.0.0.2', '127.0.0.3']
+    const internalFailure = [500, 'InternalFailure'] as const
+    const throttle = [429, 'TooManyRequestsException'] as const
+    const throttledRetryOfAPossiblySentEmail = {
+        kind: 'unknown',
+        message:
+            'SES throttled a retry after an earlier attempt that may have sent the email, so it is not sent again.',
+    }
+
+    it.each([
+        [
+            'answers 500, then throttles both retries',
+            [SES],
+            [internalFailure, throttle, throttle],
+            throttledRetryOfAPossiblySentEmail,
+            1,
+        ],
+        [
+            'answers 500, every address refuses the next connection, then SES throttles the last retry',
+            [SES, NOTHING_LISTENS, SES],
+            [internalFailure, throttle],
+            throttledRetryOfAPossiblySentEmail,
+            1,
+        ],
+        [
+            'every address refuses the first connection, then SES throttles both retries',
+            [NOTHING_LISTENS, SES],
+            [throttle, throttle],
+            {
+                kind: 'not_sent',
+                reason: 'throttled',
+                errorName: 'TooManyRequestsException',
+                message: 'TooManyRequestsException',
+            },
+            0,
+        ],
+    ])(
+        'when %s, an email without files ends as the attempts that may have reached SES say',
+        async (_name, addressesForEachLookup, answers, expectedOutcome, countedAsMayHaveSent) => {
+            const requests: number[] = []
+            const port = await listen(
+                createServer((request, response) => {
+                    request.resume()
+                    request.on('end', () => {
+                        const [status, errorType] = answers[requests.length]
+                        requests.push(status)
+                        answerSesError(response, status, errorType)
+                    })
+                })
+            )
+            let lookups = 0
+            lookupAnswers('ses.example.test', (options, callback) =>
+                loopbackAddresses(...addressesForEachLookup[Math.min(lookups++, addressesForEachLookup.length - 1)])(
+                    options,
+                    callback
+                )
+            )
+            const options = {
+                region: 'us-east-1',
+                endpoint: `http://ses.example.test:${port}`,
+                credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },
+                retryStrategy: retriesTwice,
+            }
+            transport = new SesTransport(options)
+            const labels = { result: 'may_have_sent' }
+            const before = await metricValue('cdp_ses_send_results_total', labels)
+
+            const outcome = await transport.send({ email })
+
+            expect({
+                outcome,
+                answered: requests,
+                counted: (await metricValue('cdp_ses_send_results_total', labels)) - before,
+            }).toEqual({
+                outcome: expectedOutcome,
+                answered: answers.map(([status]) => status),
+                counted: countedAsMayHaveSent,
+            })
+        }
+    )
 })
