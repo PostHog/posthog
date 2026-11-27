@@ -1,8 +1,9 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 
 use common_kafka_consumer::{Charge, GroupCompletion, Partition, TopicPartition};
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, Gauge};
 use rdkafka::message::Message;
 use tokio::time::Instant;
 
@@ -18,7 +19,7 @@ pub(crate) struct ContinuousPolling {
     collector: Collector,
     settlement: Arc<GroupSettlement>,
     uncommitted: UncommittedCharges,
-    processed: ProcessedTimestamps,
+    commit_progress: CommitProgress,
     completed_polls: CompletedPolls,
     limits: ChargeLimit,
     at_limit: bool,
@@ -32,7 +33,7 @@ impl ContinuousPolling {
             collector: Collector::new(parts.limits),
             settlement: parts.settlement,
             uncommitted: UncommittedCharges::default(),
-            processed: ProcessedTimestamps::new(parts.group_id),
+            commit_progress: CommitProgress::new(parts.group_id),
             completed_polls: CompletedPolls::new(parts.debug_recorder),
             limits,
             at_limit: false,
@@ -122,7 +123,7 @@ impl PollingStrategy for ContinuousPolling {
 
     fn on_submitted(&mut self, poll: InFlightPoll) {
         self.uncommitted.record_poll(&poll);
-        self.processed.record_poll(&poll);
+        self.commit_progress.record_poll(&poll);
         self.completed_polls.record_poll(&poll);
     }
 
@@ -133,8 +134,10 @@ impl PollingStrategy for ContinuousPolling {
             } else {
                 self.settlement.take_all()
             };
+            let commit = commit.map(|commit| self.record_commit(commit));
+            self.commit_progress.report_age(now.into_std());
             if let Some(commit) = commit {
-                return Some(Step::Commit(self.record_commit(commit)));
+                return Some(Step::Commit(commit));
             }
         }
         if let Some(collected) = self.collector.take_ready(now) {
@@ -147,54 +150,98 @@ impl PollingStrategy for ContinuousPolling {
 impl ContinuousPolling {
     fn record_commit(&mut self, commit: Commit) -> Commit {
         self.uncommitted.record_commit(&commit);
-        self.processed.record_commit(&commit);
+        self.commit_progress.record_commit(&commit);
         commit
     }
 
     fn forget_partitions(&mut self, topic_partitions: &[TopicPartition]) {
         let building = self.collector.remove_partitions(topic_partitions) as u64;
         self.uncommitted.forget(topic_partitions);
-        self.processed.forget(topic_partitions);
+        self.commit_progress.forget(topic_partitions);
         self.completed_polls.forget(topic_partitions);
         report_revoked(building);
     }
 }
 
-struct ProcessedTimestamps {
-    group_id: String,
-    partitions: HashMap<TopicPartition, VecDeque<SubmittedSlice>>,
+const COMMIT_AGE: &str = "ingestion_consumer_partition_commit_age_seconds";
+const COMMIT_AGE_MAX: &str = "ingestion_consumer_partition_commit_age_max_seconds";
+
+/// Each partition's submitted poll slices that no commit has passed yet.
+struct CommitProgress {
+    group_id: Arc<str>,
+    partitions: HashMap<TopicPartition, PartitionSlices>,
+    commit_age_max: Gauge,
+}
+
+struct PartitionSlices {
+    topic: Arc<str>,
+    partition: Arc<str>,
+    slices: VecDeque<SubmittedSlice>,
+    commit_age: Gauge,
+}
+
+impl PartitionSlices {
+    fn new(topic_partition: &TopicPartition) -> Self {
+        let topic: Arc<str> = Arc::from(topic_partition.topic.as_str());
+        let partition: Arc<str> = Arc::from(topic_partition.partition.to_string());
+        Self {
+            commit_age: gauge!(COMMIT_AGE, "topic" => topic.clone(), "partition" => partition.clone()),
+            topic,
+            partition,
+            slices: VecDeque::new(),
+        }
+    }
 }
 
 struct SubmittedSlice {
     last_offset: i64,
     latest_kafka_ts: i64,
+    submitted_at: std::time::Instant,
 }
 
-impl ProcessedTimestamps {
+impl CommitProgress {
     fn new(group_id: String) -> Self {
         Self {
-            group_id,
+            group_id: Arc::from(group_id),
             partitions: HashMap::new(),
+            commit_age_max: gauge!(COMMIT_AGE_MAX),
         }
     }
 
     fn record_poll(&mut self, poll: &InFlightPoll) {
-        for (topic_partition, deliveries) in &poll.partitions {
+        // A partition whose charge the ledger rejected never commits this
+        // slice, so recording it would grow its commit age forever.
+        for (topic_partition, deliveries) in poll.charged_partitions() {
             self.partitions
                 .entry(topic_partition.clone())
-                .or_default()
+                .or_insert_with(|| PartitionSlices::new(topic_partition))
+                .slices
                 .push_back(SubmittedSlice {
                     last_offset: deliveries.span.last,
                     latest_kafka_ts: deliveries.latest_kafka_ts,
+                    submitted_at: poll.dispatched_at,
                 });
         }
     }
 
+    fn report_age(&self, now: std::time::Instant) {
+        let mut max = Duration::ZERO;
+        for partition in self.partitions.values() {
+            let age = partition.slices.front().map_or(Duration::ZERO, |slice| {
+                now.saturating_duration_since(slice.submitted_at)
+            });
+            partition.commit_age.set(age.as_secs_f64());
+            max = max.max(age);
+        }
+        self.commit_age_max.set(max.as_secs_f64());
+    }
+
     fn record_commit(&mut self, commit: &Commit) {
         for (topic_partition, next_to_read) in &commit.offsets {
-            let Some(polls) = self.partitions.get_mut(topic_partition) else {
+            let Some(partition) = self.partitions.get_mut(topic_partition) else {
                 continue;
             };
+            let polls = &mut partition.slices;
             let mut latest = None;
             while polls
                 .front()
@@ -207,8 +254,8 @@ impl ProcessedTimestamps {
                 // Same name as the Node.js consumer's gauge, so one dashboard reads both.
                 gauge!(
                     "latest_processed_timestamp_ms",
-                    "topic" => topic_partition.topic.clone(),
-                    "partition" => topic_partition.partition.to_string(),
+                    "topic" => partition.topic.clone(),
+                    "partition" => partition.partition.clone(),
                     "groupId" => self.group_id.clone()
                 )
                 .set(latest as f64);
@@ -216,9 +263,13 @@ impl ProcessedTimestamps {
         }
     }
 
+    /// The `metrics` crate cannot delete a series, so a partition this pod no
+    /// longer owns reports an age of 0.
     fn forget(&mut self, topic_partitions: &[TopicPartition]) {
         for topic_partition in topic_partitions {
-            self.partitions.remove(topic_partition);
+            if let Some(partition) = self.partitions.remove(topic_partition) {
+                partition.commit_age.set(0.0);
+            }
         }
     }
 }
@@ -288,7 +339,7 @@ mod tests {
     use std::num::NonZeroU64;
 
     use common_kafka_consumer::Offset;
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 
     use super::super::harness::{completion, p, Harness};
     use super::*;
@@ -577,6 +628,83 @@ mod tests {
         harness.commit();
 
         assert_eq!(latest_processed(), Some(1_000.0));
+    }
+
+    /// Partition 0's commit age and the pod's maximum, keyed "0" and "max".
+    fn commit_ages(snapshotter: &Snapshotter) -> HashMap<String, f64> {
+        let mut ages = HashMap::new();
+        for (key, _, _, value) in snapshotter.snapshot().into_vec() {
+            let DebugValue::Gauge(age) = value else {
+                continue;
+            };
+            let series = match key.key().name() {
+                COMMIT_AGE => key
+                    .key()
+                    .labels()
+                    .find(|label| label.key() == "partition")
+                    .expect("a partition label")
+                    .value()
+                    .to_string(),
+                COMMIT_AGE_MAX => "max".to_string(),
+                _ => continue,
+            };
+            ages.insert(series, age.into_inner());
+        }
+        ages
+    }
+
+    fn partition_0_age(seconds: f64) -> HashMap<String, f64> {
+        HashMap::from([("0".to_string(), seconds), ("max".to_string(), seconds)])
+    }
+
+    enum HeldUntil {
+        TheOldestPollCommits,
+        ThePartitionIsRevoked,
+    }
+
+    #[rstest::rstest]
+    #[case::the_oldest_poll_commits(HeldUntil::TheOldestPollCommits)]
+    #[case::the_partition_is_revoked(HeldUntil::ThePartitionIsRevoked)]
+    fn a_partition_reports_the_commit_age_of_its_oldest_poll(#[case] held_until: HeldUntil) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0]);
+        harness.receive(1, &[0]);
+        harness.after_the_batch_timeout();
+        harness.submit_with_a_stale_charge_on(&[1]);
+        let oldest = harness.now;
+        harness.now += Duration::from_secs(10);
+        harness.receive(0, &[1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        let newer = harness.now;
+
+        harness.now += Duration::from_secs(20);
+        harness.poller.on_ticked();
+        harness.step();
+        assert_eq!(
+            commit_ages(&snapshotter),
+            partition_0_age((harness.now - oldest).as_secs_f64()),
+            "a tick reports the oldest poll while nothing commits, and the rejected partition 1 has no age"
+        );
+
+        harness.now += Duration::from_secs(30);
+        let expected = match held_until {
+            HeldUntil::TheOldestPollCommits => {
+                harness.complete(0, &[0]);
+                harness.commit();
+                partition_0_age((harness.now - newer).as_secs_f64())
+            }
+            HeldUntil::ThePartitionIsRevoked => {
+                harness.revoke(0);
+                harness.poller.on_ticked();
+                harness.step();
+                partition_0_age(0.0)
+            }
+        };
+        assert_eq!(commit_ages(&snapshotter), expected);
     }
 
     #[test]

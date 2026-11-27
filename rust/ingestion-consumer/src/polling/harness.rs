@@ -123,7 +123,7 @@ impl<P: PollingStrategy> Harness<P> {
         self.submitted += 1;
         self.poller.on_submitted(InFlightPoll {
             poll_id,
-            dispatched_at: std::time::Instant::now(),
+            dispatched_at: self.now.into_std(),
             partitions,
             uncommitted,
         });

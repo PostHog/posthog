@@ -194,7 +194,19 @@ async fn async_main(config: Config) -> Result<()> {
                     0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0,
                 ],
             )
-            .expect("request_duration buckets");
+            .expect("request_duration buckets")
+            .set_buckets_for_metric(
+                Matcher::Full("ingestion_consumer_request_keys".into()),
+                &[1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0],
+            )
+            .expect("request_keys buckets")
+            .set_buckets_for_metric(
+                Matcher::Full("ingestion_consumer_budget_pause_seconds".into()),
+                &[
+                    1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1_200.0, 1_800.0,
+                ],
+            )
+            .expect("budget_pause buckets");
 
         // Global default labels (match the Node.js `initializePrometheusLabels`
         // defaults): every metric carries ingestion_pipeline / ingestion_lane so

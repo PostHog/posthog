@@ -1,8 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use common_kafka_consumer::{Charge, TopicPartition};
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use tracing::info;
 
 use super::{Admission, HandedOut, Pause};
@@ -10,18 +12,27 @@ use crate::partition_budget::BudgetLimits;
 
 const PAUSED_PARTITIONS: &str = "ingestion_consumer_budget_paused_partitions";
 const PAUSES: &str = "ingestion_consumer_budget_pauses_total";
+const PAUSE_SECONDS: &str = "ingestion_consumer_budget_pause_seconds";
+
+type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;
 
 pub(crate) struct PartitionBudget {
     limits: BudgetLimits,
-    paused: Mutex<HashSet<TopicPartition>>,
+    paused: Mutex<HashMap<TopicPartition, Instant>>,
+    clock: Clock,
 }
 
 impl PartitionBudget {
     pub(super) fn new(limits: BudgetLimits) -> Self {
+        Self::with_clock(limits, Arc::new(Instant::now))
+    }
+
+    fn with_clock(limits: BudgetLimits, clock: Clock) -> Self {
         gauge!(PAUSED_PARTITIONS).set(0.0);
         Self {
             limits,
-            paused: Mutex::new(HashSet::new()),
+            paused: Mutex::new(HashMap::new()),
+            clock,
         }
     }
 }
@@ -32,8 +43,11 @@ impl Admission for PartitionBudget {
             return None;
         }
         let mut paused = self.paused.lock().unwrap();
-        if !paused.insert(topic_partition.clone()) {
-            return None;
+        match paused.entry(topic_partition.clone()) {
+            Entry::Occupied(_) => return None,
+            Entry::Vacant(entry) => {
+                entry.insert((self.clock)());
+            }
         }
         gauge!(PAUSED_PARTITIONS).set(paused.len() as f64);
         let topic: Arc<str> = Arc::from(topic_partition.topic.as_str());
@@ -48,8 +62,11 @@ impl Admission for PartitionBudget {
         let mut resume = Vec::new();
         for (topic_partition, handed_out) in handed_out {
             let uncommitted = handed_out.remaining.charge;
-            if paused.contains(topic_partition) && self.limits.resumes(uncommitted) {
-                paused.remove(topic_partition);
+            if !self.limits.resumes(uncommitted) {
+                continue;
+            }
+            if let Some(paused_at) = paused.remove(topic_partition) {
+                record_pause(paused_at, (self.clock)());
                 log_transition(topic_partition, "resume", uncommitted);
                 resume.push(topic_partition.clone());
             }
@@ -63,10 +80,16 @@ impl Admission for PartitionBudget {
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         let mut paused = self.paused.lock().unwrap();
         for topic_partition in topic_partitions {
-            paused.remove(topic_partition);
+            if let Some(paused_at) = paused.remove(topic_partition) {
+                record_pause(paused_at, (self.clock)());
+            }
         }
         gauge!(PAUSED_PARTITIONS).set(paused.len() as f64);
     }
+}
+
+fn record_pause(paused_at: Instant, ended_at: Instant) {
+    histogram!(PAUSE_SECONDS).record(ended_at.saturating_duration_since(paused_at).as_secs_f64());
 }
 
 fn log_transition(topic_partition: &TopicPartition, transition: &str, uncommitted: Charge) {
@@ -83,6 +106,7 @@ fn log_transition(topic_partition: &TopicPartition, transition: &str, uncommitte
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU64;
+    use std::time::Duration;
 
     use common_kafka_consumer::{Held, Offset};
     use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
@@ -189,17 +213,22 @@ mod tests {
     struct Recorded {
         paused_partitions: f64,
         pauses: HashMap<String, u64>,
+        pause_seconds: Vec<f64>,
     }
 
     fn recorded(snapshotter: &Snapshotter) -> Recorded {
         let mut recorded = Recorded {
             paused_partitions: f64::NAN,
             pauses: HashMap::new(),
+            pause_seconds: Vec::new(),
         };
         for (key, _, _, value) in snapshotter.snapshot().into_vec() {
             match (key.key().name(), value) {
                 (PAUSED_PARTITIONS, DebugValue::Gauge(value)) => {
                     recorded.paused_partitions = value.into_inner();
+                }
+                (PAUSE_SECONDS, DebugValue::Histogram(samples)) => {
+                    recorded.pause_seconds = samples.iter().map(|s| s.into_inner()).collect();
                 }
                 (PAUSES, DebugValue::Counter(count)) => {
                     let partition = key
@@ -222,27 +251,49 @@ mod tests {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
         let _guard = metrics::set_default_local_recorder(&recorder);
-        let budget = budget_of_10_events_resuming_under_8();
+        let now = Arc::new(Mutex::new(Instant::now()));
+        let clock = Arc::clone(&now);
+        let budget = PartitionBudget::with_clock(
+            BudgetLimits::new(NonZeroU64::new(10), None, 0.8).expect("valid limits"),
+            Arc::new(move || *clock.lock().unwrap()),
+        );
+        let advance = |seconds: u64| *now.lock().unwrap() += Duration::from_secs(seconds);
 
         budget.charged(&p0(), events(10));
         budget.charged(&p1(), events(10));
+        advance(10);
         budget.charged(&p0(), events(12));
         assert_eq!(
             recorded(&snapshotter),
             Recorded {
                 paused_partitions: 2.0,
                 pauses: HashMap::from([("0".to_string(), 1), ("1".to_string(), 1)]),
+                pause_seconds: Vec::new(),
             }
         );
 
+        advance(30);
         let resume = budget.handed_out(&HashMap::from([
             (p0(), handed_out(0)),
             (p1(), handed_out(9)),
         ]));
         assert_eq!(resume, vec![p0()]);
-        assert_eq!(recorded(&snapshotter).paused_partitions, 1.0);
+        let after_resume = recorded(&snapshotter);
+        assert_eq!(after_resume.paused_partitions, 1.0);
+        assert_eq!(
+            after_resume.pause_seconds,
+            vec![40.0],
+            "a charge while paused keeps the pause's start"
+        );
 
+        advance(60);
         budget.forget_partitions(&[p1()]);
-        assert_eq!(recorded(&snapshotter).paused_partitions, 0.0);
+        let after_revoke = recorded(&snapshotter);
+        assert_eq!(after_revoke.paused_partitions, 0.0);
+        assert_eq!(
+            after_revoke.pause_seconds,
+            vec![100.0],
+            "a revoke ends the pause it interrupts"
+        );
     }
 }
