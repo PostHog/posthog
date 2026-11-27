@@ -205,6 +205,12 @@ class TestCheckLaunch(TestCase):
                 _not_qualified(LaunchReason.NOT_STAGED_BEFORE, ReleasePath.ENABLED),
             ),
             (
+                "first_condition_saved_at_full",
+                _flag(),
+                _flag(_condition(100)),
+                _not_qualified(LaunchReason.NOT_STAGED_BEFORE, ReleasePath.CONDITIONS),
+            ),
+            (
                 "variant_rolled_out_from_staged_flag",
                 _flag(_condition(50), variants=SPLIT_50_50),
                 _flag(_condition(100), variants=SPLIT_ALL_A),

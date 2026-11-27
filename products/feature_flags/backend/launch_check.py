@@ -108,7 +108,7 @@ class _Side:
         )
 
     def is_staged(self) -> bool:
-        return self.has_enrollment or not self.conditions_reach_everyone
+        return self.has_enrollment or (bool(self.conditions) and not self.conditions_reach_everyone)
 
     def open_parts(self) -> set[tuple[str, int | None]]:
         parts: set[tuple[str, int | None]] = set()
