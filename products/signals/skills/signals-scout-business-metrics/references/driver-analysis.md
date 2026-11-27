@@ -14,6 +14,7 @@ Never widen a window past the grain's cap, and never drop the time predicate.
 - [Choosing dimensions](#choosing-dimensions)
 - [Detection](#detection)
 - [Decomposition](#decomposition)
+- [Concentration](#concentration)
 - [Reading the result](#reading-the-result)
 - [Correlating findings into a story](#correlating-findings-into-a-story)
 
@@ -23,16 +24,19 @@ The lens and the decomposition below are implemented in the bundled `scripts/len
 Skill files are not on disk in a run: fetch it with `llma-skill-file-get` (`file_path: scripts/lens.py`), write it to `/tmp/lens.py`, then pipe a request in.
 The sections that follow are the specification the script implements; read them to interpret a verdict, not to redo the arithmetic.
 
-One call judges many: send `{"requests": [<request>, ...]}` and read back a list of results in the same order, so a run judges every series due in one call and decomposes every dimension of a candidate in another.
+One call judges many: send `{"requests": [<request>, ...]}` and read back a list of results in the same order, so a run judges every series of every read in one call and decomposes every dimension of a candidate in another.
+Give each judge request a `name` (the series name); the result echoes it.
 
-Judge a series (daily, weekly, monthly or quarterly; `count_basis` when the series is a count, `counts` when the count basis is a parallel series):
+Judge a series (daily, weekly, monthly or quarterly; `count_basis` when the series is a count, `counts` when the count basis is a parallel series, `rate` when it is a rate):
 
 ```text
-echo '{"mode": "judge", "grain": "monthly", "series": [["2025-10-01", 980], ["2025-11-01", 1050], ...], "count_basis": true}' | python3 /tmp/lens.py
+echo '{"name": "orders", "mode": "judge", "grain": "monthly", "series": [["2025-10-01", 980], ["2025-11-01", 1050], ...], "count_basis": true}' | python3 /tmp/lens.py
 ```
 
-The response carries `period`, `value`, `expected`, `deviation_pct`, `bar_pct`, `report_bar_pct`, `clears_report_bar`, `step_verdict`, a `drift` block, `long_trend`, `seasonal_match` (period grains) and one overall `verdict` (`move`, `within`, `insufficient history`).
-A daily request also carries a `step` block with both medians; its top-level `expected` and `deviation_pct` are the 28-day median and the deviation from it, so the record fields read the same at every grain.
+The response carries a `step` block and a `drift` block, each with `expected`, `deviation_pct`, `bar_pct`, `report_bar_pct`, `clears_report_bar`, `verdict` and `windows`, and at the top level `period`, `value`, the step block's `expected`, `deviation_pct`, `bar_pct` and `report_bar_pct` (so the record fields read the same at every grain), `step_verdict`, `long_trend` and `seasonal_match` (period grains) and one overall `verdict` (`move`, `within`, `insufficient history`).
+The top-level `clears_report_bar` is true when **either** lens clears its report bar, and `report_lens` names which (`step` first, then `drift`, else null): a slow slide only the drift lens sees is as reportable as a step.
+`windows` is `{"cur": [first, last], "base": [first, last]}`, the period starts the lens compared; the decomposition reads exactly these.
+A daily step block also carries the same-weekday median.
 A period with a null value is dropped before scoring: a gap is missing data, not a zero.
 
 Decompose a move (`kind: sum` for a sum or count, `kind: ratio` for a ratio):
@@ -48,15 +52,18 @@ Feed the script at most 20 segments plus an `other` row.
 
 ## Windows per grain
 
-| Grain     | Series window     | Current (`cur`)                                                | Base (`base`)                                                                | Widen check               |
-| --------- | ----------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------- |
-| Daily     | 35 complete days  | The latest complete day, or the last 7 days for the drift lens | The 4 same weekdays before it, or the 4 prior weeks                          | 8 weeks, 63 days in total |
-| Weekly    | 13 closed weeks   | The latest closed week                                         | The 8 prior closed weeks                                                     | None                      |
-| Monthly   | 13 closed months  | The latest closed month                                        | The 6 prior closed months, plus the same month a year earlier when it exists | None                      |
-| Quarterly | 9 closed quarters | The latest closed quarter                                      | The 4 prior closed quarters                                                  | None                      |
+The series window is what a read covers; the comparison windows come from the lens result's `windows`, so two runs that decompose one move read the same periods and get the same shares.
 
+| Grain     | Series window     | Step: `cur` / `base`                                    | Drift: `cur` / `base`                            | Widen check               |
+| --------- | ----------------- | ------------------------------------------------------- | ------------------------------------------------ | ------------------------- |
+| Daily     | 35 complete days  | The latest complete day / the 4 same weekdays before it | The last 7 days / the 28 days before them        | 8 weeks, 63 days in total |
+| Weekly    | 13 closed weeks   | The latest closed week / the 3 weeks before it          | The last 3 weeks / the 3 weeks before them       | None                      |
+| Monthly   | 13 closed months  | The latest closed month / the 3 months before it        | The last 3 months / the 3 months before them     | None                      |
+| Quarterly | 9 closed quarters | The latest closed quarter / the 3 quarters before it    | The last 3 quarters / the 3 quarters before them | None                      |
+
+`base`, and a multi-period `cur`, are averaged per period (per day for the daily base), so `cur - base` is one period's change.
 A period is closed when its end is before today, and for a monthly or quarterly measure also when at least 5 (or 10) days have passed since, so late rows have posted.
-Pin `cur` and `base` to absolute dates in every query, so a `pending:` candidate decomposed later reads the same periods.
+Pin `cur` and `base` to the absolute dates of `windows` in every query, so a `pending:` candidate decomposed later reads the same periods.
 
 ## Insight-backed metrics
 
@@ -116,7 +123,7 @@ The right long-term home for a hint is a field on the catalog metric itself; unt
 A metric with its own dimension column (a `GROUP BY month, product`) needs no profile: that column is the dimension, and the decomposition reads the metric's own rows.
 
 For a metric without one, pick candidate columns by name first, from the referenced table's schema (`read-data-schema`), so the profile query stays small: plan, tier, country, region, currency, channel, product, payment method, customer type, status.
-Leave out identifiers (ids, emails, URLs, free text), time columns and amounts.
+Leave out identifiers (ids, emails, URLs, free text), time columns and amounts; an entity id is the [concentration](#concentration) lens's input, not a dimension.
 
 Profile every candidate in **one query** over the last 28 days, whatever the metric's grain, so two measures on one table share the profile:
 
@@ -139,6 +146,9 @@ Never build a multi-table join on a scheduled run.
 ## Detection
 
 ### The series
+
+This applies only to a series you read with your own SQL over a table.
+A SQL metric read through `data-catalog-metric-run` returns its whole history and takes no window, so it keeps no `series:` entry; judge its rows directly.
 
 The series lives in the `series:business_metrics:<measure>` scratchpad entry: the grain, the fill date, the last stored period, and `period:value` pairs for the last 35 days or 13 periods (and, for a metric with its own dimension column, the pairs per segment for the top 20 segments).
 Each run updates it in this order:
@@ -220,11 +230,16 @@ A rate that slides 4% a month never clears the step bar and still loses a fifth 
 Pass when `abs(drift_deviation) >= drift bar`.
 The trend adjustment keeps a steadily growing series quiet; the swing term keeps a volatile one quiet, because an average of 3 periods still carries noise and a flat series that swings 7% a month drifts 10% by chance.
 
+### Rates
+
+A rate (`rate: true`) keeps the same lenses with smaller floors under the swing term: the step bar is `max(0.03, 2 * swing)` and the drift bar `max(0.02, 1.5 * swing)` per period; daily, the step bar is `max(0.05, 3 * mad)` and the drift bar `max(0.03, 1.5 * mad)`, where `mad` is the median absolute deviation of the 28 days over their median, and a week is the daily average, not a sum.
+Invented example: a 12-month retention that moves about 1% a month has a 3% step bar and a 4.5% report bar, so a fall from 80% to 76% (−5%) is a report-grade move; under the count bar of 20% it would read "within" until retention fell below 64%.
+
 The 20-unit floor applies only to counts: send `count_basis: true` when the series is a count, or `counts` (a parallel count series) when the measure is money or a ratio; with neither, the script applies no floor.
 
 ## Decomposition
 
-Use the `cur` and `base` windows of the lens that passed.
+Use the `windows` of the result's `report_lens`, or of the lens that passed when neither clears the report bar.
 
 ### From the metric's own rows
 
@@ -282,6 +297,29 @@ Skip a segment with a zero denominator in either window, and note it.
 Before you trust a driver you are about to report, widen its base to the 8 prior weeks: run chart 2's query with three columns, `cur`, the 4-week base and the 8-week base (`/ 8`), 63 days in total, so the check and the chart are one read.
 A driver that holds against both bases is real.
 A driver that stays `remembered` or `pending` is not widened; skip the check in the 20M-to-200M tier and say so in the evidence.
+
+## Concentration
+
+A table with one row per entity and period (a customer-month revenue view, an account-week usage view) often has no low-cardinality column that explains a move, because the move is a few large accounts, not a segment.
+The concentration lens asks who carried it, in the full-method tier only, with one query for the top 20 entities and one for the totals, over the lens `windows`:
+
+```sql
+SELECT <entity> AS entity,
+       sumIf(<measure_column>, <cur condition>) / <cur periods> AS cur,
+       sumIf(<measure_column>, <base condition>) / <base periods> AS base,
+       cur - base AS delta
+FROM <table>
+WHERE <ts> >= '<base start>' AND <ts> < '<cur end>'
+GROUP BY entity
+ORDER BY abs(delta) DESC
+LIMIT 20
+```
+
+Take `total_cur` and `total_base` from the series itself, so the entities not listed still count, and feed `{"mode": "concentrate", "total_cur": ..., "total_base": ..., "entities": [...]}` to the script.
+The verdict is `concentrated` when at most 5 entities moving with the move carry 60% of it, and `top_entities` names them; otherwise `spread`.
+A concentrated move is a driver: record `bm_driver_dimension` as the entity column, `bm_driver_segments` as the entities, and title the report by the count ("Churned revenue up 35%, 70% from 3 accounts").
+Name an entity in the report by the identifier the table carries; do not look up a person's name or email to decorate it.
+For a churn or contraction measure, run it before profiling: losing a few large accounts is the common cause, and profiling cannot find it.
 
 ## Reading the result
 
