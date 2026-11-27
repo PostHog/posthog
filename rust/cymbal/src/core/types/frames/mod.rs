@@ -209,42 +209,36 @@ impl Frame {
     }
 }
 
+// The longest context line we keep, in characters. A longer line is cut and ends in a marker.
+const MAX_CONTEXT_LINE_CHARS: usize = 300;
+
+// Cuts the line before it copies anything. A source file or a sourcemap can hold a line of
+// hundreds of megabytes, and copying all of it to keep 300 characters would allocate that much
+// for every frame that points at it.
+fn constrain_context_line(line: &str) -> String {
+    match line.char_indices().nth(MAX_CONTEXT_LINE_CHARS) {
+        Some((cut, _)) => format!("{}...✂️", &line[..cut]),
+        None => line.to_string(),
+    }
+}
+
 impl ContextLine {
-    pub fn new(number: u32, line: impl ToString) -> Self {
-        let line = line.to_string();
-        // We limit context line length to 300 chars
-        let mut constrained: String = line.to_string().chars().take(300).collect();
-        if line.len() > constrained.len() {
-            constrained.push_str("...✂️");
-        }
+    pub fn new(number: u32, line: impl AsRef<str>) -> Self {
         // Use sanitize_source_line, not sanitize_string: source code indentation
         // (spaces, tabs) is meaningful and must not be collapsed.
         Self {
             number,
-            line: sanitize_source_line(constrained),
+            line: sanitize_source_line(constrain_context_line(line.as_ref())),
         }
     }
 
-    pub fn new_rel(baseline: u32, offset: i32, line: impl ToString) -> Self {
-        let line = line.to_string();
-        // We limit context line length to 300 chars
-        let mut constrained: String = line.to_string().chars().take(300).collect();
-        if line.len() > constrained.len() {
-            constrained.push_str("...✂️");
-        }
-
+    pub fn new_rel(baseline: u32, offset: i32, line: impl AsRef<str>) -> Self {
         let number = if offset >= 0 {
             baseline.saturating_add(offset as u32)
         } else {
             baseline.saturating_sub((-offset) as u32)
         };
-
-        // Use sanitize_source_line, not sanitize_string: source code indentation
-        // (spaces, tabs) is meaningful and must not be collapsed.
-        Self {
-            number,
-            line: sanitize_source_line(constrained),
-        }
+        Self::new(number, line)
     }
 }
 
@@ -334,7 +328,19 @@ impl From<Frame> for FrameData {
 
 #[cfg(test)]
 mod test {
-    use crate::frames::{Frame, RawFrame};
+    use crate::frames::{ContextLine, Frame, RawFrame};
+
+    #[test]
+    fn a_long_context_line_is_cut_at_a_character_boundary() {
+        let cases = [
+            ("x".repeat(300), "x".repeat(300)),
+            ("x".repeat(301), format!("{}...✂️", "x".repeat(300))),
+            ("é".repeat(301), format!("{}...✂️", "é".repeat(300))),
+        ];
+        for (line, expected) in cases {
+            assert_eq!(ContextLine::new(1, &line).line, expected);
+        }
+    }
 
     #[test]
     fn ensure_custom_frames_work() {
