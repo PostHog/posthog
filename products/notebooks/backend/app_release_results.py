@@ -25,7 +25,7 @@ def read_published_run_rows(team_id: int, notebook_id: UUID, run_id: UUID) -> li
     )
 
 
-def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[str, Any]) -> dict[str, list[list[Any]]]:
+def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[str, Any]) -> dict[str, Any]:
     displayed = {
         block["node_id"] for block in layout["blocks"] if block["kind"] == "cell" and block.get("display") != "source"
     }
@@ -51,7 +51,7 @@ def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[s
         .only("id", "team_id", "notebook_id", "node_id", "node_type", "status", "created_at", "envelope")
         .order_by("node_id")
     )
-    captured: dict[str, list[list[Any]]] = {}
+    captured: dict[str, Any] = {}
     remaining = MAX_RELEASE_RESULT_BYTES - 2
     for run in runs:
         key = str(run.pk)
@@ -64,12 +64,17 @@ def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[s
                 rows = sync_direct_run(run)
         else:
             rows = envelope.get("first_page")
-            if not isinstance(rows, list) or len(rows) <= 5:
-                continue
-        if rows is None:
+        if not isinstance(rows, list):
             continue
-        size = len(json.dumps({key: rows}, ensure_ascii=False, allow_nan=False).encode())
+        metadata = {
+            "node_id": run.node_id,
+            "columns": envelope.get("columns") or [],
+            "types": envelope.get("types") or [],
+            "row_count": envelope.get("row_count", len(rows)),
+        }
+        pinned = {key: rows, f"schema:{key}": metadata}
+        size = len(json.dumps(pinned, ensure_ascii=False, allow_nan=False).encode())
         if size <= remaining:
-            captured[key] = rows
+            captured.update(pinned)
             remaining -= size
     return captured

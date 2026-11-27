@@ -3098,12 +3098,17 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return JsonResponse({"results": comments})
 
     @extend_schema(operation_id="notebooks_all_activity_retrieve")
-    @action(methods=["GET"], url_path="activity", detail=False)
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: Request, **kwargs):
         page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
-            scope="Notebook", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+            scope="Notebook",
+            team_id=self.team_id,
+            limit=page_params.limit,
+            page=page_params.page,
+            exclude_change_field="app_view_grant",
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 

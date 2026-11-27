@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.cache import never_cache
 
 from rest_framework import serializers
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
@@ -56,10 +56,18 @@ class AppViewGrantResultSerializer(serializers.Serializer):
     expires_at = serializers.DateTimeField(allow_null=True, help_text="When this app-only grant expires.")
 
 
+class AppOutputProjectMember(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        if not view.team.all_users_with_access(user_uuids=[str(request.user.uuid)]).exists():
+            raise Http404()
+        return True
+
+
 class GrantedAppOutputView(APIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [
         IsAuthenticated,
+        AppOutputProjectMember,
         IPRestrictionsPermission,
         VerifiedDomainEnforcementPermission,
         TwoFactorEnforcementPermission,

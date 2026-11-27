@@ -792,6 +792,12 @@ CACHES: dict[str, dict[str, Any]] = {
     }
 }
 
+CACHES["notebook_app_outputs"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
 WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG = {
     **CACHES["default"],
     "OPTIONS": {

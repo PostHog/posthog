@@ -11,7 +11,8 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.token_bucket import BucketDecision
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookAppViewGrant
+from products.notebooks.backend.app_release_results import capture_published_sql_rows
+from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookAppViewGrant, NotebookNodeRun
 
 
 class TestNotebookAppViewAccess(APIBaseTest):
@@ -34,20 +35,31 @@ class TestNotebookAppViewAccess(APIBaseTest):
             ],
         }
         self.notebook = Notebook.objects.create(team=self.team, title="Weekly activation", app_published=layout)
+        run = NotebookNodeRun.objects.for_team(self.team.pk).create(
+            team=self.team,
+            notebook=self.notebook,
+            node_id="totals",
+            node_type="hogql",
+            status="done",
+            code="SELECT private_source",
+            envelope={"columns": ["Week", "Signups"], "first_page": [["Oct 12", 222]]},
+        )
+        markdown = f'Private notes\n\n<SQLV2 nodeId="totals" code="SELECT private_source" runId="{run.pk}" outputTab="results" />'
         self.release = NotebookAppRelease.objects.for_team(self.team.pk).create(
             team=self.team,
             notebook=self.notebook,
             revision=1,
             title="Weekly activation",
             layout=layout,
-            markdown='Private notes\n\n<SQLV2 nodeId="totals" code="SELECT private_source" outputTab="results" result={{"columns":["Week","Signups"],"first_page":[["Oct 12",222]]}} />',
+            markdown=markdown,
+            sql_rows=capture_published_sql_rows(self.notebook, markdown, layout),
             variables=[{"name": "hidden", "type": "string", "value": "private default"}],
         )
         self.management = f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/app_view_grants/"
 
     def grant(self) -> str:
         response = self.client.post(
-            self.management, {"email": self.recipient.email, "revision": self.release.revision}, format="json"
+            self.management, {"email": self.recipient.email.upper(), "revision": self.release.revision}, format="json"
         )
         assert response.status_code == 200, response.content
         return response.json()["url"]
@@ -73,6 +85,8 @@ class TestNotebookAppViewAccess(APIBaseTest):
         assert self.client.get(url.replace(f"/apps/{self.team.pk}/", f"/apps/{self.team.pk + 1}/")).status_code == 404
         assert self.client.post(self.management, {"email": self.user.email}, format="json").status_code == 403
         self.recipient.organization_memberships.all().delete()
+        self.organization.is_active = False
+        self.organization.save(update_fields=["is_active"])
         assert self.client.get(url).status_code == 404
 
     def test_expiry_revoke_and_unpublish_stop_existing_links(self) -> None:
@@ -154,7 +168,10 @@ class TestNotebookAppViewAccess(APIBaseTest):
 
     def test_chart_fallback_uses_pinned_rows_and_marks_an_incomplete_preview(self) -> None:
         self.release.markdown = '<SQLV2 nodeId="totals" code="SELECT 1" runId="published" result={{"columns":["period","count","private_note"],"first_page":[["Nov",1,"hidden"]],"row_count":2,"previewOnly":true}} />'
-        self.release.sql_rows = {"published": [["Nov", 1, "hidden"], ["Dec", 2, "hidden"]]}
+        self.release.sql_rows = {
+            "published": [["Nov", 1, "hidden"], ["Dec", 2, "hidden"]],
+            "schema:published": {"node_id": "totals", "columns": ["period", "count", "private_note"], "row_count": 2},
+        }
         self.release.save(update_fields=["markdown", "sql_rows"])
         url = self.grant()
         self.client.force_login(self.recipient)
@@ -173,4 +190,28 @@ class TestNotebookAppViewAccess(APIBaseTest):
         self.client.force_login(self.user)
         partial_url = self.grant()
         self.client.force_login(self.recipient)
-        self.assertContains(self.client.get(partial_url), "Only part")
+        self.assertContains(self.client.get(partial_url), "Republish this app")
+
+    def test_single_number_exposes_one_displayed_value(self) -> None:
+        run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+        self.release.markdown = (
+            f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery={{{{"display":"BoldNumber"}}}} />'
+        )
+        self.release.sql_rows[run_id].append(["Oct 19", 91])
+        self.release.save(update_fields=["markdown", "sql_rows"])
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        output = self.client.get(url)
+        self.assertContains(output, "Oct 12")
+        self.assertNotContains(output, "Oct 19")
+        self.assertNotContains(output, "222")
+
+    def test_grant_audits_are_scoped_to_the_notebook(self) -> None:
+        self.grant()
+        self.assertNotContains(
+            self.client.get(f"/api/projects/{self.team.pk}/notebooks/activity/"), self.recipient.email
+        )
+        self.assertContains(
+            self.client.get(f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/activity/"),
+            self.recipient.email,
+        )
