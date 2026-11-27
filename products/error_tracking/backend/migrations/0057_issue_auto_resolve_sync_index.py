@@ -1,5 +1,6 @@
-from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
+
+from posthog.migration_helpers import SafeAddIndexConcurrently
 
 
 class Migration(migrations.Migration):
@@ -7,7 +8,7 @@ class Migration(migrations.Migration):
     dependencies = [("error_tracking", "0056_issue_auto_resolve")]
 
     operations = [
-        AddIndexConcurrently(
+        SafeAddIndexConcurrently(
             model_name="errortrackingissue",
             index=models.Index(
                 fields=["team", "id"],
