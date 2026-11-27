@@ -483,8 +483,7 @@ export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOp
     const { stepCompletion, syncConfigLoading, syncConfig, latestImportRun } = useValues(customerIOImportLogic)
     const { showsAutomationImport } = useValues(providerImportLogic)
 
-    // The contacts step only shows with the `workflows-customerio-contacts-import` flag, and it reads topic
-    // preferences itself, so the CSV upload is only needed without it.
+    // The contacts step reads topic preferences itself, so the CSV upload is only needed without it.
     const offersContacts = provider.steps.some((step) => step.key === 'contacts')
     const visibleSteps = offersContacts ? STEPS_WITH_CONTACTS : STEPS_WITHOUT_CONTACTS
     const stepNumber = (step: CustomerIOStep): number => visibleSteps.indexOf(step) + 1
