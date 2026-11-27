@@ -28,6 +28,8 @@ from posthog.schema import IntervalType, LLMDetectorModel
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute import KillSwitchLevel
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -832,6 +834,7 @@ class TestRunInsight(SimpleTestCase):
     @parameterized.expand(
         [
             ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
+            ("too_many_bytes", CHQueryErrorTooManyBytes("Limit for bytes to read exceeded"), "too_expensive"),
             ("access_denied", TableAccessDeniedError("no access"), "access_denied"),
             ("unknown_table", QueryError("Unknown table `deleted_table`."), "broken_query"),
             ("invalid_query", ValidationError("Not supported.", code="unsupported_settings"), "broken_query"),
@@ -970,13 +973,25 @@ class TestRunInsight(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("cluster_memory", ClickHouseClusterMemoryLimitExceeded()),
-            ("internal_resolver", ResolutionError("Type already resolved for Field (FieldType). Can't run again.")),
-            ("unknown", RuntimeError("boom")),
+            ("cluster_memory", ClickHouseClusterMemoryLimitExceeded(), KillSwitchLevel.OFF),
+            (
+                "internal_resolver",
+                ResolutionError("Type already resolved for Field (FieldType). Can't run again."),
+                KillSwitchLevel.OFF,
+            ),
+            ("unknown", RuntimeError("boom"), KillSwitchLevel.OFF),
+            (
+                "too_many_bytes_under_kill_switch",
+                CHQueryErrorTooManyBytes("Limit for bytes to read exceeded"),
+                KillSwitchLevel.LIGHT,
+            ),
         ]
     )
-    def test_any_other_failure_raises_and_waits_an_hour(self, _name: str, error: Exception) -> None:
-        status, cooldowns, _metrics, pick_event = self._run(error)
+    def test_any_other_failure_raises_and_waits_an_hour(
+        self, _name: str, error: Exception, kill_switch: KillSwitchLevel
+    ) -> None:
+        with patch("posthog.hogql_queries.query_failure_handling.get_kill_switch_level", return_value=kill_switch):
+            status, cooldowns, _metrics, pick_event = self._run(error)
 
         assert status == "raised"
         assert SKIP_COOLDOWN not in cooldowns

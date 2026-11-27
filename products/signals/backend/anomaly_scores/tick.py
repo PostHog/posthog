@@ -26,6 +26,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -33,6 +34,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.hogql_queries.query_failure_handling import classify_failure
 from posthog.models import Team
 from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async
@@ -345,7 +347,7 @@ def plan_error_class(error: ActivityError) -> str:
     return type(cause).__name__ if cause is not None else type(error).__name__
 
 
-def failure_status(error: Exception) -> str | None:
+def failure_status(error: Exception, team_id: int) -> str | None:
     """The status of a known failure, or None for any other failure."""
     if isinstance(error, UnsupportedInsightError):
         return STATUS_UNSUPPORTED
@@ -359,6 +361,9 @@ def failure_status(error: Exception) -> str | None:
         ClickHouseQueryTimeOut | ClickHouseQueryMemoryLimitExceeded | ClickHouseEstimatedQueryExecutionTimeTooLong,
     ):
         return STATUS_TOO_EXPENSIVE
+    # Under a ClickHouse kill switch, the byte cap is temporary cluster protection, so a later tick can pass.
+    if isinstance(error, CHQueryErrorTooManyBytes):
+        return STATUS_TOO_EXPENSIVE if classify_failure(error, team_id) == "too_many_bytes" else None
     # A subclass of QueryError, so check it first.
     if isinstance(error, TableAccessDeniedError):
         return STATUS_ACCESS_DENIED
@@ -379,7 +384,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     try:
         result = _score_pick(input, now)
     except Exception as error:
-        status = failure_status(error)
+        status = failure_status(error, pick.team_id)
         duration_ms = round((time.monotonic() - started) * 1000)
         log = logger.info if status else logger.exception
         log(
