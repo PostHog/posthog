@@ -14,8 +14,7 @@ function metricsSeriesLabel(series: MetricsQuerySeries): string {
     return entries.length ? `${name} {${entries.map(([key, value]) => `${key}=${value}`).join(', ')}}` : name
 }
 
-/** Every series a metrics alert evaluates, mirroring `MetricsExtractor`: the alert fires if any series
- * breaches. `zeroFill` matches the backend, which counts PromQL and SQL gaps as 0; otherwise a gap is `NaN`. */
+/** Mirrors `MetricsExtractor`, which counts PromQL and SQL gaps as 0 (`zeroFill`). */
 export function deriveMetricsAlertPreviewSeries(
     response: Pick<MetricsQueryResponse, 'results'> | null | undefined,
     zeroFill: boolean
@@ -38,7 +37,6 @@ export function deriveMetricsAlertPreviewSeries(
     }
 }
 
-/** The P95 of every point across every series, rounded up to 3 significant figures; null when no point is finite. */
 export function metricsPreviewP95(preview: MetricsAlertPreviewSeries | null | undefined): number | null {
     const values = (preview?.rows ?? [])
         .flatMap((row) => row.data)
