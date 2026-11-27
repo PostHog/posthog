@@ -3,6 +3,11 @@ from products.error_tracking.backend.temporal.alerts import (
     WORKFLOWS as ALERT_WORKFLOWS,
     ErrorTrackingAlertDeliveryWorkflow,
 )
+from products.error_tracking.backend.temporal.auto_resolve import (
+    ACTIVITIES as AUTO_RESOLVE_ACTIVITIES,
+    WORKFLOWS as AUTO_RESOLVE_WORKFLOWS,
+    ErrorTrackingAutoResolveWorkflow,
+)
 from products.error_tracking.backend.temporal.built_in_filters_refresh import (
     ACTIVITIES as BUILT_IN_FILTERS_REFRESH_ACTIVITIES,
     WORKFLOWS as BUILT_IN_FILTERS_REFRESH_WORKFLOWS,
@@ -67,6 +72,7 @@ WORKFLOWS = (
     + ALERT_WORKFLOWS
     + BUILT_IN_FILTERS_REFRESH_WORKFLOWS
     + TAG_RULE_SWEEP_WORKFLOWS
+    + AUTO_RESOLVE_WORKFLOWS
 )
 ACTIVITIES = (
     SYMBOL_SET_ACTIVITIES
@@ -77,6 +83,7 @@ ACTIVITIES = (
     + ALERT_ACTIVITIES
     + BUILT_IN_FILTERS_REFRESH_ACTIVITIES
     + TAG_RULE_SWEEP_ACTIVITIES
+    + AUTO_RESOLVE_ACTIVITIES
 )
 
 __all__ = [
@@ -85,6 +92,7 @@ __all__ = [
     "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
     "ErrorTrackingAlertDeliveryWorkflow",
+    "ErrorTrackingAutoResolveWorkflow",
     "ErrorTrackingBuiltInFiltersRefreshWorkflow",
     "ErrorTrackingIssueChangeCleanupWorkflow",
     "ErrorTrackingIssueCreatedWorkflow",

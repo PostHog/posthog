@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from django.db import transaction
 from django.db.models import QuerySet
 
 import posthoganalytics
@@ -301,6 +300,7 @@ def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSe
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
         ai_issue_summaries_enabled=settings.ai_issue_summaries_enabled,
         ingestion_enabled=ingestion_enabled,
+        auto_resolve_after_days=settings.auto_resolve_after_days,
     )
 
 
@@ -324,12 +324,12 @@ def available_ai_features(team_id: int) -> list[contracts.ErrorTrackingAIFeature
     ]
 
 
+def auto_resolve_available(team_id: int) -> bool:
+    return team_flags.team_flag_enabled(team_flags.AUTO_RESOLVE_FLAG, team_id)
+
+
 def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
-    ingestion_enabled = fields.get("ingestion_enabled")
-    with transaction.atomic():
-        if isinstance(ingestion_enabled, bool):
-            logic.set_exception_ingestion_enabled(team_id, ingestion_enabled)
-        settings = logic.update_settings(team_id=team_id, fields=fields)
+    settings = logic.update_settings(team_id=team_id, fields=fields)
     return _to_settings(settings, logic.is_exception_ingestion_enabled(team_id))
 
 

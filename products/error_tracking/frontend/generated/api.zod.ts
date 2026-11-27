@@ -1231,6 +1231,8 @@ export const ErrorTrackingSentryMigrationProjectsCreateBody = /* @__PURE__ */ zo
         ),
 })
 
+export const errorTrackingSettingsUpdateSettingsPartialUpdateBodyAutoResolveAfterDaysMax = 365
+
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     adaptive_ingestion_enabled: zod
         .boolean()
@@ -1271,6 +1273,14 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .optional()
         .describe(
             "Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds."
+        ),
+    auto_resolve_after_days: zod
+        .number()
+        .min(1)
+        .max(errorTrackingSettingsUpdateSettingsPartialUpdateBodyAutoResolveAfterDaysMax)
+        .nullish()
+        .describe(
+            'Days without a new exception before an active issue resolves automatically. Observation starts when you turn on auto-resolve. Null turns it off.'
         ),
 })
 

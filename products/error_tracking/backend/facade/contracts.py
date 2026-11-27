@@ -280,6 +280,7 @@ class ErrorTrackingSettings:
     per_issue_rate_limit_bucket_size_minutes: int | None
     ai_issue_summaries_enabled: bool
     ingestion_enabled: bool
+    auto_resolve_after_days: int | None
 
 
 @dataclass(frozen=True)
