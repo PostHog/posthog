@@ -334,7 +334,7 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
             (configuration: PlatformAlertConfigurationApi | null): boolean =>
                 configuration !== null && canSnoozeGroups(configuration),
         ],
-        // The API refuses an edit to a source-owned alert (409). Its source product edits it.
+        // The API refuses an edit to a source-owned or insight alert (409). Its source product edits it.
         canEditRuleMetadata: [
             (s) => [s.configuration],
             (configuration: PlatformAlertConfigurationApi | null): boolean =>

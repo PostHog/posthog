@@ -87,6 +87,12 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
     alerts: [],
 }
 
+const DISABLED_LOGS_CONFIGURATION: PlatformAlertConfigurationApi = {
+    ...DISABLED_CONFIGURATION,
+    source_kind: 'logs',
+    source_config: CONFIGURATION.source_config,
+}
+
 const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ...CONFIGURATION,
     id: '0192a5b0-0000-7000-8000-000000000003',
@@ -273,6 +279,7 @@ const meta: Meta = {
                     ],
                 },
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
+                [`/api/projects/:team_id/platform_alerts/${DISABLED_CONFIGURATION.id}/`]: DISABLED_CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${ROUTED_CONFIGURATION.id}/`]: ROUTED_CONFIGURATION,
                 '/api/projects/:team_id/platform_alert_receivers/': RECEIVERS,
@@ -378,26 +385,32 @@ export const ListRowMenuDisabledAlertOpen: Story = {
                     count: 2,
                     next: null,
                     previous: null,
-                    results: [
-                        CONFIGURATION,
-                        {
-                            ...DISABLED_CONFIGURATION,
-                            source_kind: 'logs',
-                            source_config: CONFIGURATION.source_config,
-                        },
-                    ],
+                    results: [CONFIGURATION, DISABLED_LOGS_CONFIGURATION],
                 },
             },
         }),
     ],
     play: async ({ canvasElement }) => {
-        const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
+        const name = await within(canvasElement).findByText(DISABLED_LOGS_CONFIGURATION.name)
         name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
         await within(document.body).findByText('Enable alert')
         await userEvent.hover(
             document.body.querySelector<HTMLElement>('[data-attr="platform-alerts-row-snooze-1h"]') as HTMLElement
         )
         await within(document.body).findByText('Enable the alert first')
+    },
+}
+
+export const ListRowMenuInsightAlertOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Enable alert')
+        await userEvent.hover(
+            document.body.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-enabled"]') as HTMLElement
+        )
+        await within(document.body).findByText('Change this alert in Insight')
     },
 }
 
@@ -494,6 +507,10 @@ export const Detail: Story = {
 
 export const DetailGrouped: Story = {
     parameters: { pageUrl: urls.platformAlert(GROUPED_CONFIGURATION.id) },
+}
+
+export const DetailInsightAlert: Story = {
+    parameters: { pageUrl: urls.platformAlert(DISABLED_CONFIGURATION.id) },
 }
 
 export const DetailGroupedSnoozeMenuOpen: Story = {
