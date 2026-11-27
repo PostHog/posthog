@@ -689,6 +689,17 @@ class TestModelActivityMixinTeamScoping(BaseTest):
 
 
 class TestActivityLogVisibilityManager(BaseTest):
+    def test_grant_changes_stay_out_of_external_destinations(self) -> None:
+        log = ActivityLog.objects.create(
+            team_id=self.team.pk,
+            scope="Notebook",
+            activity="updated",
+            detail=Detail(changes=[Change(type="Notebook", action="created", field="app_view_grant")]),
+        )
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
+        log.refresh_from_db()
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
+
     @parameterized.expand(
         [
             # User login/logout - only impersonated sessions are restricted

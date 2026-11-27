@@ -3129,7 +3129,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             team_id=self.team_id,
             limit=page_params.limit,
             page=page_params.page,
-            exclude_change_field="app_view_grant",
             user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)

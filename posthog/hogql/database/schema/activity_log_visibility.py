@@ -28,7 +28,7 @@ _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES = (
 
 # Bumped whenever the compilation shape changes in a way the hashed inputs below cannot see, e.g. a rule
 # key starting to matter, or a predicate gaining a clause that reads a new column.
-_POLICY_SHAPE = 1
+_POLICY_SHAPE = 2
 
 
 @lru_cache(maxsize=1)
@@ -47,7 +47,10 @@ def activity_log_visibility_policy_version() -> str:
     material = json.dumps(
         {
             "shape": _POLICY_SHAPE,
-            "rules": [[rule["scope"], sorted(rule["activities"])] for rule in activity_visibility_restrictions],
+            "rules": [
+                [rule["scope"], sorted(rule["activities"]), rule.get("change_field")]
+                for rule in activity_visibility_restrictions
+            ],
             "scope_predicates": [_LOOP_ROWS_HIDDEN, _CANVAS_ROWS_HIDDEN, _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES],
         },
         sort_keys=True,
@@ -80,16 +83,21 @@ def activity_visibility_predicates(canvases_readable: bool) -> tuple[Expr, ...]:
     # Deferred to keep the ORM off this module's import path, as elsewhere in the schema layer.
     from posthog.models.activity_logging.activity_log import activity_visibility_restrictions  # noqa: PLC0415
 
-    compiled = [
-        parse_expr(
-            "NOT (scope = {scope} AND activity IN {activities})",
-            {
-                "scope": ast.Constant(value=rule["scope"]),
-                "activities": ast.Constant(value=list(rule["activities"])),
-            },
-        )
-        for rule in activity_visibility_restrictions
-    ]
+    compiled = []
+    for rule in activity_visibility_restrictions:
+        predicate = "NOT (scope = {scope} AND activity IN {activities})"
+        values: dict[str, ast.Expr] = {
+            "scope": ast.Constant(value=rule["scope"]),
+            "activities": ast.Constant(value=list(rule["activities"])),
+        }
+        if change_field := rule.get("change_field"):
+            predicate = (
+                "NOT (scope = {scope} AND activity IN {activities} AND "
+                "arrayExists(change -> JSONExtractString(change, 'field') = {change_field}, "
+                "JSONExtractArrayRaw(ifNull(detail, ''), 'changes')))"
+            )
+            values["change_field"] = ast.Constant(value=change_field)
+        compiled.append(parse_expr(predicate, values))
     compiled.append(parse_expr(_LOOP_ROWS_HIDDEN))
     compiled.append(parse_expr(_CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES if canvases_readable else _CANVAS_ROWS_HIDDEN))
     return tuple(compiled)
