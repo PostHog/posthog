@@ -10,11 +10,15 @@ export interface AnomalyChartWindow {
     dateTo: string
 }
 
+export type AnomalyVerdict = Pick<AnomalySeriesPointApi, 'anomaly_kind'> & { anomaly_reason: string }
+
 export interface AnomalyChartData {
     // ISO bucket starts, oldest first, one per checked bucket of the chart.
     labels: string[]
     // NaN where the bucket has no scored value.
     values: number[]
+    // The AI judge's verdict on a flagged bucket, or null where it gave no reason.
+    verdicts: (AnomalyVerdict | null)[]
     // Flagged buckets in the flag window, which put the series in the list.
     flaggedIndices: number[]
     // Flagged buckets before the flag window.
@@ -104,6 +108,7 @@ export function anomalyChartData(
     const flagFrom = dayjs(window.flagFrom)
     const labels = grid.map((bucket) => bucket.format())
     const values = grid.map(() => NaN)
+    const verdicts = grid.map((): AnomalyVerdict | null => null)
     const flaggedIndices: number[] = []
     const earlierFlaggedIndices: number[] = []
     pointSlots(grid, points).forEach((slot, index) => {
@@ -115,6 +120,9 @@ export function anomalyChartData(
         values[slot] = point.value ?? NaN
         if (!point.flag || point.value == null) {
             return
+        }
+        if (point.anomaly_reason) {
+            verdicts[slot] = { anomaly_kind: point.anomaly_kind, anomaly_reason: point.anomaly_reason }
         }
         if (dayjs(point.bucket_start).isBefore(flagFrom)) {
             earlierFlaggedIndices.push(slot)
@@ -129,6 +137,7 @@ export function anomalyChartData(
     return {
         labels,
         values,
+        verdicts,
         flaggedIndices,
         earlierFlaggedIndices,
         flagWindowStartIndex: flagWindowStartIndex === -1 ? null : flagWindowStartIndex,

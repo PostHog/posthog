@@ -26,7 +26,9 @@ use serde_json::{json, Value as JsonValue};
 use crate::context::Symbol;
 use crate::error::VmError;
 use crate::memory::VmHeap;
+use crate::print::{assert_repeats_fit, Cycles};
 use crate::values::{Callable, Closure, HogLiteral, HogValue, LocalCallable, Upvalue, UpvalueCell};
+use crate::vm::MAX_JSON_SERDE_DEPTH;
 
 /// A snapshot of a suspended VM, serializing to the reference VM's `VMState` JSON. Field names match
 /// the reference (camelCase) so a state produced here can be resumed by Node and vice versa.
@@ -196,6 +198,7 @@ pub fn close_over_cells(heap: &VmHeap, registry: &mut CellRegistry) -> Result<()
             }
         };
         if let Some(value) = snapshot {
+            assert_repeats_fit(heap, &value, MAX_JSON_SERDE_DEPTH, Cycles::Never)?;
             collect_cells(&value, heap, registry)?;
         }
         i += 1;

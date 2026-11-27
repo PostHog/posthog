@@ -30,7 +30,7 @@ When the project marks conversion goals with `use_in_recommendations` (set them 
 
 `conversionSource` says which conversions the CPAs counted for this response. `kind` is `posthog` when they count the PostHog conversions of the goals in `goalNames`, and `google_ads` when they count the conversions Google Ads reports, including when marked goals fell back. Say which one when you quote a CPA, for example "CPAs from your PostHog goals: Sign ups".
 
-`dataGaps` lists data the rules could not read or replaced. Mention each gap's `message`: it says when CPAs count the primary conversion actions instead of the selected ones, when they fall back to Google Ads conversions because PostHog conversions are not ready or cannot be counted, and when some PostHog conversions match no campaign. For those, call `marketing-analytics-utm-audit` to list the unmatched `utm_campaign` values.
+`dataGaps` lists data the rules could not read or replaced. Mention each gap's `message`: it says when CPAs count the primary conversion actions instead of the selected ones, when they fall back to Google Ads conversions because PostHog conversions are not ready or cannot be counted, when some PostHog conversions match no campaign, and when a large share of a campaign's spend has no search term in Google Ads, so search term savings can be higher than shown. For unmatched conversions, call `marketing-analytics-utm-audit` to list the unmatched `utm_campaign` values.
 
 Totals in different currencies come from different ad accounts. Never add them together.
 

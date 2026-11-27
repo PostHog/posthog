@@ -3148,6 +3148,11 @@
                     "csv": false
                 },
                 {
+                    "param": "current_prompts",
+                    "key": "current_prompts",
+                    "csv": false
+                },
+                {
                     "param": "date_from",
                     "key": "date_from",
                     "csv": false
@@ -3203,6 +3208,11 @@
                 {
                     "param": "branded",
                     "key": "branded",
+                    "csv": false
+                },
+                {
+                    "param": "current_prompts",
+                    "key": "current_prompts",
                     "csv": false
                 },
                 {
@@ -3504,6 +3514,38 @@
             "validators": []
         }
     },
+    "aeo-setup-cancel": {
+        "name": "aeo-setup-cancel",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/{id}/cancel/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "aeo-setup-context-get": {
         "name": "aeo-setup-context-get",
         "kind": "http",
@@ -3568,6 +3610,38 @@
             "validators": []
         }
     },
+    "aeo-setup-reset": {
+        "name": "aeo-setup-reset",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/reset/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "aeo-setup-start": {
         "name": "aeo-setup-start",
         "kind": "http",
@@ -3608,8 +3682,44 @@
                 {
                     "param": "activate_paused_prompts",
                     "key": "activate_paused_prompts"
+                },
+                {
+                    "param": "prompt_count",
+                    "key": "prompt_count"
                 }
             ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "aeo-setup-stop-checks": {
+        "name": "aeo-setup-stop-checks",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/stop_checks/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
@@ -7571,6 +7681,10 @@
                 {
                     "param": "source_record",
                     "key": "source_record"
+                },
+                {
+                    "param": "entry_attempt_id",
+                    "key": "entry_attempt_id"
                 },
                 {
                     "param": "trigger_masking",
@@ -19212,6 +19326,10 @@
                     "key": "description"
                 },
                 {
+                    "param": "color",
+                    "key": "color"
+                },
+                {
                     "param": "filters",
                     "key": "filters"
                 },
@@ -19323,6 +19441,10 @@
                 {
                     "param": "description",
                     "key": "description"
+                },
+                {
+                    "param": "color",
+                    "key": "color"
                 },
                 {
                     "param": "filters",
@@ -28169,7 +28291,7 @@
                 "suffix": "",
                 "source": "result"
             },
-            "agentNote": null,
+            "agentNote": "Put this report's `_posthogUrl` in the description of each pull request that fixes it, so that reviewers can see the context. Then attach each pull request to the report with `pull_requests` on this tool.\n",
             "informational": null,
             "textInclude": []
         },
@@ -28608,7 +28730,7 @@
                     "id",
                     "title",
                     "summary_lead",
-                    "metrics",
+                    "repo_slug",
                     "tags",
                     "status",
                     "priority",
@@ -28664,7 +28786,7 @@
                 "field": "id",
                 "suffix": ""
             },
-            "agentNote": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
+            "agentNote": "A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before you change code for a report, read it with inbox-reports-retrieve and claim it with inbox-reports-claim. Put the report's `_posthogUrl` in your pull request description so that reviewers can see the context, then attach the pull request with inbox-reports-claim and `pull_requests`.\n",
             "informational": null,
             "textInclude": []
         },
@@ -28909,7 +29031,7 @@
                 "suffix": "",
                 "source": "result"
             },
-            "agentNote": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
+            "agentNote": "Before you change code, claim the report with inbox-reports-claim and read its work log with inbox-report-artefacts-list. If `assignee` shows another person or their agent, ask your user before you take it over. Put this report's `_posthogUrl` in your pull request description so that reviewers can see the context, then attach the pull request with inbox-reports-claim and `pull_requests`.\n",
             "informational": null,
             "textInclude": []
         },
@@ -33133,6 +33255,10 @@
                     "key": "suite_key"
                 },
                 {
+                    "param": "experiment_scorer_version_id",
+                    "key": "experiment_scorer_version_id"
+                },
+                {
                     "param": "dataset_source",
                     "key": "dataset_source"
                 },
@@ -33813,6 +33939,55 @@
                 {
                     "param": "error_code",
                     "key": "error_code"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "llma-offline-experiment-score-preview": {
+        "name": "llma-offline-experiment-score-preview",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/ai_observability/offline_experiments/{id}/score_previews/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "scope",
+                    "key": "scope"
+                },
+                {
+                    "param": "kind",
+                    "key": "kind"
+                },
+                {
+                    "param": "composition",
+                    "key": "composition"
+                },
+                {
+                    "param": "config",
+                    "key": "config"
                 }
             ],
             "injectBody": {},
@@ -35029,6 +35204,11 @@
                     "csv": false
                 },
                 {
+                    "param": "scope",
+                    "key": "scope",
+                    "csv": false
+                },
+                {
                     "param": "search",
                     "key": "search",
                     "csv": false
@@ -35083,6 +35263,14 @@
                 {
                     "param": "tags",
                     "key": "tags"
+                },
+                {
+                    "param": "apply_to_suite_keys",
+                    "key": "apply_to_suite_keys"
+                },
+                {
+                    "param": "suite_version_id",
+                    "key": "suite_version_id"
                 },
                 {
                     "param": "name",
@@ -37742,6 +37930,11 @@
                 {
                     "param": "date_to",
                     "key": "date_to",
+                    "csv": false
+                },
+                {
+                    "param": "feedback_only",
+                    "key": "feedback_only",
                     "csv": false
                 },
                 {
@@ -43262,7 +43455,27 @@
         },
         "response": {
             "list": true,
-            "filter": null,
+            "filter": {
+                "kind": "pick",
+                "fields": [
+                    "id",
+                    "skill_name",
+                    "display_name",
+                    "description",
+                    "scout_origin",
+                    "scout_role",
+                    "enabled",
+                    "status",
+                    "pause_reason",
+                    "emit",
+                    "run_interval_minutes",
+                    "run_cron_schedule",
+                    "last_run_at",
+                    "tags",
+                    "source_product"
+                ],
+                "selectable": false
+            },
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
@@ -43296,6 +43509,38 @@
                     "key": "precheck_query"
                 }
             ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "scout-config-retrieve": {
+        "name": "scout-config-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/signals/scout/configs/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
@@ -44780,6 +45025,11 @@
                     "csv": false
                 },
                 {
+                    "param": "exclude_skill_name",
+                    "key": "exclude_skill_name",
+                    "csv": false
+                },
+                {
                     "param": "limit",
                     "key": "limit",
                     "csv": false
@@ -44807,7 +45057,25 @@
         },
         "response": {
             "list": true,
-            "filter": null,
+            "filter": {
+                "kind": "pick",
+                "fields": [
+                    "run_id",
+                    "skill_name",
+                    "skill_version",
+                    "status",
+                    "created_at",
+                    "started_at",
+                    "completed_at",
+                    "summary_lead",
+                    "failure_reason",
+                    "emitted_count",
+                    "emitted_finding_ids",
+                    "emitted_report_ids",
+                    "edited_report_ids"
+                ],
+                "selectable": false
+            },
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
@@ -45056,6 +45324,11 @@
                     "csv": false
                 },
                 {
+                    "param": "content_offset",
+                    "key": "content_offset",
+                    "csv": false
+                },
+                {
                     "param": "date_from",
                     "key": "date_from",
                     "csv": false
@@ -45119,6 +45392,59 @@
                 "kind": "list",
                 "baseUrl": "/inbox"
             },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "scout-send-message": {
+        "name": "scout-send-message",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/scout/runs/{run_id}/send_message/",
+            "pathParams": ["run_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "route",
+                    "key": "route"
+                },
+                {
+                    "param": "report_id",
+                    "key": "report_id"
+                },
+                {
+                    "param": "title",
+                    "key": "title"
+                },
+                {
+                    "param": "body",
+                    "key": "body"
+                },
+                {
+                    "param": "dedupe_key",
+                    "key": "dedupe_key"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
             "agentNote": null,
             "informational": null,
             "textInclude": []
@@ -46841,6 +47167,11 @@
                     "csv": false
                 },
                 {
+                    "param": "exclude_skill_name",
+                    "key": "exclude_skill_name",
+                    "csv": false
+                },
+                {
                     "param": "limit",
                     "key": "limit",
                     "csv": false
@@ -47077,6 +47408,11 @@
                 {
                     "param": "content_max_chars",
                     "key": "content_max_chars",
+                    "csv": false
+                },
+                {
+                    "param": "content_offset",
+                    "key": "content_offset",
                     "csv": false
                 },
                 {
@@ -57282,6 +57618,10 @@
                     "key": "source_record"
                 },
                 {
+                    "param": "entry_attempt_id",
+                    "key": "entry_attempt_id"
+                },
+                {
                     "param": "trigger_masking",
                     "key": "trigger_masking"
                 },
@@ -57385,6 +57725,10 @@
                 {
                     "param": "sensitive",
                     "key": "sensitive"
+                },
+                {
+                    "param": "click_tracking_enabled",
+                    "key": "click_tracking_enabled"
                 }
             ],
             "injectBody": {},
@@ -58310,6 +58654,11 @@
                     "csv": false
                 },
                 {
+                    "param": "created_by",
+                    "key": "created_by",
+                    "csv": false
+                },
+                {
                     "param": "limit",
                     "key": "limit",
                     "csv": false
@@ -58317,6 +58666,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 },
                 {
@@ -59517,6 +59871,10 @@
                 {
                     "param": "sensitive",
                     "key": "sensitive"
+                },
+                {
+                    "param": "click_tracking_enabled",
+                    "key": "click_tracking_enabled"
                 }
             ],
             "injectBody": {},

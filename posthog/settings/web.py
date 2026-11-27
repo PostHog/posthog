@@ -137,6 +137,7 @@ PRODUCTS_APPS = [
     "products.subscriptions.backend.apps.SubscriptionsConfig",
     "products.uptime_monitoring.backend.apps.UptimeMonitoringConfig",
     "products.authorization.backend.apps.AuthorizationConfig",
+    "products.agent_transcripts.backend.apps.AgentTranscriptsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -198,6 +199,9 @@ MIDDLEWARE = [
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.middleware.Fix204Middleware",
+    # Above every middleware that can answer without calling the view, such as the HTTPS
+    # redirect from SecurityMiddleware, so those responses carry the noindex header too.
+    "posthog.robots_tag_middleware.RobotsTagMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.OAuthCoopMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
@@ -419,6 +423,7 @@ CAN_LOGIN_AS = lambda request, target_user: (
     request.user.is_staff
     # cannot impersonate other staff
     and not target_user.is_staff
+    and target_user.is_human
     # target user must not have opted out of impersonation (None treated as allowed)
     and target_user.allow_impersonation is not False
 )
@@ -630,6 +635,7 @@ SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
+    "SORT_OPERATIONS": "posthog.api.documentation.sort_operations",
     "POSTPROCESSING_HOOKS": [
         # The guard pair around postprocess_schema_enums fails the build when two
         # different choice sets resolve to one component name, which the enum hook
@@ -1027,6 +1033,15 @@ LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOK
 LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
 
 ####
+# Docs library: the business knowledge library that holds the PostHog documentation. `docs-search`
+# reads it over HTTP, so every region can reach the one project that holds it.
+# The key is a project secret API key limited to that library. Docs search stays on Inkeep while it is empty.
+DOCS_SEARCH_LIBRARY_API_KEY = get_from_env("DOCS_SEARCH_LIBRARY_API_KEY", "")
+DOCS_SEARCH_LIBRARY_HOST = get_from_env("DOCS_SEARCH_LIBRARY_HOST", "").rstrip("/")
+DOCS_SEARCH_LIBRARY_PROJECT_ID = get_from_env("DOCS_SEARCH_LIBRARY_PROJECT_ID", "")
+DOCS_SEARCH_LIBRARY_ID = get_from_env("DOCS_SEARCH_LIBRARY_ID", "")
+
+####
 # Firecrawl (outbound page scraping, see posthog/egress/firecrawl/)
 FIRECRAWL_API_KEY = get_from_env("FIRECRAWL_API_KEY", "")
 # Operator ceilings on credit spend rather than Firecrawl's own limits, which the process can't see.
@@ -1164,22 +1179,12 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
 HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 500000))
-# Persons per page when the batch resolver enumerates a workflow audience. Each page is a separate
-# ClickHouse query, so a bigger page means fewer scans per run; the resolver inserts a page as one
-# Postgres transaction, which is why this is not unbounded.
+# Persons per page when the batch resolver reads a run's stored audience. The resolver inserts a page
+# as one Postgres transaction, which is why this is not unbounded.
 WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 5000))
 if WORKFLOWS_PERSON_BATCH_SIZE < 1:
     # An empty page reports has_more, so the resolver would refetch it forever.
     raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
-# ClickHouse execution cap for one audience page of the batch resolver. Interactive HogQL runs under the
-# 60s default; a page query is background work for one caller, so it gets more time. The resolver's
-# HTTP budget (CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS) must stay above this value, so ClickHouse
-# always ends a slow query before the client gives up and a retry never overlaps a query that is still running.
-WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS = int(
-    get_from_env("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS", 180)
-)
-if WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS < 1:
-    raise ImproperlyConfigured("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
@@ -1396,6 +1401,14 @@ ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDI
 # e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
 ID_JAG_ALLOWED_RESOURCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_RESOURCES", ""))
 
+# Callback URLs of services/oauth-proxy. See OAuthApplication.redirect_uri_allowed for the paths under them.
+# Each ends in "/" because a client's own path is the callback followed by "<client_id>/".
+OAUTH_PROXY_CALLBACK_URLS: list[str] = [
+    url if url.endswith("/") else f"{url}/"
+    for url in get_list(get_from_env("OAUTH_PROXY_CALLBACK_URLS", "https://oauth.posthog.com/oauth/callback/"))
+    if url
+]
+
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10
 TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"
@@ -1558,6 +1571,8 @@ except ValueError:
 MCP_CATALOG_SYNC_ON_WORKER_READY: bool = get_from_env("MCP_CATALOG_SYNC_ON_WORKER_READY", True, type_cast=str_to_bool)
 
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
+# Setup's site research and prompt writing. A faster model than the Claude engine's, since a person waits on it.
+AEO_SETUP_MODEL = get_from_env("AEO_SETUP_MODEL", "claude-haiku-5-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.

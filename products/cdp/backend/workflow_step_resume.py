@@ -60,6 +60,12 @@ def cap_value(value: Any, budget: int) -> Any:
         items: list[Any] = []
         for item in value:
             available = budget - _json_size(items) - bool(items)
+            # A null element is data, not a cut: keep it while it fits.
+            if item is None:
+                if available < len("null"):
+                    break
+                items.append(None)
+                continue
             capped = cap_value(item, available)
             if capped is None or _json_size(capped) > available or (isinstance(item, str) and capped != item):
                 break

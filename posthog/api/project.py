@@ -1256,6 +1256,13 @@ class ProjectBackwardCompatSerializer(
                 # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
                 validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
 
+        if "session_recording_masking_config" in validated_data:
+            validated_data["session_recording_masking_config"] = (
+                session_recording_settings.merge_session_recording_masking_config(
+                    validated_data["session_recording_masking_config"], None
+                )
+            )
+
         team_fields: dict[str, Any] = {}
         for field_name in validated_data.copy():  # Copy to avoid iterating over a changing dict
             if field_name in self.Meta.team_passthrough_fields:
@@ -1401,6 +1408,13 @@ class ProjectBackwardCompatSerializer(
                 **team.session_replay_config,
                 **validated_data["session_replay_config"],
             }
+
+        if "session_recording_masking_config" in validated_data:
+            validated_data["session_recording_masking_config"] = (
+                session_recording_settings.merge_session_recording_masking_config(
+                    validated_data["session_recording_masking_config"], team.session_recording_masking_config
+                )
+            )
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data:

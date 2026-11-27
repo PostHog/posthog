@@ -36,3 +36,17 @@ class TestGitLabSource:
         assert not any(key in observed_error for key in non_retryable_errors)
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
+
+    @pytest.mark.parametrize(
+        "endpoint, supports_append",
+        [
+            ("issues", True),
+            ("issue_notes", False),
+            ("events", False),
+            ("iterations", True),
+            ("branches", False),
+        ],
+    )
+    def test_supports_append(self, endpoint, supports_append):
+        (schema,) = self.source.get_schemas(self.config, self.team_id, names=[endpoint])
+        assert schema.supports_append is supports_append

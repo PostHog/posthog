@@ -97,6 +97,7 @@ def gigahog_config(
     client_id: str | None,
     client_secret: str | None,
     api_direct: bool = False,
+    oauth_direct: bool = False,
 ) -> GigahogConfig | None:
     """The writer's configuration, or None when the worker has no Gigahog to write to."""
     if not url:
@@ -117,6 +118,7 @@ def gigahog_config(
         client_id=client_id,
         client_secret=client_secret,
         api_direct=api_direct,
+        oauth_direct=oauth_direct,
     )
 
 

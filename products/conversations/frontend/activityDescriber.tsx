@@ -131,6 +131,15 @@ const ticketActionsMapping: Record<
         }
     },
     tag: function onTag(change) {
+        if (change?.action === 'changed') {
+            return {
+                description: [
+                    <>
+                        renamed tag <strong>{String(change.before)}</strong> to <strong>{String(change.after)}</strong>
+                    </>,
+                ],
+            }
+        }
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {
             return {

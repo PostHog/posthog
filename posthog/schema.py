@@ -123,6 +123,7 @@ from posthog.schema_enums import (
     EntityType as EntityType,
     ErrorTrackingIssueAssigneeType as ErrorTrackingIssueAssigneeType,
     ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
+    ErrorTrackingIssueTagColor as ErrorTrackingIssueTagColor,
     ErrorTrackingOrderBy as ErrorTrackingOrderBy,
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
@@ -1760,22 +1761,6 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
     events: list[str]
 
 
-class ErrorTrackingIssueTag(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str = Field(..., description="What the tag means, for a tooltip.")
-    key: str = Field(..., description="Key of the tag definition.")
-    label: str = Field(..., description="Short name of the tag.")
-    source: str | None = Field(
-        default=None,
-        description=(
-            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
-            " Issue detail sets it, list results send null."
-        ),
-    )
-
-
 class ErrorTrackingIssueTagFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2344,6 +2329,18 @@ class MCPMissingCapabilitiesItem(BaseModel):
         ...,
         description=("The agent's own words for the capability it wanted, from $mcp_intent."),
     )
+    model: str = Field(
+        ...,
+        description=("The model the agent self-reported, from $mcp_llm_model; empty when the report did not say."),
+    )
+    outcome: str = Field(
+        ...,
+        description=(
+            "Whether the agent says it still finished the user's task, from"
+            " $mcp_feedback_task_completed (or an in-app report's blocked flag):"
+            ' "blocked", "completed", or "not_reported" when the report did not say.'
+        ),
+    )
     person_properties: str = Field(
         ...,
         description=('JSON-encoded person email/name for display; "{}" when neither resolved.'),
@@ -2351,6 +2348,12 @@ class MCPMissingCapabilitiesItem(BaseModel):
     session_id: str = Field(
         ...,
         description=("Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set."),
+    )
+    suggested_improvement: str = Field(
+        ...,
+        description=(
+            "The change the agent suggested, from $mcp_feedback_suggested_improvement; empty when it gave none."
+        ),
     )
     timestamp: str
 
@@ -6020,6 +6023,26 @@ class ErrorTrackingIssueRelease(BaseModel):
     version: str | None = None
 
 
+class ErrorTrackingIssueTag(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: ErrorTrackingIssueTagColor | None = Field(
+        default=None,
+        description=("Named color of the tag, or null for a color picked from the label."),
+    )
+    description: str = Field(..., description="What the tag means, for a tooltip.")
+    key: str = Field(..., description="Key of the tag definition.")
+    label: str = Field(..., description="Short name of the tag.")
+    source: str | None = Field(
+        default=None,
+        description=(
+            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
+            " Issue detail sets it, list results send null."
+        ),
+    )
+
+
 class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6459,6 +6482,21 @@ class ExperimentWarehouseNativeNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ExperimentWarehouseNativeRowsLeftOut(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    empty_id: int | None = Field(default=None, description="Exposure rows with an empty entity_id.")
+    exposed_without_rows: dict[str, int] | None = Field(
+        default=None,
+        description=("Exposed entities with no row of the metric query that counted, by variant."),
+    )
+    unknown_variants: dict[str, int] | None = Field(
+        default=None,
+        description=("Exposure rows whose variant is not one the flag serves, counted by the value seen."),
+    )
+
+
 class ExternalQueryError(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6527,6 +6565,7 @@ class FileSystemImport(BaseModel):
     path: str = Field(..., description="Object's name and folder")
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
+    requiresOrganizationAdmin: bool | None = None
     sceneKey: str | None = Field(
         default=None,
         description="Match this with the a base scene key or a specific one",
@@ -7213,9 +7252,34 @@ class MCPToolQualityDailyStatItem(BaseModel):
     p99: float
 
 
+class MCPToolQualityRowBucket(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket: str = Field(
+        ...,
+        description=('Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss").'),
+    )
+    calls: int
+    errors: int
+    p95_duration_ms: float = Field(..., description="0 when no call in the bucket carried a duration.")
+
+
 class MCPToolQualityRowItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    buckets: list[MCPToolQualityRowBucket] | None = Field(
+        default=None,
+        description=("Calls, errors and p95 per interval in the current window, for the row's volume chart."),
+    )
+    category: str | None = Field(
+        default=None,
+        description="The $mcp_tool_category from the tool's latest call that sent one.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="The description from the tool's latest call that sent one.",
     )
     error_rate_pct: float
     errors: int
@@ -7253,6 +7317,20 @@ class MCPToolQualityRowItem(BaseModel):
         ),
     )
     users: int
+
+
+class MCPToolQualityTotals(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    calls: int
+    errors: int
+    p50: float
+    p95: float
+    previous_calls: int
+    previous_errors: int
+    previous_p50: float | None = Field(..., description="null when no call in the previous period carried a duration.")
+    previous_p95: float | None = None
 
 
 class MCPToolStatsItem(BaseModel):
@@ -14727,6 +14805,10 @@ class CachedMCPToolQualityDailyStatsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totals: MCPToolQualityTotals | None = Field(
+        default=None,
+        description=("Window totals and the previous period's, set only when the query asks for them."),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -20569,6 +20651,13 @@ class ExperimentQueryResponse(BaseModel):
         description="Whether exposures were served from the precomputation system",
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native metric query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -22049,6 +22138,10 @@ class MCPToolQualityDailyStatsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    totals: MCPToolQualityTotals | None = Field(
+        default=None,
+        description=("Window totals and the previous period's, set only when the query asks for them."),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -24059,6 +24152,13 @@ class QueryResponseAlternative19(BaseModel):
         description="Whether exposures were served from the precomputation system",
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native metric query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -28923,6 +29023,10 @@ class QueryResponseAlternative109(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totals: MCPToolQualityTotals | None = Field(
+        default=None,
+        description=("Window totals and the previous period's, set only when the query asks for them."),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -32153,6 +32257,13 @@ class CachedExperimentQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native metric query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     timezone: str
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
@@ -33437,6 +33548,13 @@ class ExperimentExposureQueryResponse(BaseModel):
         ),
     )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native exposure query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
@@ -33890,6 +34008,14 @@ class MCPMissingCapabilitiesQuery(BaseModel):
             " through them; the response's has_next flag indicates whether more remain."
         ),
     )
+    outcomes: list[str] | None = Field(
+        default=None,
+        description=('Only reports with one of these outcomes: "blocked", "completed" or "not_reported".'),
+    )
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = Field(
+        default=None,
+        description=("Property filters applied to the report events, such as the shared harness and model filters."),
+    )
     response: MCPMissingCapabilitiesQueryResponse | None = None
     search: str | None = Field(
         default=None,
@@ -34141,6 +34267,10 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    includeTotals: bool | None = Field(
+        default=None,
+        description=("Also return window totals and the previous period's, for the Tool quality tiles."),
+    )
     interval: IntervalType | None = Field(
         default=None,
         description=("Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."),
@@ -34149,6 +34279,12 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolQualityDailyStatsQueryResponse | None = None
+    search: str | None = Field(
+        default=None,
+        description=(
+            "Case-insensitive substring search on the effective tool name, so the tiles match the searched table."
+        ),
+    )
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
         default=None,
@@ -34167,6 +34303,14 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    includeBuckets: bool | None = Field(
+        default=None,
+        description=("Also return each row's volume chart buckets, which costs one more query."),
+    )
+    interval: IntervalType | None = Field(
+        default=None,
+        description="Bucket granularity of each row's volume chart. Defaults to day.",
+    )
     kind: Literal["MCPToolQualityRowsQuery"] = "MCPToolQualityRowsQuery"
     limit: int | None = Field(
         default=None,
@@ -35136,6 +35280,13 @@ class QueryResponseAlternative20(BaseModel):
         ),
     )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native exposure query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
@@ -36236,6 +36387,13 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native exposure query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
     )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]

@@ -276,7 +276,6 @@ export class Agent {
             ]
               .filter(Boolean)
               .join("\n"),
-            isAiGateway: directAiGateway,
           }
         : undefined;
 

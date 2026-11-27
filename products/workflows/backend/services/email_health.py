@@ -4,12 +4,13 @@ sending allowance and the shared infrastructure's health."""
 import math
 import hashlib
 from collections.abc import Collection, Mapping
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from decimal import ROUND_CEILING, Decimal
 from typing import Any
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.utils import timezone
 
 import structlog
@@ -33,7 +34,7 @@ from products.workflows.backend.facade.contracts import (
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.providers.ses import IspSendingMetrics, SESProvider
+from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.email_sending_attribution import fold_email_totals_by_flow
 from products.workflows.backend.services.email_sending_tier import TeamSendingHistory, build_sending_history_windows
 from products.workflows.backend.services.email_sending_tier_audit import EMAIL_SENDING_TIER_CHANGED_ACTIVITY
@@ -344,6 +345,7 @@ def email_infrastructure_health_enabled(team: Team) -> bool:
 INFRASTRUCTURE_HEALTH_CACHE_SECONDS = 6 * 60 * 60
 INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS = 60
 INFRASTRUCTURE_HEALTH_REFRESH_LOCK_SECONDS = 30
+INFRASTRUCTURE_HEALTH_MIN_SENDS = 10_000
 
 
 def fetch_email_infrastructure_health(window_days: int) -> EmailInfrastructureHealth | None:
@@ -352,38 +354,46 @@ def fetch_email_infrastructure_health(window_days: int) -> EmailInfrastructureHe
     project so its members can judge the shared infrastructure, not just their own sending. One key
     serves every project, and a cold key admits one SES call rather than one per request.
     """
-    cache_key = f"workflows_ses_infrastructure_health_v2_{window_days}"
-    cached = cache.get(cache_key)
+    health_cache = caches["workflows_email_infrastructure_health"]
+    cache_key = f"workflows_ses_infrastructure_health_v3_{window_days}"
+    cached = health_cache.get(cache_key)
     if cached is not None:
-        return cached["value"]
-    if not cache.add(f"{cache_key}_refreshing", True, INFRASTRUCTURE_HEALTH_REFRESH_LOCK_SECONDS):
+        return EmailInfrastructureHealth(**cached["value"]) if cached["value"] is not None else None
+    if not health_cache.add(f"{cache_key}_refreshing", True, INFRASTRUCTURE_HEALTH_REFRESH_LOCK_SECONDS):
         return None
 
     try:
         metrics = SESProvider().get_account_sending_metrics(window_days)
     except Exception:
         logger.exception("Failed to fetch SES account sending metrics")
-        cache.set(cache_key, {"value": None}, INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS)
+        health_cache.set(cache_key, {"value": None}, INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS)
         return None
 
-    value = _rounded_infrastructure_health(metrics) if metrics is not None else None
     # SES reports a failed query as a missing rate rather than an exception, so retry it soon.
-    lifetime = INFRASTRUCTURE_HEALTH_CACHE_SECONDS if value is not None else INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS
-    cache.set(cache_key, {"value": value}, lifetime)
+    if metrics is None or metrics.bounce_rate is None or metrics.complaint_rate is None:
+        health_cache.set(cache_key, {"value": None}, INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS)
+        return None
+
+    value = _private_infrastructure_health(metrics.emails_sent, metrics.bounce_rate, metrics.complaint_rate)
+    health_cache.set(
+        cache_key, {"value": asdict(value) if value is not None else None}, INFRASTRUCTURE_HEALTH_CACHE_SECONDS
+    )
     return value
 
 
-def _rounded_infrastructure_health(metrics: IspSendingMetrics) -> EmailInfrastructureHealth | None:
+def _private_infrastructure_health(
+    emails_sent: int, bounce_rate: float, complaint_rate: float
+) -> EmailInfrastructureHealth | None:
     """
     The exact send volume stays private, so it is cut to a lower bound. Each rate rounds towards
     the worse reading, so rounding never flatters the infrastructure.
     """
-    if metrics.bounce_rate is None or metrics.complaint_rate is None:
+    if emails_sent < INFRASTRUCTURE_HEALTH_MIN_SENDS:
         return None
     return EmailInfrastructureHealth(
-        emails_sent_at_least=_floor_to_one_significant_figure(metrics.emails_sent),
-        bounce_rate=_round_rate_up(metrics.bounce_rate),
-        complaint_rate=_round_rate_up(metrics.complaint_rate),
+        emails_sent_at_least=_floor_to_one_significant_figure(emails_sent),
+        bounce_rate=_round_rate_up(bounce_rate),
+        complaint_rate=_round_rate_up(complaint_rate),
     )
 
 

@@ -27,6 +27,7 @@ from posthog.schema import (
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.property import operator_is_negative
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -52,6 +53,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     normalize_to_exposure_criteria,
 )
 from products.experiments.backend.logic.result_stats import MetricResultStats
+from products.experiments.backend.metric_calculation.results import SignificanceHistory
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, event_last_seen, extract_entity_nodes
@@ -316,10 +318,22 @@ class PrimaryMetric:
     # The target of the running time estimate, which the header of the experiment page shows.
     target: RunningTimeTarget
     # The current stored result, the one the results page shows after its last calculation. None when no completed
-    # result is stored under the metric's current calculation key. Only read for a funnel.
+    # result is stored under the metric's current calculation key.
     result: MetricResultStats | None
     # The persons or groups that the current stored result counts, across the variants. None without a stored result.
     exposures: int | None = None
+    # Since when the stored results show each variant that `result` shows as significant. None without a stored result.
+    significance: SignificanceHistory | None = None
+
+    @property
+    def samples(self) -> int | None:
+        """The total that the running time estimate's "Target reached" compares, so a check that reads it and the
+        estimate agree. None without a stored result."""
+        if self.result is None:
+            return None
+        if self.target.current_sample_size is not None:
+            return self.target.current_sample_size
+        return self.result.number_of_samples
 
 
 @frozen
@@ -693,6 +707,10 @@ class HealthContext:
     # None without a start date.
     daily_calculation_ends_at: datetime | None
     metric_events: tuple[MetricEvents, ...]
+    # Whether PostHog keeps `$feature_flag_called` events for a shorter time than other events, and copies each call of
+    # a multivariate flag to `$experiment_exposure`. Both hold on PostHog Cloud only: self-hosted ingestion makes no
+    # copy and keeps flag calls in the events table.
+    flag_calls_kept_shorter: bool
     # Whether a warehouse-native query on the customer's warehouse returns the exposures. No event of this project
     # describes them then, and an experiment with such an exposure reads only warehouse-native metrics.
     warehouse_native_exposures: bool
@@ -1366,6 +1384,7 @@ def load_health_context(
         past_daily_calculation=is_past_daily_calculation(experiment.start_date, timezone.now()),
         daily_calculation_ends_at=daily_calculation_end(experiment.start_date),
         metric_events=metric_events,
+        flag_calls_kept_shorter=is_cloud(),
         warehouse_native_exposures=warehouse_native_exposure_config(experiment.exposure_criteria) is not None,
         exposure_events=exposure_events,
         events_received=events_received,

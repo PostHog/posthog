@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
 import { IconSearch, IconTrends } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -14,12 +14,14 @@ import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { PR_MONITORING_NOTE_MAX_CHARS, pullRequestsLogic } from '../../logics/pullRequestsLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { inboxReportBackLabel } from '../../utils/inboxReportUrls'
@@ -31,14 +33,14 @@ import {
     prFilesUrl,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
-import { reportPullRequests } from '../../utils/reportPullRequests'
+import { prMonitoringWindowExpiredReason, reportPullRequests } from '../../utils/reportPullRequests'
 import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ReportSpendSection } from '../spend/ReportSpendSection'
-import { CommitContent } from './artefactTypes'
+import { CommitContent, latestPrMonitoringGuidanceQuestion } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { ImplementButton } from './ImplementButton'
 import { OpenPullRequestButton } from './OpenPullRequestButton'
@@ -111,6 +113,135 @@ function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
                 </div>
             ))}
         </div>
+    )
+}
+
+const PR_GUIDANCE_COPY = {
+    retry: {
+        placeholder: 'Optional: name the event, property, or action to monitor.',
+        button: 'Retry research',
+    },
+    guidance: {
+        placeholder: 'Example: monitor the checkout_submitted event or failure rate on /api/checkout.',
+        button: 'Run with guidance',
+    },
+} as const
+
+function prGuidancePrompt(isRetry: boolean, guidanceQuestion: string | null): string {
+    if (isRetry) {
+        return 'Monitoring research stopped before saving a check. Retry as-is, or add guidance on what to monitor.'
+    }
+    return guidanceQuestion ?? 'Tell PostHog which event, property, or action to monitor for this pull request.'
+}
+
+function prGuidanceDisabledReason(
+    isRetry: boolean,
+    draftNote: string,
+    expiredReason: string | undefined
+): string | undefined {
+    if (expiredReason) {
+        return expiredReason
+    }
+    return !isRetry && !draftNote.trim() ? 'Add guidance on what PostHog should monitor' : undefined
+}
+
+function isUnmeasuredPrReport(
+    report: SignalReport,
+    prUrl: string,
+    reportChecks: SignalReportCheckApi[] | null,
+    reportChecksError: boolean
+): boolean {
+    if (report.signal_count > 0 || (report.metrics ?? []).length > 0) {
+        return false
+    }
+    if (reportChecks === null || reportChecksError || reportChecks.length > 0) {
+        return false
+    }
+    return (report.pull_requests ?? []).every((pr) => pr.url !== prUrl || pr.state !== 'closed')
+}
+
+function PrMonitoringGuidanceForm({
+    prUrl,
+    isRetry,
+    expiredReason,
+}: {
+    prUrl: string
+    isRetry: boolean
+    expiredReason: string | undefined
+}): JSX.Element {
+    const { reportArtefacts } = useValues(inboxReportDetailLogic)
+    const { draftNotes, monitoringUrls } = useValues(pullRequestsLogic)
+    const { monitorPR, setDraftNote } = useActions(pullRequestsLogic)
+    const draftNote = draftNotes[prUrl] ?? ''
+    const isSubmitting = Boolean(monitoringUrls[prUrl])
+    const disabledReason = prGuidanceDisabledReason(isRetry, draftNote, expiredReason)
+    const promptCopy = prGuidancePrompt(isRetry, latestPrMonitoringGuidanceQuestion(reportArtefacts))
+    const copy = PR_GUIDANCE_COPY[isRetry ? 'retry' : 'guidance']
+
+    return (
+        <div
+            data-attr="inbox-report-pr-guidance"
+            className="flex flex-col gap-2.5 rounded border border-primary bg-surface-secondary p-3.5"
+        >
+            <p className="m-0 whitespace-pre-line text-sm text-secondary">{promptCopy}</p>
+            <LemonTextArea
+                minRows={2}
+                maxRows={5}
+                maxLength={PR_MONITORING_NOTE_MAX_CHARS}
+                value={draftNote}
+                disabled={isSubmitting || Boolean(expiredReason)}
+                aria-label="Monitoring guidance"
+                data-attr="inbox-report-pr-guidance-input"
+                placeholder={copy.placeholder}
+                onChange={(value) => setDraftNote(prUrl, value)}
+                onPressCmdEnter={() => {
+                    if (!isSubmitting && !disabledReason) {
+                        monitorPR(prUrl)
+                    }
+                }}
+            />
+            <div className="flex justify-end">
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    loading={isSubmitting}
+                    disabledReason={disabledReason}
+                    data-attr="inbox-report-pr-guidance-submit"
+                    onClick={() => monitorPR(prUrl)}
+                >
+                    {copy.button}
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+function PrMonitoringGuidance({
+    report,
+    pullRequest,
+    reportChecks,
+    reportChecksError,
+}: {
+    report: SignalReport
+    pullRequest: ReportPullRequestRef | undefined
+    reportChecks: SignalReportCheckApi[] | null
+    reportChecksError: boolean
+}): JSX.Element | null {
+    const enabled = useFeatureFlag('SIGNALS_MONITOR_PR')
+    const isRetry = report.status === SignalReportStatus.FAILED
+    const isGuidance = report.status === SignalReportStatus.PENDING_INPUT
+    if (!enabled || (!isGuidance && !isRetry) || !pullRequest) {
+        return null
+    }
+    if (!isUnmeasuredPrReport(report, pullRequest.prUrl, reportChecks, reportChecksError)) {
+        return null
+    }
+    return (
+        <PrMonitoringGuidanceForm
+            prUrl={pullRequest.prUrl}
+            isRetry={isRetry}
+            expiredReason={prMonitoringWindowExpiredReason(report, pullRequest.prUrl)}
+        />
     )
 }
 
@@ -323,11 +454,12 @@ export function InboxDetailFrame({
         <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">{displayTitle}</h1>
     )
 
+    const activeReport = currentReport ?? report
     const claimPill = (
         <ReportClaimPill
             claimant={reportClaimant}
             isClaimedByMe={isClaimedByMe}
-            claimedAt={(currentReport ?? report).assignee?.claimed_at ?? null}
+            claimedAt={activeReport.assignee?.claimed_at ?? null}
         />
     )
 
@@ -399,6 +531,12 @@ export function InboxDetailFrame({
                     )}
                 </div>
             </ReportChartsContext.Provider>
+            <PrMonitoringGuidance
+                report={activeReport}
+                pullRequest={pullRequest}
+                reportChecks={reportChecks}
+                reportChecksError={Boolean(reportChecksError)}
+            />
             {/* The notes and the rating close out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
                 {notesEnabled && <ReportNotesSection report={report} />}
@@ -441,7 +579,7 @@ export function InboxDetailFrame({
         </header>
     )
 
-    const isMonitoring = (currentReport ?? report).status === SignalReportStatus.MONITORING
+    const isMonitoring = activeReport.status === SignalReportStatus.MONITORING
 
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
     // building the logic itself would have to pass `report` back in, and kea treats that as a props
@@ -452,7 +590,7 @@ export function InboxDetailFrame({
                 {!evidenceRailCollapsed && (
                     <aside className={DETAIL_ASIDE_CLASS}>
                         <ReportStatusSection
-                            report={currentReport ?? report}
+                            report={activeReport}
                             onPriorityChange={(priority) => {
                                 captureInboxReportAction({
                                     report,
@@ -474,7 +612,7 @@ export function InboxDetailFrame({
                                     report,
                                     actionType: 'select_pull_request',
                                     surface: 'detail_pane',
-                                    extra: { pull_request_count: reportPullRequests(currentReport ?? report).length },
+                                    extra: { pull_request_count: reportPullRequests(activeReport).length },
                                 })
                                 selectPullRequest(url)
                             }}

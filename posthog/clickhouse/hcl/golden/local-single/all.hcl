@@ -247,7 +247,7 @@ database "posthog" {
       cluster_name    = "ai_events"
       remote_database = "posthog"
       remote_table    = "sharded_ai_events"
-      sharding_key    = "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
+      sharding_key    = "rand()"
     }
   }
 
@@ -10642,7 +10642,7 @@ SQL
   }
 
   table "sharded_ai_events" {
-    order_by     = ["team_id", "trace_id", "timestamp"]
+    order_by     = ["team_id", "trace_id", "timestamp", "uuid"]
     partition_by = "toYYYYMM(drop_date)"
     ttl          = "drop_date"
     settings = {
@@ -10881,9 +10881,10 @@ SQL
       type        = "set(50)"
       granularity = 1
     }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.ai_events"
-      replica_name = "{replica}"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.ai_events"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
     }
   }
 
@@ -19935,7 +19936,7 @@ SQL
   }
 
   materialized_view "ai_events_json_mv" {
-    to_table = "posthog.ai_events"
+    to_table = "posthog.sharded_ai_events"
     query    = <<SQL
 SELECT
   uuid,

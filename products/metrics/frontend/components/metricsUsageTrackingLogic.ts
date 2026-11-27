@@ -178,8 +178,7 @@ export type metricsUsageTrackingLogicType = MakeLogicType<
     metricsUsageTrackingLogicActions
 >
 
-// Central usage tracking for the metrics scene, following the metricsSqlEditorTrackingLogic
-// precedent: captures fire from listeners on the source logics' actions, not from onClick
+// Central usage tracking for the metrics scene: captures fire from listeners on the source logics' actions, not from onClick
 // handlers scattered through components.
 //
 // Privacy rule: never capture customer metric names, series labels, attribute keys, or

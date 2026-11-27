@@ -1,3 +1,5 @@
+import re
+
 from posthog.hogql.ast import ArrayType, BooleanType, FloatType, IntegerType, StringType, TupleType
 
 from ..core import HogQLFunctionMeta
@@ -184,3 +186,62 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 JSON_KEY_PATH_FUNCTIONS = frozenset(JSON_FUNCTIONS) - {"isValidJSON", "JSONArrayLength", "JSON_VALUE"}
 # Key-path functions whose last argument is the ClickHouse type to extract, so the key path ends before it.
 JSON_TYPED_PATH_FUNCTIONS = frozenset({"JSONExtract", "JSONExtractKeysAndValues"})
+
+_TYPE_NAME_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# ClickHouse reads a type name of more than one word only for SQL-standard and MySQL spellings,
+# such as DOUBLE PRECISION, NATIONAL CHAR VARYING, BINARY LARGE OBJECT and INT(11) UNSIGNED.
+_TYPE_NAME_MODIFIER_WORDS = frozenset(
+    {"PRECISION", "VARYING", "LARGE", "OBJECT", "CHAR", "CHARACTER", "SIGNED", "UNSIGNED"}
+)
+
+
+def looks_like_clickhouse_type_name(type_name: str) -> bool:
+    """Whether ClickHouse can parse the text as a data type. Only the outer level is checked: the text in
+    parentheses goes to ClickHouse as is, and ClickHouse decides if the type exists."""
+    words: list[str] = []
+    current = ""
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for char in type_name:
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif char in "'`\"":
+            if depth == 0:
+                # A quoted identifier can start the outer name. A string literal cannot be one.
+                if char == "'" or current:
+                    return False
+                current = "_"
+            quote = char
+        elif char == "(":
+            if depth == 0:
+                if current:
+                    words.append(current)
+                    current = ""
+                elif not words:
+                    return False
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return False
+        elif depth > 0:
+            continue
+        elif char.isspace():
+            if current:
+                words.append(current)
+                current = ""
+        else:
+            current += char
+    if quote is not None or depth != 0:
+        return False
+    if current:
+        words.append(current)
+    if not words or not _TYPE_NAME_WORD.fullmatch(words[0]):
+        return False
+    return all(word.upper() in _TYPE_NAME_MODIFIER_WORDS for word in words[1:])

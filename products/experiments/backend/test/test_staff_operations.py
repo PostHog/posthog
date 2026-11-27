@@ -1,9 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.experiments.backend.facade.enums import RecalculationStartOutcome
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
@@ -11,7 +13,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.staff_operations import format_duration, get_recalculation
+from products.experiments.backend.staff_operations import format_duration, get_recalculation, start_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -70,6 +72,47 @@ class TestStaffRecalculation(BaseTest):
         exp.metrics = [_mean_metric("m-named", name="Signups"), _mean_metric("m-discovery")]
         exp.save()
         return exp
+
+    @parameterized.expand(
+        [
+            ("reuses_an_active_run", True, None, RecalculationStartOutcome.REUSED, ""),
+            # A request error reports NOT_CREATED, so the dispatch error must be told apart from it.
+            (
+                "reports_a_workflow_that_did_not_start",
+                False,
+                RuntimeError("temporal down"),
+                RecalculationStartOutcome.WORKFLOW_NOT_STARTED,
+                "temporal down",
+            ),
+        ]
+    )
+    def test_start_recalculation_outcome(
+        self,
+        _name: str,
+        active_run: bool,
+        dispatch_error: Exception | None,
+        expected_outcome: RecalculationStartOutcome,
+        expected_detail: str,
+    ) -> None:
+        exp = self._launched_experiment()
+        if active_run:
+            ExperimentMetricsRecalculation.objects.create(
+                team=self.team,
+                experiment=exp,
+                status=ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                started_at=datetime.now(UTC),
+            )
+
+        with patch(
+            "products.experiments.backend.recalculation.admission.start_metrics_recalculation_workflow",
+            side_effect=dispatch_error,
+        ):
+            result = start_recalculation(exp.id, self.user, retry_failures=False)
+
+        run = ExperimentMetricsRecalculation.objects.get(experiment=exp)
+        assert result.outcome == expected_outcome
+        assert result.recalculation_id == str(run.id)
+        assert result.detail == expected_detail
 
     def test_failures_prefer_metric_errors_and_include_discovery_only(self) -> None:
         exp = self._launched_experiment()

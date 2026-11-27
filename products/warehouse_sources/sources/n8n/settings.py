@@ -30,8 +30,9 @@ class N8nEndpointConfig:
     partition_key: Optional[str] = None
     # Extra query params sent on every list request for this endpoint.
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Folders page with skip/take and a total `count`; every other list endpoint uses a cursor.
-    paginator: Literal["cursor", "offset"] = "cursor"
+    # Folders page with skip/take and a total `count`; endpoints that return a bare array have
+    # no pagination; every other list endpoint uses a cursor.
+    paginator: Literal["cursor", "offset", "single_page"] = "cursor"
     page_size: int = PAGE_SIZE
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
@@ -140,6 +141,52 @@ N8N_ENDPOINTS: dict[str, N8nEndpointConfig] = {
             parent_field_renames={"id": "testRunId", "_workflows_id": "workflowId"},
             child_response_actions=_IGNORE_404,
         ),
+    ),
+    # The default sort is updatedAt desc, which shifts the offset-backed cursor when a table
+    # changes mid-sync, so sort on the immutable createdAt instead.
+    "data_tables": N8nEndpointConfig(
+        name="data_tables",
+        path="/data-tables",
+        partition_key="createdAt",
+        extra_params={"sortBy": "createdAt:asc"},
+    ),
+    "data_table_columns": N8nEndpointConfig(
+        name="data_table_columns",
+        path="/data-tables/{dataTableId}/columns",
+        primary_keys=["dataTableId", "id"],
+        partition_key="createdAt",
+        paginator="single_page",
+        fanout=DependentEndpointConfig(
+            parent_name="data_tables",
+            resolve_param="dataTableId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "dataTableId"},
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
+    # Row ids are per table. With no sortBy the API orders rows by id, which keeps the
+    # offset-backed cursor stable.
+    "data_table_rows": N8nEndpointConfig(
+        name="data_table_rows",
+        path="/data-tables/{dataTableId}/rows",
+        primary_keys=["dataTableId", "id"],
+        partition_key="createdAt",
+        fanout=DependentEndpointConfig(
+            parent_name="data_tables",
+            resolve_param="dataTableId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "dataTableId"},
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
+    "community_packages": N8nEndpointConfig(
+        name="community_packages",
+        path="/community-packages",
+        primary_keys=["packageName"],
+        partition_key="createdAt",
+        paginator="single_page",
     ),
     # The summary endpoint returns one aggregate object for a date range. We request one UTC
     # day per call so the table holds one row per day, and the startDate/endDate filter makes
