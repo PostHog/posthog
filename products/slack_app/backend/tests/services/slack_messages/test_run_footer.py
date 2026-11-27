@@ -23,10 +23,9 @@ from products.slack_app.backend.services.slack_messages import (
     viewer_has_code_access,
 )
 from products.tasks.backend.facade.billing import TaskComputeCost, TaskUsage
+from products.tasks.backend.facade.contracts import ComputeBillingMeter
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
-# Compute that bills to the PostHog Desktop meter, which the Slack thread cost must leave out.
-DESKTOP_METER_COMPUTE = Decimal("0.40")
 OWN_PLAN_STATE = {"runtime_adapter": "codex", "codex_model_access": "own-subscription", "codex_subscription_user_id": 7}
 
 
@@ -176,7 +175,7 @@ class TestLoadRunFooter(SimpleTestCase):
         self,
         _name: str,
         state: dict,
-        ai_credits_compute: Decimal,
+        billed_compute: Decimal,
         expected: Decimal | None,
         mock_get_run,
         mock_usage,
@@ -190,9 +189,9 @@ class TestLoadRunFooter(SimpleTestCase):
             created_by_id=None,
             task_created_at=datetime(2026, 11, 1, tzinfo=UTC),
         )
-        mock_usage.return_value = TaskUsage(token_cost_usd=Decimal("1.00"), compute_cost_usd=DESKTOP_METER_COMPUTE)
+        mock_usage.return_value = TaskUsage(token_cost_usd=Decimal("1.00"), compute_cost_usd=Decimal(0))
         mock_compute.return_value = TaskComputeCost(
-            posthog_code_usd=DESKTOP_METER_COMPUTE, ai_credits_usd=ai_credits_compute
+            cost_usd=billed_compute, billing_meter=ComputeBillingMeter.AI_CREDITS if billed_compute else None
         )
 
         footer = load_run_footer("run-1", integration_id=None, include_thread_cost=True)
