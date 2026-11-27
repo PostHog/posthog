@@ -48,6 +48,53 @@ BACK_MARKET_ENDPOINTS: dict[str, BackMarketEndpointConfig] = {
         incremental_fields=[],
         partition_key=None,
     ),
+    "backbox_competitors": BackMarketEndpointConfig(
+        name="backbox_competitors",
+        path="/backbox/v1/competitors/{listingId}",
+        primary_keys=["_listings_id", "listing_id", "market"],
+    ),
+    "care_folders": BackMarketEndpointConfig(
+        name="care_folders",
+        path="/sav",
+        primary_keys=["id"],
+        incremental_fields=[
+            {
+                "label": "date_modification",
+                "type": IncrementalFieldType.DateTime,
+                "field": "date_modification",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        partition_key="date_creation",
+    ),
+    "returns": BackMarketEndpointConfig(
+        name="returns",
+        path="/shipping/v1/returns",
+        primary_keys=["shipmentId"],
+        incremental_fields=[
+            {
+                "label": "dateCreation",
+                "type": IncrementalFieldType.DateTime,
+                "field": "dateCreation",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        partition_key="dateCreation",
+    ),
+    "buyback_orders": BackMarketEndpointConfig(
+        name="buyback_orders",
+        path="/buyback/v1/orders",
+        primary_keys=["orderPublicId"],
+        incremental_fields=[
+            {
+                "label": "modificationDate",
+                "type": IncrementalFieldType.DateTime,
+                "field": "modificationDate",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        partition_key="creationDate",
+    ),
 }
 
 ENDPOINTS = tuple(BACK_MARKET_ENDPOINTS.keys())

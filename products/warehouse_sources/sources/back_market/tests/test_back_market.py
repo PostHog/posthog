@@ -17,7 +17,7 @@ from products.warehouse_sources.sources.back_market.back_market import (
 )
 from products.warehouse_sources.sources.back_market.settings import BACK_MARKET_ENDPOINTS
 from products.warehouse_sources.sources.back_market.source import BackMarketSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 class TestBackMarketTokenAuth:
@@ -102,19 +102,27 @@ def _page(next_value: Any, results: list[dict[str, Any]]) -> ScriptedResponse:
 
 
 class TestBackMarketSourceOrders:
-    def test_paginates_until_next_is_falsy(self) -> None:
+    @parameterized.expand(
+        [
+            ("orders", "/ws/orders", "order_id"),
+            ("care_folders", "/ws/sav", "id"),
+            ("returns", "/ws/shipping/v1/returns", "shipmentId"),
+            ("buyback_orders", "/ws/buyback/v1/orders", "orderPublicId"),
+        ]
+    )
+    def test_paginates_until_next_is_falsy(self, endpoint: str, path: str, key: str) -> None:
         result = _driver().run(
-            "orders",
+            endpoint,
             [
-                _page("more", [{"order_id": "1"}, {"order_id": "2"}]),
-                _page(None, [{"order_id": "3"}]),
+                _page("more", [{key: "1"}, {key: "2"}]),
+                _page(None, [{key: "3"}]),
             ],
         )
 
         assert result.raised is None
-        assert [row["order_id"] for row in result.rows] == ["1", "2", "3"]
+        assert [row[key] for row in result.rows] == ["1", "2", "3"]
         assert result.params("page") == ["1", "2"]
-        assert result.paths == ["/ws/orders", "/ws/orders"]
+        assert result.paths == [path, path]
 
     def test_incremental_field_selection_sets_matching_query_param(self) -> None:
         result = _driver().run(
@@ -156,6 +164,99 @@ class TestBackMarketSourceListings:
         assert result.raised is None
         assert [row["listing_id"] for row in result.rows] == ["1"]
         assert result.requests[0].param("date_modification") is None
+
+
+class TestBackMarketAddedTables:
+    @parameterized.expand(
+        [
+            (endpoint, field, param, expected, mode)
+            for endpoint, field, param, expected in [
+                ("care_folders", "date_modification", "last_modification_date", "2026-01-02-01-04"),
+                ("returns", "dateCreation", "start_date", "2026-01-02T01:04:59+00:00"),
+                ("buyback_orders", "modificationDate", "modificationDate", "2026-01-02"),
+            ]
+            for mode in ("incremental", "full_refresh", "first_sync")
+        ]
+    )
+    def test_filters_every_page(self, endpoint: str, field: str, param: str, expected: str, mode: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page("more", [{field: "2026-01-02T01:05:00Z"}]), _page(None, [])],
+            incremental_field=field,
+            should_use_incremental_field=mode != "full_refresh",
+            db_incremental_field_last_value=None if mode == "first_sync" else "2026-01-02T03:04:59.123+02:00",
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == 1
+        assert result.params(param) == [expected if mode == "incremental" else None] * 2
+        assert result.params("page") == ["1", "2"]
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+    def test_competitors_use_listing_uuid_and_keep_each_market(self) -> None:
+        listing_ids = [f"00000000-0000-4000-8000-{index:012d}" for index in range(1, 5)]
+        competitors = [{"listing_id": "competitor-1", "market": market, "min_price": None} for market in ("FR", "DE")]
+        result = _driver().run(
+            "backbox_competitors",
+            route(
+                {
+                    "/ws/listings": [
+                        _page("more", [{"id": listing_ids[0], "listing_id": 101}, {"id": listing_ids[1]}]),
+                        _page(None, [{"id": listing_ids[2]}, {"id": listing_ids[3]}]),
+                    ],
+                    f"/ws/backbox/v1/competitors/{listing_ids[0]}": [ScriptedResponse(json=competitors)],
+                    f"/ws/backbox/v1/competitors/{listing_ids[1]}": [ScriptedResponse(json=[])],
+                    f"/ws/backbox/v1/competitors/{listing_ids[2]}": [ScriptedResponse(status=404)],
+                    f"/ws/backbox/v1/competitors/{listing_ids[3]}": [ScriptedResponse(json=competitors)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {**competitor, "_listings_id": listing_id}
+            for listing_id in (listing_ids[0], listing_ids[3])
+            for competitor in competitors
+        ]
+        assert [request.param("page") for request in result.requests if request.path == "/ws/listings"] == ["1", "2"]
+        assert all(request.param("page") is None for request in result.requests if "competitors" in request.path)
+        assert result.response is not None
+        assert result.response.primary_keys is not None
+        assert len({tuple(row[key] for key in result.response.primary_keys) for row in result.rows}) == 4
+        assert result.committed_states
+
+    def test_competitors_resume_without_repeating_completed_children(self) -> None:
+        listings = [{"id": f"00000000-0000-4000-8000-{index:012d}"} for index in (1, 2)]
+        first_path = f"/ws/backbox/v1/competitors/{listings[0]['id']}"
+        second_path = f"/ws/backbox/v1/competitors/{listings[1]['id']}"
+        first = _driver().run(
+            "backbox_competitors",
+            route(
+                {
+                    "/ws/listings": [_page(None, listings)],
+                    first_path: [ScriptedResponse(json=[{"listing_id": "competitor-1", "market": "FR"}])],
+                    second_path: [ScriptedResponse(status=403)],
+                }
+            ),
+        )
+        assert first.raised is not None
+        assert len(first.rows) == 1
+        assert first.final_state is not None
+
+        resumed = _driver().run(
+            "backbox_competitors",
+            route(
+                {
+                    "/ws/listings": [_page(None, listings)],
+                    second_path: [ScriptedResponse(json=[{"listing_id": "competitor-2", "market": "FR"}])],
+                }
+            ),
+            resume_state=first.final_state,
+        )
+        assert resumed.raised is None
+        assert [row["listing_id"] for row in resumed.rows] == ["competitor-2"]
+        assert resumed.paths == ["/ws/listings", second_path]
 
 
 class TestValidateCredentials:

@@ -15,9 +15,12 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
+    parse_datetime_value,
     rest_api_resource,
+    rest_api_resources,
     validate_via_probe,
 )
 
@@ -26,7 +29,8 @@ BASE_URL = "https://www.backmarket.com/ws"
 
 @frozen
 class BackMarketResumeConfig:
-    next_page: int
+    next_page: int = 1
+    fanout_state: dict[str, Any] | None = None
 
 
 class BackMarketTokenAuth(AuthConfigBase):
@@ -137,7 +141,18 @@ def _build_params(
         and incremental_field
         and db_incremental_field_last_value is not None
     ):
-        params[incremental_field] = _format_timestamp(db_incremental_field_last_value)
+        if config.name == "care_folders":
+            timestamp = parse_datetime_value(db_incremental_field_last_value)
+            if timestamp is None:
+                raise ValueError("Invalid Care Folder timestamp")
+            params["last_modification_date"] = timestamp.strftime("%Y-%m-%d-%H-%M")
+        elif config.name == "returns":
+            params["start_date"] = format_datetime(db_incremental_field_last_value, "iso_offset")
+        elif config.name == "buyback_orders":
+            # The documented lower bound is a date, so reread that day to retain all updates.
+            params[incremental_field] = format_datetime(db_incremental_field_last_value, "date")
+        else:
+            params[incremental_field] = _format_timestamp(db_incremental_field_last_value)
     return params
 
 
@@ -178,26 +193,60 @@ def back_market_source(
         ],
     }
 
+    is_fanout = endpoint == "backbox_competitors"
+    if is_fanout:
+        rest_config["resources"] = [
+            {
+                "name": "listings",
+                "endpoint": {"path": BACK_MARKET_ENDPOINTS["listings"].path, "data_selector": DATA_SELECTOR},
+            },
+            {
+                "name": endpoint,
+                "table_name": endpoint,
+                "include_from_parent": ["id"],
+                "resume_parent_pagination": True,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"listingId": {"type": "resolve", "resource": "listings", "field": "id"}},
+                    "data_selector": "$",
+                    "paginator": "single_page",
+                    "response_actions": [{"status_code": 404, "action": "ignore"}],
+                },
+                "table_format": "delta",
+            },
+        ]
+
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_page:
-            initial_paginator_state = {"page": resume.next_page}
+        if resume is not None:
+            initial_paginator_state = resume.fanout_state if is_fanout else {"page": resume.next_page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; save AFTER a page is yielded so a crash
-        # re-yields the last page (merge dedupes) rather than skipping it.
-        if state and state.get("page"):
+        if is_fanout and state:
+            resumable_source_manager.save_state(BackMarketResumeConfig(fanout_state=state))
+        elif state and state.get("page"):
             resumable_source_manager.save_state(BackMarketResumeConfig(next_page=int(state["page"])))
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    if is_fanout:
+        resources = rest_api_resources(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        resource = next(resource for resource in resources if resource.name == endpoint)
+    else:
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     return SourceResponse(
         name=endpoint,
