@@ -348,6 +348,10 @@ function edgeOf(
     }
 }
 
+function isMergeInto(target: AdventFlowNode): boolean {
+    return !!target.door && gapBefore(target.door.day) === 'merge'
+}
+
 function edgesOf(
     graph: AdventGraph,
     nodes: AdventFlowNode[],
@@ -356,10 +360,9 @@ function edgesOf(
 ): AdventFlowEdge[] {
     const byId = new Map(nodes.map((node) => [node.id, node]))
     const links = linksOf(graph)
-    const incoming = (id: string): number => links.filter((link) => link.to === id).length
     return links.flatMap(function edgesOfLink(link): AdventFlowEdge[] {
         const [source, target] = [byId.get(link.from), byId.get(link.to)]
-        return source && target ? [edgeOf(link, source, target, incoming(target.id) > 1, shares, orientation)] : []
+        return source && target ? [edgeOf(link, source, target, isMergeInto(target), shares, orientation)] : []
     })
 }
 
