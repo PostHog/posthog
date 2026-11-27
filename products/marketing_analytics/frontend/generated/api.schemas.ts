@@ -2779,6 +2779,8 @@ export interface UtmAuditResponseApi {
  * * `spend_without_conversions` - Spend Without Conversions
  * * `striking_distance` - Striking Distance
  * * `keyword_tracking` - Keyword Tracking
+ * * `conversion_mismatch` - Conversion Mismatch
+ * * `search_settings` - Search Settings
  */
 export type RecommendationRuleEnumApi = (typeof RecommendationRuleEnumApi)[keyof typeof RecommendationRuleEnumApi]
 
@@ -2794,6 +2796,8 @@ export const RecommendationRuleEnumApi = {
     SpendWithoutConversions: 'spend_without_conversions',
     StrikingDistance: 'striking_distance',
     KeywordTracking: 'keyword_tracking',
+    ConversionMismatch: 'conversion_mismatch',
+    SearchSettings: 'search_settings',
 } as const
 
 /**
@@ -2819,7 +2823,9 @@ export interface RecommendationIdentityApi {
      * * `keyword_gap` - Keyword Gap
      * * `spend_without_conversions` - Spend Without Conversions
      * * `striking_distance` - Striking Distance
-     * * `keyword_tracking` - Keyword Tracking */
+     * * `keyword_tracking` - Keyword Tracking
+     * * `conversion_mismatch` - Conversion Mismatch
+     * * `search_settings` - Search Settings */
     rule: RecommendationRuleEnumApi
     /** The ad platform the ids belong to.
      *
