@@ -80,27 +80,17 @@ describe('linearTeamsModalLogic', () => {
             name: 'a pick from Filters keeps the other keys and leaves enabled alone',
             message: 'Linear reads 2 teams from the next sync.',
             props: { config: existingConfig, enableOnSave: false },
-            form: { scope: 'selected' as const, teamIds: ['team-1', 'team-2'] },
+            form: { teamIds: ['team-1', 'team-2'] },
             expected: {
                 method: 'PATCH',
                 body: { enabled: false, config_set: { linear_team_ids: ['team-1', 'team-2'] } },
             },
         },
         {
-            name: 'reading all teams writes an empty list',
-            message: 'Linear reads all teams from the next sync.',
-            props: { config: existingConfig, enableOnSave: false },
-            form: { scope: 'all' as const, teamIds: ['team-1'] },
-            expected: {
-                method: 'PATCH',
-                body: { enabled: false, config_set: { linear_team_ids: [] } },
-            },
-        },
-        {
             name: 'the enable flow turns the source on with the pick',
             message: 'Linear reads 1 team from the next sync.',
             props: { config: existingConfig, enableOnSave: true },
-            form: { scope: 'selected' as const, teamIds: ['team-2'] },
+            form: { teamIds: ['team-2'] },
             expected: {
                 method: 'PATCH',
                 body: { enabled: true, config_set: { linear_team_ids: ['team-2'] } },
@@ -111,7 +101,7 @@ describe('linearTeamsModalLogic', () => {
             message: null,
             succeeds: false,
             props: { config: existingConfig, enableOnSave: false },
-            form: { scope: 'selected' as const, teamIds: ['team-1', 'team-2'] },
+            form: { teamIds: ['team-1', 'team-2'] },
             expected: {
                 method: 'PATCH',
                 body: { enabled: false, config_set: { linear_team_ids: ['team-1', 'team-2'] } },
@@ -141,8 +131,8 @@ describe('linearTeamsModalLogic', () => {
         expect(captureSpy).toHaveBeenCalledWith(
             INBOX_EVENTS.SOURCE_FILTERS_CHANGED,
             expect.objectContaining({
-                selected_count: form.scope === 'all' ? 0 : form.teamIds.length,
-                reads_everything: form.scope === 'all',
+                selected_count: form.teamIds.length,
+                reads_everything: false,
                 success: succeeds,
             }),
             undefined
@@ -215,7 +205,8 @@ describe('linearTeamsModalLogic', () => {
         const logic = linearTeamsModalLogic({ config: null, enableOnSave: true, viaSetupWizard: true, onClose })
         logic.mount()
         signalSourcesLogic.actions.loadSourceConfigsSuccess([])
-        expect(logic.values.linearTeams).toEqual({ scope: 'all', teamIds: [] })
+        expect(logic.values.linearTeams).toEqual({ teamIds: [] })
+        logic.actions.setLinearTeamsValue('teamIds', ['team-1'])
 
         await expectLogic(logic, () => logic.actions.submitLinearTeams()).toDispatchActions([
             'toggleSignalSourceSuccess',
@@ -228,7 +219,7 @@ describe('linearTeamsModalLogic', () => {
                     source_product: 'linear',
                     source_type: 'issue',
                     enabled: true,
-                    config: { linear_team_ids: [] },
+                    config: { linear_team_ids: ['team-1'] },
                 },
             },
         ])
@@ -243,12 +234,12 @@ describe('linearTeamsModalLogic', () => {
         })
         logic.mount()
 
-        logic.actions.setLinearTeamsValues({ scope: 'selected', teamIds: [] })
+        logic.actions.setLinearTeamsValue('teamIds', [])
         await expectLogic(logic, () => logic.actions.submitLinearTeams()).toDispatchActions([
             'submitLinearTeamsFailure',
         ])
 
-        expect(logic.values.linearTeamsValidationErrors.scope).toBe('Pick at least one team, or read all teams.')
+        expect(logic.values.isLinearTeamsValid).toBe(false)
         expect(requests).toEqual([])
         expect(onClose).not.toHaveBeenCalled()
     })

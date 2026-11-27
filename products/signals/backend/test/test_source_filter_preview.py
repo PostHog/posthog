@@ -159,7 +159,7 @@ class TestSourceFilterPreview(ClickhouseTestMixin, _LinearSourceFilterTest):
         self._linear_issues([_issue("assigned", assignee='{"id": "u1"}')])
 
         def failed_conditions(expression: str) -> list[str] | None:
-            [excluded] = self._preview(expression)["excluded"]
+            [excluded] = self._preview(expression, scope_ids=[_ALLOWED_TEAM])["excluded"]
             return excluded["failed_conditions"]
 
         assert failed_conditions("(project_name = 'Web' OR priority = 1) AND assignee_id IS NULL") == [
@@ -176,7 +176,7 @@ class TestSourceFilterPreview(ClickhouseTestMixin, _LinearSourceFilterTest):
             [_issue("described"), _issue("whitespace", description="\n "), _issue("missing", description=None)]
         )
 
-        preview = self._preview("")
+        preview = self._preview("", scope_ids=[_ALLOWED_TEAM])
 
         assert preview["total_count"] == 2
         assert {record["id"] for record in preview["passing"] + preview["excluded"]} == {"described", "whitespace"}
@@ -209,7 +209,7 @@ class TestSourceFilterPreview(ClickhouseTestMixin, _LinearSourceFilterTest):
         [
             ("absent_uses_saved_allowlist", {}, {"in-allowed-team"}),
             ("null_uses_saved_allowlist", {"scope_ids": None}, {"in-allowed-team"}),
-            ("empty_reads_every_team", {"scope_ids": []}, {"in-allowed-team", "in-other-team"}),
+            ("empty_previews_no_teams", {"scope_ids": []}, set()),
             ("list_replaces_saved_allowlist", {"scope_ids": [" linear-team-b "]}, {"in-other-team"}),
         ]
     )
@@ -225,6 +225,42 @@ class TestSourceFilterPreview(ClickhouseTestMixin, _LinearSourceFilterTest):
 
         assert preview["status"] == "ok", preview
         assert {record["id"] for record in preview["passing"]} == expected_ids
+
+    def test_expression_alone_filters_preview_and_ingestion_across_teams(self) -> None:
+        self._linear_issues(
+            [
+                _issue("allowed-team", days_ago=0),
+                _issue("other-team", days_ago=0, linear_team="linear-team-b"),
+                _issue("other-project", days_ago=0, project='{"id": "p2", "name": "Web"}'),
+            ]
+        )
+
+        expression = "project_name = 'Core'"
+        preview = self._preview(expression, scope_ids=[])
+
+        assert preview["status"] == "ok", preview
+        assert {record["id"] for record in preview["passing"]} == {"allowed-team", "other-team"}
+        assert {record["id"] for record in preview["excluded"]} == {"other-project"}
+
+        fetch_config = LINEAR_ISSUES_CONFIG.model_copy(update={"fields": ("id",)})
+        source_config: dict[str, object] = {"hogql_filter": {"expression": expression, "catalog_version": 1}}
+        records = fetch_config.record_fetcher(
+            self.team, fetch_config, {"table_name": "linear_issues", "source_config": source_config}
+        )
+        assert {record["id"] for record in records} == {"allowed-team", "other-team"}
+        source_config["linear_team_ids"] = [_ALLOWED_TEAM]
+        records = fetch_config.record_fetcher(
+            self.team, fetch_config, {"table_name": "linear_issues", "source_config": source_config}
+        )
+        assert {record["id"] for record in records} == {"allowed-team"}
+
+    def test_preview_without_a_saved_or_unsaved_selection_reads_no_issues(self) -> None:
+        self._linear_issues([_issue("in-allowed-team")])
+
+        preview = self._preview("")
+
+        assert preview["status"] == "ok"
+        assert (preview["total_count"], preview["passing"], preview["excluded"]) == (0, [], [])
 
     def test_preview_runs_with_the_requesters_warehouse_access(self) -> None:
         self._linear_issues([_issue("passes")])
@@ -247,7 +283,7 @@ class TestSourceFilterPreview(ClickhouseTestMixin, _LinearSourceFilterTest):
             "posthog.hogql.database.database.feature_enabled_or_false",
             side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control",
         ):
-            preview = self._preview("")
+            preview = self._preview("", scope_ids=[_ALLOWED_TEAM])
 
         assert preview["status"] == "access_denied"
         assert (preview["total_count"], preview["passing"], preview["excluded"]) == (0, [], [])
@@ -289,7 +325,7 @@ class TestSourceFilterPreview(ClickhouseTestMixin, _LinearSourceFilterTest):
             columns = {name: column for name, column in _COLUMNS.items() if name != "labels"}
             self._linear_issues([_issue("passes")[:-1]], columns=columns)
 
-        preview = self._preview(expression)
+        preview = self._preview(expression, scope_ids=[_ALLOWED_TEAM])
 
         assert preview["status"] == expected_status
         assert preview["total_count"] == 0

@@ -251,8 +251,9 @@ empty.
 Sources have been set up at some point but are currently turned off. Tell the user no signals are
 flowing right now. You can re-enable a source directly with
 `inbox-source-configs-partial-update { "id": "<source_config_uuid>", "enabled": true }` (confirm
-with the user first), or they can flip it on from the project's signals settings. Don't go fishing
-for reports — anything still there is stale.
+with the user first), or they can flip it on from the project's signals settings. For Linear, follow
+[the source setup guidance](references/sources.md#configure-linear) when choosing which tickets to read.
+Don't go fishing for reports — anything still there is stale.
 
 **Case C — at least one source config is `enabled: true`**
 

@@ -59,6 +59,17 @@ class TestInboxStatus(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["setup_state"] == expected
 
+    def test_linear_requires_teams_to_keep_self_driving_active(self) -> None:
+        SignalTeamConfig.objects.create(team=self.team, onboarding={"completed_at": timezone.now().isoformat()})
+        source = SignalSourceConfig.objects.create(
+            team=self.team, source_product="linear", source_type="issue", enabled=True
+        )
+        assert self.client.get(self.url).json()["setup_state"] == "paused"
+
+        source.config = {"linear_team_ids": ["team-example"]}
+        source.save(update_fields=["config"])
+        assert self.client.get(self.url).json()["setup_state"] == "active"
+
     @parameterized.expand(
         [("team", True, "active"), ("background", True, "not_started"), ("team", False, "not_started")]
     )

@@ -1,4 +1,16 @@
-import { LogicWrapper, MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
@@ -9,23 +21,23 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ExternalDataSource, IntegrationType } from '~/types'
 
-import { captureSignalSourceFiltersChanged } from '../inboxAnalytics'
+import { captureSignalSourceFilterEditorOpened, captureSignalSourceFiltersChanged } from '../inboxAnalytics'
 import { syncedLinearIntegration } from '../linearSyncedIntegration'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import {
+    LINEAR_TEAMS_REQUIRED,
     SOURCE_LINEAR_TEAM_IDS_KEY,
     SignalSourceConfig,
     SignalSourceProduct,
     SignalSourceType,
     ToggleSignalSourceParams,
     linearTeamIdsFromConfig,
+    sourceFilterIsSet,
 } from '../types'
 
-export type LinearTeamsScope = 'all' | 'selected'
-
 export interface LinearTeamsFormValues {
-    scope: LinearTeamsScope
     teamIds: string[]
+    _form?: string
 }
 
 export interface LinearTeamsModalLogicProps {
@@ -38,8 +50,7 @@ export interface LinearTeamsModalLogicProps {
 }
 
 function formDefaults(config: SignalSourceConfig | null): LinearTeamsFormValues {
-    const teamIds = linearTeamIdsFromConfig(config?.config)
-    return teamIds.length > 0 ? { scope: 'selected', teamIds } : { scope: 'all', teamIds: [] }
+    return { teamIds: linearTeamIdsFromConfig(config?.config) }
 }
 
 function isLinearIssueToggle(params: ToggleSignalSourceParams): boolean {
@@ -178,20 +189,18 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
     forms(({ props: logicProps, actions }) => ({
         linearTeams: {
             defaults: formDefaults(logicProps.config),
-            // The message hangs off `scope` (a string field) because kea-forms types an array
-            // field's error as an array, one entry per item, and this is about the list as a whole.
-            errors: ({ scope, teamIds }: LinearTeamsFormValues) => ({
-                scope:
-                    scope === 'selected' && teamIds.length === 0
-                        ? 'Pick at least one team, or read all teams.'
+            errors: ({ teamIds }: LinearTeamsFormValues) => ({
+                _form:
+                    teamIds.length === 0 && !sourceFilterIsSet(logicProps.config?.config)
+                        ? LINEAR_TEAMS_REQUIRED
                         : undefined,
             }),
-            submit: ({ scope, teamIds }: LinearTeamsFormValues) => {
+            submit: ({ teamIds }: LinearTeamsFormValues) => {
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.Linear,
                     sourceType: SignalSourceType.Issue,
                     enabled: logicProps.enableOnSave ? true : (logicProps.config?.enabled ?? true),
-                    configSet: { [SOURCE_LINEAR_TEAM_IDS_KEY]: scope === 'all' ? [] : teamIds },
+                    configSet: { [SOURCE_LINEAR_TEAM_IDS_KEY]: teamIds },
                     viaSetupWizard: logicProps.viaSetupWizard,
                 })
             },
@@ -227,9 +236,9 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
                 success: true,
             })
             lemonToast.success(
-                teamCount === 0
-                    ? 'Linear reads all teams from the next sync.'
-                    : `Linear reads ${teamCount} ${teamCount === 1 ? 'team' : 'teams'} from the next sync.`
+                teamCount > 0
+                    ? `Linear reads ${teamCount} ${teamCount === 1 ? 'team' : 'teams'} from the next sync.`
+                    : 'Linear uses your saved filter from the next sync.'
             )
             logicProps.onClose()
         },
@@ -248,4 +257,12 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
             })
         },
     })),
+    afterMount(({ props: logicProps }) => {
+        captureSignalSourceFilterEditorOpened({
+            sourceProduct: SignalSourceProduct.Linear,
+            sourceType: SignalSourceType.Issue,
+            filter: SOURCE_LINEAR_TEAM_IDS_KEY,
+            hasFilter: linearTeamIdsFromConfig(logicProps.config?.config).length > 0,
+        })
+    }),
 ])

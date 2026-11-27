@@ -41,8 +41,10 @@ import {
     SignalAlertScope,
     SignalSourceConfig,
     SignalSourceConfigStatus,
+    SignalSourceProduct,
     SignalSourceType,
     linearTeamIdsFromConfig,
+    linearFilterIsSet,
     sourceFilterIsSet,
 } from '../../types'
 import { SourceSpendLabel } from '../spend/SourceSpendLabel'
@@ -88,10 +90,13 @@ function entityKindLabel(kind: string): string {
 /** Above this many entities the list gets a filter box. */
 const ENTITY_FILTER_THRESHOLD = 8
 
-function linearTeamsSummary(config: SignalSourceConfig): string {
+function linearTeamsSummary(config: SignalSourceConfig, expressionEditable = false): string {
     const count = linearTeamIdsFromConfig(config.config).length
     if (count === 0) {
-        return 'Reads issues from all Linear teams.'
+        if (sourceFilterIsSet(config.config)) {
+            return 'Uses your saved filter across all Linear teams.'
+        }
+        return expressionEditable ? 'Select teams or enter a filter.' : 'Select teams to read Linear issues.'
     }
     return `Reads issues from ${count} Linear ${count === 1 ? 'team' : 'teams'}.`
 }
@@ -670,6 +675,7 @@ interface AgentRowProps {
     anomalyScoring?: SourceAnomalyScoring
     onSteer?: () => void
     onRetryData: () => void
+    needsLinearFilter?: boolean
 }
 
 const AgentRow = memo(function AgentRow({
@@ -688,6 +694,7 @@ const AgentRow = memo(function AgentRow({
     anomalyScoring,
     onSteer,
     onRetryData,
+    needsLinearFilter,
 }: AgentRowProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
@@ -696,9 +703,14 @@ const AgentRow = memo(function AgentRow({
     const armingBlocked = productOff && !armed
     const warehouseSource = isExternalSignalSource(agent.source)
     const tag =
-        warehouseSource && !loading && !armed
-            ? { label: state.connected ? 'Connected · Off' : 'Not connected', type: 'default' as LemonTagType }
-            : notableTag(status, armed, productOff, product)
+        needsLinearFilter && !loading
+            ? {
+                  label: expressionFilter?.catalogState === 'ready' ? 'Set a filter' : 'Select teams',
+                  type: 'caution' as const,
+              }
+            : warehouseSource && !loading && !armed
+              ? { label: state.connected ? 'Connected · Off' : 'Not connected', type: 'default' as LemonTagType }
+              : notableTag(status, armed, productOff, product)
     // A source whose entities the user creates gets no master switch. Arming it would write to
     // every entity at once, and turning it off and on again would not restore the earlier subset.
     const hasMasterSwitch = !agent.entitiesAreUserCreated
@@ -890,10 +902,12 @@ export function AgentsRoster(): JSX.Element {
     const [issueFiltersConfigs, setIssueFiltersConfigs] = useState<SignalSourceConfig[] | null>(null)
     const { catalogStateFor } = useValues(sourceFilterCatalogLogic)
     const { loadFilterCatalogs } = useActions(sourceFilterCatalogLogic)
+    const linearCatalog = catalogStateFor(SignalSourceProduct.Linear, SignalSourceType.Issue)
     const [expressionFilterTarget, setExpressionFilterTarget] = useState<{
         config: SignalSourceConfig
         catalog: SourceFilterCatalogApi
         label: string
+        enableOnSave?: { viaSetupWizard: boolean }
     } | null>(null)
 
     const scannerEntities = useMemo(
@@ -1165,14 +1179,18 @@ export function AgentsRoster(): JSX.Element {
                     : null
             // The filter editor holds the Linear teams once its fields load, so the teams get no button of their own.
             const teamsInEditor = agent.source === 'linear' && catalogState?.status === 'ready'
+            const needsLinearFilter =
+                agent.source === 'linear' &&
+                linearIssuesConfig !== null &&
+                !linearFilterIsSet(linearIssuesConfig.config)
             const expressionFilter: SourceExpressionFilter | undefined =
                 filterConfig && catalogState && catalogState.status !== 'unavailable'
                     ? {
                           catalogState: catalogState.status,
-                          isSet:
-                              sourceFilterIsSet(filterConfig.config) ||
-                              (teamsInEditor && linearTeamIdsFromConfig(filterConfig.config).length > 0),
-                          summary: teamsInEditor ? linearTeamsSummary(filterConfig) : undefined,
+                          isSet: teamsInEditor
+                              ? linearFilterIsSet(filterConfig.config)
+                              : sourceFilterIsSet(filterConfig.config),
+                          summary: teamsInEditor ? linearTeamsSummary(filterConfig, true) : undefined,
                           onOpen: () =>
                               catalogState.status === 'ready' &&
                               setExpressionFilterTarget({
@@ -1196,7 +1214,10 @@ export function AgentsRoster(): JSX.Element {
                     !linearIssuesConfig.id.startsWith('new_')
                   ? {
                         summary: linearTeamsSummary(linearIssuesConfig),
-                        changeLabel: 'Change teams',
+                        changeLabel:
+                            linearTeamIdsFromConfig(linearIssuesConfig.config).length === 0
+                                ? 'Select teams'
+                                : 'Change teams',
                         onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
                         // A save or reload can replace the row, and the picker reads it on open.
                         disabledReason: isLinearIssuesToggling
@@ -1222,6 +1243,7 @@ export function AgentsRoster(): JSX.Element {
                     onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
                     filters={filters}
                     expressionFilter={expressionFilter}
+                    needsLinearFilter={needsLinearFilter}
                     alertScope={agent.source === 'analytics' ? alertScope : undefined}
                     anomalyScoring={agent.source === 'analytics' ? anomalyScoring : undefined}
                     onSteer={
@@ -1306,6 +1328,28 @@ export function AgentsRoster(): JSX.Element {
                     config={linearIssuesConfig}
                     enableOnSave={linearTeamsPicker.enableOnSave}
                     viaSetupWizard={linearTeamsPicker.viaSetupWizard}
+                    onUseFilter={
+                        linearTeamsPicker.enableOnSave && linearCatalog.status === 'ready'
+                            ? () => {
+                                  closeLinearTeamsPicker()
+                                  setExpressionFilterTarget({
+                                      config: linearIssuesConfig ?? {
+                                          id: 'new_linear_issue',
+                                          source_product: SignalSourceProduct.Linear,
+                                          source_type: SignalSourceType.Issue,
+                                          enabled: false,
+                                          config: {},
+                                          created_at: '',
+                                          updated_at: '',
+                                          status: null,
+                                      },
+                                      catalog: linearCatalog.catalog,
+                                      label: 'Linear',
+                                      enableOnSave: { viaSetupWizard: linearTeamsPicker.viaSetupWizard },
+                                  })
+                              }
+                            : undefined
+                    }
                     onClose={closeLinearTeamsPicker}
                 />
             )}
@@ -1324,6 +1368,7 @@ export function AgentsRoster(): JSX.Element {
                     sourceConfig={expressionFilterTarget.config}
                     catalog={expressionFilterTarget.catalog}
                     sourceLabel={expressionFilterTarget.label}
+                    enableOnSave={expressionFilterTarget.enableOnSave}
                     onClose={() => setExpressionFilterTarget(null)}
                 />
             )}

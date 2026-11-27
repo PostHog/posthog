@@ -1153,15 +1153,17 @@ export function captureSignalSourceFiltersChanged(params: {
     })
 }
 
-/** The expression filter editor opened on a source. Pairs with the changed event to show drop-off. */
+/** Pairs filter editor opens with save outcomes to show drop-off. */
 export function captureSignalSourceFilterEditorOpened(params: {
     sourceProduct: string
     sourceType: string
+    filter?: string
     hasFilter: boolean
 }): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_FILTER_EDITOR_OPENED, {
         source_product: params.sourceProduct,
         source_type: params.sourceType,
+        ...(params.filter ? { filter: params.filter } : {}),
         has_filter: params.hasFilter,
     })
 }

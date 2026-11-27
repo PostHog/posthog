@@ -15,7 +15,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
-from products.signals.backend.contracts import HOGQL_FILTER_KEY, scope_ids_problem
+from products.signals.backend.contracts import HOGQL_FILTER_KEY, has_required_source_filter, scope_ids_problem
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 from products.signals.backend.source_filters import SavedSourceFilter, saved_filter_predicate
 
@@ -50,9 +50,7 @@ def escape_table_name(table_name: str) -> str:
 
 
 def scope_ids_from_source_config(config: SignalSourceTableConfig, source_config: Any) -> list[str]:
-    """The source's allowlist, stripped, or an empty list. A malformed value in the API-writable
-    config blob is ignored as a whole: emission reads everything rather than applying part of a
-    list or breaking."""
+    """The source's allowlist, stripped. A malformed list allows no records, even if some entries are valid."""
     if config.scope_config_key is None or not isinstance(source_config, dict):
         return []
     raw = source_config.get(config.scope_config_key)
@@ -82,7 +80,10 @@ def data_warehouse_record_fetcher(
     table_name: str = context["table_name"]
     last_synced_at: str | None = context.get("last_synced_at")
     extra: dict[str, Any] = context.get("extra", {})
-    scope_ids = scope_ids_from_source_config(config, context.get("source_config"))
+    source_config = context.get("source_config")
+    scope_ids = scope_ids_from_source_config(config, source_config)
+    if not has_required_source_filter(config.source_product, config.source_type, source_config):
+        return []
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
     partition_expr = config.partition_expression
@@ -110,7 +111,7 @@ def data_warehouse_record_fetcher(
         placeholders["scope_ids"] = ast.Tuple(exprs=[ast.Constant(value=scope_id) for scope_id in scope_ids])
     where_sql = " AND ".join(where_parts)
     fields_sql = ", ".join(config.fields)
-    saved_filter = saved_filter_from_source_config(context.get("source_config"))
+    saved_filter = saved_filter_from_source_config(source_config)
     alias_sql = f" AS {FILTER_SOURCE_ALIAS}" if saved_filter is not None else ""
     drain = bool(context.get(DRAIN_WINDOW_KEY))
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case

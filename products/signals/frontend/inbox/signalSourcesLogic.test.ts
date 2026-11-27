@@ -241,6 +241,38 @@ describe('signalSourcesLogic', () => {
         }
     )
 
+    it('turns on Linear with a saved issue filter and no selected teams', async () => {
+        const config = {
+            ...githubIssuesConfig,
+            source_product: SignalSourceProduct.Linear,
+            enabled: false,
+            config: { hogql_filter: { expression: "project_name = 'Core'", catalog_version: 1 } },
+        }
+        warehouseSources = [
+            {
+                ...githubSource,
+                source_type: 'Linear',
+                schemas: [{ ...githubSchema('schema-1', 'issues'), sync_type: 'incremental' }],
+            },
+        ]
+        const writes: unknown[] = []
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/signals/source_configs/:id/': async ({ request }) => {
+                    writes.push(await request.json())
+                    return [200, { ...config, enabled: true }]
+                },
+            },
+        })
+        logic.actions.loadSourceConfigsSuccess([config])
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: warehouseSources, next: null, previous: null })
+
+        await expectLogic(logic, () => logic.actions.initiateDataWarehouseSourceToggle('linear')).toFinishAllListeners()
+
+        expect(writes).toEqual([{ enabled: true }])
+        expect(logic.values.linearTeamsPicker).toBeNull()
+    })
+
     it.each([
         ['image-only connection', 'search_analytics_by_query_page_image'],
         ['connection without schemas', null],

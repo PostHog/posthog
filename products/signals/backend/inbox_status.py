@@ -5,6 +5,7 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.facade.api import has_signal_emitting_scanner
+from products.signals.backend.contracts import has_required_source_filter
 from products.signals.backend.first_report_scout import first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportStatus
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
@@ -67,7 +68,10 @@ def get_inbox_status(team: Team, user: User) -> InboxStatus:
         .exclude(operational_config_q())
     )
     watching = (
-        sources.exists()
+        any(
+            has_required_source_filter(source_product, source_type, config)
+            for source_product, source_type, config in sources.values_list("source_product", "source_type", "config")
+        )
         or (
             SignalSourceConfig.is_source_enabled(canonical_team.id, "signals_scout", "cross_source_issue")
             and scouts.exists()

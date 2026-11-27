@@ -81,6 +81,7 @@ import {
     SignalSourceConfigStatus,
     ToggleSignalSourceParams,
     alertScopeFromConfig,
+    linearFilterIsSet,
 } from './types'
 
 /** product_enablement recipe names for products that back a signal source. */
@@ -2218,8 +2219,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     if ((currentConfig?.enabled ?? false) === desiredEnabled) {
                         return
                     }
-                    // Linear asks which teams to read before it turns on; the picker's save does the toggle.
-                    if (source === 'linear' && desiredEnabled) {
+                    if (source === 'linear' && desiredEnabled && !linearFilterIsSet(currentConfig?.config)) {
                         actions.openLinearTeamsPicker({ enableOnSave: true, viaSetupWizard: false })
                         return
                     }
@@ -2251,7 +2251,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.toggleCiSignals(true)
                     return
                 }
-                if (source === 'linear') {
+                if (source === 'linear' && !linearFilterIsSet(getWarehouseSourceConfig(values, source)?.config)) {
                     actions.openLinearTeamsPicker({ enableOnSave: true, viaSetupWizard: true })
                     return
                 }

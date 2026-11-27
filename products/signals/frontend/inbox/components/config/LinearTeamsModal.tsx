@@ -5,21 +5,16 @@ import { useId } from 'react'
 import { LemonBanner, LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
-import { LinearTeamsModalLogicProps, LinearTeamsScope, linearTeamsModalLogic } from '../../logics/linearTeamsModalLogic'
-import { SignalSourceConfig } from '../../types'
+import { LinearTeamsModalLogicProps, linearTeamsModalLogic } from '../../logics/linearTeamsModalLogic'
+import { LINEAR_TEAMS_REQUIRED, SignalSourceConfig, sourceFilterIsSet } from '../../types'
 import { LinearTeamsSelect } from './LinearTeamsSelect'
-
-const SCOPE_OPTIONS: LemonRadioOption<LinearTeamsScope>[] = [
-    { value: 'all', label: 'All teams', 'data-attr': 'signal-source-linear-teams-all' },
-    { value: 'selected', label: 'Only the teams I pick', 'data-attr': 'signal-source-linear-teams-selected' },
-]
 
 export interface LinearTeamsModalProps {
     config: SignalSourceConfig | null
     enableOnSave: boolean
     viaSetupWizard: boolean
+    onUseFilter?: () => void
     onClose: () => void
 }
 
@@ -27,13 +22,13 @@ export function LinearTeamsModal({
     config,
     enableOnSave,
     viaSetupWizard,
+    onUseFilter,
     onClose,
 }: LinearTeamsModalProps): JSX.Element {
     const formId = useId()
     const logicProps: LinearTeamsModalLogicProps = { config, enableOnSave, viaSetupWizard, onClose }
     const logic = linearTeamsModalLogic(logicProps)
-    const { linearTeams, linearTeamsValidationErrors, isLinearIssuesToggling, linearIntegration, integrationsUnknown } =
-        useValues(logic)
+    const { isLinearTeamsValid, isLinearIssuesToggling, linearIntegration, integrationsUnknown } = useValues(logic)
 
     const handleClose = (): void => {
         if (isLinearIssuesToggling) {
@@ -42,23 +37,28 @@ export function LinearTeamsModal({
         onClose()
     }
 
-    const scopeError =
-        typeof linearTeamsValidationErrors.scope === 'string' ? linearTeamsValidationErrors.scope : undefined
-
-    // A radio group disables per option, so the saving reason goes on each one.
-    const scopeOptions = isLinearIssuesToggling
-        ? SCOPE_OPTIONS.map((option) => ({ ...option, disabledReason: 'Saving' }))
-        : SCOPE_OPTIONS
-
     return (
         <LemonModal
             isOpen
             onClose={handleClose}
             title="Linear teams"
-            description="Choose which Linear teams self-driving reads. It reads open issues only from those teams."
+            description={
+                sourceFilterIsSet(config?.config)
+                    ? 'Choose teams to narrow your saved filter. Leave empty to apply the filter across all teams.'
+                    : 'Which Linear issues should Self-driving respond to? Select the teams whose open issues you want it to read.'
+            }
             width={480}
             footer={
                 <>
+                    {onUseFilter && (
+                        <LemonButton
+                            type="tertiary"
+                            onClick={onUseFilter}
+                            disabledReason={isLinearIssuesToggling ? 'Saving' : undefined}
+                        >
+                            Use an issue filter
+                        </LemonButton>
+                    )}
                     <LemonButton
                         type="secondary"
                         onClick={handleClose}
@@ -71,7 +71,7 @@ export function LinearTeamsModal({
                         form={formId}
                         htmlType="submit"
                         loading={isLinearIssuesToggling}
-                        disabledReason={scopeError}
+                        disabledReason={isLinearTeamsValid ? undefined : LINEAR_TEAMS_REQUIRED}
                         data-attr="signal-source-linear-teams-save"
                     >
                         {enableOnSave && !config?.enabled ? 'Turn on Linear' : 'Save'}
@@ -80,37 +80,22 @@ export function LinearTeamsModal({
             }
         >
             <Form logic={linearTeamsModalLogic} props={logicProps} formKey="linearTeams" id={formId} enableFormOnSubmit>
-                <div className="flex flex-col gap-3">
-                    <LemonField name="scope">
-                        {({ value, onChange }) => (
-                            <LemonRadio
-                                value={value}
-                                onChange={onChange}
-                                options={scopeOptions}
-                                aria-label="Which Linear teams to read"
-                            />
-                        )}
+                {integrationsUnknown ? (
+                    <LemonSkeleton className="h-10" />
+                ) : linearIntegration ? (
+                    <LemonField
+                        name="teamIds"
+                        label="Teams"
+                        help="Applies from the next sync. Reports already in your inbox stay."
+                    >
+                        <LinearTeamsSelect integrationId={linearIntegration.id} disabled={isLinearIssuesToggling} />
                     </LemonField>
-                    {linearTeams.scope === 'selected' &&
-                        (integrationsUnknown ? (
-                            <LemonSkeleton className="h-10" />
-                        ) : linearIntegration ? (
-                            <LemonField
-                                name="teamIds"
-                                help="Applies from the next sync. Reports already in your inbox stay."
-                            >
-                                <LinearTeamsSelect
-                                    integrationId={linearIntegration.id}
-                                    disabled={isLinearIssuesToggling}
-                                />
-                            </LemonField>
-                        ) : (
-                            <LemonBanner type="warning">
-                                Couldn't find your Linear connection, so the team list isn't available. Reconnect Linear
-                                in integration settings, then try again.
-                            </LemonBanner>
-                        ))}
-                </div>
+                ) : (
+                    <LemonBanner type="warning">
+                        Couldn't find your Linear connection, so the team list isn't available. Reconnect Linear in
+                        integration settings, then try again.
+                    </LemonBanner>
+                )}
             </Form>
         </LemonModal>
     )

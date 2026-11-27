@@ -5,7 +5,7 @@
 
 import enum
 from collections.abc import Mapping
-from typing import Annotated, Literal, get_args
+from typing import Annotated, Literal, TypedDict, TypeGuard, get_args
 
 import re2
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,9 +36,7 @@ SCOPE_ID_MAX_LENGTH = 255
 
 
 def scope_ids_problem(value: object) -> str | None:
-    """Why `value` is not a valid scope allowlist, or None when it is. The API rejects the value
-    with this message; the fetcher falls back to reading everything, so a malformed row never
-    applies part of a list."""
+    """The validation error for the list's shape and bounds. Callers decide whether an empty list is allowed."""
     if not isinstance(value, list) or not all(isinstance(scope_id, str) and scope_id.strip() for scope_id in value):
         return "must be a list of non-empty strings"
     if len(value) > SCOPE_IDS_MAX_COUNT:
@@ -128,6 +126,36 @@ ISSUE_FILTER_SOURCES: frozenset[tuple[str, str]] = frozenset(
 # Clients send the expression as a string. The server stores it with the catalog version it was validated
 # against, so a later catalog version cannot change what a saved filter means.
 HOGQL_FILTER_KEY = "hogql_filter"
+
+
+class SavedSourceFilterConfig(TypedDict):
+    expression: str
+    catalog_version: int
+
+
+def is_saved_source_filter_config(raw: object) -> TypeGuard[SavedSourceFilterConfig]:
+    return (
+        isinstance(raw, dict)
+        and set(raw) == {"expression", "catalog_version"}
+        and isinstance(raw["expression"], str)
+        and type(raw["catalog_version"]) is int
+    )
+
+
+def has_required_source_filter(source_product: str, source_type: str, config: object) -> bool:
+    scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type))
+    if scope_key is None:
+        return True
+    if not isinstance(config, dict):
+        return False
+    if scope_key in config:
+        scope_ids = config[scope_key]
+        if scope_ids_problem(scope_ids) is not None:
+            return False
+        if scope_ids:
+            return True
+    saved_filter = config.get(HOGQL_FILTER_KEY)
+    return is_saved_source_filter_config(saved_filter) and bool(saved_filter["expression"].strip())
 
 
 class ContractModel(BaseModel):

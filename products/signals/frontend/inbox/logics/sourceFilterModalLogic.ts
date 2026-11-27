@@ -24,7 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExternalDataSource, IntegrationType } from '~/types'
 
-import { signalsSourceConfigsPartialUpdate } from 'products/signals/frontend/generated/api'
+import { signalsSourceConfigsCreate, signalsSourceConfigsPartialUpdate } from 'products/signals/frontend/generated/api'
 import type {
     SignalSourceConfigApi,
     SourceFilterCatalogApi,
@@ -32,6 +32,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import {
+    captureSignalSourceConnected,
     captureSignalSourceFilterEditorOpened,
     captureSignalSourceFilterExpressionChanged,
     captureSignalSourceFiltersChanged,
@@ -39,6 +40,7 @@ import {
 import { syncedLinearIntegration } from '../linearSyncedIntegration'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import {
+    LINEAR_FILTER_REQUIRED,
     SOURCE_HOGQL_FILTER_KEY,
     SOURCE_LINEAR_TEAM_IDS_KEY,
     SavedSourceFilter,
@@ -48,20 +50,17 @@ import {
     linearTeamIdsFromConfig,
     savedSourceFilter,
 } from '../types'
-import type { LinearTeamsScope } from './linearTeamsModalLogic'
 
 export interface SourceFilterFormValues {
     expression: string
-    /** Linear issues only: which teams the source reads, saved to `linear_team_ids` next to the filter. */
-    teamScope: LinearTeamsScope
     teamIds: string[]
+    _form?: string
 }
 
 /** What one save writes. `undefined` leaves a key as it is. */
 interface SourceFilterChange {
     /** The expression to save, or null to remove the filter. */
     expression?: string | null
-    /** Linear team ids to read, where an empty list means every team. */
     teamIds?: string[]
 }
 
@@ -70,11 +69,9 @@ export function sourceReadsLinearTeams(config: SignalSourceConfig): boolean {
 }
 
 function formDefaults(config: SignalSourceConfig): SourceFilterFormValues {
-    const teamIds = linearTeamIdsFromConfig(config.config)
     return {
         expression: savedSourceFilter(config.config)?.expression ?? '',
-        teamScope: teamIds.length > 0 ? 'selected' : 'all',
-        teamIds,
+        teamIds: linearTeamIdsFromConfig(config.config),
     }
 }
 
@@ -96,11 +93,8 @@ function changeFrom(values: SourceFilterFormValues, config: SignalSourceConfig):
     } else if (!trimmed && saved) {
         change.expression = null
     }
-    if (sourceReadsLinearTeams(config)) {
-        const teamIds = values.teamScope === 'all' ? [] : values.teamIds
-        if (!sameTeams(teamIds, linearTeamIdsFromConfig(config.config))) {
-            change.teamIds = teamIds
-        }
+    if (sourceReadsLinearTeams(config) && !sameTeams(values.teamIds, linearTeamIdsFromConfig(config.config))) {
+        change.teamIds = values.teamIds
     }
     return change
 }
@@ -108,6 +102,7 @@ function changeFrom(values: SourceFilterFormValues, config: SignalSourceConfig):
 export interface SourceFilterModalLogicProps {
     sourceConfig: SignalSourceConfig
     catalog: SourceFilterCatalogApi
+    enableOnSave?: { viaSetupWizard: boolean }
     onClose: () => void
 }
 
@@ -250,7 +245,8 @@ export type sourceFilterModalLogicType = MakeLogicType<
 /** Write one change in a single request. Throws when the save fails. */
 async function persistFilter(logic: sourceFilterModalLogicType, change: SourceFilterChange): Promise<void> {
     const { props: logicProps, actions, values } = logic
-    const { sourceConfig } = logicProps
+    const { sourceConfig, enableOnSave } = logicProps
+    const isFirstConnection = sourceConfig.id.startsWith('new_')
     if (values.currentTeamId === null) {
         lemonToast.error('Select a project before saving')
         throw new Error('No project selected')
@@ -265,7 +261,7 @@ async function persistFilter(logic: sourceFilterModalLogicType, change: SourceFi
     if (change.teamIds !== undefined) {
         configSet[SOURCE_LINEAR_TEAM_IDS_KEY] = change.teamIds
     }
-    if (Object.keys(configSet).length === 0 && configRemove.length === 0) {
+    if (!enableOnSave && Object.keys(configSet).length === 0 && configRemove.length === 0) {
         logicProps.onClose()
         return
     }
@@ -293,10 +289,19 @@ async function persistFilter(logic: sourceFilterModalLogicType, change: SourceFi
 
     let updated: SignalSourceConfigApi
     try {
-        updated = await signalsSourceConfigsPartialUpdate(String(values.currentTeamId), sourceConfig.id, {
-            ...(Object.keys(configSet).length > 0 ? { config_set: configSet } : {}),
-            ...(configRemove.length > 0 ? { config_remove: configRemove } : {}),
-        })
+        const projectId = String(values.currentTeamId)
+        updated = isFirstConnection
+            ? await signalsSourceConfigsCreate(projectId, {
+                  source_product: sourceConfig.source_product,
+                  source_type: SignalSourceType.Issue,
+                  enabled: true,
+                  config: configSet,
+              })
+            : await signalsSourceConfigsPartialUpdate(projectId, sourceConfig.id, {
+                  ...(enableOnSave ? { enabled: true } : {}),
+                  ...(Object.keys(configSet).length > 0 ? { config_set: configSet } : {}),
+                  ...(configRemove.length > 0 ? { config_remove: configRemove } : {}),
+              })
     } catch (error) {
         capture(false)
         const expressionError = expressionErrorFrom(error)
@@ -320,6 +325,14 @@ async function persistFilter(logic: sourceFilterModalLogicType, change: SourceFi
         status: (updated.status ?? null) as SignalSourceConfig['status'],
     })
     capture(true)
+    if (enableOnSave) {
+        captureSignalSourceConnected({
+            sourceProduct: sourceConfig.source_product,
+            sourceType: sourceConfig.source_type,
+            isFirstConnection,
+            viaSetupWizard: enableOnSave.viaSetupWizard,
+        })
+    }
     lemonToast.success(
         change.expression === null && change.teamIds === undefined
             ? 'Filter removed. It stops applying from the next sync.'
@@ -409,12 +422,10 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
     forms((logic) => ({
         sourceFilter: {
             defaults: formDefaults(logic.props.sourceConfig),
-            // The message hangs off `teamScope` because kea-forms types an array field's error as one
-            // entry per item, and this is about the list as a whole.
-            errors: ({ teamScope, teamIds }: SourceFilterFormValues) => ({
-                teamScope:
-                    sourceReadsLinearTeams(logic.props.sourceConfig) && teamScope === 'selected' && teamIds.length === 0
-                        ? 'Pick at least one team, or read all teams.'
+            errors: ({ teamIds, expression }: SourceFilterFormValues) => ({
+                _form:
+                    sourceReadsLinearTeams(logic.props.sourceConfig) && teamIds.length === 0 && !expression.trim()
+                        ? LINEAR_FILTER_REQUIRED
                         : undefined,
             }),
             submit: async (values: SourceFilterFormValues) => {
@@ -431,6 +442,14 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
         },
         removeFilter: async () => {
             try {
+                const { sourceConfig } = logic.props
+                if (
+                    sourceConfig.enabled &&
+                    sourceReadsLinearTeams(sourceConfig) &&
+                    linearTeamIdsFromConfig(sourceConfig.config).length === 0
+                ) {
+                    return
+                }
                 await persistFilter(logic, { expression: null })
             } catch {
                 // persistFilter already told the person what failed.
