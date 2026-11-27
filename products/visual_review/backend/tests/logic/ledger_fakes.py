@@ -288,6 +288,7 @@ class LedgerFlow:
         branch: str,
         pr_number: int | None = None,
         purpose: RunPurpose = RunPurpose.REVIEW,
+        is_partial: bool = False,
     ) -> Run:
         run, _uploads = runs.create_run(
             CreateRunInput(
@@ -302,6 +303,7 @@ class LedgerFlow:
                     for identifier, content_hash in renders.items()
                 ],
                 metadata={"github_check_run_id": "42", "github_run_id": "777"},
+                is_partial=is_partial,
             ),
             team_id=self.repo.team_id,
         )
