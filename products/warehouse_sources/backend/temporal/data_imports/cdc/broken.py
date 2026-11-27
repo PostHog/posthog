@@ -35,9 +35,13 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import repair_lock
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
 )
+
+if typing.TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import CDCSourceAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -210,7 +214,7 @@ def _syncing_cdc_tables(source: ExternalDataSource) -> list[ExternalDataSchema]:
     )
 
 
-def mark_lost_slot_broken(source: ExternalDataSource) -> bool:
+def mark_lost_slot_broken(source: ExternalDataSource, adapter: CDCSourceAdapter[typing.Any]) -> bool:
     """Mark a source broken whose slot is gone while its capture no longer runs. Returns whether it was marked.
 
     A capture run that finds the slot gone recreates it and resnapshots on its own, so a source whose
@@ -218,14 +222,18 @@ def mark_lost_slot_broken(source: ExternalDataSource) -> bool:
     Completed until someone noticed, so it gets the marker that offers Repair CDC.
     """
     syncing_tables = _syncing_cdc_tables(source)
-    if (
-        not syncing_tables
-        or tables_wait_for_repair(source)
-        or not _capture_is_stale(syncing_tables, dt.datetime.now(tz=dt.UTC))
-    ):
+    if not syncing_tables or not _capture_is_stale(syncing_tables, dt.datetime.now(tz=dt.UTC)):
         return False
-    category = CDCErrorCategory.SLOT_MISSING
-    mark_cdc_broken(source, category.value, cdc_error_info(category).friendly_message)
+    # A repair keeps the stale run stamps and recreates the slot, so the slot is checked again under the
+    # repair lock, where no repair can be running or start before the marker lands.
+    with repair_lock(source) as acquired:
+        if not acquired or tables_wait_for_repair(source):
+            return False
+        with adapter.management_connection(source, connect_timeout=10) as conn:
+            if adapter.stream_exists(conn, source):
+                return False
+        category = CDCErrorCategory.SLOT_MISSING
+        mark_cdc_broken(source, category.value, cdc_error_info(category).friendly_message)
     return True
 
 

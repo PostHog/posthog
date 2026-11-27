@@ -1933,7 +1933,7 @@ def cleanup_orphan_slots_activity() -> None:
                 source_log.warning("slot_not_found_or_no_flush_lsn", slot_lost=slot_lost)
                 if slot_lost:
                     try:
-                        if mark_lost_slot_broken(source):
+                        if mark_lost_slot_broken(source, adapter):
                             source_log.warning("cdc_lost_slot_marked_broken")
                     except Exception:
                         source_log.exception("failed_to_mark_lost_slot_broken")
