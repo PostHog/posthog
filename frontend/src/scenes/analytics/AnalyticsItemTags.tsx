@@ -12,11 +12,11 @@ import {
     Text,
 } from '@posthog/quill'
 
+import { TagIcon } from 'lib/components/TagIcon'
 import { pluralize } from 'lib/utils/strings'
 
 import { isTaggableAnalyticsType } from './analyticsFeed'
 import { analyticsListLogic } from './analyticsListLogic'
-import { AnalyticsTagIcon } from './AnalyticsTagIcon'
 import { analyticsTagsLogic } from './analyticsTagsLogic'
 import { AnalyticsItem, analyticsItemTarget, ROW_HOVER_REVEAL } from './analyticsUtils'
 
@@ -63,7 +63,7 @@ export function AnalyticsItemTags({ item }: { item: AnalyticsItem }): JSX.Elemen
                     />
                 }
             >
-                <AnalyticsTagIcon />
+                <TagIcon />
                 {filtered ? (
                     <>
                         <span className="min-w-0 truncate">{filtered}</span>
@@ -91,7 +91,7 @@ export function AnalyticsItemTags({ item }: { item: AnalyticsItem }): JSX.Elemen
                         const active = filters.tags.includes(tag)
                         return (
                             <DropdownMenuItem key={tag} onClick={() => toggle(tag)} data-attr="analytics-list-row-tag">
-                                <AnalyticsTagIcon className="size-3.5" />
+                                <TagIcon className="size-3.5" />
                                 <span className="min-w-0 flex-1 break-all text-left">{tag}</span>
                                 <Text size="xs" variant="muted" className="ml-2 shrink-0">
                                     {active ? 'Remove filter' : 'Filter'}

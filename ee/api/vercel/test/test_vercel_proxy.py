@@ -43,9 +43,6 @@ class TestVercelProxyAPI(APIBaseTest):
                 "billing_plan_id": "free",
                 "scopes": ["read", "write"],
             },
-            sensitive_config={
-                "credentials": {"access_token": "vercel_long_lived_token", "token_type": "Bearer"},
-            },
             created_by=self.user,
         )
 

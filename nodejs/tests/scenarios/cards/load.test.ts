@@ -1,5 +1,5 @@
-import { CardError, LoadedCard, Target, load } from '.'
-import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
+import { CardError, LoadedCard, Target, load, loadText } from '.'
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
@@ -465,6 +465,22 @@ describe('load', () => {
             'profile.traffic.event_email: ',
         ],
         [
+            'a synthetic padding label without a backlog',
+            card,
+            { ...profile, synthetic: ['backlog_padding'] },
+            'profile.synthetic: backlog_padding requires a backlog',
+        ],
+        [
+            'a synthetic transactional parks label without parks',
+            card,
+            {
+                ...profile,
+                traffic: { ...profile.traffic, transactional_email: { ratePerSecond: 1 } },
+                synthetic: ['transactional_email_parks'],
+            },
+            'profile.synthetic: transactional_email_parks requires positive transactional email parks',
+        ],
+        [
             'a profile the repository does not ship',
             { ...card, profile: 'prod-shape' },
             undefined,
@@ -809,6 +825,60 @@ describe('load', () => {
         expect(loadCard(card, { ...profile, name: 'measured-2026-11' }).profile.name).toBe('measured-2026-11')
     })
 
+    it("finds a profile's alert files relative to the profile, wherever the runner starts", () => {
+        const alerts = { rules: 'alerts/rules.yaml', labels: '../labels.yaml', exclude: ['SyntheticLeftOut'] }
+        mkdirSync(path.join(dir, 'runner', 'alerts'), { recursive: true })
+        const rules = write('runner/alerts/rules.yaml', 'groups: []\n')
+        const labels = write('labels.yaml', 'labels: {}\n')
+        const profilePath = write('runner/profile.yaml', { ...profile, alerts })
+
+        expect(load(write('card.yaml', card), { profilePath }).alerts).toEqual({
+            rules,
+            labels,
+            exclude: ['SyntheticLeftOut'],
+        })
+    })
+
+    it.each(['rules', 'labels'] as const)('changes the profile hash when the alert %s file changes', (kind) => {
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml' }
+        write(alerts.rules, 'groups: []\n')
+        write(alerts.labels, 'labels: {}\n')
+        const before = loadCard(card, { ...profile, alerts })
+
+        write(alerts[kind], kind === 'rules' ? 'groups: []\n\n' : 'labels: { stage: test }\n')
+        const after = loadCard(card, { ...profile, alerts })
+
+        expect(after.profileHash).not.toBe(before.profileHash)
+        expect(after.cardHash).not.toBe(before.cardHash)
+    })
+
+    it('refuses an alerts profile on the dev target, and one read from text with no directory for its files', () => {
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml', exclude: [] }
+        const problemsOfText = (): string[] => {
+            try {
+                loadText('card.yaml', { card: stringify(card), profile: stringify({ ...profile, alerts }) })
+            } catch (error) {
+                if (error instanceof CardError) {
+                    return error.problems
+                }
+                throw error
+            }
+            throw new Error('the card loaded')
+        }
+
+        expect({
+            dev: problemsOf(devCard, { ...devProfile, alerts }, 'dev'),
+            text: problemsOfText(),
+        }).toEqual({
+            dev: [
+                'profile.alerts: the dev target exposes no role metrics to scrape, so only --target local runs alerts',
+            ],
+            text: [
+                'profile.alerts: a profile read from text has no directory to resolve its rules and label map against',
+            ],
+        })
+    })
+
     it.each<[string, Record<string, string>]>([
         [
             'the settings a role reads straight from the process environment',
@@ -929,6 +999,7 @@ describe('load', () => {
     it.each<[string, [object, object], [object, object], boolean]>([
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
         ['leaves out the cloud pair', [card, profile], [{ ...card, pair: true }, profile], true],
+        ['leaves out the seed opt-in', [card, profile], [{ ...card, seedable: true }, profile], true],
         [
             'leaves out why the card runs unpaired',
             [card, profile],
@@ -990,8 +1061,11 @@ describe('load', () => {
         ])
     })
 
-    it("derives the profile's own targets for a card that drives its full traffic", () => {
-        const { admission } = loadCard(
+    it.each([
+        ['keeps', undefined, 1],
+        ['scales', 0.25, 0.25],
+    ] as const)('%s the offered rates and targets for a card that drives the full profile', (_, scale, factor) => {
+        const { admission, profile } = loadCard(
             {
                 ...card,
                 drive: {
@@ -1000,13 +1074,28 @@ describe('load', () => {
                 },
                 invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
             },
-            fullTraffic
+            scale === undefined ? fullTraffic : { ...fullTraffic, scale }
         )
 
-        expect(admission.load?.targets).toEqual(fullTraffic.load.targets)
+        expect(profile.traffic).toEqual(
+            Object.fromEntries(
+                Object.entries(fullTraffic.traffic).map(([kind, shape]) => [
+                    kind,
+                    { ...shape, ratePerSecond: shape.ratePerSecond * factor },
+                ])
+            )
+        )
+        const {
+            claimsPerSecond: { hogflow, email },
+            newJobsPerSecond,
+        } = fullTraffic.load.targets
+        expect(admission.load?.targets).toEqual({
+            claimsPerSecond: { hogflow: hogflow * factor, email: email * factor },
+            newJobsPerSecond: newJobsPerSecond * factor,
+        })
     })
 
-    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept'])(
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'cyclotron-enqueue-replay', 'chaos-under-load'])(
         'loads the chaos card %s on a profile with load and host admission',
         (id) => {
             const admitted = {

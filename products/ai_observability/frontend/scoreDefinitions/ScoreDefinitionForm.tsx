@@ -7,6 +7,7 @@ import {
     LemonCollapse,
     LemonCheckbox,
     LemonInput,
+    LemonInputSelect,
     LemonSelect,
     LemonSwitch,
     LemonTag,
@@ -28,6 +29,7 @@ import {
 
 export interface ScoreDefinitionFormProps {
     draft: ScoreDefinitionDraft
+    experimentId?: string
     isNew: boolean
     disabled: boolean
     setDraftField: (field: keyof ScoreDefinitionDraft, value: ScoreDefinitionDraft[keyof ScoreDefinitionDraft]) => void
@@ -39,6 +41,7 @@ export interface ScoreDefinitionFormProps {
 export function ScoreDefinitionForm({
     draft,
     isNew,
+    experimentId,
     disabled,
     setDraftField,
     updateOptionLabel,
@@ -56,6 +59,33 @@ export function ScoreDefinitionForm({
                     <h3 id={`${id}-details`} className="mb-0">
                         Details
                     </h3>
+                    <LemonField.Pure label="What does this scorer evaluate?">
+                        <LemonSelect
+                            value={draft.scope}
+                            onChange={(scope) => setDraftField('scope', scope)}
+                            options={[
+                                { value: 'item', label: 'Item' },
+                                { value: 'experiment', label: 'Experiment' },
+                            ]}
+                            disabledReason={!isNew ? 'Scope is fixed when the scorer is created' : disabledReason}
+                        />
+                    </LemonField.Pure>
+                    {draft.scope === 'experiment' && (
+                        <LemonField.Pure
+                            label="Apply to suite keys"
+                            help="Saving applies this version to future runs of the selected suites."
+                        >
+                            <LemonInputSelect
+                                mode="multiple"
+                                value={draft.suiteKeys}
+                                onChange={(value) => setDraftField('suiteKeys', value)}
+                                allowCustomValues
+                                disableCommaSplitting
+                                disabled={disabled}
+                                placeholder="Enter a suite key"
+                            />
+                        </LemonField.Pure>
+                    )}
                     <LemonField.Pure label="Name" htmlFor={`${id}-name`}>
                         <LemonInput
                             id={`${id}-name`}
@@ -122,7 +152,11 @@ export function ScoreDefinitionForm({
                                     { value: 'composite', label: 'Composite formula' },
                                 ]}
                                 disabledReason={
-                                    !isNew ? 'Calculation cannot be changed after creation' : disabledReason
+                                    draft.scope === 'experiment'
+                                        ? 'Experiment scores use a formula'
+                                        : !isNew
+                                          ? 'Calculation cannot be changed after creation'
+                                          : disabledReason
                                 }
                                 data-attr="aio-scorer-calculation-select"
                             />
@@ -150,7 +184,9 @@ export function ScoreDefinitionForm({
                     </div>
                     {draft.calculation === 'composite' && (
                         <p className="text-sm text-muted mb-0">
-                            A composite scorer calculates an item score from the results of other scorers.
+                            {draft.scope === 'experiment'
+                                ? 'An experiment score uses statistics from item scorers across one run.'
+                                : 'A composite scorer calculates an item score from the results of other scorers.'}
                         </p>
                     )}
 
@@ -297,7 +333,12 @@ export function ScoreDefinitionForm({
 
             {draft.calculation === 'composite' && (
                 <LemonCard hoverEffect={false} className="p-4">
-                    <CompositeScorerForm draft={draft} disabled={disabled} setDraftField={setDraftField} />
+                    <CompositeScorerForm
+                        draft={draft}
+                        disabled={disabled}
+                        setDraftField={setDraftField}
+                        experimentId={experimentId}
+                    />
                 </LemonCard>
             )}
 

@@ -42,7 +42,12 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions import InsufficientScope
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import posthog_connect_base_url
-from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
+from posthog.oauth_provenance import (
+    ID_JAG_ORIGIN_HEADER,
+    SANDBOX_ORIGIN_HEADER,
+    is_id_jag_origin_request,
+    is_sandbox_origin_request,
+)
 from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback
@@ -250,6 +255,7 @@ def _forward_through_connection(
     data: Any = None,
     mcp_origin: bool = False,
     sandbox_origin: bool = False,
+    id_jag_origin: bool = False,
 ) -> ForwardResult:
     """Replay one request against the connected project, injecting the connection's token.
 
@@ -262,6 +268,8 @@ def _forward_through_connection(
     headers = {"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"}
     if sandbox_origin:
         headers[SANDBOX_ORIGIN_HEADER] = "1"
+    if id_jag_origin:
+        headers[ID_JAG_ORIGIN_HEADER] = "1"
     if mcp_origin:
         headers["User-Agent"] = f"posthog-connection; {MCP_USER_AGENT_MARKER}"
     return _send_to_target(
@@ -442,6 +450,7 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             data=payload.get("data"),
             mcp_origin=is_mcp_request(request),
             sandbox_origin=is_sandbox_origin_request(request),
+            id_jag_origin=is_id_jag_origin_request(request),
         )
         body = {"status": result.status, "data": result.data}
         # A failure on this side is mirrored as the outer status too, so a caller that only reads the

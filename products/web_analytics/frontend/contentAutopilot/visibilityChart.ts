@@ -45,6 +45,26 @@ export function engineVisibilityChart(
     }
 }
 
+export const MIN_TREND_DAYS = 7
+
+export const trendDisplay = (days: number): 'averages' | 'waiting' | 'trend' =>
+    days <= 1 ? 'averages' : days < MIN_TREND_DAYS ? 'waiting' : 'trend'
+
+export const daysWithData = ({ labels, series }: EngineVisibilityChart): number =>
+    labels.filter((_, index) => series.some(({ data }) => Number.isFinite(data[index]))).length
+
+export const seriesAverages = ({
+    series,
+}: EngineVisibilityChart): { engine: string; label: string; average: number | null }[] =>
+    series.map(({ engine, label, data }) => {
+        const values = data.filter(Number.isFinite)
+        return {
+            engine,
+            label,
+            average: values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
+        }
+    })
+
 export interface AnswerOutcomeChart {
     labels: string[]
     yes: number[]

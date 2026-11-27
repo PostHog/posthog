@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneMenuBarSlotProvider } from '~/layout/scenes/components/SceneMenuBarSlotProvider'
 import { mswDecorator } from '~/mocks/browser'
 
 import { mockDailyQuietRuns, mockScoutConfigs, mockScoutRuns } from '../../../__mocks__/scoutConfigs'
@@ -53,9 +54,17 @@ type Story = StoryObj<typeof ScoutDetailView>
 
 export const ScoutPage: Story = {}
 
-// The page under the new navigation: the scene title the inbox renders, with its actions, over the scout summary.
-// The wrapper stands in for the scene padding the inbox title and page sit in.
+const longNameScout = {
+    ...mockScoutConfigs[0],
+    id: 'scout-long-name',
+    skill_name: 'signals-scout-checkout-drop-offs-for-annual-enterprise-plans-in-europe',
+    scout_origin: 'custom' as const,
+}
+
+// The page under the new navigation, with the menu bar in the title row. A long custom name at two widths guards the row
+// against overlap: the name truncates before the menus or actions move. The wrapper stands in for the scene container.
 export const ScoutPageNewNavigation: Story = {
+    args: { skillName: longNameScout.skill_name },
     parameters: {
         featureFlags: [
             FEATURE_FLAGS.PRODUCT_AUTONOMY,
@@ -63,15 +72,25 @@ export const ScoutPageNewNavigation: Story = {
             FEATURE_FLAGS.TODAY_RAIL_NAV,
             FEATURE_FLAGS.SCENE_MENU_BAR,
         ],
-        testOptions: { waitForLoadersToDisappear: false, snapshotBrowsers: [] },
+        testOptions: { waitForLoadersToDisappear: false, viewportWidths: ['medium', 'superwide'] },
     },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/scout/configs/': () => [200, [longNameScout]],
+                '/api/projects/:id/signals/scout/runs/recent-per-scout/': () => [200, mockScoutRuns([longNameScout])],
+            },
+        }),
+    ],
     render: (args) => (
-        <div className="flex flex-col p-4">
-            <QuillScoutSceneTitle skillName={args.skillName} />
-            <div className="-mx-4 flex flex-col">
-                <ScoutDetailView {...args} />
+        <SceneMenuBarSlotProvider>
+            <div className="@container/main-content flex flex-col p-4">
+                <QuillScoutSceneTitle skillName={args.skillName} />
+                <div className="-mx-4 flex flex-col">
+                    <ScoutDetailView {...args} />
+                </div>
             </div>
-        </div>
+        </SceneMenuBarSlotProvider>
     ),
 }
 

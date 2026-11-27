@@ -37,7 +37,7 @@ from products.aeo.backend import prompt_limit
 from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.check_brands import BrandMatcher, catalog_identities, write_check_brands
 from products.aeo.backend.engine_settings import engine_schedule
-from products.aeo.backend.engines import CitationEngine, build_check_fields
+from products.aeo.backend.engines import AICreditsExhausted, CitationEngine, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
 from products.aeo.backend.facts import write_facts
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
@@ -52,6 +52,7 @@ def run_citation_checks(
     *,
     engines: Optional[list[CitationEngine]] = None,
     weekly_engines: Optional[list[CitationEngine]] = None,
+    periods: Optional[dict[str, int]] = None,
     limit: Optional[int] = None,
     record: bool = True,
     stop: Optional[threading.Event] = None,
@@ -64,12 +65,13 @@ def run_citation_checks(
     money) but nothing is written — smoke-test mode. Setting `stop` ends the run
     after the prompt in hand and drops the queued ones.
 
-    `engines` check every due prompt. `weekly_engines` check the prompts whose weekly day is today (see
-    `weekly_day`), inside the same per-prompt claim. Both default to the project's engine settings.
+    `engines` check every due prompt. `weekly_engines` check the prompts whose day in their period is today (see
+    `period_day`), inside the same per-prompt claim: `periods` gives each one's days between checks, 7 when left
+    out. All default to the project's engine settings.
     """
     if engines is None and weekly_engines is None:
         schedule = engine_schedule(team.id)
-        engines, weekly_engines = list(schedule.daily), list(schedule.weekly)
+        engines, weekly_engines, periods = list(schedule.daily), list(schedule.weekly), schedule.periods
     engines = engines or []
     weekly_engines = weekly_engines or []
     if not engines and not weekly_engines:
@@ -101,7 +103,7 @@ def run_citation_checks(
     run_id = str(uuid.uuid4())
     # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
     canonical_team_id = team.parent_team_id or team.id
-    weekly_due = _weekly_due(team, prompts, checked_before, weekly_engines) if weekly_engines else {}
+    weekly_due = _weekly_due(team, prompts, checked_before, weekly_engines, periods or {}) if weekly_engines else {}
     engines_per_prompt = {prompt.id: [*engines, *weekly_due.get(prompt.id, [])] for prompt in prompts}
     idle = [prompt.id for prompt in prompts if not engines_per_prompt[prompt.id]]
     if idle and record:
@@ -124,6 +126,7 @@ def run_citation_checks(
         for prompt in prompts
     }
     stopped = False
+    out_of_credits = False
     done = 0
     superseded = 0
     pending: set[Future[PromptCheckResult]] = set(futures)
@@ -144,6 +147,7 @@ def run_citation_checks(
                         error=str(e)[:300],
                     )
                 else:
+                    out_of_credits = out_of_credits or result.out_of_credits
                     engine_failures += result.failures
                     checks.extend(result.fields_per_engine)
                     if record and result.fields_per_engine:
@@ -166,12 +170,17 @@ def run_citation_checks(
                     logger.info(
                         "aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts)
                     )
-            if stop is not None and not stopped and stop.is_set():
+            if not stopped and (out_of_credits or (stop is not None and stop.is_set())):
                 # Drop the queued prompts but keep draining the ones already running: their calls are
                 # paid for, and recording them keeps the next dispatch from repeating them.
                 stopped = True
                 logger.warning(
-                    "aeo_citation_run_stopped", team_id=team.id, run_id=run_id, done=done, total=len(prompts)
+                    "aeo_citation_run_stopped",
+                    team_id=team.id,
+                    run_id=run_id,
+                    done=done,
+                    total=len(prompts),
+                    out_of_credits=out_of_credits,
                 )
                 pending = _drop_queued(pool, pending)
     except BaseException:
@@ -191,7 +200,7 @@ def run_citation_checks(
         cited=sum(1 for check in checks if check["cited"]),
         rows_written=rows_written,
         write_failures=write_failures,
-        error="stopped: the run lease was lost to a later dispatch" if stopped else None,
+        error=_stop_reason(stopped=stopped, out_of_credits=out_of_credits),
         superseded=superseded,
     )
     logger.info(
@@ -217,6 +226,7 @@ class PromptCheckResult:
     prompt: AEOPrompt
     fields_per_engine: list[dict[str, Any]]
     failures: int
+    out_of_credits: bool
 
 
 def _check_prompt(
@@ -225,21 +235,26 @@ def _check_prompt(
     """Run one prompt on every engine. Runs in a worker thread, so it must not touch the database."""
     fields_per_engine: list[dict[str, Any]] = []
     failures = 0
+    out_of_credits = False
     for engine in engines:
         trace_id = str(uuid.uuid4())
-        check = engine.run(
-            prompt.prompt,
-            trace_id=trace_id,
-            custom_properties={
-                "aeo_prompt_id": str(prompt.id),
-                "aeo_run_id": run_id,
-                "aeo_prompt_source": prompt.prompt_source,
-                "aeo_mode": engine.mode.value,
-                # No $ai_ prefix, so the gateway keeps this on the $ai_generation
-                # event, which lets usage attribute spend back to the checked team.
-                "team_id": str(team.id),
-            },
-        )
+        try:
+            check = engine.run(
+                prompt.prompt,
+                trace_id=trace_id,
+                custom_properties={
+                    "aeo_prompt_id": str(prompt.id),
+                    "aeo_run_id": run_id,
+                    "aeo_prompt_source": prompt.prompt_source,
+                    "aeo_mode": engine.mode.value,
+                    # No $ai_ prefix, so the gateway keeps this on the $ai_generation
+                    # event, which lets usage attribute spend back to the checked team.
+                    "team_id": str(team.id),
+                },
+            )
+        except AICreditsExhausted:
+            out_of_credits = True
+            break
         if check.error is not None:
             failures += 1
             logger.warning(
@@ -264,28 +279,48 @@ def _check_prompt(
                 "prompt_version": prompt.current_version,
             }
         )
-    return PromptCheckResult(prompt=prompt, fields_per_engine=fields_per_engine, failures=failures)
+    return PromptCheckResult(
+        prompt=prompt, fields_per_engine=fields_per_engine, failures=failures, out_of_credits=out_of_credits
+    )
+
+
+def period_day(prompt_id: uuid.UUID, period: int) -> int:
+    """The day, out of every `period` days, on which a prompt gets its checks from an engine on that period.
+
+    A hash of the id, so the day is the same on every worker and across restarts, which Python's
+    salted `hash()` is not. It spreads the set over the period, about a `period`th of it per day."""
+    digest = hashlib.sha256(str(prompt_id).encode()).digest()
+    return int.from_bytes(digest[:8], "big") % period
 
 
 def weekly_day(prompt_id: uuid.UUID) -> int:
-    """The weekday (Monday is 0) on which a prompt gets its weekly checks.
+    return period_day(prompt_id, 7)
 
-    A hash of the id, so the day is the same on every worker and across restarts, which Python's
-    salted `hash()` is not. It spreads the set over the week, about a seventh of it per day."""
-    digest = hashlib.sha256(str(prompt_id).encode()).digest()
-    return int.from_bytes(digest[:8], "big") % 7
+
+def run_period_day(run_day: dt.datetime, period: int) -> int:
+    return (run_day.astimezone(dt.UTC).date().toordinal() + 6) % period
 
 
 def _weekly_due(
-    team: Team, prompts: list[AEOPrompt], checked_before: dt.datetime, weekly_engines: list[CitationEngine]
+    team: Team,
+    prompts: list[AEOPrompt],
+    checked_before: dt.datetime,
+    weekly_engines: list[CitationEngine],
+    periods: dict[str, int],
 ) -> dict[uuid.UUID, list[CitationEngine]]:
     """Per prompt whose weekly day is this run day, the weekly engines with no answered check since the run day began.
 
     The weekday is the run day's, in UTC, so it stays the same for every dispatch of that run day.
     A dispatch that resumes a killed run skips the engines it already recorded for a prompt,
     including ones recorded while every daily engine failed and so left the prompt unclaimed."""
-    weekday = checked_before.astimezone(dt.UTC).weekday()
-    candidates = [prompt.id for prompt in prompts if weekly_day(prompt.id) == weekday]
+    due_engines: dict[uuid.UUID, list[CitationEngine]] = {}
+    for engine in weekly_engines:
+        period = periods.get(engine.name, 7)
+        today = run_period_day(checked_before, period)
+        for prompt in prompts:
+            if period_day(prompt.id, period) == today:
+                due_engines.setdefault(prompt.id, []).append(engine)
+    candidates = list(due_engines)
     if not candidates:
         return {}
     recorded = set(
@@ -299,7 +334,7 @@ def _weekly_due(
         .values_list("prompt_id", "engine")
     )
     due = {
-        prompt_id: [engine for engine in weekly_engines if (prompt_id, engine.name) not in recorded]
+        prompt_id: [engine for engine in due_engines[prompt_id] if (prompt_id, engine.name) not in recorded]
         for prompt_id in candidates
     }
     return {prompt_id: engines for prompt_id, engines in due.items() if engines}
@@ -445,6 +480,14 @@ def select_prompts(team: Team, limit: int, *, checked_before: Optional[dt.dateti
 
 def _active_prompts(team: Team) -> QuerySet[AEOPrompt]:
     return AEOPrompt.objects.for_team(team.id).filter(active=True, archived_at__isnull=True)
+
+
+def _stop_reason(*, stopped: bool, out_of_credits: bool) -> str | None:
+    if out_of_credits:
+        return "stopped: the organization is out of AI credits"
+    if stopped:
+        return "stopped: the run lease was lost or a stop was requested"
+    return None
 
 
 def _empty_summary(team: Team, error: str) -> CitationRunSummary:

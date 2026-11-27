@@ -21,7 +21,7 @@ from typing import Any, TypeVar
 
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Count, Q, QuerySet, TextField, Value
-from django.db.models.functions import Left
+from django.db.models.functions import Length, Substr
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -126,6 +126,10 @@ class ScratchpadRevivedExpiry:
 class ScratchpadEntry:
     key: str
     content: str
+    # Set on a search that returns bodies. `content_next_offset` is where the rest of the body starts, for the
+    # next search's `content_offset`, or null when `content` reaches the end. Both count characters.
+    content_total_length: int | None = None
+    content_next_offset: int | None = None
     created_at: str | None = None
     updated_at: str | None = None
     expires_at: str | None = None
@@ -158,6 +162,7 @@ def search_scratchpad(
     limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
     keys_only: bool = False,
     content_max_chars: int | None = None,
+    content_offset: int = 0,
     include_expired: bool = False,
     include_revisions: bool = False,
     include_change_hints: bool = False,
@@ -213,6 +218,8 @@ def search_scratchpad(
       pick the entries worth a full read, then re-query the chosen ones.
     - `content_max_chars=N` truncates each `content` to the first `N` characters
       (a preview). Ignored when `keys_only=True`, which already drops the body.
+    - `content_offset=N` starts each `content` at character `N`, so a body longer than one
+      read can be paged with `content_next_offset`. Revisions are not paged.
 
     Both projections are applied in SQL, not after the fact: a preview that Postgres
     trims still costs the full row to fetch and hand to Django, which defeats the point
@@ -242,9 +249,14 @@ def search_scratchpad(
     matching = qs
     if not include_expired:
         qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-    qs = _project_content_in_sql(qs, keys_only=keys_only, content_max_chars=content_max_chars)
+    qs = _project_content_in_sql(
+        qs, keys_only=keys_only, content_max_chars=content_max_chars, content_offset=content_offset, paged=True
+    )
     rows = list(qs.order_by("-updated_at", "-id")[:clamped_limit])
-    entries = [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in rows]
+    entries = [
+        _to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars, content_offset=content_offset)
+        for row in rows
+    ]
     if key and include_change_hints:
         if rows:
             entries = [_with_last_change(entries[0], _newest_overwrite(rows[0]))]
@@ -687,7 +699,7 @@ def _clamp_search_limit(limit: int) -> int:
 
 
 def _to_entry(
-    row: SignalScratchpad, *, keys_only: bool = False, content_max_chars: int | None = None
+    row: SignalScratchpad, *, keys_only: bool = False, content_max_chars: int | None = None, content_offset: int = 0
 ) -> ScratchpadEntry:
     # Django's FK descriptor exposes both `created_by_run` (object) and `created_by_run_id`
     # (the raw FK column). `getattr` keeps Pyright happy without a join.
@@ -698,9 +710,14 @@ def _to_entry(
     # `pipeline:*` identity it stamped; a human-authored entry has neither and leaves these null.
     run = row.created_by_run if run_pk else None
     task_run = getattr(run, "task_run", None) if run is not None else None
+    content = _resolve_content(row, keys_only=keys_only, content_max_chars=content_max_chars)
+    # Annotated only by a search that returns bodies, so a write or a keys-only read reports no page.
+    total_length = getattr(row, "content_length", None)
     return ScratchpadEntry(
         key=row.key,
-        content=_resolve_content(row, keys_only=keys_only, content_max_chars=content_max_chars),
+        content=content,
+        content_total_length=total_length,
+        content_next_offset=_next_content_offset(content_offset, content, total_length),
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         expires_at=row.expires_at.isoformat() if row.expires_at else None,
@@ -718,24 +735,42 @@ _ScratchpadRow = TypeVar("_ScratchpadRow", SignalScratchpad, SignalScratchpadRev
 
 
 def _project_content_in_sql(
-    qs: QuerySet[_ScratchpadRow], *, keys_only: bool, content_max_chars: int | None
+    qs: QuerySet[_ScratchpadRow],
+    *,
+    keys_only: bool,
+    content_max_chars: int | None,
+    content_offset: int = 0,
+    paged: bool = False,
 ) -> QuerySet[_ScratchpadRow]:
     """Push the body projection into the query so Postgres never ships prose we drop.
 
     `content` is unbounded (50k chars by the write clamp), so a 1000-row scan that trims
     in Python still moves ~50 MB through the driver first. `defer` keeps the column out
     of the SELECT; the annotation carries whatever slice the caller actually asked for.
+    `paged` also annotates the full body's length, which `_to_entry` turns into the next offset.
     """
-    # `Left` rejects a length below 1, and a zero-char preview is a blank body anyway.
+    # `SUBSTRING` rejects a negative length, and a zero-char preview is a blank body anyway.
     if keys_only or (content_max_chars is not None and content_max_chars <= 0):
         return qs.defer("content").annotate(projected_content=Value("", output_field=TextField()))
-    if content_max_chars is None:
+    if paged:
+        qs = qs.annotate(content_length=Length("content"))
+    if content_max_chars is None and content_offset <= 0:
         return qs
-    # Clamp to the write cap: a preview longer than the longest storable body is a no-op, and an
-    # unbounded value would reach Postgres as an out-of-range `LEFT()` length and 500.
-    return qs.defer("content").annotate(
-        projected_content=Left("content", min(content_max_chars, MAX_SCRATCHPAD_CONTENT_LENGTH))
+    # Clamp to the write cap: a slice longer than the longest storable body is a no-op, and an
+    # unbounded value would reach Postgres as an out-of-range `SUBSTRING()` argument and 500.
+    start = min(max(content_offset, 0), MAX_SCRATCHPAD_CONTENT_LENGTH) + 1
+    length = min(
+        content_max_chars if content_max_chars is not None else MAX_SCRATCHPAD_CONTENT_LENGTH,
+        MAX_SCRATCHPAD_CONTENT_LENGTH,
     )
+    return qs.defer("content").annotate(projected_content=Substr("content", start, length))
+
+
+def _next_content_offset(offset: int, content: str, total_length: int | None) -> int | None:
+    if total_length is None:
+        return None
+    end = max(offset, 0) + len(content)
+    return end if end < total_length else None
 
 
 def _resolve_content(
@@ -749,11 +784,28 @@ def _resolve_content(
     return _project_content(row.content, keys_only=keys_only, content_max_chars=content_max_chars)
 
 
-def _project_content(content: str, *, keys_only: bool, content_max_chars: int | None) -> str:
-    """Apply the search projection to a row's `content`: blank it for `keys_only`,
-    or truncate to a preview for `content_max_chars`. A negative max clamps to 0."""
+def _project_content(content: str, *, keys_only: bool, content_max_chars: int | None, content_offset: int = 0) -> str:
+    """Apply the search projection to a row's `content`: blank it for `keys_only`, start it at
+    `content_offset`, and truncate to a preview for `content_max_chars`. A negative max clamps to 0."""
     if keys_only:
         return ""
+    content = content[max(content_offset, 0) :]
     if content_max_chars is None:
         return content
     return content[: max(content_max_chars, 0)]
+
+
+def _paged_content(
+    content: str, *, keys_only: bool, content_max_chars: int | None, content_offset: int
+) -> dict[str, Any]:
+    """The `content` page fields `search_scratchpad` returns, for a reader that holds the whole body in memory."""
+    page = _project_content(
+        content, keys_only=keys_only, content_max_chars=content_max_chars, content_offset=content_offset
+    )
+    if keys_only or (content_max_chars is not None and content_max_chars <= 0):
+        return {"content": page, "content_total_length": None, "content_next_offset": None}
+    return {
+        "content": page,
+        "content_total_length": len(content),
+        "content_next_offset": _next_content_offset(content_offset, page, len(content)),
+    }

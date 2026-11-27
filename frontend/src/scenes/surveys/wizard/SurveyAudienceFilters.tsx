@@ -12,6 +12,8 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 
 import { AnyPropertyFilter, FeatureFlagFilters } from '~/types'
 
+import { CohortFlagTargetingNotice } from 'products/cohorts/frontend/realtime/CohortFlagTargetingNotice'
+
 import { surveyLogic } from '../surveyLogic'
 import {
     getSurveyAudienceRuleCount,
@@ -220,7 +222,9 @@ export function SurveyAudienceFilters({ onOpenFullEditor }: { onOpenFullEditor?:
                                         buttonText="Add audience rule"
                                         buttonSize="small"
                                         openOnInsert
+                                        showCohortFlagTargeting
                                     />
+                                    <CohortFlagTargetingNotice properties={simpleAudienceFilters} className="mt-2" />
                                 </div>
                             </GuidedWizardPanel>
 

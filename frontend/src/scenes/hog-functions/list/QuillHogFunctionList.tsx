@@ -385,7 +385,7 @@ export function QuillHogFunctionList({
                             fullWidth
                             // The sparkline loads once per row, so a row must keep its function across a sort or a search.
                             getRowId={(hogFunction) => hogFunction.id}
-                            pageSize={filteredHogFunctions.length > PAGE_SIZE ? PAGE_SIZE : undefined}
+                            pageSize={PAGE_SIZE}
                             empty={
                                 <Empty>
                                     <EmptyHeader>

@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_datetime
 from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
 from posthog.models.tag import tagify
 
+from products.messaging.backend.facade.templates import get_transactional_template_tracking
 from products.workflows.backend.facade.contracts import (
     TeamUtmDefaults,
     UtmDefaultsWriteResult,
@@ -194,35 +195,82 @@ TRANSACTIONAL_STEP_TYPES: dict[str, str] = {
 }
 
 
+def _fallback_click_tracking(live_configs: list[dict[str, Any]]) -> bool | None:
+    values = [
+        config["click_tracking_enabled"]
+        for config in live_configs
+        if isinstance(config.get("click_tracking_enabled"), bool)
+    ]
+    if False in values:
+        return False
+    if values and len(values) == len(live_configs):
+        return True
+    return None
+
+
 def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
     # A transactional message's protection follows its template, and only the template sync writes it.
     # Every other write, such as publishing a restored version, keeps the live setting.
     step_type = TRANSACTIONAL_STEP_TYPES.get(before.origin_product or "")
     if step_type is None or "actions" not in validated_data:
         return validated_data
-    sensitive = any(
-        isinstance(action, dict)
-        and action.get("type") == step_type
-        and (action.get("config") or {}).get("sensitive") is True
-        for action in before.actions or []
-    )
-    actions = [
-        {**action, "config": {**(action.get("config") or {}), "sensitive": sensitive}}
-        if isinstance(action, dict) and action.get("type") == step_type
-        else action
-        for action in validated_data["actions"] or []
+    live_steps = [
+        action for action in before.actions or [] if isinstance(action, dict) and action.get("type") == step_type
     ]
+    live_configs = [action.get("config") or {} for action in live_steps]
+    live_by_id: dict[str, dict[str, Any]] = {
+        action["id"]: action.get("config") or {} for action in live_steps if isinstance(action.get("id"), str)
+    }
+    if live_configs:
+        sensitive = any(config.get("sensitive") is True for config in live_configs)
+        fallback_click_tracking = _fallback_click_tracking(live_configs) if step_type == "function_email" else None
+    elif step_type == "function_email":
+        template_tracking = get_transactional_template_tracking(before.team_id, before.id)
+        if template_tracking is None:
+            return validated_data
+        sensitive = template_tracking.sensitive
+        fallback_click_tracking = template_tracking.click_tracking_enabled
+    else:
+        sensitive = False
+        fallback_click_tracking = None
+    actions = []
+    for action in validated_data["actions"] or []:
+        if isinstance(action, dict) and action.get("type") == step_type:
+            config = {**(action.get("config") or {}), "sensitive": sensitive}
+            if step_type == "function_email":
+                action_id = action.get("id")
+                if isinstance(action_id, str) and action_id in live_by_id:
+                    step_live = live_by_id[action_id].get("click_tracking_enabled")
+                    click_tracking: bool | None = step_live if isinstance(step_live, bool) else None
+                else:
+                    click_tracking = fallback_click_tracking
+                if click_tracking is None:
+                    config.pop("click_tracking_enabled", None)
+                else:
+                    config["click_tracking_enabled"] = click_tracking
+            actions.append({**action, "config": config})
+        else:
+            actions.append(action)
     return {**validated_data, "actions": actions}
 
 
-def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: dict) -> None:
+def save_validated_workflow(
+    *,
+    team_id: int,
+    hog_flow_id: UUID,
+    validated_data: dict | None = None,
+    validate: Callable[[WorkflowEditState], dict[str, Any] | None] | None = None,
+) -> None:
     """Write a workflow's validated fields to the live row, with no draft routing, revision bump or
     follow-ups. For callers outside a request: enabling a workflow and the bytecode refresh."""
     # The save writes every column. Lock the read so that a concurrent write, such as a staff email
-    # sending pause, either lands before this read or waits for this save, and is never overwritten.
+    # sending pause or template sync, either lands before validation or waits for this save.
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id)
-        _save_live(locked, _track_disabled_from_active(locked, validated_data))
+        data = validate(to_edit_state(locked)) if validate is not None else validated_data
+        if data is None:
+            return
+        _save_live(locked, _track_disabled_from_active(locked, data))
 
 
 def _track_disabled_from_active(before: HogFlow, validated_data: dict) -> dict:

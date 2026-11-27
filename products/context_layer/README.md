@@ -34,6 +34,7 @@ areas/<area>.md      one hub page per product area
 decisions/<date>-<slug>.md   product decisions: what, why, who, source
 projects/<project-id>/overview.md              project identity and context
 projects/<project-id>/spaces/<slug>.md         one page per Desktop Space (frontmatter: team_id, channel_id, and the goals/reading/watching lists the Context page renders)
+projects/<project-id>/slack-channels/<id>.md   one page per Slack channel, named by its Slack channel id (frontmatter: team_id, slack_workspace_id)
 scripts/lint         the structure linter (also run server-side at land)
 scripts/publish      the server-owned publishing client
 ```

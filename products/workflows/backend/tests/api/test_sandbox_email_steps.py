@@ -512,7 +512,21 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("cc_kept", {"cc": "c@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
             ("bcc_kept", {"bcc": "b@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
             ("tracking_off_kept", {}, {"tracking_enabled": False}, {}, "can't keep these settings: tracking_enabled"),
+            (
+                "click_tracking_off_kept",
+                {},
+                {"click_tracking_enabled": False},
+                {},
+                "can't keep these settings: click_tracking_enabled",
+            ),
             ("utm_tags_kept", {}, {"utm_tags_enabled": True}, {}, "can't keep these settings: utm_tags_enabled"),
+            (
+                "run_link_tag_off_kept",
+                {},
+                {"run_link_tag_enabled": False},
+                {},
+                "can't keep these settings: run_link_tag_enabled: false",
+            ),
         ]
     )
     def test_the_email_patch_switches_a_step_to_the_sandbox_sender(
@@ -642,6 +656,16 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 {"integrationId": None, "email": []},
             ),
             ("mcp_sensitive_step", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, True, False, "function_email", None, True),
+            (
+                "mcp_with_the_run_link_tag_off",
+                {"HTTP_X_POSTHOG_CLIENT": "mcp"},
+                True,
+                False,
+                "function_email",
+                None,
+                False,
+                {"run_link_tag_enabled": False},
+            ),
         ]
     )
     def test_a_new_email_step_from_the_api_starts_on_the_sandbox_sender_without_a_verified_sender(
@@ -653,6 +677,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         expected_type: str,
         sender: Any = None,
         sensitive: bool = False,
+        config: dict | None = None,
     ) -> None:
         if verified:
             self._verified_sender()
@@ -661,6 +686,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             step["config"]["sensitive"] = True
         if sender is not None:
             step["config"]["inputs"]["email"]["value"]["from"] = sender
+        step["config"].update(config or {})
 
         with _flag(enabled):
             response = self.client.post(
@@ -668,8 +694,49 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             )
 
         assert response.status_code == 201, response.json()
-        assert HogFlow.objects.get(id=response.json()["id"]).actions[1]["type"] == expected_type
+        stored = HogFlow.objects.get(id=response.json()["id"]).actions[1]
+        assert stored["type"] == expected_type
+        assert stored["config"].items() >= (config or {}).items()
         assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
+
+    @parameterized.expand([("a_string", "false"), ("a_number", 0), ("null", None)])
+    def test_a_senderless_api_email_refuses_a_run_link_tag_switch_that_is_not_a_boolean(
+        self, _name: str, sent: Any
+    ) -> None:
+        step = _own_email_step(None)
+        step["config"]["run_link_tag_enabled"] = sent
+
+        with _flag(True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", _flow(step), format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "run_link_tag_enabled" in str(response.json())
+        assert not HogFlow.objects.filter(team=self.team).exists()
+        assert not self._sandbox_sender_is_set_up()
+
+    @parameterized.expand([("no_sender", {}), ("a_sender_that_is_not_an_object", {"from": True})])
+    def test_enabling_refuses_a_senderless_email_that_keeps_the_run_link_tag_off(self, _: str, value: dict) -> None:
+        step = _own_email_step(None, **value)
+        step["config"]["run_link_tag_enabled"] = False
+        with _flag(True):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", _flow(step), format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+        assert created.status_code == 201, created.json()
+
+        with _flag(True), _runtime(True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}",
+                {"status": "active"},
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "no sender" in str(response.json())
+        assert HogFlow.objects.get(id=created.json()["id"]).status == "draft"
 
     @parameterized.expand(
         [

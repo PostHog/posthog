@@ -71,7 +71,10 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
                                 <span className="flex items-center gap-2 font-semibold">
                                     <IconUpload className="text-2xl" /> Load recording
                                 </span>
-                                <div>Drag and drop your exported recording here or click to open the file browser.</div>
+                                <div>
+                                    Drag and drop an exported recording (.json or .phrec) here, or click to open the
+                                    file browser.
+                                </div>
                             </div>
                         }
                     />
