@@ -2,6 +2,9 @@ import { act, cleanup, render } from '@testing-library/react'
 import posthog from 'posthog-js'
 import { createElement } from 'react'
 
+import { ScenePanelColumn } from '~/layout/navigation-3000/components/ScenePanelColumn'
+import { SidePanelInfo } from '~/layout/navigation-3000/sidepanel/panels/info/SidePanelInfo'
+import { ScenePanel } from '~/layout/scenes/SceneLayout'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -100,16 +103,40 @@ describe('message audience attempts', () => {
         expect(workflowEntryAttempt({ id: 'workflow-3' })).toEqual('0195f3a2-7c4e-7d10-9a6b-2f3c4d5e6f72')
     })
 
-    it('reports a scene panel spot shown only once the panel opens', () => {
+    function renderInScenePanel(host: () => JSX.Element | null, source: string): void {
         initKeaTests()
         sceneLayoutLogic.mount()
-        render(createElement(MessageAudienceShownInScenePanel, { source: 'feature_flag', destination: 'broadcast' }))
+        render(
+            createElement(
+                'div',
+                null,
+                createElement(
+                    ScenePanel,
+                    null,
+                    createElement(MessageAudienceShownInScenePanel, { source, destination: 'broadcast' })
+                ),
+                createElement(host)
+            )
+        )
+    }
+
+    it('reports a scene panel spot shown only once the inline panel opens', () => {
+        renderInScenePanel(ScenePanelColumn, 'inline_panel')
         expect(captured('message audience shown')).toEqual([])
 
         act(() => sceneLayoutLogic.actions.setScenePanelOpen(true))
 
         expect(captured('message audience shown')).toEqual([
-            { source: 'feature_flag', destination: 'broadcast', attempt_id: expect.any(String) },
+            { source: 'inline_panel', destination: 'broadcast', attempt_id: expect.any(String) },
+        ])
+    })
+
+    it('reports a scene panel spot shown when the Actions pane shows it outside the side panel', () => {
+        renderInScenePanel(SidePanelInfo, 'actions_pane')
+
+        expect(sceneLayoutLogic.values.scenePanelOpen).toBe(false)
+        expect(captured('message audience shown')).toEqual([
+            { source: 'actions_pane', destination: 'broadcast', attempt_id: expect.any(String) },
         ])
     })
 
