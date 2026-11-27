@@ -14473,16 +14473,16 @@ Note: Diffed against the vendor's own OpenAPI 3.0 spec (294 paths). The synced c
 
 ## Superwall — gaps
 
-Today (6): `campaigns`, `entitlements`, `paywalls`, `products`, `surveys`, `webhook_events`
+Today (9): `audit_logs`, `campaigns`, `entitlement_grants`, `entitlements`, `paywalls`, `products`, `projects`, `surveys`, `webhook_events`
 
 Diffed against: <https://api.superwall.com/openapi.json>
 
-- [ ] `Projects (GET /v2/projects)` — the project list, the parent that products, entitlements and events are scoped to and that our other tables carry IDs for (high)
-- [ ] `Users (POST /v2/users/query)` — list-style query of app users, to join to events and subscriptions (high)
-- [ ] `Entitlement grants (GET /v2/entitlements/{id}/grants)` — which users hold each entitlement we already sync; fan-out per entitlement (medium)
+- [x] `Projects (GET /v2/projects)` — the project list, the parent that products, entitlements and events are scoped to and that our other tables carry IDs for (high) → `projects` (full refresh, every project in the organization)
+- [ ] `Users (POST /v2/users/query)` — list-style query of app users, to join to events and subscriptions (high) — skipped 2026-11-27: the query takes no cursor, offset or limit and returns one capped page with dynamic attribute columns, so it cannot list every user
+- [x] `Entitlement grants (GET /v2/entitlements/{id}/grants)` — which users hold each entitlement we already sync; fan-out per entitlement (medium) → `entitlement_grants` (full refresh, fan-out over `entitlements`, includes expired and revoked grants)
 - [ ] `Store products (GET /v2/products/store-products)` — App Store and Play products behind the products table, with store product IDs (medium)
 - [ ] `Store product prices (GET /v2/products/store-product-prices)` — price points per store product (medium)
-- [ ] `Audit logs (GET /v2/audit-logs)` — change history of paywalls, campaigns and settings (medium)
+- [x] `Audit logs (GET /v2/audit-logs)` — change history of paywalls, campaigns and settings (medium) → `audit_logs` (incremental on `timestamp` via `start_time`, mutations only, organization from the configured project)
 - [ ] `Paywall templates (GET /v2/paywalls/templates)` — template lookup for paywalls (low)
 - [ ] `Chart annotations (GET /v2/applications/{application_id}/chart_annotations)` — notes users pin to metric charts, for release and campaign context (low)
 - [ ] `Retention messages (GET /v2/retention-messages)` — App Store retention message definitions (low)
