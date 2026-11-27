@@ -783,22 +783,27 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
         assert response.status_code == 400
 
-    def test_source_record_is_set_on_create_filters_the_list_and_never_changes(self):
+    def test_source_record_and_entry_attempt_are_set_on_create_and_never_change(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
         )
+        entry_attempt_id = uuid4()
         response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "source_record": "early_access:feature-1"}
+            f"/api/projects/{self.team.id}/hog_flows",
+            {**hog_flow, "source_record": "early_access:feature-1", "entry_attempt_id": str(entry_attempt_id)},
         )
         assert response.status_code == 201, response.json()
+        assert "entry_attempt_id" not in response.json()
         flow_id = response.json()["id"]
         HogFlow.objects.create(team=self.team, name="Other record", created_by=self.user, source_record="cohort:7")
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"source_record": "early_access:feature-2"}
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"source_record": "early_access:feature-2", "entry_attempt_id": str(uuid4())},
         )
         assert response.status_code == 200, response.json()
-        assert HogFlow.objects.get(id=flow_id).source_record == "early_access:feature-1"
+        stored = HogFlow.objects.get(id=flow_id)
+        assert (stored.source_record, stored.entry_attempt_id) == ("early_access:feature-1", entry_attempt_id)
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?source_record=early_access:feature-1")
         assert response.status_code == 200, response.json()
@@ -7494,17 +7499,21 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("broadcast", "broadcasts"),
-            ("workflow", None),
+            ("broadcast", "broadcasts", None),
+            ("workflow", None, "6f1c4a52-0d7e-4b8a-9c3d-2e5f8a1b7c90"),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.report_user_action")
-    def test_created_usage_event_carries_origin_product(self, _name, origin_product, mock_report):
+    def test_created_and_activated_usage_events_carry_origin_product_and_entry_attempt(
+        self, _name, origin_product, entry_attempt_id, mock_report
+    ):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
         )
         if origin_product:
             hog_flow["origin_product"] = origin_product
+        if entry_attempt_id:
+            hog_flow["entry_attempt_id"] = entry_attempt_id
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
@@ -7512,6 +7521,14 @@ class TestHogFlowAPI(APIBaseTest):
         created_events = [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_created"]
         assert len(created_events) == 1
         assert created_events[0].args[2]["origin_product"] == origin_product
+        assert created_events[0].args[2]["entry_attempt_id"] == entry_attempt_id
+
+        activated = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{response.json()['id']}", {"status": "active"}
+        )
+        assert activated.status_code == 200, activated.json()
+        activated_events = [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_activated"]
+        assert [c.args[2]["entry_attempt_id"] for c in activated_events] == [entry_attempt_id]
 
         response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{response.json()['id']}")
         assert response.status_code == 204
