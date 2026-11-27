@@ -43,6 +43,6 @@ measure:
     - name: autovacuum_runs
     - name: autovacuum_seconds
     - name: seconds_since_autovacuum
-    - name: pickup_p99_seconds
+    - name: pickup_p99_window_seconds
     - name: writer_cpu_percent
 unpaired: it applies no valve, so the soak is its own fault-free control
