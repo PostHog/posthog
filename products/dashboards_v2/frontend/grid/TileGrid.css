@@ -173,9 +173,10 @@
         }
     }
 
-    /* Over a resize edge, or while resizing, the whole tile or section is outlined instead of the edge. */
+    /* Over a resize edge, or while resizing or dragging, the whole tile or section is outlined instead of the edge. */
     .react-grid-item:has(> .react-resizable-handle:hover),
-    .react-grid-item.resizing {
+    .react-grid-item.resizing,
+    .react-grid-item.react-draggable-dragging {
         > .dash-ContentTile,
         > .TileContextMenu__trigger > .dash-ContentTile,
         > .SectionTile,
