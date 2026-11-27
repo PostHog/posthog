@@ -12,6 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.event_definitions.backend.models import PropertyDefinition
@@ -136,6 +137,42 @@ class TestWrappedAPI(APIBaseTest):
             assert wrapped is None
         else:
             assert wrapped["cards"] == CARDS
+
+    @parameterized.expand(
+        [
+            ("mcp_analytics_denied_on_the_parent", "mcp_analytics", None),
+            ("project_denied_on_the_parent", "project", "parent"),
+        ]
+    )
+    def test_a_child_environment_grant_does_not_open_the_parents_wrap(
+        self, _name: str, resource: str, resource_id: str | None
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self._store(MCPAnalyticsWrapped.Status.READY, days_ago=1)
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=str(self.team.id) if resource_id else None,
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=child,
+            resource="mcp_analytics",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        response = self._get(child.id)
+
+        assert response.status_code == 403 or response.json()["wrapped"] is None, response.json()
 
     def test_the_flag_gates_the_endpoint(self) -> None:
         self._store(MCPAnalyticsWrapped.Status.READY, days_ago=1)

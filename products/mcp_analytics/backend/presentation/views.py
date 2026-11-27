@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import cached_property
 from typing import Any, cast
 
 from django.db.models import QuerySet
@@ -16,9 +17,11 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import BoundedLimitOffsetPagination, page_link, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
@@ -474,6 +477,27 @@ class MCPWrappedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # The wrap is read through the facade; this satisfies GenericViewSet plumbing.
         return MCPAnalyticsSubmission.objects.none()
 
+    @cached_property
+    def data_team(self) -> Team:
+        """The team that owns the wrap: the parent project when the URL names one of its environments."""
+        return self.team.parent_team or self.team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        # The resource-level `mcp_analytics` check reads its rules from here. Bind it to the team that owns the
+        # wrap, so a child environment's own grant can't read data its parent denies.
+        return UserAccessControl(
+            user=cast(User, self.request.user), team=self.data_team, organization_id=self.organization_id
+        )
+
+    def _can_read_data_team(self, request: Request) -> bool:
+        if self.data_team.id == self.team.id:
+            return True
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and self.data_team.id not in scoped_team_ids:
+            return False
+        return self.user_permissions.team(self.data_team).effective_membership_level is not None
+
     @extend_schema(
         operation_id="mcp_analytics_wrapped_retrieve",
         description=(
@@ -484,5 +508,8 @@ class MCPWrappedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], url_path="current")
     def current(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = self.get_serializer({"wrapped": api.get_fresh_wrapped(self.team, cast(User, request.user))})
+        wrapped = (
+            api.get_fresh_wrapped(self.team, cast(User, request.user)) if self._can_read_data_team(request) else None
+        )
+        serializer = self.get_serializer({"wrapped": wrapped})
         return Response(serializer.data)
