@@ -39,9 +39,10 @@ export function SourceFilterPreviewRecordRow({ record, noun }: SourceFilterPrevi
                 </span>
                 {failedConditions.length > 0 && (
                     // The line clips after two lines, so a tap opens the full list on screens without hover.
+                    // Conditions hold the person's own filter values, so autocapture must not record them.
                     <Tooltip
                         title={
-                            <span className="flex flex-col gap-1 font-mono text-xs" translate="no">
+                            <span className="ph-no-capture flex flex-col gap-1 font-mono text-xs" translate="no">
                                 {failedConditions.map((condition, index) => (
                                     <span key={index}>{condition}</span>
                                 ))}
@@ -49,10 +50,12 @@ export function SourceFilterPreviewRecordRow({ record, noun }: SourceFilterPrevi
                         }
                         placement="bottom-start"
                         openOnClick
+                        interactive
+                        className="max-h-[50vh] overflow-y-auto"
                     >
                         <button
                             type="button"
-                            className="line-clamp-2 max-w-full cursor-pointer self-start text-left text-xs text-muted"
+                            className="ph-no-capture line-clamp-2 max-w-full cursor-pointer self-start text-left text-xs text-muted"
                             data-attr="signal-source-filter-preview-failed-conditions"
                         >
                             <span>Fails </span>
