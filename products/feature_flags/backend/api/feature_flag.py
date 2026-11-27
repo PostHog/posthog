@@ -73,7 +73,7 @@ from posthog.auth import (
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_event_source, report_team_action, report_user_action
 from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -176,6 +176,7 @@ from products.feature_flags.backend.flag_status import (
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
 )
+from products.feature_flags.backend.launch_check import FlagLaunchSide, check_launch
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
@@ -314,6 +315,16 @@ def _mirror_stored_fields(source: FeatureFlag, target: FeatureFlag) -> None:
     """Bring a stale copy of a flag up to date with the row that was just written."""
     for field in source._meta.concrete_fields:
         setattr(target, field.attname, getattr(source, field.attname))
+
+
+def _launch_side(flag: FeatureFlag) -> FlagLaunchSide:
+    return FlagLaunchSide(
+        active=flag.active,
+        deleted=flag.deleted,
+        archived=flag.archived,
+        filters=copy.deepcopy(flag.filters),
+        evaluation_runtime=flag.evaluation_runtime,
+    )
 
 
 def _carry_loaded_state(source: FeatureFlag, target: FeatureFlag) -> None:
@@ -2908,6 +2919,36 @@ class FeatureFlagSerializer(
 
         return instance
 
+    def _launch_snapshot(self, flag: FeatureFlag) -> FlagLaunchSide | None:
+        if self._v2_write:
+            return None
+        try:
+            return _launch_side(flag)
+        except Exception as error:
+            capture_exception(error)
+            return None
+
+    def _register_launch_check(self, before: FlagLaunchSide | None, flag: FeatureFlag, request: Any) -> None:
+        if before is None:
+            return
+        try:
+            launch = check_launch(before, _launch_side(flag))
+            if launch is None:
+                return
+            properties = {
+                "qualified": launch.qualified,
+                "reason": launch.reason,
+                "release_path": launch.release_path,
+                "source": get_event_source(request),
+                "was_impersonated": is_impersonated(request),
+            }
+            transaction.on_commit(
+                functools.partial(report_team_action, flag.team, "feature flag launch checked", properties),
+                robust=True,
+            )
+        except Exception as error:
+            capture_exception(error)
+
     @approval_gate(list(FLAG_WRITE_APPROVAL_ACTIONS))
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
@@ -2926,6 +2967,7 @@ class FeatureFlagSerializer(
         )
         rollback_input.is_valid(raise_exception=True)
         rollback_change: ExposureChange | None = None
+        launch_before: FlagLaunchSide | None = None
         # Prevent DRF from attempting to set reverse FK relation directly
         validated_data.pop("evaluation_contexts", None)
 
@@ -3010,6 +3052,7 @@ class FeatureFlagSerializer(
                 # (setting deleted=False) can acquire the lock.
                 locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
                 locked_version = locked_instance.version or 0
+                launch_before = self._launch_snapshot(locked_instance)
 
                 # V1 cleanup must not strip unknown keys from a v2 document before validation.
                 if not self._v2_write:
@@ -3133,6 +3176,7 @@ class FeatureFlagSerializer(
                 team=instance.team,
                 request=request,
             )
+        self._register_launch_check(launch_before, instance, request)
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key
