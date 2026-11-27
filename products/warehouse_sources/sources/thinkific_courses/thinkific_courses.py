@@ -4,6 +4,9 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
+import structlog
+from requests import Response
+
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     PageNumberPaginator,
@@ -23,6 +26,10 @@ from products.warehouse_sources.sources.thinkific_courses.settings import (
 )
 
 THINKIFIC_BASE_URL = "https://api.thinkific.com/api/public/v1"
+_MAX_FANOUT_CHILD_PAGES = 1_000
+_BOUNDED_FANOUT_ENDPOINTS = {"bundle_courses", "bundle_enrollments", "related_products"}
+
+logger = structlog.get_logger(__name__)
 
 # Thinkific subdomains are the `<subdomain>.thinkific.com` slug, sent as the X-Auth-Subdomain header.
 _SUBDOMAIN_RE = re.compile(r"^[a-zA-Z0-9-]+$")
@@ -77,6 +84,25 @@ def _paginator() -> PageNumberPaginator:
     # paginator stops after the last page without paying an extra empty-page request. The public
     # API exposes no sort param; list endpoints return id-ascending (≈ creation order).
     return PageNumberPaginator(base_page=1, page=1, total_path="meta.pagination.total_pages")
+
+
+class _BoundedChildPaginator(PageNumberPaginator):
+    def __init__(self, endpoint: str) -> None:
+        super().__init__(base_page=1, total_path="meta.pagination.total_pages")
+        self._endpoint = endpoint
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self.has_next_page and self.page > _MAX_FANOUT_CHILD_PAGES:
+            logger.warning(
+                "Thinkific child pagination limit reached",
+                endpoint=self._endpoint,
+                parent_path=response.request.path_url.partition("?")[0],
+                max_pages=_MAX_FANOUT_CHILD_PAGES,
+            )
+            raise RuntimeError(
+                f"Thinkific {self._endpoint} exceeded the {_MAX_FANOUT_CHILD_PAGES}-page limit per parent"
+            )
 
 
 def _format_incremental_date(value: Any) -> str:
@@ -149,11 +175,15 @@ def _fanout_source(
 
     is_group_analysts = endpoint == "group_analysts"
     child_params: dict[str, Any] = {}
+    child_paginator: PageNumberPaginator | SinglePagePaginator
     if is_group_analysts:
         child_params["limit"] = None
-    elif incremental_date is not None:
-        previous_day = date.fromisoformat(incremental_date) - timedelta(days=1)
-        child_params["query[updated_after]"] = previous_day.isoformat()
+        child_paginator = SinglePagePaginator()
+    else:
+        child_paginator = _BoundedChildPaginator(endpoint) if endpoint in _BOUNDED_FANOUT_ENDPOINTS else _paginator()
+        if incremental_date is not None:
+            previous_day = date.fromisoformat(incremental_date) - timedelta(days=1)
+            child_params["query[updated_after]"] = previous_day.isoformat()
 
     dependent_resource = cast(
         Resource,
@@ -171,7 +201,7 @@ def _fanout_source(
             # mistake for a fetch-one-record endpoint and stop after a single page.
             parent_endpoint_extra={"paginator": _paginator(), "data_selector": "items"},
             child_endpoint_extra={
-                "paginator": SinglePagePaginator() if is_group_analysts else _paginator(),
+                "paginator": child_paginator,
                 "data_selector": "$" if is_group_analysts else "items",
             },
             child_params_extra=child_params,

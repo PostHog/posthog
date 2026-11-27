@@ -2,6 +2,8 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
+from unittest.mock import patch
+
 from parameterized import parameterized
 from requests import HTTPError
 
@@ -190,6 +192,42 @@ class TestFanout:
         assert result.raised is None
         assert result.paths == expected_paths
         assert result.rows == expected_rows
+
+    @parameterized.expand(
+        [
+            ("bundle_courses", "/bundles/31/courses", [{"id": 42}], None, True),
+            ("bundle_enrollments", "/bundles/31/enrollments", [{"id": 42}], 3, True),
+            ("related_products", "/products/21/related", [{"id": 42}], 3, True),
+            ("related_products", "/products/21/related", [{"id": 42}], 2, False),
+            ("related_products", "/products/21/related", [], None, False),
+        ]
+    )
+    def test_child_page_limit(
+        self, endpoint: str, child_path: str, last_page: list[dict[str, Any]], total_pages: int | None, fails: bool
+    ) -> None:
+        last_response = (
+            _response(last_page, total_pages=total_pages)
+            if total_pages is not None
+            else ScriptedResponse(json={"items": last_page})
+        )
+        with patch("products.warehouse_sources.sources.thinkific_courses.thinkific_courses._MAX_FANOUT_CHILD_PAGES", 2):
+            result = _driver().run(
+                endpoint,
+                [
+                    _response([{"id": 21, "productable_type": "Bundle", "productable_id": 31}]),
+                    _response([{"id": 41}], total_pages=2),
+                    last_response,
+                ],
+            )
+
+        assert result.paths == ["/api/public/v1/products", *[f"/api/public/v1{child_path}"] * 2]
+        assert result.params("page") == ["1", "1", "2"]
+        if fails:
+            assert isinstance(result.raised, RuntimeError)
+            assert "exceeded the 2-page limit per parent" in str(result.raised)
+        else:
+            assert result.raised is None
+            assert [row["id"] for row in result.rows] == [41, *[row["id"] for row in last_page]]
 
     def test_contents_resume_skips_completed_chapters(self) -> None:
         responses = [
