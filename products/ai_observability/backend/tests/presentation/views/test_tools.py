@@ -205,6 +205,7 @@ class TestToolViews(APIBaseTest):
             ("limit too large", "list", {"limit": 101}),
             ("offset past the sorted tools", "list", {"offset": diagnostics.DIAGNOSTICS_PAGE_MAX_OFFSET + 1}),
             ("group key alone", "retrieve", {"group_key": "acme"}),
+            ("group key too long", "list", {"group_key": "g" * (MAX_SCOPE_TEXT_LENGTH + 1), "group_type_index": 0}),
         ]
     )
     def test_bad_input_is_a_400(self, _name: str, endpoint: str, params: dict[str, Any]) -> None:

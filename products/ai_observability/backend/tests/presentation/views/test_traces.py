@@ -345,11 +345,20 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
             "products.ai_observability.backend.presentation.views.traces.api.load_trace_list",
             return_value=lambda: SimpleNamespace(model_dump=lambda **_: {}),
         ) as load:
-            response = self._get({"error": long_error, "tool": long_tool, "failed_tool": "fetch"})
+            response = self._get(
+                {
+                    "error": long_error,
+                    "tool": long_tool,
+                    "failed_tool": "fetch",
+                    "group_key": long_tool,
+                    "group_type_index": 0,
+                }
+            )
 
         assert response.status_code == 200, response.content
         selection = load.call_args.args[2]
         assert (selection.error, selection.tool, selection.failed_tool) == (long_error, long_tool, "fetch")
+        assert selection.group is not None and selection.group.key == long_tool
 
     @parameterized.expand(
         [
@@ -372,6 +381,7 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
             ("error scope too long", {"error": "x" * (MAX_SCOPE_TEXT_LENGTH + 1)}),
             ("tool scope too long", {"tool": "t" * (MAX_SCOPE_TEXT_LENGTH + 1)}),
             ("failed tool scope too long", {"failed_tool": "t" * (MAX_SCOPE_TEXT_LENGTH + 1)}),
+            ("group key too long", {"group_key": "g" * (MAX_SCOPE_TEXT_LENGTH + 1), "group_type_index": 0}),
             (
                 "custom expression that fails in clickhouse",
                 {"properties": json.dumps([{"type": "hogql", "key": "toDateTime('not a date') > now()"}])},
