@@ -77,9 +77,10 @@ from posthog.admin.console.tools import (
     ToolOperation,
 )
 from posthog.admin.console.urls import moved_url_patterns
-from posthog.admin.console.user_panels import Impersonation, is_acting_as
+from posthog.admin.console.user_panels import is_acting_as
 from posthog.admin.console.views import _offered_operations
 from posthog.csp_middleware import CSPMiddleware
+from posthog.helpers.impersonation import Impersonation
 from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, IMPERSONATION_REASON_SESSION_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_visibility_manager
@@ -871,6 +872,32 @@ class TestAdminConsoleViews(BaseTest):
         )
         for opened_page in opened_pages:
             assert opened_page in home, f"home misses {opened_page}, which was opened before"
+
+    @parameterized.expand(
+        [
+            ("everyone", "", {"user1@posthog.com", "alice@example.com", "bob@example.com"}),
+            ("part_of_an_email", "ALI", {"alice@example.com"}),
+            ("last_name", "smith", {"bob@example.com"}),
+            ("no_match", "nobody", set()),
+        ]
+    )
+    def test_organization_members_page_lists_only_that_organizations_members(
+        self, _name: str, search: str, expected_emails: set[str]
+    ) -> None:
+        User.objects.create_and_join(self.organization, "alice@example.com", None, first_name="Alice")
+        User.objects.create_and_join(self.organization, "bob@example.com", None, last_name="Smith")
+        other = Organization.objects.create(name="Another organization")
+        User.objects.create_and_join(other, "alice@other.example.com", None, first_name="Alice")
+        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
+        members_url = f"/admin/console/tools/organization-members/?organization={self.organization.pk}"
+        assert f'href="{members_url}"' in organization_page
+
+        response = self.client.get(
+            "/admin/console/tools/organization-members/", {"organization": self.organization.pk, "search": search}
+        )
+
+        table = next(block for block in response.context["page"].blocks if isinstance(block, Table))
+        assert {row.cells[0].text for row in table.rows if isinstance(row, Row)} == expected_emails
 
     @parameterized.expand([("team",), ("project",), ("user",)])
     def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
@@ -1841,6 +1868,7 @@ class TestAdminConsoleLogInAsUser(BaseTest):
         record_page = self.client.get(f"/admin/console/users/{self.target.pk}/", {"ticket": self.ticket})
         operation_url = f"{self.url}?{urlencode({'ticket': self.ticket})}"
         assert f'href="{escape(operation_url)}"' in record_page.content.decode()
+        assert operation_url in [link.href for link in record_page.context["record_links"]]
 
         form = self.client.get(operation_url).context["form"]
 

@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar, cast
@@ -345,7 +346,10 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
-            "record_links": record_type.links(obj),
+            "record_links": [
+                dataclasses.replace(link, href=_with_kept_query(link.href, request, link.keep_query))
+                for link in record_type.links(obj)
+            ],
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
