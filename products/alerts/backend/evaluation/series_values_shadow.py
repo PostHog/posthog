@@ -160,8 +160,14 @@ class ShadowComparisonRequest:
                 comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
             else:
                 comparison = self._compare_in(query_slot, live)
-        except _CANCELLATION:
+        except CancelledError:
             raise
+        except CHQueryErrorQueryWasCancelled:
+            # The failed-check cleanup cancels the queries of an attempt that stopped. A query cancelled while the
+            # attempt runs on was cancelled by someone else, such as an operator, and the check's live result stands.
+            if not attempt_outlasts(0):
+                raise
+            comparison = ShadowComparison(outcome="unavailable", reason="query_cancelled")
         except Exception as err:
             capture_exception(
                 err,

@@ -1,5 +1,5 @@
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import datetime
 from typing import Any
 
@@ -338,22 +338,37 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("killed_query", CHQueryErrorQueryWasCancelled("killed", code=394)),
-            ("cancelled_activity", CancelledError()),
+            ("query_of_a_stopped_attempt", CHQueryErrorQueryWasCancelled("killed", code=394), True, []),
+            ("cancelled_activity", CancelledError(), True, []),
+            (
+                "query_killed_while_the_attempt_runs",
+                CHQueryErrorQueryWasCancelled("killed", code=394),
+                False,
+                [("unavailable", "query_cancelled")],
+            ),
         ]
     )
-    def test_a_cancelled_check_stops_in_the_shadow_step(self, _name: str, cancellation: Exception) -> None:
+    def test_a_cancelled_shadow_query_stops_the_check_only_when_its_attempt_stops(
+        self, _name: str, cancellation: Exception, attempt_stops: bool, recorded: list[tuple[str, str]]
+    ) -> None:
         alert = self._alert(detector=_THRESHOLD_DETECTOR)
+        stopped = False
+
+        def cancelled(*args: Any, **kwargs: Any) -> Any:
+            nonlocal stopped
+            stopped = attempt_stops
+            raise cancellation
 
         with (
             self._enrolled(),
-            patch(f"{_SHADOW}.precomputed_series_values", side_effect=cancellation),
+            patch(f"{_SHADOW}.attempt_outlasts", side_effect=lambda seconds: not stopped),
+            patch(f"{_SHADOW}.precomputed_series_values", side_effect=cancelled),
             patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
-            self.assertRaises(type(cancellation)),
+            self.assertRaises(type(cancellation)) if attempt_stops else nullcontext(),
         ):
             _platform_check(alert)
 
-        assert _shadow_events(capture) == []
+        assert [(event["outcome"], event["reason"]) for event in _shadow_events(capture)] == recorded
 
     @parameterized.expand([("no_results", None, False), ("empty_results", [], True)])
     def test_an_empty_live_result_builds_nothing(self, _name: str, live: list | None, is_cached: bool) -> None:
