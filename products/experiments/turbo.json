@@ -1,0 +1,44 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": [
+                "backend/facade/**",
+                "backend/presentation/**",
+                "backend/routes.py",
+                "backend/models/**",
+                "backend/migrations/**",
+                "backend/admin/**",
+                "backend/scopes.py",
+                "backend/apps.py",
+                "backend/activity_logging.py",
+                "backend/console.py",
+                "backend/task_profiles.py",
+                "backend/max_tools.py",
+                "backend/replay_context.py",
+                "backend/replay_linkage.py",
+                "backend/timeseries_backfill.py",
+                "backend/warehouse_native_sources.py",
+                "backend/hogql_queries/experiment_exposures_query_runner.py",
+                "backend/hogql_queries/experiment_query_runner.py",
+                "backend/metric_calculation/keys.py",
+                "backend/temporal/canary_activities.py",
+                "backend/temporal/canary_workflow.py",
+                "backend/temporal/enrollment_census_activities.py",
+                "backend/temporal/enrollment_census_workflow.py",
+                "backend/temporal/recalculation/activities.py",
+                "backend/temporal/recalculation/metrics.py",
+                "backend/temporal/recalculation/workflow.py",
+                "backend/temporal/registry.py",
+                "backend/temporal/schedule.py",
+                "backend/temporal/scheduled_recalculation_activities.py",
+                "backend/temporal/scheduled_recalculation_workflow.py",
+                "backend/temporal/timeseries/activities.py",
+                "backend/temporal/timeseries/schedule.py",
+                "backend/temporal/timeseries/workflows.py"
+            ],
+            "outputs": [],
+            "cache": true
+        }
+    }
+}
