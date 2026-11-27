@@ -11,6 +11,7 @@ from django.http import HttpRequest, HttpResponse, QueryDict
 from django.urls import reverse
 
 from posthog.admin.console.panels import Owner, ReasonForm, Tone
+from posthog.admin.console.records import RecordLink
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import (
     Cell,
@@ -25,6 +26,7 @@ from posthog.admin.console.tools import (
     Stats,
     Table,
     ToolOperation,
+    ToolPlace,
 )
 from posthog.utils import pluralize
 
@@ -468,6 +470,24 @@ class WarehouseSourcesTool(ConsoleTool):
     owner = WAREHOUSE_SOURCES
     group = "Data warehouse"
     description = "The schemas of one warehouse source, and the partitioning, schedule and jobs of one schema."
+
+    def place(self, request: HttpRequest) -> ToolPlace | None:
+        schema_id = _uuid_param(request, "schema")
+        schema = get_schema_for_staff(schema_id) if schema_id is not None else None
+        if schema is not None:
+            source = RecordLink(label=f"{schema.source_type} source", href=_tool_url(source=str(schema.source_id)))
+            return ToolPlace.under(
+                "team", schema.team_id, (source, RecordLink(label=schema.name, href=_tool_url(schema=str(schema.id))))
+            )
+        source_id = _uuid_param(request, "source")
+        found = get_source_for_staff(source_id) if source_id is not None else None
+        if found is None:
+            return None
+        return ToolPlace.under(
+            "team",
+            found.team_id,
+            (RecordLink(label=f"{found.source_type} source", href=_tool_url(source=str(found.id))),),
+        )
 
     def page(self, request: HttpRequest) -> Page:
         page_number = request.GET.get("page")
