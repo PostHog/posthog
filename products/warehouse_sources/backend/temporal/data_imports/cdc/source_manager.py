@@ -71,6 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_column_name,
     safe_parse_datetime,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -78,7 +79,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import (
     DEFAULT_BATCH_BYTE_LIMIT,
-    DEFAULT_BATCH_ROW_LIMIT,
     TableBatcher,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
@@ -683,13 +683,13 @@ def _same_content(batch_row: dict[str, Any], held_row: dict[str, Any], skip: set
 
 def _filled_row_flags(table: pa.Table) -> list[bool] | None:
     """Which rows the loader must fill from the Delta table: DELETEs and rows with TOAST-omitted columns."""
-    flags: pa.ChunkedArray | None = None
-    if CDC_OP_COLUMN in table.column_names:
-        flags = pc.fill_null(pc.equal(table.column(CDC_OP_COLUMN), "D"), False)
-    if TOAST_OMITTED_COLUMN in table.column_names:
-        omitted = pc.fill_null(pc.greater(pc.list_value_length(table.column(TOAST_OMITTED_COLUMN)), 0), False)
-        flags = omitted if flags is None else pc.or_(flags, omitted)
-    return None if flags is None else flags.to_pylist()
+    has_ops = CDC_OP_COLUMN in table.column_names
+    has_omitted = TOAST_OMITTED_COLUMN in table.column_names
+    if not has_ops and not has_omitted:
+        return None
+    ops = table.column(CDC_OP_COLUMN).to_pylist() if has_ops else [None] * table.num_rows
+    omitted = table.column(TOAST_OMITTED_COLUMN).to_pylist() if has_omitted else [None] * table.num_rows
+    return [op == "D" or bool(columns) for op, columns in zip(ops, omitted)]
 
 
 def _slices_within_fill_limit(table: pa.Table, fill_limit: int) -> Iterator[tuple[pa.Table, int]]:
@@ -859,7 +859,7 @@ class CDCSourceManager:
     async def get_items(
         self,
         *,
-        batch_row_limit: int = DEFAULT_BATCH_ROW_LIMIT,
+        batch_row_limit: int = DEFAULT_CHUNK_SIZE,
         batch_byte_limit: int = DEFAULT_BATCH_BYTE_LIMIT,
         batch_fill_limit: int = CDC_FLUSH_MAX_FILLED_EVENTS,
     ) -> AsyncGenerator[pa.Table]:
@@ -871,6 +871,9 @@ class CDCSourceManager:
 
         Files every table has settled are deleted here, before they are read, so the run that
         proves them consumed is never the one that deletes them.
+
+        The pipeline does not coalesce CDC tables, so the row limit is the pipeline's own chunk size: a
+        stream of plain inserts still lands in batches as large as before.
 
         A batch also closes at `batch_fill_limit` rows that the loader fills from the Delta table.
         Those rows are only keys or partial rows here, so the row and byte limits cannot see that
