@@ -350,6 +350,44 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
+type QueueTraits =
+    | { drainedByEmailWorker: true; fairDequeue: true }
+    | { drainedByEmailWorker: false; fairDequeue: boolean }
+
+export const QUEUE_TRAITS = {
+    hog: { drainedByEmailWorker: false, fairDequeue: false },
+    hogoverflow: { drainedByEmailWorker: false, fairDequeue: false },
+    hogdlq: { drainedByEmailWorker: false, fairDequeue: false },
+    hogflow: { drainedByEmailWorker: false, fairDequeue: false },
+    email: { drainedByEmailWorker: true, fairDequeue: true },
+    emailsandbox: { drainedByEmailWorker: false, fairDequeue: false },
+} as const satisfies Record<CyclotronJobQueueKind, QueueTraits>
+
+export type EmailQueueKind = {
+    [Q in CyclotronJobQueueKind]: (typeof QUEUE_TRAITS)[Q]['drainedByEmailWorker'] extends true ? Q : never
+}[CyclotronJobQueueKind]
+
+export const EMAIL_QUEUES = CYCLOTRON_INVOCATION_JOB_QUEUES.filter(
+    (queue): queue is EmailQueueKind => QUEUE_TRAITS[queue].drainedByEmailWorker
+)
+export const FAIR_DEQUEUE_QUEUES = CYCLOTRON_INVOCATION_JOB_QUEUES.filter((queue) => QUEUE_TRAITS[queue].fairDequeue)
+
+export const CYCLOTRON_QUEUE_ROLES = { emailQueues: EMAIL_QUEUES, fairDequeueQueues: FAIR_DEQUEUE_QUEUES }
+
+export function isEmailQueue(queue: string): queue is EmailQueueKind {
+    return (EMAIL_QUEUES as readonly string[]).includes(queue)
+}
+
+type FieldsLeftAfterSealing = Pick<CyclotronJobInvocation, 'teamId' | 'functionId' | 'queue' | 'queueMetadata'>
+
+export function emailQueueFor(_invocation: FieldsLeftAfterSealing): EmailQueueKind {
+    return 'email'
+}
+
+export function queueToStore(invocation: CyclotronJobInvocation): CyclotronJobQueueKind {
+    return isEmailQueue(invocation.queue) ? emailQueueFor(invocation) : invocation.queue
+}
+
 export const DEAD_LETTER_QUEUE = 'hogdlq' satisfies CyclotronJobQueueKind
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
