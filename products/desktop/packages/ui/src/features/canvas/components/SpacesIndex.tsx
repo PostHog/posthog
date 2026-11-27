@@ -48,7 +48,7 @@ function StarToggle({ channel }: { channel: Channel }) {
             className={cn(
               "shrink-0",
               isStarred
-                ? "text-warning"
+                ? "text-warning-foreground"
                 : "text-muted-foreground/40 group-hover/space:text-muted-foreground",
             )}
             onClick={(event) => {

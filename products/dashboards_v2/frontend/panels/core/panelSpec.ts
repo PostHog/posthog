@@ -1,7 +1,19 @@
 import type { z } from 'zod'
 
-import type { ContentPanel, SavedPanel, SizeOf, PanelSize } from '../../dashboard/document/dashboardTypes'
 import { parseOnce } from '../../schema/parseOnce'
+import type { ContentPanel, SavedPanel } from './panelSchema'
+
+export type PanelSize = {
+    w: number
+    h: number
+    minW: number
+    minH: number
+    /** A chart sized for a wide screen would fill a phone, so a stacked chart stays between these heights. */
+    stackedRows?: { min: number; max: number }
+}
+
+/** Looks up a content panel's size. Layout code takes it as an argument, so it never imports a panel. */
+export type SizeOf = (panel: SavedPanel) => PanelSize
 
 /** A way a person can customize a tile in its menu. The menu offers only the ones a panel type allows. */
 export type TileCustomization = 'backgroundColor'

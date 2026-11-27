@@ -27,7 +27,7 @@ import {
     RefreshType,
     WebStatsTableQueryResponse,
 } from '~/queries/schema/schema-general'
-import { OnlineExportContext, QueryExportContext } from '~/types'
+import { OnlineExportContext, QueryExportContext, TeamType } from '~/types'
 
 import { dataWarehouseSourcesFromResponse, isAsyncResponse } from './utils'
 
@@ -225,7 +225,8 @@ export async function pollForResults(
     queryId: string,
     methodOptions?: ApiMethodOptions,
     onPoll?: (response: QueryStatus) => void,
-    onResultPollTiming?: (timing: ApiRequestTiming) => void
+    onResultPollTiming?: (timing: ApiRequestTiming) => void,
+    teamId?: TeamType['id']
 ): Promise<QueryStatus> {
     // A hidden or offline tab must not consume the polling deadline while it cannot poll.
     let activeElapsedMs = 0
@@ -249,7 +250,8 @@ export async function pollForResults(
                         onRequestTiming: (timing) => {
                             pollTiming = timing
                         },
-                    }
+                    },
+                    teamId
                 )
             ).query_status
             if (statusResponse.complete) {
@@ -301,7 +303,8 @@ async function executeQuery<N extends DataNode>(
      */
     acceptStaleCache = false,
     /** True on the retry below, so a failed retry cannot start another one. */
-    retriedAfterExpiry = false
+    retriedAfterExpiry = false,
+    teamId?: TeamType['id']
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
@@ -335,6 +338,7 @@ async function executeQuery<N extends DataNode>(
                         filtersOverride,
                         variablesOverride,
                         limitContext,
+                        teamId,
                     })
                 } catch (error) {
                     retryStatus = error instanceof ApiError ? (error.status ?? null) : null
@@ -400,9 +404,15 @@ async function executeQuery<N extends DataNode>(
 
     let statusResponse: QueryStatus
     try {
-        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse, (timing) => {
-            submitTelemetry.result_poll_timing = timing
-        })
+        statusResponse = await pollForResults(
+            queryId,
+            methodOptions,
+            setPollResponse,
+            (timing) => {
+                submitTelemetry.result_poll_timing = timing
+            },
+            teamId
+        )
     } catch (e: any) {
         // A backgrounded tab can outlive the query's status. Submit once more to recover its result.
         //
@@ -428,7 +438,8 @@ async function executeQuery<N extends DataNode>(
             false,
             limitContext,
             acceptStaleCache,
-            true
+            true,
+            teamId
         )
     }
     submitTelemetry.retry_recovered =
@@ -439,6 +450,7 @@ async function executeQuery<N extends DataNode>(
 export interface QueryRequestOptions extends ApiMethodOptions {
     captureQueryTelemetry?: boolean
     queryTelemetry?: 'metadata'
+    teamId?: TeamType['id']
 }
 
 // Return data for a given query
@@ -454,7 +466,7 @@ export async function performQuery<N extends DataNode>(
     limitContext?: 'posthog_ai',
     acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
-    const { captureQueryTelemetry = true, queryTelemetry, ...apiMethodOptions } = options ?? {}
+    const { captureQueryTelemetry = true, queryTelemetry, teamId, ...apiMethodOptions } = options ?? {}
     const telemetryQuery = queryTelemetry === 'metadata' ? { kind: queryNode.kind } : queryNode
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
@@ -484,7 +496,9 @@ export async function performQuery<N extends DataNode>(
                 variablesOverride,
                 pollOnly,
                 limitContext,
-                acceptStaleCache
+                acceptStaleCache,
+                false,
+                teamId
             )
             if (queryTelemetry !== 'metadata' && isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse

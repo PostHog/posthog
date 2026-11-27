@@ -13,13 +13,19 @@ import { ATTACHMENT_SEND_DEADLINE_MS } from '../services/messaging/email.service
 import {
     InFlightRegistry,
     callsSettledWithin,
+    declaredFileBytes,
     deferralDelayMs,
     exceedsLargestSend,
-    fileBytesOf,
+    filesOf,
     firstDueAt,
     inFlightLimitsFor,
 } from '../services/messaging/in-flight-registry'
-import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    EmailQueueKind,
+} from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { settleAllThenThrowFirst } from '../utils/settle-all'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -77,15 +83,15 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         const sends: Promise<void>[] = []
         const deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[] = []
         const withFiles = invocations.filter(
-            (invocation) => !invocation.cancelRequestedAt && fileBytesOf(invocation) !== null
+            (invocation) => !invocation.cancelRequestedAt && filesOf(invocation) !== null
         )
         const hogFlows = withFiles.length ? await this.workflowsWithHeartbeat(invocations, withFiles) : {}
         withFiles.forEach((invocation) => this.workflowAtAdmission.set(invocation, hogFlows[invocation.functionId]))
         for (const invocation of invocations) {
-            const fileBytes = fileBytesOf(invocation)
+            const files = filesOf(invocation)
             if (
-                fileBytes === null ||
-                exceedsLargestSend(fileBytes) ||
+                files === null ||
+                exceedsLargestSend(declaredFileBytes(files)) ||
                 invocation.cancelRequestedAt ||
                 hogFlows[invocation.functionId]?.status !== 'active' ||
                 !sendStepAhead(invocation, hogFlows[invocation.functionId])
@@ -93,7 +99,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 plain.push(invocation)
                 continue
             }
-            const admission = this.sendsWithFiles.tryStart(fileBytes, () => this.runSendWithFiles(invocation))
+            const admission = this.sendsWithFiles.tryStart(files, () => this.runSendWithFiles(invocation))
             if ('started' in admission) {
                 sends.push(admission.started)
             } else if (Date.now() - firstDueAt(invocation, Date.now()) >= LONGEST_WAIT_FOR_ROOM_MS) {
@@ -246,3 +252,8 @@ function withoutDeferralCount(invocation: CyclotronJobInvocation): CyclotronJobI
     const { attachmentDeferrals: _, ...queueMetadata } = invocation.queueMetadata
     return { ...invocation, queueMetadata }
 }
+
+export const EMAIL_QUEUE_CONSUMERS = { email: CdpCyclotronWorkerEmail } satisfies Record<
+    EmailQueueKind,
+    typeof CdpCyclotronWorkerEmail
+>

@@ -3,14 +3,20 @@ from datetime import timedelta
 from typing import Literal, TypeVar
 
 from django.db import transaction
+from django.db.models import Q
 from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.api.statement_timeout import statement_timeout
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.utils.event_usage import fetch_event_property_usage, fetch_most_used_event_names
 from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
@@ -35,6 +41,9 @@ logger = structlog.get_logger(__name__)
 RUN_DEADLINE = timedelta(minutes=5)
 SCAN_COOLDOWN = timedelta(hours=1)
 MAX_CATALOG_EVENTS = 1000
+MAX_USAGE_RANKED_EVENTS = 2 * MAX_CATALOG_EVENTS
+MAX_EVENT_PROPERTIES_READ = 500
+MAX_CANDIDATE_PROPERTIES = 50
 MAX_CATALOG_ACTIONS = 50
 MAX_CATALOG_CHARACTERS = 60_000
 MAX_SHORTLIST_SOURCES = 10
@@ -246,16 +255,28 @@ class ConversionRecommendationService:
             )
 
     def event_catalog(self, run: ConversionRecommendationRun) -> list[ConversionCandidate]:
+        used_names = self.most_used_event_names()
+        usage_rank = {name: rank for rank, name in enumerate(used_names)}
         alias = definition_read_db_alias(EventDefinition)
         with statement_timeout(alias, CATALOG_QUERY_TIMEOUT_MS, DefinitionListTimedOut, CATALOG_QUERY_TIMEOUTS):
-            definitions = list(
+            active = (
                 EventDefinition.objects.using(alias)
                 .alias(effective_project_id=effective_project_id_expr())
                 .filter(effective_project_id=self.team.project_id)
+                .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__gte=run.date_from))
                 .exclude(name__in=DEFAULT_EXCLUDED_EVENTS)
-                .order_by("name")
-                .values_list("pk", "name", "last_seen_at")[:MAX_CATALOG_EVENTS]
             )
+            used: list[tuple[int, str]] = []
+            if used_names:
+                used = sorted(
+                    active.filter(name__in=used_names).values_list("pk", "name"),
+                    key=lambda definition: usage_rank[definition[1]],
+                )[:MAX_CATALOG_EVENTS]
+            unused = active.exclude(name__in=[name for _, name in used]) if used else active
+            definitions = [
+                *used,
+                *unused.order_by("name").values_list("pk", "name")[: MAX_CATALOG_EVENTS - len(used)],
+            ]
             descriptions: dict[str, str] = {}
             hidden: set[str] = set()
             if EE_AVAILABLE:
@@ -266,7 +287,7 @@ class ConversionRecommendationService:
                 for name, description, is_hidden in (
                     EnterpriseEventDefinition.objects.using(alias)
                     .alias(effective_project_id=effective_project_id_expr())
-                    .filter(effective_project_id=self.team.project_id, pk__in=[pk for pk, _, _ in definitions])
+                    .filter(effective_project_id=self.team.project_id, pk__in=[pk for pk, _ in definitions])
                     .annotate(short_description=Substr("description", 1, 200))
                     .values_list("name", "short_description", "hidden")
                 ):
@@ -281,26 +302,62 @@ class ConversionRecommendationService:
                 name=name,
                 description=descriptions.get(name, ""),
             )
-            for _, name, last_seen_at in definitions
-            if name not in hidden and (last_seen_at is None or last_seen_at >= run.date_from)
+            for _, name in definitions
+            if name not in hidden
         ]
+
+    def most_used_event_names(self) -> list[str]:
+        try:
+            with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=self.team.pk):
+                return fetch_most_used_event_names(self.team, limit=MAX_USAGE_RANKED_EVENTS, workload=Workload.OFFLINE)
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as error:
+            logger.warning(
+                "marketing_conversion_event_usage_failed", team_id=self.team.pk, error_type=type(error).__name__
+            )
+            capture_exception(error)
+            return []
+
+    def event_property_usage(self, property_names: list[str]) -> dict[str, int]:
+        try:
+            with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=self.team.pk):
+                return fetch_event_property_usage(self.team, property_names, workload=Workload.OFFLINE)
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as error:
+            logger.warning(
+                "marketing_conversion_property_usage_failed", team_id=self.team.pk, error_type=type(error).__name__
+            )
+            capture_exception(error)
+            return {}
 
     def hydrate_candidates(self, candidates: list[ConversionCandidate]) -> list[ConversionCandidate]:
         self.require_access()
         restricted = restricted_property_names(self.team, self.user, PropertyDefinition.Type.EVENT)
         alias = definition_read_db_alias(EventProperty)
+        event_candidates = [candidate for candidate in candidates if candidate.kind == "EventsNode" and candidate.event]
+        names_by_event: dict[str, list[str]] = {}
         with statement_timeout(alias, CATALOG_QUERY_TIMEOUT_MS, DefinitionListTimedOut, CATALOG_QUERY_TIMEOUTS):
-            for candidate in candidates:
-                if candidate.kind != "EventsNode":
-                    continue
-                properties = list(
+            for candidate in event_candidates:
+                event_properties = (
                     EventProperty.objects.using(alias)
                     .alias(effective_project_id=effective_project_id_expr())
                     .filter(effective_project_id=self.team.project_id, event=candidate.event)
                     .exclude(property__in=restricted)
                     .order_by("property")
-                    .values_list("property", flat=True)[:50]
+                    .values_list("property", flat=True)
                 )
+                names = list(event_properties.exclude(property__startswith="$")[:MAX_EVENT_PROPERTIES_READ])
+                names += event_properties.filter(property__startswith="$")[: MAX_EVENT_PROPERTIES_READ - len(names)]
+                names_by_event[candidate.event or ""] = names
+        usage = self.event_property_usage(sorted({name for names in names_by_event.values() for name in names}))
+        with statement_timeout(alias, CATALOG_QUERY_TIMEOUT_MS, DefinitionListTimedOut, CATALOG_QUERY_TIMEOUTS):
+            for candidate in event_candidates:
+                properties = sorted(
+                    names_by_event[candidate.event or ""],
+                    key=lambda name: (name.startswith("$"), -usage.get(name, 0), name),
+                )[:MAX_CANDIDATE_PROPERTIES]
                 candidate.property_names = properties
                 candidate.numeric_properties = list(
                     PropertyDefinition.objects.using(alias)
@@ -515,8 +572,8 @@ class ConversionRecommendationService:
         return ConversionRecommendationResults(
             recommendations=recommendations,
             limitations=[
-                "Discovery reads up to 1,000 event definitions in name order and 50 recently updated actions. The catalog sent to AI is size-limited.",
-                "Up to 10 sources are selected for review, with up to 50 property names per event. Other sources may be omitted.",
+                "Discovery reads up to 1,000 event definitions and 50 recently updated actions. When query usage is available, events used in queries in the last 30 days come first, then the rest in name order. The catalog sent to AI is size-limited.",
+                "Up to 10 sources are selected for review, with up to 50 property names per event. Custom properties come first, ordered by query usage when it is available. Other sources may be omitted.",
                 "Event definitions last seen before the analysis period are excluded. Definitions without activity dates may be included.",
                 "The event catalog is shared across project environments. Counts and activity in this environment are not verified, and test accounts are not filtered.",
                 "Recommendations use catalog metadata, not individual events or property values. Confirm business meaning and source quality before saving a goal.",

@@ -16,6 +16,7 @@ from ..facade.contracts import (
     FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
+    REASON_MAX_LENGTH,
     TOLERATION_PILEUP_WINDOW_DAYS,
     VARIANT_PILEUP_MIN,
     AddSnapshotsInput,
@@ -27,30 +28,41 @@ from ..facade.contracts import (
     BaselineOverview,
     BaselineQuarantineSummary,
     BaselineTotals,
+    ClearRunRequestInput,
     ClusterSummary,
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
+    DecisionResult,
     DiffCluster,
+    EarlierSnapshotDecision,
+    FinalizeApprover,
     FinalizeResult,
     FinalizeRunRequestInput,
     FlakinessEntry,
     FlakinessOverview,
     FlakinessTotals,
+    HeadRun,
     LiftOnMergeInput,
     NoRunNeededInput,
     NoRunNeededResult,
+    NotFullyResolvedDetail,
     QuarantinedIdentifierEntry,
     QuarantineInput,
     QuarantineLiftEntry,
     QuarantineSourceRun,
     RecomputeResult,
+    RejectedSnapshotDetail,
+    RejectRunRequestInput,
+    RejectSnapshotInput,
     Repo,
     RowShift,
     Run,
+    RunProgress,
     RunSummary,
     ShiftBand,
     Snapshot,
+    SnapshotDecision,
     SnapshotHistoryEntry,
     SnapshotManifestItem,
     ToleratedHashEntry,
@@ -60,7 +72,18 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState, NoRunNeededOutcome, QuarantineLiftState, RunGate, RunPurpose, ShiftBandKind
+from ..facade.enums import (
+    DecisionChannel,
+    DecisionState,
+    EarlierDecisionChange,
+    FlakinessState,
+    NoRunNeededOutcome,
+    QuarantineLiftState,
+    ReviewState,
+    RunGate,
+    RunPurpose,
+    ShiftBandKind,
+)
 
 # --- Output Serializers ---
 
@@ -137,6 +160,60 @@ class RowShiftSerializer(DataclassSerializer):
         dataclass = RowShift
 
 
+_VIA_HELP = (
+    "How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` "
+    "(an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept "
+    "from before decisions kept a history shows `web`."
+)
+
+
+class SnapshotDecisionSerializer(DataclassSerializer):
+    state = serializers.ChoiceField(
+        choices=DecisionState.choices,
+        help_text=(
+            "`approved`: accepted. `rejected`: rejected, which blocks finalize. `cleared`: a decision was "
+            "undone, so the snapshot needs review again."
+        ),
+    )
+    by = UserBasicInfoSerializer(allow_null=True, help_text="Who made the decision.")
+    via = serializers.ChoiceField(choices=DecisionChannel.choices, help_text=_VIA_HELP)
+    at = serializers.DateTimeField(help_text="When the decision was made.")
+    reason = serializers.CharField(help_text="Why the snapshot was rejected. Empty for other decisions.")
+    run_id = serializers.UUIDField(help_text="The run of the pull request the decision was made on.")
+    commit_sha = serializers.CharField(help_text="The commit of that run.")
+    from_earlier_commit = serializers.BooleanField(
+        help_text="Whether the decision was made on an earlier commit of the pull request and still counts here."
+    )
+    seq = serializers.IntegerField(
+        help_text=(
+            "Order of the decision within the pull request. Pass the highest `seq` you read as `expected_seq` "
+            "when you decide, so a decision made after your read is not replaced unseen."
+        )
+    )
+
+    class Meta:
+        dataclass = SnapshotDecision
+
+
+class EarlierSnapshotDecisionSerializer(DataclassSerializer):
+    state = serializers.ChoiceField(choices=DecisionState.choices, help_text="What the earlier decision was.")
+    by = UserBasicInfoSerializer(allow_null=True, help_text="Who made the earlier decision.")
+    via = serializers.ChoiceField(choices=DecisionChannel.choices, help_text=_VIA_HELP)
+    at = serializers.DateTimeField(help_text="When the earlier decision was made.")
+    reason = serializers.CharField(help_text="Why the earlier picture was rejected. Empty for other decisions.")
+    commit_sha = serializers.CharField(help_text="The commit the earlier decision was made on.")
+    changed = serializers.ChoiceField(
+        choices=EarlierDecisionChange.choices,
+        help_text=(
+            "Which picture changed since: `before` (the baseline, because the default branch or a pull request "
+            "below changed it), `after` (the pull request's own picture), or `both`."
+        ),
+    )
+
+    class Meta:
+        dataclass = EarlierSnapshotDecision
+
+
 class SnapshotSerializer(DataclassSerializer):
     # Explicitly mark artifact fields as nullable for OpenAPI schema
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
@@ -152,13 +229,89 @@ class SnapshotSerializer(DataclassSerializer):
             "block the pull request. It keeps that value after the quarantine ends or a new one starts."
         ),
     )
+    review_state = serializers.CharField(
+        help_text=(
+            "Where the snapshot stands in review on this run: `pending`, `approved` (accepted), `rejected` or "
+            "`tolerated`, and empty for an unchanged snapshot. In ledger mode a decision made on another run of "
+            "the pull request counts here while the pictures are the same."
+        )
+    )
+    decision = SnapshotDecisionSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "The newest decision on the exact before and after pictures this snapshot shows, on any run of the "
+            "pull request. Null when nobody decided on this pair."
+        ),
+    )
+    earlier_decision = EarlierSnapshotDecisionSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Set only when `decision` is null: the newest decision on another picture of this snapshot, which no "
+            "longer applies because a picture changed. Judge the new picture like any change."
+        ),
+    )
 
     class Meta:
         dataclass = Snapshot
 
 
+class RunProgressSerializer(DataclassSerializer):
+    total = serializers.IntegerField(
+        help_text="Changed, new and removed snapshots that gate the run, plus rejected quarantined ones."
+    )
+    approved = serializers.IntegerField(help_text="Accepted, on this run or on an earlier run of the pull request.")
+    approved_on_earlier_commits = serializers.IntegerField(
+        help_text="Accepted on an earlier commit of the pull request, and still counting because the pictures match."
+    )
+    approved_via_mcp = serializers.IntegerField(help_text="Accepted by an agent through MCP.")
+    rejected = serializers.IntegerField(help_text="Rejected. Each one blocks finalize.")
+    needs_review = serializers.IntegerField(
+        help_text=(
+            "Not accepted, rejected or tolerated yet. Includes removed snapshots nobody decided on, which finalize "
+            "accepts by itself."
+        )
+    )
+    tolerated = serializers.IntegerField(help_text="Tolerated as rendering noise.")
+
+    class Meta:
+        dataclass = RunProgress
+
+
+class HeadRunSerializer(DataclassSerializer):
+    id = serializers.UUIDField(help_text="UUID of the run of the pull request whose verdict gates it.")
+    commit_sha = serializers.CharField(help_text="The commit of that run.")
+    status = serializers.CharField(help_text="The run's processing status.")
+    approved = serializers.BooleanField(help_text="Whether that run is finalized.")
+
+    class Meta:
+        dataclass = HeadRun
+
+
 class RunSerializer(DataclassSerializer):
     approved_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    progress = RunProgressSerializer(
+        allow_null=True,
+        required=False,
+        help_text="How far the review of this run got. Only on the single-run read, null in lists.",
+    )
+    head_run = HeadRunSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "The newest run of the pull request, which finalize needs. Only on the single-run read, null in lists."
+        ),
+    )
+    can_finalize = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether a finalize without `approve_all` would pass now: this is the pull request's newest run, it is "
+            "not finalized, nothing is rejected, and every changed and new snapshot is accepted, tolerated or "
+            "quarantined. A removed snapshot nobody decided on does not hold it back, because finalize accepts it. "
+            "Only on the single-run read, false in lists."
+        ),
+    )
     purpose = serializers.ChoiceField(
         choices=[p.value for p in RunPurpose],
         read_only=True,
@@ -222,9 +375,67 @@ class RecomputeResultSerializer(DataclassSerializer):
         dataclass = RecomputeResult
 
 
+class FinalizeApproverSerializer(DataclassSerializer):
+    user = UserBasicInfoSerializer(allow_null=True, help_text="Who accepted.")
+    via = serializers.ChoiceField(choices=DecisionChannel.choices, help_text=_VIA_HELP)
+    count = serializers.IntegerField(help_text="How many of the run's changes this person accepted this way.")
+    commit_shas = serializers.ListField(
+        child=serializers.CharField(), help_text="The commits of the pull request the accepts were made on."
+    )
+
+    class Meta:
+        dataclass = FinalizeApprover
+
+
 class FinalizeResultSerializer(DataclassSerializer):
+    progress = RunProgressSerializer(allow_null=True, required=False, help_text="The review of the finalized run.")
+    approvers = FinalizeApproverSerializer(
+        many=True, help_text="Who accepted the run's changes, by person and channel, most accepts first."
+    )
+
     class Meta:
         dataclass = FinalizeResult
+
+
+class DecisionResultSerializer(DataclassSerializer):
+    run = RunSerializer(help_text="The run the call was made on.")
+    head_run = HeadRunSerializer(
+        help_text="The newest run of the pull request. A decision counts there when the pictures are the same."
+    )
+    progress = RunProgressSerializer(help_text="How far the review of the newest run got after this call.")
+    already_decided = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Identifiers whose newest decision already was the one requested, so nothing was written for them and "
+            "the first decider stays."
+        ),
+    )
+
+    class Meta:
+        dataclass = DecisionResult
+
+
+class RejectedSnapshotDetailSerializer(DataclassSerializer):
+    by = UserBasicInfoSerializer(allow_null=True, help_text="Who rejected it.")
+
+    class Meta:
+        dataclass = RejectedSnapshotDetail
+
+
+class NotFullyResolvedDetailSerializer(DataclassSerializer):
+    rejected = RejectedSnapshotDetailSerializer(
+        many=True,
+        help_text=(
+            "Every rejected snapshot. It clears with a new picture, the rejecter's undo, or a person's "
+            'explicit override ("accept anyway"). An agent can never clear it.'
+        ),
+    )
+    needs_review = serializers.ListField(
+        child=serializers.CharField(), help_text="Every snapshot that still needs a decision."
+    )
+
+    class Meta:
+        dataclass = NotFullyResolvedDetail
 
 
 # --- Input Serializers ---
@@ -322,12 +533,34 @@ class UpdateRepoInputSerializer(DataclassSerializer):
         }
 
 
+_DECISION_IDENTIFIER_HELP = "The snapshot identifier, such as a Storybook story id plus theme."
+_NEW_HASH_HELP = (
+    "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` "
+    "snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
+)
+_OLD_HASH_HELP = (
+    "Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` "
+    "snapshot. When given, the call is refused if the run compares against another baseline, so the decision "
+    "lands only on the pair of pictures you looked at."
+)
+_EXPECTED_SEQ_HELP = (
+    "Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is "
+    "refused with 409 `decided_since` when someone decided on one of them after that."
+)
+_DECISION_SNAPSHOTS_MAX = 500
+
+
+def _within_decision_limit(snapshots: list) -> list:
+    if len(snapshots) > _DECISION_SNAPSHOTS_MAX:
+        raise serializers.ValidationError(f"Send at most {_DECISION_SNAPSHOTS_MAX} snapshots per call.")
+    return snapshots
+
+
 class ApproveSnapshotInputSerializer(DataclassSerializer):
-    identifier = serializers.CharField(
-        help_text="The snapshot identifier to approve (e.g. Storybook story id plus theme).",
-    )
-    new_hash = serializers.CharField(
-        help_text="The content hash of the new baseline image to record for this identifier.",
+    identifier = serializers.CharField(max_length=512, help_text=_DECISION_IDENTIFIER_HELP)
+    new_hash = serializers.CharField(allow_null=True, required=False, max_length=128, help_text=_NEW_HASH_HELP)
+    old_hash = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, max_length=128, help_text=_OLD_HASH_HELP
     )
 
     class Meta:
@@ -340,14 +573,79 @@ class ApproveRunInputSerializer(DataclassSerializer):
         required=True,
         allow_empty=False,
         help_text=(
-            "Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the "
-            'review in the database (the per-snapshot "Accept change" action) — it does not change the '
-            "baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint."
+            "Snapshots to accept, each with `identifier` and `new_hash`. This only records the decision (the "
+            'per-snapshot "Accept change" action). It does not change the baseline or pass the gate: the '
+            "finalize endpoint does that."
+        ),
+    )
+    expected_seq = serializers.IntegerField(allow_null=True, required=False, min_value=0, help_text=_EXPECTED_SEQ_HELP)
+    override_rejection = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Accept a snapshot someone else rejected. Only for a person who read the rejection. An agent "
+            "through MCP can never accept over a rejection."
+        ),
+    )
+
+    def validate_snapshots(self, value: list) -> list:
+        return _within_decision_limit(value)
+
+    class Meta:
+        dataclass = ApproveRunRequestInput
+
+
+class RejectSnapshotInputSerializer(DataclassSerializer):
+    identifier = serializers.CharField(max_length=512, help_text=_DECISION_IDENTIFIER_HELP)
+    new_hash = serializers.CharField(allow_null=True, required=False, max_length=128, help_text=_NEW_HASH_HELP)
+    old_hash = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, max_length=128, help_text=_OLD_HASH_HELP
+    )
+    reason = serializers.CharField(
+        min_length=1,
+        max_length=REASON_MAX_LENGTH,
+        help_text="What is wrong with the new picture, so the author can fix it. Shown on the pull request.",
+    )
+
+    class Meta:
+        dataclass = RejectSnapshotInput
+
+
+class RejectRunInputSerializer(DataclassSerializer):
+    snapshots = RejectSnapshotInputSerializer(
+        many=True,
+        required=True,
+        allow_empty=False,
+        help_text="Snapshots to reject, each with `identifier`, `new_hash` and `reason`.",
+    )
+    expected_seq = serializers.IntegerField(allow_null=True, required=False, min_value=0, help_text=_EXPECTED_SEQ_HELP)
+
+    def validate_snapshots(self, value: list) -> list:
+        return _within_decision_limit(value)
+
+    class Meta:
+        dataclass = RejectRunRequestInput
+
+
+class ClearRunInputSerializer(DataclassSerializer):
+    identifiers = serializers.ListField(
+        child=serializers.CharField(max_length=512),
+        allow_empty=False,
+        max_length=_DECISION_SNAPSHOTS_MAX,
+        help_text="Identifiers of the snapshots whose accept or reject to undo, on the run you pass as `id`.",
+    )
+    expected_seq = serializers.IntegerField(allow_null=True, required=False, min_value=0, help_text=_EXPECTED_SEQ_HELP)
+    override_rejection = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Undo a rejection someone else made. Only for a person who read the rejection. Your own rejection "
+            "undoes without it. An agent through MCP can never undo another user's rejection."
         ),
     )
 
     class Meta:
-        dataclass = ApproveRunRequestInput
+        dataclass = ClearRunRequestInput
 
 
 class FinalizeRunInputSerializer(DataclassSerializer):
@@ -355,9 +653,9 @@ class FinalizeRunInputSerializer(DataclassSerializer):
         required=False,
         default=False,
         help_text=(
-            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are "
-            "left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any "
-            "changed/new snapshot is still unreviewed."
+            "Accept every changed and new snapshot that nobody decided on before finalizing. Tolerated and "
+            "quarantined snapshots are left alone, and a rejected snapshot is never accepted, so it still blocks. "
+            "Leave false to finalize a run you already reviewed: finalizing fails if any change still needs review."
         ),
     )
     commit_to_github = serializers.BooleanField(
@@ -500,6 +798,49 @@ class ErrorDetailSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="What went wrong and what to do next.")
     code = serializers.CharField(
         required=False, help_text="A stable code for the error, such as `lift_commit_unknown` or `rate_limited`."
+    )
+
+
+class FinalizeConflictSerializer(ErrorDetailSerializer):
+    """Every 409 of finalize. `code` says which one, and only its own fields are present."""
+
+    rejected = RejectedSnapshotDetailSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "With `not_fully_resolved`: every rejected snapshot. It clears with a new picture, the rejecter's "
+            'undo, or a person\'s explicit override ("accept anyway"). An agent can never clear it.'
+        ),
+    )
+    needs_review = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="With `not_fully_resolved`: every snapshot that still needs a decision.",
+    )
+    head_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="With `stale_run`: the pull request's newest run, which is the one to finalize, when known.",
+    )
+    head_commit_sha = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="With `stale_run`: the commit of that newest run, when known.",
+    )
+
+
+class DecisionRefusalSerializer(serializers.Serializer):
+    identifier = serializers.CharField(help_text="The refused snapshot. Empty when the whole call was refused.")
+    code = serializers.CharField(help_text="Why it was refused, such as `hash_mismatch` or `decided_by_person`.")
+    detail = serializers.CharField(help_text="What went wrong and what to do next.")
+    current_seq = serializers.IntegerField(
+        allow_null=True, help_text="The `seq` of the newest decision on the snapshot, when the refusal is about it."
+    )
+
+
+class DecisionErrorSerializer(ErrorDetailSerializer):
+    snapshots = DecisionRefusalSerializer(
+        many=True, help_text="Every refused snapshot. The call is all or nothing, so nothing was written."
     )
 
 
@@ -816,6 +1157,14 @@ class RunSnapshotsQuerySerializer(serializers.Serializer):
         help_text=(
             "Return only the snapshot with this id, read from the `id` field of a snapshot in "
             "the run. Use it to fetch one snapshot without listing the whole run."
+        ),
+    )
+    review_state = serializers.ChoiceField(
+        choices=ReviewState.choices,
+        required=False,
+        help_text=(
+            "Only snapshots in this review state on the run, after decisions made on other runs of the pull "
+            "request. `pending` with `exclude_unchanged=true` lists what still needs a decision."
         ),
     )
     quarantined_only = serializers.BooleanField(
