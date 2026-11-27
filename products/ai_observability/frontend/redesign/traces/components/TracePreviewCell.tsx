@@ -2,7 +2,7 @@ import type { TracePreviewMissingReasonApi } from '../../../generated/api.schema
 import type { TraceCellStatus } from '../../shared/cellLoads'
 import { TraceCellValue } from './TraceCellValue'
 
-const MISSING_REASON_LABELS: Record<TracePreviewMissingReasonApi, string> = {
+export const MISSING_REASON_LABELS: Record<TracePreviewMissingReasonApi, string> = {
     too_large: 'Too large to preview',
     timed_out: 'Preview timed out',
 }

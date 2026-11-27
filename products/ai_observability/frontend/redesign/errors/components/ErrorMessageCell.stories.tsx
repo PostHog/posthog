@@ -7,7 +7,7 @@ const meta: Meta<typeof ErrorMessageCell> = {
     title: 'Scenes-App/AI observability/Errors/Error message cell',
     component: ErrorMessageCell,
     parameters: { testOptions: { snapshotBrowsers: [] } },
-    args: { message: 'TimeoutError: the example-model call took longer than 30 seconds' },
+    args: { message: 'TimeoutError: the example-model call took longer than 30 seconds', onOpen: () => {} },
     decorators: [withWidth(360)],
 }
 export default meta

@@ -22,6 +22,7 @@ export interface ErrorsTableColumnsOptions {
     /** The order the list is sorted by, or null before the list knows it. */
     order: AiObservabilityErrorsListOrder | null
     onOrder: (order: AiObservabilityErrorsListOrder) => void
+    onOpen: (item: ErrorListItemApi) => void
     firstSeen: CellLoads<ErrorFirstSeen>
     /** The project's timezone, which first seen dates are shown in. */
     timezone: string
@@ -40,6 +41,7 @@ export function errorsTableColumns({
     maxOccurrences,
     order,
     onOrder,
+    onOpen,
     firstSeen,
     timezone,
     'data-attr': dataAttr,
@@ -64,7 +66,7 @@ export function errorsTableColumns({
         {
             title: 'Error',
             key: 'message',
-            render: (_, { message }) => <ErrorMessageCell message={message} />,
+            render: (_, item) => <ErrorMessageCell message={item.message} onOpen={() => onOpen(item)} />,
         },
         {
             ...sortable('Occurrences', AiObservabilityErrorsListOrder.Occurrences),

@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 
@@ -20,6 +20,7 @@ function changeCell(firstSeen: CellLoads<ErrorFirstSeen>): string {
                 maxOccurrences: 128,
                 order: 'occurrences',
                 onOrder: () => {},
+                onOpen: () => {},
                 firstSeen,
                 timezone: 'UTC',
                 'data-attr': 'errors-list',
@@ -50,5 +51,35 @@ describe('errorsTableColumns', () => {
         ],
     ])('shows the served change, with New only from a first seen read that says so: %s', (_name, firstSeen, text) => {
         expect(changeCell(firstSeen)).toBe(text)
+    })
+
+    it('opens an error from a button on its message, which a keyboard reaches, and not from its row as well', () => {
+        initKeaTests()
+        const onOpen = jest.fn()
+        const onRow = jest.fn()
+        const item = makeErrorListItem({ key: 'error-1', message: 'TimeoutError: took too long' })
+        const { getByText } = render(
+            <LemonTable<ErrorListItemApi>
+                columns={errorsTableColumns({
+                    maxOccurrences: 128,
+                    order: 'occurrences',
+                    onOrder: () => {},
+                    onOpen,
+                    firstSeen: new Map(),
+                    timezone: 'UTC',
+                    'data-attr': 'errors-list',
+                })}
+                dataSource={[item]}
+                rowKey={(row) => row.key}
+                onRow={() => ({ onClick: onRow })}
+            />
+        )
+
+        const message = getByText('TimeoutError: took too long')
+        expect(message.closest('button')).toBeInstanceOf(HTMLButtonElement)
+        fireEvent.click(message)
+
+        expect(onOpen).toHaveBeenCalledWith(item)
+        expect(onRow).not.toHaveBeenCalled()
     })
 })
