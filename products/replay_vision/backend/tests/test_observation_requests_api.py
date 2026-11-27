@@ -1,8 +1,10 @@
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +23,7 @@ from posthog.models.utils import generate_random_token_secret
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
+from products.replay_vision.backend.api.observation_requests import LISTED_REQUESTS_WINDOW, MAX_LISTED_REQUESTS
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -247,6 +250,29 @@ class TestObservationRequestAPI(APIBaseTest):
             [(newer, [], "completed"), (older, ["s-older"], "running")],
         )
         self.assertEqual(self.client.get(self.url).status_code, 400)
+
+    @parameterized.expand(
+        [
+            ("exactly at the window edge", LISTED_REQUESTS_WINDOW, True),
+            ("a minute past the window edge", LISTED_REQUESTS_WINDOW + timedelta(minutes=1), False),
+        ]
+    )
+    def test_lists_requests_as_old_as_the_window(self, _name: str, age: timedelta, listed: bool) -> None:
+        with time_machine.travel(datetime(2026, 11, 20, 12, tzinfo=UTC), tick=False):
+            request_id = self._stored_request("email:welcome", int(age.total_seconds() // 60))
+            response = self.client.get(self.url, {"reference": "email:welcome"})
+
+        self.assertEqual([r["id"] for r in response.json()], [request_id] if listed else [])
+
+    def test_a_full_page_of_requests_made_at_the_same_moment_keeps_the_highest_ids(self) -> None:
+        with time_machine.travel(datetime(2026, 11, 20, 12, tzinfo=UTC), tick=False):
+            request_ids = [self._stored_request("email:welcome", 5) for _ in range(MAX_LISTED_REQUESTS + 1)]
+            response = self.client.get(self.url, {"reference": "email:welcome"})
+
+        self.assertEqual(
+            [r["id"] for r in response.json()],
+            sorted(request_ids, key=UUID, reverse=True)[:MAX_LISTED_REQUESTS],
+        )
 
     def test_a_request_that_waits_for_the_session_to_end_starts_nothing_yet(self) -> None:
         response = self.client.post(
