@@ -171,7 +171,7 @@ function settingValueOf(value: string, { unit, vartype }: SettingType): string {
               ? 'off'
               : text
     }
-    const [, number, suffix] = /^(-?\d+(?:\.\d+)?)\s*([a-zA-Z]*)$/.exec(text) ?? []
+    const [, number, suffix] = /^(-?(?:0|[1-9]\d*)(?:\.\d+)?)\s*([a-zA-Z]*)$/.exec(text) ?? []
     if (number === undefined || (vartype !== 'integer' && vartype !== 'real')) {
         return text
     }

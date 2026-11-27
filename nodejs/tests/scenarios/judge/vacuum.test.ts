@@ -304,6 +304,12 @@ describe('soak measurements', () => {
             { key: 'autovacuum_vacuum_scale_factor', value: 1 },
         ])
         expect(
+            measured('autovacuum_settings_differ', { vacuumSettings, autovacuumProfile: { autovacuum_naptime: '060' } })
+        ).toEqual([
+            { key: 'count', value: 1 },
+            { key: 'autovacuum_naptime', value: 1 },
+        ])
+        expect(
             measured('autovacuum_settings_differ', {
                 vacuumSettings,
                 autovacuumProfile: { autovacuum_naptime: '5s', autovacuum_nap_time: '1min' },
