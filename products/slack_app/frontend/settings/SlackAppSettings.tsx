@@ -41,14 +41,14 @@ export function SlackAppSettings(): JSX.Element {
                     content: <SlackAppPersonalSettings />,
                 },
                 {
-                    key: 'channels',
-                    label: 'Channels',
-                    content: <SlackAppChannelSettings />,
-                },
-                {
                     key: 'workspace',
                     label: 'Workspace',
                     content: <SlackAppWorkspaceSettings />,
+                },
+                {
+                    key: 'channels',
+                    label: 'Channels',
+                    content: <SlackAppChannelSettings />,
                 },
             ]}
         />

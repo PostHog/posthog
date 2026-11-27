@@ -85,8 +85,8 @@ export function SlackAppWorkspaceSettings(): JSX.Element {
             </SlackAppSettingsGroup>
 
             <SlackAppSettingsGroup
-                title="Reply defaults"
-                description="For people who haven't picked their own. Each person can still change theirs."
+                title="Replies"
+                description="Defaults for people who haven't picked their own. Each person can still change theirs."
             >
                 <SlackAppSettingRow
                     label="Replies in threads"

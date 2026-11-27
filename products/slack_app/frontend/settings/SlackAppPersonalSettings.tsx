@@ -1,14 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    LemonBadge,
-    LemonBanner,
-    LemonCollapse,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonSkeleton,
-    LemonSwitch,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -64,11 +56,6 @@ export function SlackAppPersonalSettings(): JSX.Element {
     })
     const workspaceThreadJoinMode = settings.workspace.thread_join_mode ?? POSTHOG_DEFAULT_THREAD_JOIN_MODE
 
-    const changedAdvancedCount =
-        Number(!inherits('thread_join_mode') && personal.thread_join_mode !== workspaceThreadJoinMode) +
-        Number(!personal.feature_tips_enabled) +
-        Number(personal.chatgpt_apps_enabled === true)
-
     return (
         <div className="flex flex-col gap-4 max-w-200">
             <p className="text-secondary m-0">
@@ -113,11 +100,24 @@ export function SlackAppPersonalSettings(): JSX.Element {
                         data-attr="slack-app-settings-auto-model"
                     />
                 </SlackAppSettingRow>
+                {personal.chatgpt_apps_enabled !== null ? (
+                    <SlackAppSettingRow
+                        label="ChatGPT apps"
+                        description="Your ChatGPT plan is connected. Let tasks you start from Slack use the apps on it. People who join your threads can use them too. Applies to new tasks."
+                    >
+                        <LemonSwitch
+                            checked={personal.chatgpt_apps_enabled}
+                            onChange={(checked) => updatePersonalSettings({ chatgpt_apps_enabled: checked })}
+                            disabledReason={personalSettingsDisabledReason}
+                            data-attr="slack-app-settings-chatgpt-apps"
+                        />
+                    </SlackAppSettingRow>
+                ) : null}
             </SlackAppSettingsGroup>
 
             <SlackAppSettingsGroup
-                title="Messages that don't tag PostHog"
-                description="PostHog can still pick up a message that doesn't tag it."
+                title="Replies"
+                description="What PostHog does with messages that don't tag it, and when others tag it in your threads."
             >
                 <SlackAppSettingRow
                     label="Replies in your threads"
@@ -162,83 +162,42 @@ export function SlackAppPersonalSettings(): JSX.Element {
                         data-attr="slack-app-settings-untagged-questions"
                     />
                 </SlackAppSettingRow>
+                <SlackAppSettingRow
+                    label="Others in your threads"
+                    description="Someone else tags PostHog in a thread you started."
+                >
+                    <LemonSelect
+                        className="w-64"
+                        value={inherits('thread_join_mode') ? WORKSPACE_DEFAULT : personal.thread_join_mode}
+                        onChange={(value) =>
+                            updatePersonalSettings({
+                                thread_join_mode:
+                                    value === WORKSPACE_DEFAULT ? null : (value as typeof personal.thread_join_mode),
+                            })
+                        }
+                        options={[
+                            {
+                                value: WORKSPACE_DEFAULT,
+                                label: `Default (${replyModeLabel(THREAD_JOIN_OPTIONS, workspaceThreadJoinMode)})`,
+                            },
+                            ...THREAD_JOIN_OPTIONS,
+                        ]}
+                        disabledReason={personalSettingsDisabledReason}
+                        data-attr="slack-app-settings-thread-join"
+                    />
+                </SlackAppSettingRow>
             </SlackAppSettingsGroup>
 
-            <LemonCollapse
-                panels={[
-                    {
-                        key: 'advanced',
-                        header: (
-                            <span className="flex items-center gap-2">
-                                Advanced options
-                                {changedAdvancedCount > 0 ? <LemonBadge.Number count={changedAdvancedCount} /> : null}
-                            </span>
-                        ),
-                        bodyClassName: 'p-0',
-                        dataAttr: 'slack-app-settings-advanced',
-                        content: (
-                            <div className="divide-y">
-                                <SlackAppSettingRow
-                                    label="Others in your threads"
-                                    description="Someone else tags PostHog in a thread you started."
-                                >
-                                    <LemonSelect
-                                        className="w-64"
-                                        value={
-                                            inherits('thread_join_mode') ? WORKSPACE_DEFAULT : personal.thread_join_mode
-                                        }
-                                        onChange={(value) =>
-                                            updatePersonalSettings({
-                                                thread_join_mode:
-                                                    value === WORKSPACE_DEFAULT
-                                                        ? null
-                                                        : (value as typeof personal.thread_join_mode),
-                                            })
-                                        }
-                                        options={[
-                                            {
-                                                value: WORKSPACE_DEFAULT,
-                                                label: `Default (${replyModeLabel(THREAD_JOIN_OPTIONS, workspaceThreadJoinMode)})`,
-                                            },
-                                            ...THREAD_JOIN_OPTIONS,
-                                        ]}
-                                        disabledReason={personalSettingsDisabledReason}
-                                        data-attr="slack-app-settings-thread-join"
-                                    />
-                                </SlackAppSettingRow>
-                                {personal.chatgpt_apps_enabled !== null ? (
-                                    <SlackAppSettingRow
-                                        label="ChatGPT apps"
-                                        description="Your ChatGPT plan is connected. Let tasks you start from Slack use the apps on it. People who join your threads can use them too. Applies to new tasks."
-                                    >
-                                        <LemonSwitch
-                                            checked={personal.chatgpt_apps_enabled}
-                                            onChange={(checked) =>
-                                                updatePersonalSettings({ chatgpt_apps_enabled: checked })
-                                            }
-                                            disabledReason={personalSettingsDisabledReason}
-                                            data-attr="slack-app-settings-chatgpt-apps"
-                                        />
-                                    </SlackAppSettingRow>
-                                ) : null}
-                                <SlackAppSettingRow
-                                    label="Feature tips"
-                                    description="Short tips about things PostHog can do in Slack."
-                                >
-                                    <LemonSwitch
-                                        checked={personal.feature_tips_enabled}
-                                        onChange={(checked) =>
-                                            updatePersonalSettings({ feature_tips_enabled: checked })
-                                        }
-                                        disabledReason={personalSettingsDisabledReason}
-                                        data-attr="slack-app-settings-feature-tips"
-                                    />
-                                </SlackAppSettingRow>
-                            </div>
-                        ),
-                    },
-                ]}
-            />
+            <SlackAppSettingsGroup title="Tips">
+                <SlackAppSettingRow label="Feature tips" description="Short tips about things PostHog can do in Slack.">
+                    <LemonSwitch
+                        checked={personal.feature_tips_enabled}
+                        onChange={(checked) => updatePersonalSettings({ feature_tips_enabled: checked })}
+                        disabledReason={personalSettingsDisabledReason}
+                        data-attr="slack-app-settings-feature-tips"
+                    />
+                </SlackAppSettingRow>
+            </SlackAppSettingsGroup>
         </div>
     )
 }
