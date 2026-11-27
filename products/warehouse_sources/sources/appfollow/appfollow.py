@@ -210,8 +210,14 @@ def check_credentials(api_key: str, api_version: str) -> int | None:
         return None
 
 
-def _iter_collections(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
+def _iter_collections(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfollowResumeConfig] | None = None,
+) -> Iterator[dict[str, Any]]:
     data = _fetch(session, f"{APPFOLLOW_BASE_URL}/account/apps", {}, logger)
+    if manager is not None:
+        manager.safe_point()
     yield from _extract_rows(data, "apps")
 
 
@@ -221,17 +227,23 @@ class _CollectionApp:
     app: dict[str, Any]
 
 
-def _iter_collection_apps(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[_CollectionApp]:
+def _iter_collection_apps(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfollowResumeConfig] | None = None,
+) -> Iterator[_CollectionApp]:
     """Fan out over every collection and yield each app with the collection it came from.
 
     Each app row is stamped with its `app_collection_id` and `collection_name`, and `ext_id`/`store`
     are lifted from the nested `app` object to the top level when absent so the review/rating fan-outs
     and the composite primary key can rely on them.
     """
-    for collection in _iter_collections(session, logger):
+    for collection in _iter_collections(session, logger, manager=manager):
         collection_id = collection.get("id")
         collection_name = collection.get("title_normalized") or collection.get("title")
         data = _fetch(session, f"{APPFOLLOW_BASE_URL}/account/apps/app", {"apps_id": collection_id}, logger)
+        if manager is not None:
+            manager.safe_point()
         for app in _extract_rows(data, "apps_app"):
             nested = app.get("app") or {}
             app["app_collection_id"] = collection_id
@@ -564,7 +576,7 @@ def _dated_fanout_start(
         if watermark:
             start = date.fromisoformat(watermark) - timedelta(days=DATED_FANOUT_LOOKBACK_DAYS)
             # The watermark stops moving while an app has no rows, so cap the scan at the backfill window.
-            if config.backfill_days is not None:
+            if config.cap_incremental_lookback and config.backfill_days is not None:
                 start = max(start, today - timedelta(days=config.backfill_days))
             return start
     if config.backfill_days is not None:
@@ -692,7 +704,7 @@ def _get_console_ratings(
 ) -> Iterator[list[dict[str, Any]]]:
     targets: list[dict[str, Any]] = []
     seen: set[tuple[int, str]] = set()
-    for pair in _iter_collection_apps(session, logger):
+    for pair in _iter_collection_apps(session, logger, manager=manager):
         app = pair.app
         if app.get("store") != "gp" or not app.get("ext_id") or not app.get("collection_name"):
             continue

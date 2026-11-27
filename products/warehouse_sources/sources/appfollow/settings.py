@@ -98,6 +98,7 @@ class AppfollowEndpointConfig:
     max_window_days: Optional[int] = None
     # "dated_fanout" only: how far back the first sync reads. `None` means from `DEFAULT_START_DATE`.
     backfill_days: Optional[int] = None
+    cap_incremental_lookback: bool = True
     # "dated_fanout" only: fixed query parameters sent with every request.
     extra_params: tuple[tuple[str, str], ...] = ()
     # "dated_fanout" only: see RowShape.
@@ -332,6 +333,7 @@ APPFOLLOW_ENDPOINTS: dict[str, AppfollowEndpointConfig] = {
         partition_key="date",
         time_mode="daily",
         backfill_days=30,
+        cap_incremental_lookback=False,
         row_shape="object",
         default_incremental_field="date",
         incremental_fields=[_DATE_FIELD],
@@ -359,6 +361,7 @@ APPFOLLOW_ENDPOINTS: dict[str, AppfollowEndpointConfig] = {
         time_mode="window",
         max_window_days=14,
         backfill_days=30,
+        cap_incremental_lookback=False,
         default_incremental_field="date",
         incremental_fields=[_DATE_FIELD],
         should_sync_default=False,

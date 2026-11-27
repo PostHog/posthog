@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -31,6 +31,9 @@ from products.warehouse_sources.sources.sdk.testing import (
     Script,
     ScriptedResponse,
     SourceDriver,
+    activate_safe_point,
+    scripted_network,
+    source_inputs,
 )
 
 
@@ -408,6 +411,46 @@ class TestDatedFanOut:
         assert [row["date"] for row in result.rows] == days
         assert all(row["ext_id"] == "111" for row in result.rows)
 
+    @pytest.mark.parametrize(
+        "endpoint,path,window_days",
+        [
+            ("reviews_version_stats", "/reviews/stats/version", 1),
+            ("console_ratings", "/meta/ratings/console/gp", 14),
+        ],
+    )
+    @pytest.mark.parametrize("watermark", [None, date(2026, 4, 15)])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_initial_backfill_does_not_cut_off_dates_after_an_interruption(
+        self, endpoint: str, path: str, window_days: int, watermark: date | None
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "tags_stat": {"tags": []},
+                    "fields": {request.param("fields"): [{"date": request.param("from"), "value": 1}]},
+                }
+            )
+
+        script = _console_api(respond) if endpoint == "console_ratings" else _dated_api(respond)
+        result = _run(endpoint, script, should_use_incremental_field=True, db_incremental_field_last_value=watermark)
+        assert result.raised is None
+        requests_ = _requests_to(result, path)
+        if endpoint == "console_ratings":
+            requests_ = [
+                r for r in requests_ if r.param("collection_name") == "first" and r.param("fields") == "ratings"
+            ]
+        windows = [
+            (
+                date.fromisoformat(r.param("from") or r.param("date") or ""),
+                date.fromisoformat(r.param("to") or r.param("date") or ""),
+            )
+            for r in requests_
+        ]
+        assert windows[0][0] == (date(2026, 4, 8) if watermark else date(2026, 5, 16))
+        assert windows[-1][1] == date(2026, 6, 15)
+        assert all((end - start).days < window_days for start, end in windows)
+        assert all(nxt[0] == prev[1] + timedelta(days=1) for prev, nxt in zip(windows, windows[1:]))
+
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_window_backfill_is_split_into_requests_of_one_month_at_most(self) -> None:
         api = _dated_api(lambda request: {"data": [{"date": request.param("from"), "channel": "Web Referrer"}]})
@@ -589,6 +632,39 @@ def _console_api(respond: Callable[[RecordedRequest], ScriptedResponse]) -> Scri
 
 
 class TestConsoleRatings:
+    @pytest.mark.parametrize("has_google_play_app", [False, True])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_discovery_reaches_safe_points_between_empty_collections(self, has_google_play_app: bool) -> None:
+        discovery = _V2Api(
+            collections=[{"id": n, "title_normalized": f"collection-{n}"} for n in range(8)],
+            apps_by_collection={7: [{"ext_id": "example.app", "store": "gp"}]} if has_google_play_app else {},
+        )
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/meta/ratings/console/gp"):
+                return ScriptedResponse(
+                    json={"fields": {request.param("fields"): [{"date": "2026-06-15", "value": 1}]}}
+                )
+            return discovery(request)
+
+        source = AppfollowSource()
+        inputs = source_inputs("console_ratings")
+        manager = source.get_resumable_source_manager(inputs)
+        with (
+            scripted_network(script) as network,
+            activate_safe_point(network.note_progress, covers_framework_checkpoints=False),
+        ):
+            response = source.source_for_pipeline(AppfollowSourceConfig(api_key="tok"), manager, inputs)
+            rows = []
+            batches = response.items()
+            assert isinstance(batches, Iterable)
+            for batch in batches:
+                rows.extend(batch)
+                network.note_progress()
+            assert network.longest_run_without_progress <= 3
+            assert len(network.requests_log) >= 9
+        assert bool(rows) == has_google_play_app
+
     @pytest.mark.parametrize("incremental", [False, True])
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_both_metrics_keep_the_collection_and_walk_the_date_windows(self, incremental: bool) -> None:
