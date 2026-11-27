@@ -454,6 +454,7 @@ export interface broadcastWizardLogicValues {
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     emailSettings: BroadcastEmailSettings
     emailStepSensitive: boolean
+    entryAttemptId: string | null
     entrySource: string | null
     expandedRunIds: string[]
     expandedRunOverride: string[] | null
