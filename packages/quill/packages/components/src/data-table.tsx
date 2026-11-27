@@ -176,13 +176,14 @@ export interface DataTableProps<TData, TValue> {
      */
     rowSelectionDisabledReason?: (row: TData) => string | null
     /**
-     * Enables client-side pagination at this page size and renders a pager below
-     * the table. Omit for a single, un-paginated list.
+     * Enables client-side pagination at this page size. The pager below the table shows only when the rows need more
+     * than one page, so pass the same size for any number of rows. Omit for a single, un-paginated list.
      */
     pageSize?: number
     /**
      * Page-size choices shown in a selector beside the pager. Only rendered when
      * `pageSize` is set; omit to hide the selector and keep a fixed page size.
+     * The pager stays while the rows need more than one page at the smallest choice.
      */
     pageSizeOptions?: number[]
 }
@@ -604,13 +605,15 @@ function DataTable<TData, TValue>({
         {}
     )
     const [pagination, setPagination] = React.useState<PaginationState>({ pageIndex: 0, pageSize: pageSize ?? 10 })
-    // Keep the page size in sync when the prop changes at runtime — reset to the
-    // first page so the new size applies from a consistent offset.
-    React.useEffect(() => {
+    // A new page size starts again from the first page. The state changes during render, so that no render pages the
+    // rows at the old size.
+    const [syncedPageSize, setSyncedPageSize] = React.useState(pageSize)
+    if (pageSize !== syncedPageSize) {
+        setSyncedPageSize(pageSize)
         if (pageSize != null) {
-            setPagination((prev) => ({ ...prev, pageIndex: 0, pageSize }))
+            setPagination({ pageIndex: 0, pageSize })
         }
-    }, [pageSize])
+    }
     const table = useReactTable({
         data,
         columns: tableColumns,
@@ -622,16 +625,20 @@ function DataTable<TData, TValue>({
         onRowSelectionChange: setRowSelection,
         enableColumnResizing: resizableColumns,
         defaultColumn: { minSize: MIN_TABLE_COLUMN_WIDTH, maxSize: Infinity },
-        state: { sorting, columnSizing, rowSelection, ...(paginated ? { pagination } : {}) },
+        state: { sorting, columnSizing, rowSelection, pagination },
         onColumnSizingChange: setColumnSizing,
         manualSorting: controlledSorting !== undefined,
         // A list sorted on the server always has an order, so its headers have no "off" state.
         enableSortingRemoval: controlledSorting === undefined,
         onSortingChange: setSorting,
-        ...(paginated ? { onPaginationChange: setPagination } : {}),
+        onPaginationChange: setPagination,
+        // The pagination options stay set without a page size, because TanStack keeps an option that a later render
+        // leaves out, and caches the pagination row model after its first use. Manual pagination is what turns paging
+        // off: TanStack then returns every row.
+        manualPagination: !paginated,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
-        ...(paginated ? { getPaginationRowModel: getPaginationRowModel() } : {}),
+        getPaginationRowModel: getPaginationRowModel(),
     })
     const tableRef = React.useRef<HTMLTableElement>(null)
     const { columnWidths, columnWidth, fixColumnWidths } = useColumnWidths(table, tableRef, resizableColumns)
@@ -681,9 +688,11 @@ function DataTable<TData, TValue>({
         </Table>
     )
 
-    // Nothing to paginate when the table is empty — the empty state already
-    // signals the absence of data, so a "0–0 of 0" pager is just noise.
-    if (!paginated || table.getFilteredRowModel().rows.length === 0) {
+    // The pager shows only when the rows need more than one page at the smallest page size on offer. An empty table
+    // shows only its empty state. A user who picks a larger size from the selector keeps the selector, to pick a smaller
+    // one again.
+    const smallestPageSize = Math.min(pagination.pageSize, ...(pageSizeOptions ?? []))
+    if (!paginated || table.getFilteredRowModel().rows.length <= smallestPageSize) {
         return tableElement
     }
 

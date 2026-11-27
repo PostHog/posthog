@@ -14,8 +14,8 @@ from .skill_serializers import (
 )
 from .skill_services import compute_spec_problems, skill_name_is_well_formed
 
-# Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
-# already bounded by create_skill, this just caps the upload before we read it into memory.
+# Generous ceiling for an uploaded skill zip — per-skill content (body, MAX_SKILL_FILE_COUNT files ×
+# 1 MB) is already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
 
 

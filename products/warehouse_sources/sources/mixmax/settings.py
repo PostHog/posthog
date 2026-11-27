@@ -27,6 +27,11 @@ class MixmaxEndpointConfig:
     # answers in one `{results: [...]}` page.
     child_page_size: int | None = None
     child_max_offset: int | None = None
+    # Top-level lists paged with `skip`/`limit` that wrap their rows under this key, in place of the
+    # `{results, next, hasNext}` cursor wrapper.
+    offset_data_key: str | None = None
+    # The row field that fan-out children of this endpoint take as the parent id.
+    id_field: str = "_id"
     # The remaining fields exist to satisfy the shared FanoutEndpointLike protocol; no Mixmax
     # endpoint is incremental.
     incremental_fields: list[Any] = field(default_factory=list)
@@ -81,6 +86,16 @@ _TEAM_MEMBERS_FANOUT = DependentEndpointConfig(
     child_response_actions=[{"status_code": 404, "action": "ignore"}],
 )
 
+# Summary ids look like `<userId>/<meetingId>/<start time>`, so they are globally unique and the
+# transcript's own `id` repeats them.
+_MEETING_TRANSCRIPTS_FANOUT = DependentEndpointConfig(
+    parent_name="meeting_summaries",
+    resolve_param="summary_id",
+    resolve_field=PARENT_ID_PARAM_FIELD,
+    include_from_parent=[],
+    # A meeting with no transcript, or one deleted after the listing, 404s; skip it.
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
 
 # Mixmax exposes no server-side timestamp filter (`updated_after`/`since`), so every endpoint is
 # full-refresh only — see the module docstring in `mixmax.py`. Collections use cursor pagination
@@ -120,6 +135,11 @@ MIXMAX_ENDPOINTS: dict[str, MixmaxEndpointConfig] = {
         path="/codesnippets",
         description="Reusable code snippets injected into emails.",
     ),
+    "snippets": MixmaxEndpointConfig(
+        name="snippets",
+        path="/snippets",
+        description="Email templates and inline snippets you can access. Trashed and archived templates are left out.",
+    ),
     "snippet_tags": MixmaxEndpointConfig(
         name="snippet_tags",
         path="/snippettags",
@@ -130,6 +150,26 @@ MIXMAX_ENDPOINTS: dict[str, MixmaxEndpointConfig] = {
         path="/meetingtypes",
         description="Configured meeting/appointment types.",
     ),
+    "meeting_summaries": MixmaxEndpointConfig(
+        name="meeting_summaries",
+        path="/meetings/summaries/search",
+        primary_keys=["id"],
+        offset_data_key="meetings",
+        id_field="id",
+        # Needs Mixmax meeting notes on the workspace, so it is opt-in.
+        should_sync_default=False,
+        description="Summaries of recorded meetings you own, or of every workspace meeting when workspace-wide transcript access is on.",
+    ),
+    "meeting_transcripts": MixmaxEndpointConfig(
+        name="meeting_transcripts",
+        path="/meetings/transcripts/{summary_id}",
+        primary_keys=["id"],
+        single_object=True,
+        fanout=_MEETING_TRANSCRIPTS_FANOUT,
+        # One request per meeting summary against the 120 req/min limit, so it is opt-in.
+        should_sync_default=False,
+        description="Full transcript of each meeting summary, with speaker names and timestamps.",
+    ),
     "insights_reports": MixmaxEndpointConfig(
         name="insights_reports",
         path="/insightsreports",
@@ -139,6 +179,16 @@ MIXMAX_ENDPOINTS: dict[str, MixmaxEndpointConfig] = {
         name="polls",
         path="/polls",
         description="Polls embedded in Mixmax emails.",
+    ),
+    "yes_no_questions": MixmaxEndpointConfig(
+        name="yes_no_questions",
+        path="/yesno",
+        description="Yes/No questions embedded in emails you sent, with the email addresses of the people who picked each answer.",
+    ),
+    "qa_forms": MixmaxEndpointConfig(
+        name="qa_forms",
+        path="/qa",
+        description="Q&A forms embedded in emails you sent, with the answers recipients submitted.",
     ),
     "file_requests": MixmaxEndpointConfig(
         name="file_requests",

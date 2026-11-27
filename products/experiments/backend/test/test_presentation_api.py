@@ -4694,9 +4694,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIn(active_experiment_id, experiment_ids)
         self.assertNotIn(experiment_id, experiment_ids)
 
-    def test_detail_endpoint_returns_404_for_deleted_experiment(self):
-        """Test that detail endpoint returns 404 for soft-deleted experiments"""
-
+    @parameterized.expand(
+        [
+            ("retrieve", None),
+            ("update", {"name": "Renamed"}),
+            ("update_with_null_deleted", {"deleted": None, "name": "Renamed"}),
+        ]
+    )
+    def test_detail_endpoint_returns_404_for_deleted_experiment(self, _name, update_body):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -4717,9 +4722,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             format="json",
         )
 
-        # Try to get the deleted experiment
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        url = f"/api/projects/{self.team.id}/experiments/{experiment_id}/"
+        response = self.client.get(url) if update_body is None else self.client.patch(url, update_body, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Test Experiment")
 
     def test_restore_allows_payload_with_additional_fields(self):
         create_response = self.client.post(
@@ -5889,7 +5895,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {**metric, "source": {"kind": "EventsNode", "event": "stale_event"}} if extra_body else {"uuid": "m1"}
         )
 
-        with patch("products.experiments.backend.recalculation.sync_connect") as mock_connect:
+        with patch("products.experiments.backend.recalculation.admission.sync_connect") as mock_connect:
             mock_connect.return_value.start_workflow = AsyncMock()
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{experiment.id}/recalculate_timeseries/",
@@ -9997,7 +10003,7 @@ class TestExperimentTags(APILicensedTest):
         return response.json()
 
     def test_create_with_tags_persists_and_normalizes_them(self):
-        # Guards the expected_fields allowlist in ExperimentSerializer.create: if tags stops being
+        # Guards the expected_fields allowlist in ExperimentSerializer.to_create: if tags stops being
         # popped before that check, every tagged create fails with "Can't create keys: tags".
         experiment = self._create_experiment("Tagged", "tags-create-flag", tags=["Growth", "checkout"])
         assert sorted(experiment["tags"]) == ["checkout", "growth"]
@@ -10059,19 +10065,49 @@ class TestExperimentTags(APILicensedTest):
         row = next(r for r in response.json()["results"] if r["id"] == experiment["id"])
         assert row["tags"] == ["growth"]
 
+    def _create_view_only_experiment(self, flag_key: str) -> Experiment:
+        other_user = self._create_user(f"{flag_key}@posthog.com")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key=flag_key)
+        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
+        AccessControl.objects.create(
+            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
+        )
+        return view_only
+
     def test_bulk_update_tags(self):
-        # Wiring guard for TaggedItemViewSetMixin on the experiments viewset: team-scoped queryset,
-        # per-object mutation, and missing IDs reported as skipped.
+        # This viewset's own bulk_update_tags: edit check, project scope, skipped entries and activity log.
         experiment = self._create_experiment("Bulk", "tags-bulk-flag", tags=["existing"])
+        view_only = self._create_view_only_experiment("tags-bulk-flag-b")
+        other_project = Team.objects.create(organization=self.organization, name="Other project")
+        elsewhere = Experiment.objects.create(
+            team=other_project,
+            name="Elsewhere",
+            feature_flag=FeatureFlag.objects.create(team=other_project, created_by=self.user, key="tags-bulk-flag-c"),
+        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/bulk_update_tags/",
-            {"ids": [experiment["id"], 999999], "action": "add", "tags": ["added"]},
+            {"ids": [experiment["id"], view_only.id, elsewhere.id, 999999], "action": "add", "tags": ["added"]},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["updated"] == [{"id": experiment["id"], "tags": ["added", "existing"]}]
-        assert body["skipped"] == [{"id": 999999, "reason": "Not found or no edit access"}]
+        assert body["skipped"] == [
+            {"id": view_only.id, "reason": "Not found or no edit access"},
+            {"id": elsewhere.id, "reason": "Not found or no edit access"},
+            {"id": 999999, "reason": "Not found or no edit access"},
+        ]
+        log = ActivityLog.objects.get(scope="Experiment", activity="updated", item_id=str(experiment["id"]))
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {
+                "type": "Experiment",
+                "action": "changed",
+                "field": "tags",
+                "before": ["existing"],
+                "after": ["added", "existing"],
+            }
+        ]
 
     def test_bulk_update_tags_works_with_personal_api_key(self):
         # scope_object_write_actions must include bulk_update_tags for PAT access — a config-only
@@ -10103,13 +10139,7 @@ class TestExperimentTags(APILicensedTest):
 
     def test_matching_ids_excludes_view_only_experiments(self):
         editable = self._create_experiment("Mine", "tags-acl-flag-a")
-
-        other_user = self._create_user("other-tags-acl@posthog.com")
-        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="tags-acl-flag-b")
-        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
-        AccessControl.objects.create(
-            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
-        )
+        view_only = self._create_view_only_experiment("tags-acl-flag-b")
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/matching_ids/")
         assert response.status_code == status.HTTP_200_OK, response.json()

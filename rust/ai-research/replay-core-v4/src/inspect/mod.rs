@@ -7,6 +7,7 @@ pub mod dom;
 pub mod edits;
 pub mod events;
 pub mod features;
+pub mod json_ld;
 pub mod rrweb;
 pub mod session;
 pub mod sketch;

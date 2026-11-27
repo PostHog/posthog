@@ -741,12 +741,10 @@ class TestGenerateChangeSummary:
             ("missing_v1_path", "https://ai-gateway.example.com", "phs_test"),
         ]
     )
-    def test_refuses_the_python_gateway_when_go_is_unconfigured(self, _name, url, api_key):
+    def test_raises_when_the_go_gateway_is_unconfigured(self, _name, url, api_key):
         with override_settings(
             AI_GATEWAY_URL=url,
             AI_GATEWAY_API_KEY=api_key,
-            LLM_GATEWAY_URL="https://llm-gateway.example.com",
-            LLM_GATEWAY_API_KEY="phx_test",
         ):
             with pytest.raises(GatewayNotConfiguredError):
                 _get_openai_client(team=None, delivery_id=None, user_tag="US/subscription-summary-team-42")

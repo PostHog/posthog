@@ -149,6 +149,22 @@ class TestRequestShaping:
             ),
             ("group_memberships", {}, "/groups/v2/memberships", "2026-11-10", None, None, None),
             ("check_in_events", {}, "/check-ins/v2/events", "2025-05-28", None, "created_at", None),
+            ("signups", {}, "/registrations/v2/signups", "2025-05-01", None, "created_at", None),
+            ("attendees", {}, "/registrations/v2/attendees", "2025-05-01", None, "created_at", None),
+            ("marital_statuses", {}, "/people/v2/marital_statuses", "2026-10-05", None, "sequence", None),
+            ("name_prefixes", {}, "/people/v2/name_prefixes", "2026-10-05", None, "value", None),
+            (
+                "note_categories",
+                {
+                    "incremental_field": "updated_at",
+                    "db_incremental_field_last_value": datetime(2026, 1, 1, tzinfo=UTC),
+                },
+                "/people/v2/note_categories",
+                "2026-10-05",
+                "2026-01-01T00:00:00Z",
+                "updated_at",
+                "asc",
+            ),
         ],
     )
     def test_request_matches_the_sync_mode(
@@ -207,6 +223,104 @@ class TestPlansFanOut:
         ]
         assert result.response is not None
         assert result.response.sort_mode is None
+
+
+class TestWorkflowFanOut:
+    @pytest.mark.parametrize(
+        ("schema", "inputs", "expected_filter", "expected_order"),
+        [
+            (
+                "workflow_steps",
+                {
+                    "incremental_field": "updated_at",
+                    "db_incremental_field_last_value": datetime(2026, 1, 15, tzinfo=UTC),
+                },
+                "2026-01-15T00:00:00Z",
+                "updated_at",
+            ),
+            ("workflow_steps", {}, None, "created_at"),
+            ("workflow_cards", {}, None, "created_at"),
+        ],
+    )
+    def test_fetches_children_per_workflow_with_the_workflow_id_on_each_row(
+        self,
+        schema: str,
+        inputs: dict[str, Any],
+        expected_filter: str | None,
+        expected_order: str,
+    ) -> None:
+        resource = schema.removeprefix("workflow_")
+        result = _driver().run(
+            schema,
+            route(
+                {
+                    "/people/v2/workflows": [_page([_resource("w1"), _resource("w2")], 2)],
+                    f"/people/v2/workflows/w1/{resource}": [
+                        _page([_resource("c1", updated_at="2026-02-01T00:00:00Z")], 1)
+                    ],
+                    f"/people/v2/workflows/w2/{resource}": [
+                        _page([_resource("c2", updated_at="2026-02-02T00:00:00Z")], 1)
+                    ],
+                }
+            ),
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/people/v2/workflows",
+            f"/people/v2/workflows/w1/{resource}",
+            f"/people/v2/workflows/w2/{resource}",
+        ]
+        assert result.params(UPDATED_AT_FILTER_PARAM) == [None, expected_filter, expected_filter]
+        assert result.params("order")[1:] == [expected_order, expected_order]
+        assert [(row["workflow_id"], row["id"]) for row in result.rows] == [("w1", "c1"), ("w2", "c2")]
+
+
+class TestPlanItemsChainedFanOut:
+    def test_fetches_items_per_plan_with_both_parent_ids_on_each_row(self) -> None:
+        item = {
+            **_resource("i1", title="Welcome", item_type="header", sequence=1),
+            "relationships": {"plan": {"data": {"type": "Plan", "id": "p1"}}, "song": {"data": None}},
+        }
+        result = _driver().run(
+            "plan_items",
+            route(
+                {
+                    "/services/v2/service_types": [_page([_resource("st1"), _resource("st2")], 2)],
+                    "/services/v2/service_types/st1/plans": [_page([_resource("p1")], 1)],
+                    "/services/v2/service_types/st2/plans": [_page([_resource("p2")], 1)],
+                    "/services/v2/service_types/st1/plans/p1/items": [_page([item], 1)],
+                    # A plan deleted after its plans page was read.
+                    "/services/v2/service_types/st2/plans/p2/items": [
+                        ScriptedResponse(status=404, json={"errors": [{"status": "404"}]})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert sorted(result.paths) == [
+            "/services/v2/service_types",
+            "/services/v2/service_types/st1/plans",
+            "/services/v2/service_types/st1/plans/p1/items",
+            "/services/v2/service_types/st2/plans",
+            "/services/v2/service_types/st2/plans/p2/items",
+        ]
+        assert {request.headers["x-pco-api-version"] for request in result.requests} == {"2018-11-01"}
+        assert result.rows == [
+            {
+                "id": "i1",
+                "service_type_id": "st1",
+                "plan_id": "p1",
+                "title": "Welcome",
+                "item_type": "header",
+                "sequence": 1,
+                "song_id": None,
+            }
+        ]
+        assert result.response is not None
+        assert result.response.supports_resume is False
 
 
 class TestFlattenResource:

@@ -508,6 +508,8 @@ class QueryTags(BaseModel):
     # gate refused it with. A live read is otherwise indistinguishable from a precompute miss.
     # Web-only, so it carries the product prefix the shared fields above do not need.
     web_analytics_precompute_ineligible_reason: Optional[str] = None
+    # Why a web analytics read that tried the dimensional tables fell back: a `DimensionalIneligibleReason` value.
+    web_analytics_dimensional_ineligible_reason: Optional[str] = None
     entity_math: Optional[list[str]] = None
 
     # replays

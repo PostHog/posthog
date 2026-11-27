@@ -166,6 +166,28 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://docs.kalshi.com/api-reference/historical/get-historical-trades",
         "columns": _TRADE_COLUMNS,
     },
+    "series_fee_changes": {
+        "description": "Scheduled and past fee changes for each series, one row per change.",
+        "docs_url": "https://docs.kalshi.com/api-reference/exchange/get-series-fee-changes",
+        "columns": {
+            "id": "Unique identifier for the fee change.",
+            "series_ticker": "Series the fee change applies to.",
+            "fee_type": "Fee model the series uses after the change, for example quadratic, quadratic_with_maker_fees, or flat.",
+            "fee_multiplier": "Fee multiplier the series uses after the change.",
+            "scheduled_ts": "When the fee change takes effect.",
+        },
+    },
+    "market_orderbooks": {
+        "description": "Current order book of each open market, one row per bid price level on the yes or no side. A yes bid at a price is the same as a no ask at one dollar minus that price.",
+        "docs_url": "https://docs.kalshi.com/api-reference/market/get-multiple-market-orderbooks",
+        "columns": {
+            "market_ticker": "Market the order book belongs to.",
+            "side": "Side of the bid, yes or no.",
+            "price_dollars": "Bid price of the level, in dollars.",
+            "count_fp": "Number of contracts resting at the price level.",
+            "fetched_at": "When the sync read the order book. The table holds only the latest read.",
+        },
+    },
     "market_candlesticks": {
         "description": "Daily open, high, low, and close prices, volume, and open interest for each live market.",
         "docs_url": "https://docs.kalshi.com/api-reference/market/batch-get-market-candlesticks",

@@ -707,6 +707,12 @@ class SourceFilterCatalogSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Example expressions that are valid for this source.",
     )
+    preview_supported = serializers.BooleanField(
+        help_text=(
+            "True when `inbox-source-filter-preview` can show this source's recent records. When false, a filter can "
+            "still be saved, but the preview returns an error."
+        ),
+    )
 
 
 class SourceFilterCatalogListSerializer(serializers.Serializer):

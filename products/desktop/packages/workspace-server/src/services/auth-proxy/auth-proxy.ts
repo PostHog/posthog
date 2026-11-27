@@ -33,13 +33,14 @@ import {
 
 export { MAX_BODY_BYTES, PROXY_TIMEOUTS } from "./proxy-http";
 
-interface LegacyTarget {
-  kind: "legacy";
-  gatewayUrl: string;
+/** Forwards to a fixed upstream (the PostHog API host) under the user's credential. */
+interface ForwardTarget {
+  kind: "forward";
+  upstreamUrl: string;
   headers: Record<string, string>;
 }
 
-type ProxyTarget = LegacyTarget | SessionTarget;
+type ProxyTarget = ForwardTarget | SessionTarget;
 
 @injectable()
 export class AuthProxyService {
@@ -77,12 +78,12 @@ export class AuthProxyService {
   }
 
   async start(
-    gatewayUrl: string,
+    upstreamUrl: string,
     headers: Record<string, string> = {},
   ): Promise<string> {
-    return this.register(["legacy", gatewayUrl], {
-      kind: "legacy",
-      gatewayUrl,
+    return this.register(["forward", upstreamUrl], {
+      kind: "forward",
+      upstreamUrl,
       headers: { ...headers },
     });
   }
@@ -207,9 +208,9 @@ export class AuthProxyService {
       return;
     }
 
-    const base = target.gatewayUrl.endsWith("/")
-      ? target.gatewayUrl
-      : `${target.gatewayUrl}/`;
+    const base = target.upstreamUrl.endsWith("/")
+      ? target.upstreamUrl
+      : `${target.upstreamUrl}/`;
     const targetPath = `${match?.[2] ?? "/"}${incomingUrl.search}`;
     const targetUrl = new URL(targetPath.replace(/^\//, ""), base);
 

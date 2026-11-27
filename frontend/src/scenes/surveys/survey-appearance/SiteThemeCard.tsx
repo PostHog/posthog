@@ -24,6 +24,7 @@ import {
     SiteThemeOutcome,
     reportSiteThemeCardViewed,
     reportSiteThemeLoaded,
+    reportSiteThemeReplayLinkClicked,
     reportSiteThemeRequested,
 } from 'products/surveys/frontend/surveyUsage'
 
@@ -211,7 +212,13 @@ function SiteThemeCard(props: SiteThemeCardProps): JSX.Element {
     if (state === 'replay_off') {
         return (
             <SiteCard description="Uses session replay to read your site.">
-                <Link to={urls.settings('environment-replay', 'replay')} target="_blank" className="text-xs">
+                <Link
+                    to={urls.settings('environment-replay', 'replay')}
+                    target="_blank"
+                    className="text-xs"
+                    onClickCapture={() => reportSiteThemeReplayLinkClicked(props.survey.id)}
+                    onAuxClick={(event) => event.button === 1 && reportSiteThemeReplayLinkClicked(props.survey.id)}
+                >
                     Turn on session replay
                 </Link>
             </SiteCard>

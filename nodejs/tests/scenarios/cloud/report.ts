@@ -14,7 +14,7 @@ import { Aws } from './aws'
 import { FAILOVER_VALVE } from './card'
 import { Manifest, evidenceOf, keyOf } from './lease'
 import { CloudProfile, RunInputs } from './profile'
-import { receiptsOf } from './teardown'
+import { leftBehind, receiptsOf } from './teardown'
 
 export type RunEnd = { exitCode: number; reasons: string[]; teardownClean: boolean }
 
@@ -214,6 +214,16 @@ function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undef
 
 function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest: Manifest, runnerFingerprint: unknown) {
     const { idleMax } = profile.readerAcu
+    const runnerProfile = manifest.inputs['runner-profile.yaml']
+    const alertFiles = Object.entries(manifest.inputs)
+        .filter(([name]) => name.startsWith('alerts/'))
+        .sort(([a], [b]) => a.localeCompare(b))
+    const runnerProfileHash =
+        alertFiles.length === 0
+            ? runnerProfile
+            : createHash('sha256')
+                  .update(JSON.stringify([runnerProfile, alertFiles]))
+                  .digest('hex')
     const environment = {
         environment_kind: ENVIRONMENT_KIND,
         writer_class: profile.writerClass,
@@ -224,7 +234,7 @@ function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest:
         host_class: profile.host.class,
         engine_version: profile.engineVersion,
         pooler_replicas: profile.pooler.replicas,
-        runner_profile_hash: manifest.inputs['runner-profile.yaml'],
+        runner_profile_hash: runnerProfileHash,
         deviations: DEVIATIONS,
     }
     const fingerprint = createHash('sha256')
@@ -282,9 +292,7 @@ export async function report(
             const last = receipts.at(-1)
             return last
                 ? [
-                      ...last.resources
-                          .filter(({ state }) => state !== 'gone')
-                          .map(({ type, id, state }) => `${type} ${id}: ${state}`),
+                      ...last.resources.filter(leftBehind).map(({ type, id, state }) => `${type} ${id}: ${state}`),
                       ...last.unlisted.map((source) => `unknown: could not list ${source}`),
                   ]
                 : ['unknown: teardown saved no receipt']
