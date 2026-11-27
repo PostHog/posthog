@@ -21,6 +21,7 @@ import {
 } from '../../utils/integration-input-refs'
 import { sealInvocation } from '../cyclotron-v2/job-codec'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_PUSH_EVENT } from '../hogflows/transactional-push'
 
 export const cdpJobSizeKb = new Histogram({
     name: 'cdp_cyclotron_job_size_kb',
@@ -178,11 +179,13 @@ export function createInvocationSanitizer(
 
     // Only transactional sends carry login codes and reset links, so only they are stored encrypted. The setting is read
     // at boot rather than from a flag, because a flag that fails to load would store them in plaintext.
+    const sealedEvents = [TRANSACTIONAL_EMAIL_EVENT, TRANSACTIONAL_PUSH_EVENT]
     const seal = (inv: CyclotronJobInvocation): CyclotronJobInvocation =>
-        sealing && inv.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT ? sealInvocation(inv, sealer) : inv
+        sealing && sealedEvents.includes(inv.state?.event?.event ?? '') ? sealInvocation(inv, sealer) : inv
 
     return {
         seal,
+        sealing,
 
         // A webhook run with a sensitive step carries its secret in the request, so the intake topic gets it sealed too.
         sealIntakeRun: (inv: CyclotronJobInvocation): CyclotronJobInvocation =>
