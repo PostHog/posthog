@@ -14,6 +14,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import MCPHarnessBreakdownQuery
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
 from posthog.temporal.mcp_analytics.intent_clustering.constants import (
@@ -22,6 +23,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
     WORKFLOW_NAME,
 )
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.facade.api import custom_harness_rules
 from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
@@ -821,6 +823,53 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
         assert [row["name"] for row in self.client.get(child_url).json()] == ["Acme"]
         assert self.client.delete(f"{child_url}{created['id']}/").status_code == status.HTTP_204_NO_CONTENT
+
+    @parameterized.expand(
+        [
+            (f"{rule}_{method}", resource, resource_id, method)
+            for rule, resource, resource_id in (
+                ("mcp_analytics_denied_on_the_parent", "mcp_analytics", False),
+                ("project_denied_on_the_parent", "project", True),
+            )
+            for method in ("get", "post", "patch")
+        ]
+    )
+    def test_a_child_environment_grant_does_not_open_the_parents_rules(
+        self, _name: str, resource: str, resource_id: bool, method: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        harness = MCPCustomHarness.objects.create(team=self.team, name="Acme", match_pattern="acme")
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=str(self.team.id) if resource_id else None,
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=child,
+            resource="mcp_analytics",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        child_url = f"/api/environments/{child.id}/mcp_analytics/custom_harnesses/"
+
+        if method == "get":
+            response = self.client.get(child_url)
+        elif method == "post":
+            response = self.client.post(child_url, {"name": "Other", "match_pattern": "other"}, format="json")
+        else:
+            response = self.client.patch(f"{child_url}{harness.id}/", {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert list(MCPCustomHarness.objects.unscoped().values_list("name", flat=True)) == ["Acme"]
 
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
