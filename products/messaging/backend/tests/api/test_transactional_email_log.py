@@ -66,6 +66,7 @@ IMPACT_COUNTS = {
     "clicks_untracked": 1,
     "window_days": 7,
     "sessions": 2,
+    "sessions_capped_at": None,
     "link_tagging_enabled": True,
 }
 LONG_ID_SENDS = 20
@@ -904,7 +905,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         with patch("products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", 1):
             impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
 
-        assert impact["sessions"] == 2
+        assert (impact["sessions"], impact["sessions_capped_at"]) == (2, 1)
 
     def test_has_no_session_count_when_a_batch_fills_the_row_limit(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
@@ -1007,6 +1008,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "after_click": {"sends": 1, "converted": 1},
             "without_click": {"sends": 0, "converted": 0},
             "sessions": 2,
+            "sessions_capped_at": None,
             "link_tagging_enabled": True,
         }
 

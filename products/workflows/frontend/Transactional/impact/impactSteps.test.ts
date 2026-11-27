@@ -19,6 +19,7 @@ const impact: TransactionalEmailImpactApi = {
     clicks_untracked: 0,
     window_days: 7,
     sessions: null,
+    sessions_capped_at: null,
     link_tagging_enabled: true,
     after_click: { sends: 16, converted: 4 },
     without_click: { sends: 50, converted: 1 },
@@ -135,6 +136,14 @@ describe('impactSteps', () => {
             0,
             undefined,
             'From sends with link tracking on',
+        ],
+        [
+            'names the limit when the count is capped',
+            { ...impact, sessions: 7, sessions_capped_at: 10000 },
+            'on',
+            7,
+            undefined,
+            'From the latest 10,000 clicked sends',
         ],
         [
             'says why when the count is missing',

@@ -685,6 +685,7 @@ def transactional_email_impact(
     sessions: int | None = None
     if link_tagging_enabled and can_query_events:
         sessions = _sessions_with_a_pageview_from_the_email(team, user, workflow_id, period) if clicked else 0
+    sessions_capped_at = MAX_RESULTS_RECIPIENTS if sessions is not None and clicked > MAX_RESULTS_RECIPIENTS else None
     after_click: TransactionalEmailConversions | None = None
     without_click: TransactionalEmailConversions | None = None
     if event:
@@ -704,6 +705,7 @@ def transactional_email_impact(
         after_click=after_click,
         without_click=without_click,
         sessions=sessions,
+        sessions_capped_at=sessions_capped_at,
         link_tagging_enabled=link_tagging_enabled,
     )
 

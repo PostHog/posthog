@@ -43,12 +43,18 @@ function sessionStep(impact: TransactionalEmailImpactApi, linkTagging: LinkTaggi
                       missing: "Couldn't count",
                       note: 'Reload to try again. Counting sessions also needs access to query events.',
                   }
-                : { ...step, value: impact.sessions, note: 'From sends with link tracking on' }
+                : { ...step, value: impact.sessions, note: sessionNote(impact.sessions_capped_at) }
         case 'off':
             return { ...step, missingFixedByLinkTagging: true }
         case 'sensitive-email':
             return { ...step, missing: 'Not measured', missingDetail: SENSITIVE_EMAIL_DETAIL }
     }
+}
+
+function sessionNote(cappedAt: number | null): string {
+    return cappedAt === null
+        ? 'From sends with link tracking on'
+        : `From the latest ${humanFriendlyNumber(cappedAt)} clicked sends`
 }
 
 const TRACKING_OFF_DETAIL =
