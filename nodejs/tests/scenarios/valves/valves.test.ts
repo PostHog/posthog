@@ -381,13 +381,17 @@ describe('valves', () => {
         }
     )
 
-    it('terminates the role with its grace and records how the role exited', async () => {
+    it.each([
+        ['its own grace', { grace: '20s' }, undefined],
+        ['the grace of its profile', {}, 20_000],
+    ])('terminates the role with %s and records how the role exited', async (_story, dose, terminationGraceMs) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
         const exit = { signalledAt: '2026-01-01T00:00:00.000Z', exitedAt: '2026-01-01T00:00:03.000Z', code: 0 }
         const terminated: unknown[] = []
         const context: ValveContext = {
             ...stack.context,
+            terminationGraceMs,
             environment: {
                 actuate: (action) => {
                     terminated.push(action)
@@ -400,7 +404,7 @@ describe('valves', () => {
             },
         }
 
-        await valves.start([{ ...kill({ at: '0ms' }), valve: 'role.terminate', dose: { grace: '20s' } }], context)
+        await valves.start([{ ...kill({ at: '0ms' }), valve: 'role.terminate', dose }], context)
         await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
         await valves.releaseAll()
 

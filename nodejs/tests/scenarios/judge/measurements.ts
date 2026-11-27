@@ -168,6 +168,58 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     },
 }
 
+const terminationsOf = (
+    timeline: readonly ValveTimelineEntry[]
+): (ValveTimelineEntry & Required<Pick<ValveTimelineEntry, 'exit'>>)[] =>
+    timeline.flatMap((entry) => (entry.exit === undefined ? [] : [{ ...entry, exit: entry.exit }]))
+
+export const roleExitMs: MeasurementDefinition = {
+    name: 'role_exit_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: ({ timeline }) =>
+        terminationsOf(timeline).map(({ target, exit }) =>
+            exit.exitedAt === undefined
+                ? { value: null, censored: true, unmeasured: `${target} did not exit` }
+                : {
+                      key: exit.killedAt === undefined ? 'sigterm' : 'sigkill',
+                      value: Date.parse(exit.exitedAt) - Date.parse(exit.signalledAt),
+                  }
+        ),
+}
+
+export const leaseReclaimMs: MeasurementDefinition = {
+    name: 'lease_reclaim_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: ({ timeline, truth }) =>
+        terminationsOf(timeline).flatMap(({ exit }) => {
+            if (exit.exitedAt === undefined) {
+                return []
+            }
+            const signalledAt = Date.parse(exit.signalledAt)
+            const exitedAt = Date.parse(exit.exitedAt)
+            const sends = Map.groupBy(
+                truth.filter(({ invocationId, unitId }) => invocationId !== undefined && unitId !== undefined),
+                ({ unitId, invocationId }) => `${unitId} ${invocationId}`
+            )
+            const reclaimed = [...sends].flatMap(([key, requests]) => {
+                const times = requests.map(({ at }) => Date.parse(at)).sort((a, b) => a - b)
+                const resentAt = times.find((at) => at >= exitedAt)
+                return times[0] <= signalledAt && resentAt !== undefined ? [{ key, value: resentAt - exitedAt }] : []
+            })
+            return reclaimed.length > 0
+                ? reclaimed
+                : [
+                      {
+                          value: null,
+                          censored: true as const,
+                          unmeasured: 'no send in flight at the signal went out again',
+                      },
+                  ]
+        }),
+}
+
 export type Phase = { from: number; to: number }
 
 export type Phases = { baseline: Phase; valve?: Phase; failback?: Phase }
@@ -596,6 +648,8 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    roleExitMs,
+    leaseReclaimMs,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]

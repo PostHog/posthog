@@ -234,6 +234,18 @@ function checkAcceptedBoundary(card: Card): string[] {
     )
 }
 
+function checkTerminationGrace(card: Card, profile: Profile): string[] {
+    return profile.terminationGrace !== undefined
+        ? []
+        : card.valves.flatMap(({ valve, dose }, i) =>
+              valve === roleTerminate.name && dose.grace === undefined
+                  ? [
+                        `valves.${i}.dose.grace: ${valve} needs a grace; give one here or terminationGrace in profile ${profile.name}`,
+                    ]
+                  : []
+          )
+}
+
 function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     if ((profile.replicas[EMAIL_WORKER] ?? 1) === 1) {
         return []
@@ -503,6 +515,7 @@ function check(
                   ...checkFaultFreeBaseline(card, loaded.profile),
                   ...checkIntakeReplicaValves(card, loaded.profile),
                   ...checkAcceptedBoundaryReplicas(card, loaded.profile),
+                  ...checkTerminationGrace(card, loaded.profile),
                   ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
                   ...checkAlerts(loaded.profile, readAlertFile !== undefined, target),

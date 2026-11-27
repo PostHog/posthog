@@ -324,6 +324,12 @@ describe('load', () => {
             'valves.0.dose.share: ',
         ],
         [
+            'a terminate with no grace on a profile that names none',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate' }] },
+            profile,
+            'valves.0.dose.grace: role.terminate needs a grace; give one here or terminationGrace in profile synthetic',
+        ],
+        [
             'a kill aimed at something that is not a role',
             { ...card, valves: [{ ...emailWorkerKill, target: 'postgres' }] },
             undefined,

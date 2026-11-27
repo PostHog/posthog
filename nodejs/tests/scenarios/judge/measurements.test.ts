@@ -2,6 +2,7 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import { Registry, collectDefaultMetrics } from 'prom-client'
 
+import type { RoleTermination } from '../environment/supervisor'
 import type { WriterSample } from '../probe/writer-probe'
 import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
@@ -190,6 +191,57 @@ describe('measurements', () => {
         expect(measure([{ name: 'role_rss_max_bytes', params: {} }], evidence({ samples }))).toEqual([
             { name: 'role_rss_max_bytes', key: ROLE, value: 900, unit: 'bytes' },
         ])
+    })
+
+    const at = (ms: number): string => new Date(FROM + ms).toISOString()
+    const terminated = (exit: Partial<RoleTermination>): ValveTimelineEntry => ({
+        valve: 'role.terminate',
+        target: 'cdp-cyclotron-worker-email',
+        requestedAt: at(5000),
+        exit: { signalledAt: at(5000), ...exit },
+    })
+
+    it.each([
+        ['a role that stopped on SIGTERM', { exitedAt: at(8000), code: 0 }, [{ key: 'sigterm', value: 3000 }]],
+        [
+            'a role that needed the SIGKILL',
+            { killedAt: at(15_000), exitedAt: at(15_200), signal: 'SIGKILL' },
+            [{ key: 'sigkill', value: 10_200 }],
+        ],
+        [
+            'a role whose exit never arrived',
+            {},
+            [{ value: null, censored: true, unmeasured: 'cdp-cyclotron-worker-email did not exit' }],
+        ],
+    ])('times how long %s took to exit after the signal', (_story, exit, measured) => {
+        expect(measure([{ name: 'role_exit_ms', params: {} }], evidence({ timeline: [terminated(exit)] }))).toEqual(
+            measured.map((value) => ({ name: 'role_exit_ms', unit: 'ms', ...value }))
+        )
+    })
+
+    it.each([
+        [
+            'times each send that was in flight at the signal and went out again under the same invocation id',
+            [
+                { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
+                { ...record(2, 'run-a-2', 4500), invocationId: 'inv-b' },
+                { ...record(3, 'run-a-1', 42_000), invocationId: 'inv-a' },
+                { ...record(4, 'run-a-3', 20_000, 503), invocationId: 'inv-c' },
+                { ...record(5, 'run-a-3', 25_000), invocationId: 'inv-c' },
+            ],
+            [{ key: 'run-a-1 inv-a', value: 32_000 }],
+        ],
+        [
+            'reports no send that went out again',
+            [{ ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' }],
+            [{ value: null, censored: true, unmeasured: 'no send in flight at the signal went out again' }],
+        ],
+    ])('lease_reclaim_ms %s, from the exit of the role', (_story, truth, measured) => {
+        const timeline = [terminated({ exitedAt: at(10_000), code: 0 })]
+
+        expect(measure([{ name: 'lease_reclaim_ms', params: {} }], evidence({ timeline, truth }))).toEqual(
+            measured.map((value) => ({ name: 'lease_reclaim_ms', unit: 'ms', ...value }))
+        )
     })
 
     it('times each delivery from its offer to its first accepted send, skipping refused and undelivered units', () => {
