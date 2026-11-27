@@ -2870,25 +2870,27 @@ describe('EmailService', () => {
                         lookupAnswers(endpoint.hostname, () => lookupStarted())
                         emailService.sesTransport = sesTransportFor({ endpoint: endpoint.origin })
                     })
-                const theSdkWaitsToRetryAfterSesThrottledIt = (emailService: EmailService): Promise<void> =>
-                    new Promise((backoffStarted) => {
-                        ses.failOnce({ status: 429, type: 'TooManyRequestsException', message: 'Too many requests' })
-                        const options = {
-                            region: 'us-east-1',
-                            endpoint: ses.endpoint,
-                            credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },
-                            retryStrategy: {
-                                acquireInitialRetryToken: () =>
-                                    Promise.resolve({ getRetryCount: () => 0, getRetryDelay: () => 0 }),
-                                refreshRetryTokenForRetry: () => {
-                                    backoffStarted()
-                                    return new Promise<never>(() => undefined)
+                const theSdkWaitsToRetryAfter =
+                    (fault: FakeSesFault) =>
+                    (emailService: EmailService): Promise<void> =>
+                        new Promise((backoffStarted) => {
+                            ses.failOnce(fault)
+                            const options = {
+                                region: 'us-east-1',
+                                endpoint: ses.endpoint,
+                                credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },
+                                retryStrategy: {
+                                    acquireInitialRetryToken: () =>
+                                        Promise.resolve({ getRetryCount: () => 0, getRetryDelay: () => 0 }),
+                                    refreshRetryTokenForRetry: () => {
+                                        backoffStarted()
+                                        return new Promise<never>(() => undefined)
+                                    },
+                                    recordSuccess: () => undefined,
                                 },
-                                recordSuccess: () => undefined,
-                            },
-                        }
-                        emailService.sesTransport = new SesTransport(options)
-                    })
+                            }
+                            emailService.sesTransport = new SesTransport(options)
+                        })
 
                 it.each([
                     [
@@ -2903,8 +2905,19 @@ describe('EmailService', () => {
                     ],
                     [
                         'the SDK waits to retry after SES throttled it',
-                        theSdkWaitsToRetryAfterSesThrottledIt,
+                        theSdkWaitsToRetryAfter({
+                            status: 429,
+                            type: 'TooManyRequestsException',
+                            message: 'Too many requests',
+                        }),
                         { failed: false, requeuedAtOnce: true, timesSesRecordedIt: 0 },
+                    ],
+                    [
+                        'the SDK waits to retry after SES recorded it and answered 500',
+                        theSdkWaitsToRetryAfter({
+                            acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' },
+                        }),
+                        { failed: true, requeuedAtOnce: false, timesSesRecordedIt: 1 },
                     ],
                 ])(
                     'when a stop cuts off a send while %s, fails it only if an attempt may have reached SES or is still open',
