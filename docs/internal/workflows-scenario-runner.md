@@ -986,7 +986,7 @@ A failed read is kept with its error.
 At the start, the probe reads the autovacuum and vacuum settings and the storage options of the table and its indexes into `vacuumSettings`.
 A role without `pg_read_all_stats`, or a server with `track_activities` off, never sees an autovacuum worker's start.
 So `vacuumSettings.statsHidden` records whether any other session's activity is hidden from the probe role, and each read counts in `untrackedWorkers` the autovacuum workers in this database that run with `track_activities` off.
-When either is set, `autovacuum_runs` `timed` and `autovacuum_seconds` are unmeasured, with the reason.
+When `statsHidden` is set, or `untrackedWorkers` is above zero in a sample that bounds the drive's runs, `autovacuum_runs` `timed` and `autovacuum_seconds` are unmeasured, with the reason.
 
 ### Scorecard
 

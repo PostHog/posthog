@@ -149,6 +149,19 @@ describe('soak measurements', () => {
         ])
     })
 
+    it('says why the runs are not timed when the probe role cannot read other sessions and no sample was read', () => {
+        const vacuumSettings = { settings: {}, types: {}, storage: {}, statsHidden: true }
+
+        expect(measured('autovacuum_runs', { vacuum: [{ at: atS(10), error: 'timeout' }], vacuumSettings })).toEqual([
+            {
+                key: 'timed',
+                value: null,
+                censored: true,
+                unmeasured: 'the probe role cannot read other sessions, so no autovacuum worker start is visible',
+            },
+        ])
+    })
+
     it('counts the autovacuum runs of the drive and times those a sample saw running', () => {
         const vacuum = [
             read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
@@ -159,6 +172,7 @@ describe('soak measurements', () => {
             read(520, { autovacuums: 6, lastAutovacuumAt: atS(515) }),
             read(900, { autovacuums: 8, lastAutovacuumAt: atS(895) }),
             read(1805, { autovacuums: 8, lastAutovacuumAt: atS(895) }),
+            read(1900, { autovacuums: 8, lastAutovacuumAt: atS(895), untrackedWorkers: 1 }),
         ]
 
         expect(measured('autovacuum_runs', { vacuum })).toEqual([

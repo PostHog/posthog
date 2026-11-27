@@ -28,11 +28,12 @@ const MINUTE_MS = 60_000
 
 const ENDPOINT_WITHIN_MS = 2 * VACUUM_PROBE_EVERY_MS
 
-function workerStartsHidden({ vacuum, vacuumSettings }: MeasureEvidence): string | undefined {
+function workerStartsHidden(evidence: MeasureEvidence): string | undefined {
+    const { vacuumSettings } = evidence
     if (vacuumSettings !== undefined && !('error' in vacuumSettings) && vacuumSettings.statsHidden) {
         return 'the probe role cannot read other sessions, so no autovacuum worker start is visible'
     }
-    if (readsOf(vacuum).some(({ untrackedWorkers }) => untrackedWorkers > 0)) {
+    if (driveReadsOf(evidence).reads.some(({ untrackedWorkers }) => untrackedWorkers > 0)) {
         return 'an autovacuum worker ran with track_activities off, so its start is not recorded'
     }
     return undefined
@@ -96,17 +97,25 @@ type Run = { endedAt: number; seconds?: number }
 
 type Runs = { runs: Run[]; incomplete: boolean }
 
-function drivenRunsOf(evidence: MeasureEvidence): Runs | undefined {
+function driveReadsOf(evidence: MeasureEvidence): { reads: Read[]; bracketed: boolean } {
     const { startedAt, endedAt } = evidence.drive
     const reads = readsOf(evidence.vacuum)
-    if (reads.length === 0) {
-        return undefined
-    }
     const opening = reads.findLast(({ at }) => at <= startedAt)
     const closing = reads.find(({ at }) => at >= endedAt)
-    const bracketed = reads.filter(({ at }) => at >= (opening?.at ?? -Infinity) && at <= (closing?.at ?? Infinity))
+    return {
+        reads: reads.filter(({ at }) => at >= (opening?.at ?? -Infinity) && at <= (closing?.at ?? Infinity)),
+        bracketed: opening !== undefined && closing !== undefined,
+    }
+}
+
+function drivenRunsOf(evidence: MeasureEvidence): Runs | undefined {
+    const { startedAt, endedAt } = evidence.drive
+    const { reads: bracketed, bracketed: bounded } = driveReadsOf(evidence)
+    if (bracketed.length === 0) {
+        return undefined
+    }
     const runs: Run[] = []
-    let incomplete = opening === undefined || closing === undefined
+    let incomplete = !bounded
     for (let i = 1; i < bracketed.length; i++) {
         const [previous, current] = [bracketed[i - 1], bracketed[i]]
         const ended = current.autovacuums - previous.autovacuums
@@ -260,11 +269,11 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
     ),
     soakMeasure('autovacuum_runs', 'runs', (evidence) => {
         const driven = drivenRunsOf(evidence)
+        const hidden = workerStartsHidden(evidence)
         if (driven === undefined) {
-            return []
+            return hidden ? [{ key: 'timed', ...unmeasured(hidden) }] : []
         }
         const incomplete = driven.incomplete ? { incomplete: true as const } : {}
-        const hidden = workerStartsHidden(evidence)
         return [
             { key: 'count', value: driven.runs.length, ...incomplete },
             hidden

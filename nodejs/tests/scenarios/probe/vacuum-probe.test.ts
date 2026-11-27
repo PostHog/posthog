@@ -71,23 +71,29 @@ describe('vacuum probe', () => {
         ['a role without pg_read_all_stats', false, true],
     ])('records whether %s sees the other sessions', async (_, readsAllStats, statsHidden) => {
         const role = `scenario_vacuum_probe_${process.pid}`
-        await run(`DROP ROLE IF EXISTS ${role}`)
-        await run(`CREATE ROLE ${role} LOGIN PASSWORD '${role}'`)
-        await run(`GRANT USAGE ON SCHEMA ${SCHEMA_NAME} TO ${role}`)
-        await run(`GRANT SELECT ON ALL TABLES IN SCHEMA ${SCHEMA_NAME} TO ${role}`)
-        if (readsAllStats) {
-            await run(`GRANT pg_read_all_stats TO ${role}`)
+        const dropRole = async (): Promise<void> => {
+            await run(
+                `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN EXECUTE 'DROP OWNED BY ${role}'; END IF; END $$`
+            )
+            await run(`DROP ROLE IF EXISTS ${role}`)
         }
-        const url = new URL(PROBE_URL)
-        url.username = role
-        url.password = role
+        await dropRole()
         try {
+            await run(`CREATE ROLE ${role} LOGIN PASSWORD '${role}'`)
+            await run(`GRANT USAGE ON SCHEMA ${SCHEMA_NAME} TO ${role}`)
+            await run(`GRANT SELECT ON ALL TABLES IN SCHEMA ${SCHEMA_NAME} TO ${role}`)
+            if (readsAllStats) {
+                await run(`GRANT pg_read_all_stats TO ${role}`)
+            }
+            const url = new URL(PROBE_URL)
+            url.username = role
+            url.password = role
+
             const settings = await createVacuumProbe(url.toString()).settings()
 
             expect(settings.statsHidden).toBe(statsHidden)
         } finally {
-            await run(`DROP OWNED BY ${role}`)
-            await run(`DROP ROLE ${role}`)
+            await dropRole()
         }
     })
 
