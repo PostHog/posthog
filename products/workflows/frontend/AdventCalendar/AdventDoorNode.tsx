@@ -6,6 +6,7 @@ import { IconLock } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { ADVENT_LAST_DAY } from './adventContent'
 import { AdventDoor, adventDoorColor, AdventSide } from './adventGraph'
 
 export type AdventDoorNodeType = Node<
@@ -34,6 +35,7 @@ export function AdventDoorNode({ data }: NodeProps<AdventDoorNodeType>): JSX.Ele
     const { door, isSelected, isToday, isOpening } = data
     const isClosed = door.status !== 'open' && !isOpening
     const color = adventDoorColor(door)
+    const isExit = door.day === ADVENT_LAST_DAY
 
     return (
         <div className={cn('relative size-14', !isClosed && 'pointer-events-none')}>
@@ -62,7 +64,8 @@ export function AdventDoorNode({ data }: NodeProps<AdventDoorNodeType>): JSX.Ele
                         data-attr={`advent-door-${door.day}`}
                         aria-label={`Door ${door.day}, ${door.status}`}
                         className={cn(
-                            'AdventDoor relative flex size-full items-center justify-center rounded-xl border-2 bg-surface-primary p-0 text-2xl font-bold shadow-md',
+                            'AdventDoor relative flex size-full items-center justify-center border-2 bg-surface-primary p-0 text-2xl font-bold shadow-md',
+                            isExit ? 'rounded-l-xl rounded-r-[1.75rem]' : 'rounded-xl',
                             door.status === 'ready' && 'AdventDoor--ready',
                             'cursor-pointer',
                             isSelected && 'outline outline-2 outline-offset-4 outline-accent'
@@ -73,7 +76,9 @@ export function AdventDoorNode({ data }: NodeProps<AdventDoorNodeType>): JSX.Ele
                         }}
                     >
                         <span>{door.day}</span>
-                        {door.status === 'locked' && <IconLock className="absolute right-1 top-1 text-sm" />}
+                        {door.status === 'locked' && (
+                            <IconLock className={cn('absolute top-1 text-sm', isExit ? 'left-1' : 'right-1')} />
+                        )}
                     </button>
                     <span className="pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded bg-surface-primary px-1 text-[11px] leading-4 text-secondary">
                         {doorLabel(door, isToday)}
