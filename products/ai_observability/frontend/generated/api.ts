@@ -29,6 +29,7 @@ import type {
     AiObservabilitySessionsTurnsRetrieveParams,
     AiObservabilityToolsListParams,
     AiObservabilityToolsRetrieveParams,
+    AiObservabilityToolsTraceSharesCreateParams,
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
@@ -204,6 +205,8 @@ import type {
     TextReprResponseApi,
     ToolGroupDetailApi,
     ToolListApi,
+    ToolTraceShareListApi,
+    ToolTraceSharesRequestApi,
     TraceApi,
     TraceAvailabilityApi,
     TraceAvailabilityRequestApi,
@@ -1343,6 +1346,44 @@ export const aiObservabilityToolsRetrieve = async (
     return apiMutator<ToolGroupDetailApi>(getAiObservabilityToolsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAiObservabilityToolsTraceSharesCreateUrl = (
+    projectId: string,
+    params?: AiObservabilityToolsTraceSharesCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/tools/trace_shares/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/tools/trace_shares/`
+}
+
+/**
+ * A read that writes nothing: the share of the date range's traces that called each tool. It takes the keys
+ * in the body because a page of them does not fit in a query string. Send the filters of the list the keys came
+ * from.
+ */
+export const aiObservabilityToolsTraceSharesCreate = async (
+    projectId: string,
+    toolTraceSharesRequestApi: ToolTraceSharesRequestApi,
+    params?: AiObservabilityToolsTraceSharesCreateParams,
+    options?: RequestInit
+): Promise<ToolTraceShareListApi> => {
+    return apiMutator<ToolTraceShareListApi>(getAiObservabilityToolsTraceSharesCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(toolTraceSharesRequestApi),
     })
 }
 

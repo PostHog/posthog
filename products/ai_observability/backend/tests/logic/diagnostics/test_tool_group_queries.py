@@ -12,6 +12,7 @@ from products.ai_observability.backend.logic.diagnostics.tool_group_queries impo
     has_any_tool_call,
     load_tool_group,
     load_tool_page,
+    load_tool_traces,
 )
 from products.ai_observability.backend.logic.diagnostics.tool_groups import ToolCountsRow, ToolGroupRow, ToolView
 from products.ai_observability.backend.logic.traces.trace_metrics import BucketSize, bucket_starts
@@ -276,6 +277,13 @@ class TestToolGroupQueries(ClickhouseTestMixin, BaseTest):
         ).rows
 
         assert (row.calls, row.previous_calls, row.traces, row.last_seen) == (1, 0, 1, at(-5))
+
+    def test_tool_traces_count_the_ranges_traces_calling_each_named_tool(self) -> None:
+        self._seed_tools()
+
+        traces = load_tool_traces(self.team, self.user, self._selection(), [FETCH_PAGE, LOOKUP, "never_called"])
+
+        assert traces == {FETCH_PAGE: 3, LOOKUP: 2}
 
     @parameterized.expand([("inside_the_lookback", 20, True), ("past_the_lookback", 40, False)])
     def test_any_tool_call_looks_back_from_the_range(self, _name: str, days_before: int, expected: bool) -> None:

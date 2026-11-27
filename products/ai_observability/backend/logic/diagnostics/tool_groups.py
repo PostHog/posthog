@@ -62,5 +62,11 @@ def tool_item(row: ToolGroupRow) -> ToolListItem:
     )
 
 
+def trace_share(traces: int, total_traces: int) -> float:
+    """The share of the range's `total_traces` that a tool's `traces` make, at most 1. 0 when the range has no trace."""
+    # The total can be a few minutes older than the tool's count, which can then pass it.
+    return min(_share(traces, total_traces), 1.0)
+
+
 def _share(part: int, whole: int) -> float:
     return part / whole if whole else 0.0

@@ -2166,6 +2166,28 @@ export interface ToolGroupDetailApi {
     previousSeries: number[]
 }
 
+export interface ToolTraceSharesRequestApi {
+    /**
+     * Up to 100 tool keys, as the tools list hands them out.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 65536
+     */
+    keys: string[]
+}
+
+export interface ToolTraceShareApi {
+    /** The tool's id, as requested. */
+    key: string
+    /** The share of the date range's traces that called the tool, from 0 to 1. 0 when the range has no trace or no trace called the tool. The range's trace count can be a few minutes old. */
+    traceShare: number
+}
+
+export interface ToolTraceShareListApi {
+    /** One item per requested key, once each, in the order first requested. */
+    items: ToolTraceShareApi[]
+}
+
 export interface TraceListItemApi {
     id: string
     name: string | null
@@ -7999,6 +8021,40 @@ export const AiObservabilityToolsListView = {
 } as const
 
 export type AiObservabilityToolsRetrieveParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+    /**
+     * Lists only tools from traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     * @maxLength 65536
+     */
+    group_key?: string
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number
+    /**
+     * Up to 50 property filters as a JSON-encoded list. Tools are read from the traces where one event matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string
+}
+
+export type AiObservabilityToolsTraceSharesCreateParams = {
     /**
      * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
      * @minLength 1

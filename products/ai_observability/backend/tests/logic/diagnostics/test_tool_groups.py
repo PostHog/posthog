@@ -6,7 +6,7 @@ from parameterized import parameterized
 from products.ai_observability.backend.facade.contracts import TraceMetricChangeTone
 from products.ai_observability.backend.facade.diagnostics_contracts import ToolFailureState
 from products.ai_observability.backend.logic.diagnostics.entity_keys import encode_entity_key
-from products.ai_observability.backend.logic.diagnostics.tool_groups import ToolGroupRow, tool_item
+from products.ai_observability.backend.logic.diagnostics.tool_groups import ToolGroupRow, tool_item, trace_share
 
 
 def _row(**overrides: Any) -> ToolGroupRow:
@@ -57,3 +57,14 @@ def test_tool_item_share_tone_and_key() -> None:
         TraceMetricChangeTone.NEUTRAL,
         0.75,
     )
+
+
+@parameterized.expand(
+    [
+        ("some_traces", 5, 20, 0.25),
+        ("a_range_with_no_trace", 0, 0, 0.0),
+        ("a_count_past_a_stale_total", 103, 100, 1.0),
+    ]
+)
+def test_trace_share(_name: str, traces: int, total_traces: int, expected: float) -> None:
+    assert trace_share(traces, total_traces) == expected

@@ -6,7 +6,10 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.core.cache import cache
+
 from parameterized import parameterized
+from pydantic import TypeAdapter
 
 from posthog.paging import PageRequest
 
@@ -22,6 +25,9 @@ from products.ai_observability.backend.facade.diagnostics_contracts import (
 )
 from products.ai_observability.backend.logic.diagnostics.entity_keys import encode_entity_key
 from products.ai_observability.backend.logic.traces.lookback import LOOKBACK
+from products.ai_observability.backend.logic.traces.trace_metrics import NO_TRACES, bucket_size_for, zoned_selection
+from products.ai_observability.backend.logic.traces.trace_metrics_queries import TraceMetricsRows
+from products.ai_observability.backend.logic.traces.trace_metrics_store import metrics_cache_key
 from products.ai_observability.backend.logic.traces.trace_selection import TraceSelection, TraceWindow
 
 from .logic.diagnostics.test_error_group_queries import DAY, PERSON_A, _flagged
@@ -338,6 +344,68 @@ class TestToolsFacade(ClickhouseTestMixin, BaseTest):
         assert page.bucket_starts == [_bucket(0), _bucket(1), _bucket(2)]
         assert page.nothing_captured is False
 
+    def _trace_shares(self, *names: str) -> list[float]:
+        keys = [encode_entity_key(name) for name in names]
+        shares = diagnostics.load_tool_trace_shares(self.team, self.user, self.selection, keys)
+        assert [item.key for item in shares.items] == keys
+        return [item.trace_share for item in shares.items]
+
+    def _cache_trace_metrics(self, entry: TraceMetricsRows | str) -> None:
+        zoned = zoned_selection(self.selection, self.team.timezone_info)
+        key = metrics_cache_key(self.team, self.user, zoned, bucket_size_for(zoned.window))
+        cache.set(key, TypeAdapter(TraceMetricsRows | str).dump_json(entry))
+
+    def test_trace_shares_divide_each_tools_traces_by_the_ranges(self) -> None:
+        self._seed_captured_and_not_captured()
+
+        assert self._trace_shares(FETCH_PAGE, LOOKUP, "never_called") == [0.6, 0.4, 0.0]
+
+    def test_trace_shares_divide_by_the_cached_trace_count(self) -> None:
+        self._seed_captured_and_not_captured()
+        self._cache_trace_metrics(
+            TraceMetricsRows(current=replace(NO_TRACES, traces=10), previous=NO_TRACES, buckets={})
+        )
+
+        assert self._trace_shares(FETCH_PAGE, LOOKUP) == [0.3, 0.2]
+
+    def test_a_range_too_heavy_for_the_metrics_still_gets_its_trace_shares(self) -> None:
+        self._seed_captured_and_not_captured()
+        self._cache_trace_metrics("too_heavy")
+
+        assert self._trace_shares(FETCH_PAGE, LOOKUP) == [0.6, 0.4]
+
+    def test_trace_shares_reuse_the_trace_count_they_cached_and_count_each_tool_afresh(self) -> None:
+        self._seed_captured_and_not_captured()
+        assert self._trace_shares(FETCH_PAGE) == [0.6]
+
+        # A second seed restarts the event ids, so another distinct id keeps this event from replacing the first one.
+        seed(self.team, [{**_generation(40, "fetch-3", called=FETCH_PAGE), "distinct_id": "distinct-2"}])
+
+        assert self._trace_shares(FETCH_PAGE) == [0.8]
+
+    def test_trace_shares_hold_a_trace_only_by_the_events_the_traces_list_keeps(self) -> None:
+        self.team.test_account_filters = [
+            {"key": "deployment", "value": ["staging"], "operator": "is_not", "type": "event"}
+        ]
+        self.team.save()
+        self.selection = replace(self.selection, filter_test_accounts=True)
+        seed(
+            self.team,
+            [
+                _generation(-5, "staging-in-range", called=FETCH_PAGE),
+                {
+                    "event": "$ai_span",
+                    "trace_id": "staging-in-range",
+                    "minutes": 10,
+                    "properties": {"deployment": "staging"},
+                },
+                _generation(20, "fetch-0", called=FETCH_PAGE),
+                _generation(30, "no-tools-0"),
+            ],
+        )
+
+        assert self._trace_shares(FETCH_PAGE) == [0.5]
+
     def test_a_tools_traces_is_the_total_of_the_traces_list_scoped_to_it(self) -> None:
         def call(minute: int, trace_id: str, model: str) -> dict[str, Any]:
             event = _generation(minute, trace_id, called=FETCH_PAGE)
@@ -448,6 +516,12 @@ _LOADERS: list[tuple[str, Callable[..., Any]]] = [
         ),
     ),
     ("tool_detail", lambda team, user, selection: diagnostics.get_tool(team, user, selection, encode_entity_key("T"))),
+    (
+        "tool_trace_shares",
+        lambda team, user, selection: diagnostics.load_tool_trace_shares(
+            team, user, selection, [encode_entity_key("T")]
+        ),
+    ),
 ]
 _REFUSED_WINDOWS: list[tuple[str, TraceWindow, type[Exception]]] = [
     (

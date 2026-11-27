@@ -16,7 +16,7 @@ from ..traces.lookback import lookback_selection
 from ..traces.trace_expression_queries import EVENTS_COLUMNS, tool_names
 from ..traces.trace_metrics import BucketSize, bucket_size_for, bucket_starts, has_no_previous_window
 from ..traces.trace_selection import TraceSelection, TraceWindow
-from ..traces.trace_selection_queries import counted_events, execute_selection
+from ..traces.trace_selection_queries import counted_events, execute_selection, grouped_traces
 from .group_page_queries import (
     bucket_seconds,
     change_order,
@@ -35,6 +35,7 @@ from .trends import series_of
 TOOLS_PAGE_QUERY_NAME = "ai_diagnostics_tools_page"
 TOOL_GROUP_QUERY_NAME = "ai_diagnostics_tool_group"
 TOOLS_CAPTURED_QUERY_NAME = "ai_diagnostics_tools_captured"
+TOOL_TRACES_QUERY_NAME = "ai_diagnostics_tool_traces"
 
 # Each value is ascending in the page's sort, so a descending order negates its value.
 _ORDER_KEYS: dict[ToolOrder, tuple[str, ...]] = {
@@ -339,6 +340,26 @@ def load_tool_group(team: Team, user: User | None, selection: TraceSelection, na
         if previous is not None
         else (),
     )
+
+
+def load_tool_traces(team: Team, user: User | None, selection: TraceSelection, names: Sequence[str]) -> dict[str, int]:
+    """How many of the traces the traces list holds for the selection call each of `names`: for each, the total of the
+    traces list scoped to that tool. A name no such trace calls has no entry."""
+    if not names:
+        return {}
+    called = parse_expr(
+        "groupUniqArrayArrayIf(arrayIntersect({names}, {requested}), event = '$ai_generation')",
+        placeholders={
+            "names": tool_names(EVENTS_COLUMNS, "$ai_tools_called"),
+            "requested": ast.Constant(value=list(names)),
+        },
+    )
+    query = parse_select(
+        "SELECT name, count() FROM (SELECT arrayJoin(called) AS name FROM {traces}) GROUP BY name",
+        placeholders={"traces": grouped_traces(team, selection, {"called": called})},
+    )
+    results = execute_selection(team, user, selection, query, TOOL_TRACES_QUERY_NAME, list_time_limit=False)
+    return dict(results)
 
 
 def has_any_tool_call(team: Team, user: User | None, selection: TraceSelection) -> bool:
