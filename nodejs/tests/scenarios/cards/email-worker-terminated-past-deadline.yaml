@@ -7,7 +7,7 @@ seedable: true
 setup:
     teams: 1
 drive:
-    for: 227s
+    for: 257s
     warmUp: 160s
     traffic:
         - name: event_email

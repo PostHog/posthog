@@ -204,9 +204,14 @@ export const leaseReclaimMs: MeasurementDefinition = {
                 ({ unitId, invocationId }) => `${unitId} ${invocationId}`
             )
             const reclaimed = [...sends].flatMap(([key, requests]) => {
-                const times = requests.map(({ at }) => Date.parse(at)).sort((a, b) => a - b)
-                const resentAt = times.find((at) => at >= exitedAt)
-                return times[0] <= signalledAt && resentAt !== undefined ? [{ key, value: resentAt - exitedAt }] : []
+                const acceptedBySignal = requests.some(
+                    ({ at, status }) => Date.parse(at) <= signalledAt && isAccepted(status)
+                )
+                const resentAt = requests
+                    .map(({ at }) => Date.parse(at))
+                    .filter((at) => at >= exitedAt)
+                    .sort((a, b) => a - b)[0]
+                return acceptedBySignal && resentAt !== undefined ? [{ key, value: resentAt - exitedAt }] : []
             })
             return reclaimed.length > 0
                 ? reclaimed

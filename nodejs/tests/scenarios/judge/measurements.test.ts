@@ -232,6 +232,14 @@ describe('measurements', () => {
             [{ key: 'run-a-1 inv-a', value: 32_000 }],
         ],
         [
+            'skips a send refused before the signal and retried after the exit, which the stop did not strand',
+            [
+                { ...record(1, 'run-a-1', 4000, 429), invocationId: 'inv-a' },
+                { ...record(2, 'run-a-1', 12_000), invocationId: 'inv-a' },
+            ],
+            [{ value: null, censored: true, unmeasured: 'no send in flight at the signal went out again' }],
+        ],
+        [
             'reports no send that went out again',
             [{ ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' }],
             [{ value: null, censored: true, unmeasured: 'no send in flight at the signal went out again' }],

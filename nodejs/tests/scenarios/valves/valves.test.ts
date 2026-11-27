@@ -384,6 +384,7 @@ describe('valves', () => {
     it.each([
         ['its own grace', { grace: '20s' }, undefined],
         ['the grace of its profile', {}, 20_000],
+        ['its own grace over the one its profile names', { grace: '20s' }, 45_000],
     ])('terminates the role with %s and records how the role exited', async (_story, dose, terminationGraceMs) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
