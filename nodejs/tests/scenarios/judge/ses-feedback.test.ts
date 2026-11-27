@@ -1,6 +1,6 @@
 import type { Step } from '../cards'
 import type { TruthRecord } from '../provider-edge'
-import type { JournalEntry } from './judge'
+import { type JournalEntry, feedbackInFlightReasonOf } from './judge'
 import { MeasureEvidence, measure } from './measurements'
 
 const FROM = Date.parse('2026-01-05T10:00:00.000Z')
@@ -107,7 +107,7 @@ describe('SES feedback per ramp step', () => {
         ['no SES feedback post went out', {}, 'no SES feedback post went out in this run'],
         [
             'SES feedback posts were still in flight at the final read',
-            { feedbackInFlight: 2 },
+            { feedbackInFlight: 2, unsettled: feedbackInFlightReasonOf(2) },
             'SES feedback posts were still in flight at the final read',
         ],
     ])('names every count unmeasured on a run where %s', (_story, judged, reason) => {
