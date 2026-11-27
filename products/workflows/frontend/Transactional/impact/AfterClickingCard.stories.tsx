@@ -56,14 +56,27 @@ function scanRequest(
 const SCANNING = scanRequest('running', (index) =>
     index < 5 ? { state: 'succeeded', observation_id: `01a21d52-3c4d-7e5f-8a9b-0c1d2e3f4a5${index}` } : {}
 )
-const CREDITS_USED_UP = scanRequest('completed', () => ({ state: 'skipped', scan_outcome: 'skipped_quota' }))
+const REASONS = [
+    'They opened the pricing page from the email, compared the two plans and started a trial.',
+    'They landed on the invoice page, looked for a download button for a while and left without finding it.',
+    'They read the changelog entry the email linked to, then closed the tab.',
+]
+const FINISHED = scanRequest('completed', (index) =>
+    index < 3
+        ? {
+              state: 'succeeded',
+              scanner_result: {
+                  model_output: { verdict: ['yes', 'no', 'inconclusive'][index], reasoning: REASONS[index] },
+                  signals_count: 0,
+              },
+          }
+        : { state: 'skipped', scan_outcome: 'skipped_limit' }
+)
+const AI_ANALYSIS_NOT_ALLOWED_DETAIL =
+    'Your organization needs to allow AI analysis before you run a Replay Vision scan.'
 const AI_ANALYSIS_NOT_ALLOWED: [number, unknown] = [
     400,
-    {
-        type: 'validation_error',
-        code: 'ai_data_processing_not_approved',
-        detail: 'Your organization needs to allow AI analysis before you run a Replay Vision scan.',
-    },
+    { type: 'validation_error', code: 'ai_data_processing_not_approved', detail: AI_ANALYSIS_NOT_ALLOWED_DETAIL },
 ]
 
 const meta: Meta = {
@@ -108,9 +121,9 @@ const Template: StoryFn<AfterClickingStoryArgs> = ({ sessions, scan = [202, SCAN
     )
 }
 
-async function askWhereStuck(canvasElement: HTMLElement, shows: string): Promise<void> {
+async function scan(canvasElement: HTMLElement, shows: string): Promise<void> {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByText('Where do people get stuck after clicking?'))
+    await userEvent.click(await canvas.findByText('Scan sessions'))
     // The copy wraps each number in its own element, so match the innermost element that holds the whole sentence.
     await waitFor(() =>
         canvas.getByText(
@@ -121,16 +134,22 @@ async function askWhereStuck(canvasElement: HTMLElement, shows: string): Promise
     )
 }
 
-export const Questions: StoryObj<AfterClickingStoryArgs> = {
+export const Ready: StoryObj<AfterClickingStoryArgs> = {
     render: Template,
     args: { sessions: SESSIONS },
-    parameters: { testOptions: { waitForSelector: '[data-attr="email-impact-question-stuck"]' } },
+    parameters: { testOptions: { waitForSelector: '[data-attr="email-impact-scan"]' } },
 }
 
 export const Scanning: StoryObj<AfterClickingStoryArgs> = {
     render: Template,
     args: { sessions: SESSIONS },
-    play: ({ canvasElement }) => askWhereStuck(canvasElement, '5 of 12 sessions scanned'),
+    play: ({ canvasElement }) => scan(canvasElement, '5 of 12 sessions scanned'),
+}
+
+export const Answers: StoryObj<AfterClickingStoryArgs> = {
+    render: Template,
+    args: { sessions: SESSIONS, scan: [202, FINISHED] },
+    play: ({ canvasElement }) => scan(canvasElement, '9 sessions have no answer.'),
 }
 
 export const NoSessionsYet: StoryObj<AfterClickingStoryArgs> = {
@@ -139,14 +158,8 @@ export const NoSessionsYet: StoryObj<AfterClickingStoryArgs> = {
     parameters: { testOptions: { waitForSelector: 'text=No sessions yet' } },
 }
 
-export const AIAnalysisNotAllowed: StoryObj<AfterClickingStoryArgs> = {
+export const ScanError: StoryObj<AfterClickingStoryArgs> = {
     render: Template,
     args: { sessions: SESSIONS, scan: AI_ANALYSIS_NOT_ALLOWED },
-    play: ({ canvasElement }) => askWhereStuck(canvasElement, 'AI analysis is off for this organization'),
-}
-
-export const CreditsUsedUp: StoryObj<AfterClickingStoryArgs> = {
-    render: Template,
-    args: { sessions: SESSIONS, scan: [202, CREDITS_USED_UP] },
-    play: ({ canvasElement }) => askWhereStuck(canvasElement, 'Replay vision credits are used up'),
+    play: ({ canvasElement }) => scan(canvasElement, AI_ANALYSIS_NOT_ALLOWED_DETAIL),
 }

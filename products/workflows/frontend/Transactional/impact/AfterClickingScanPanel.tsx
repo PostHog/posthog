@@ -1,27 +1,25 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
-import { AfterClickingBlockedNotice } from './AfterClickingBlockedNotice'
+import { VERDICT_LABEL } from 'products/replay_vision/frontend/utils/observation'
+
 import { AfterClickingNotice } from './AfterClickingNotice'
-import { AfterClickingQuestionPicker } from './AfterClickingQuestionPicker'
-import { afterClickingScanLogic, isScanBlocked, isScanOutcome } from './afterClickingScanLogic'
-import { AfterClickingScanOutcome } from './AfterClickingScanOutcome'
-import { AfterClickingSkippedSessions } from './AfterClickingSkippedSessions'
+import { SCAN_QUESTION, afterClickingScanLogic } from './afterClickingScanLogic'
 
 export function AfterClickingScanPanel(): JSX.Element {
     const { scanState: state } = useValues(afterClickingScanLogic)
-    const { loadSessions } = useActions(afterClickingScanLogic)
+    const { loadSessions, startScan } = useActions(afterClickingScanLogic)
+    const scanButton = (label: string): JSX.Element => (
+        <LemonButton type="primary" size="small" onClick={() => startScan()} data-attr="email-impact-scan">
+            {label}
+        </LemonButton>
+    )
 
-    if (isScanBlocked(state)) {
-        return <AfterClickingBlockedNotice state={state} />
-    }
-    if (isScanOutcome(state)) {
-        return <AfterClickingScanOutcome state={state} />
-    }
     switch (state.kind) {
         case 'loading-sessions':
             return <LemonSkeleton className="h-24" />
@@ -47,8 +45,18 @@ export function AfterClickingScanPanel(): JSX.Element {
                     </span>
                 </AfterClickingNotice>
             )
-        case 'questions':
-            return <AfterClickingQuestionPicker sessionCount={state.sessionCount} hasMore={state.hasMore} />
+        case 'ready':
+            return (
+                <AfterClickingNotice title="Ask Replay vision about these sessions">
+                    <span className="text-secondary text-sm">
+                        Replay vision watches {state.hasMore ? `${state.sessionCount} of the` : 'the'}{' '}
+                        {pluralize(state.sessionCount, 'session', 'sessions', !state.hasMore)} people started from this
+                        email and answers one question for each: {SCAN_QUESTION} Each session it scans uses Replay
+                        vision credits.
+                    </span>
+                    {scanButton('Scan sessions')}
+                </AfterClickingNotice>
+            )
         case 'scanning':
             return (
                 <AfterClickingNotice title="Scanning sessions">
@@ -60,7 +68,39 @@ export function AfterClickingScanPanel(): JSX.Element {
                         <span>{state.done}</span> of <span>{state.total}</span>{' '}
                         {pluralize(state.total, 'session', 'sessions', false)} scanned
                     </span>
-                    <AfterClickingSkippedSessions skipped={state.skipped} />
+                </AfterClickingNotice>
+            )
+        case 'finished':
+            return (
+                <AfterClickingNotice title={SCAN_QUESTION}>
+                    {state.answers.map(({ sessionId, verdict, reasoning }) => (
+                        <div key={sessionId} className="flex flex-col gap-1 items-start border-t pt-2 w-full">
+                            <LemonTag type={verdict === 'yes' ? 'highlight' : 'muted'}>
+                                {VERDICT_LABEL[verdict]}
+                            </LemonTag>
+                            <span className="text-secondary text-sm whitespace-pre-wrap">{reasoning}</span>
+                            <Link
+                                to={urls.replaySingle(sessionId)}
+                                className="text-sm"
+                                data-attr="email-impact-open-session"
+                            >
+                                Watch session
+                            </Link>
+                        </div>
+                    ))}
+                    {state.withoutAnswer > 0 && (
+                        <span className="text-secondary text-sm">
+                            {pluralize(state.withoutAnswer, 'session', 'sessions')}{' '}
+                            {state.withoutAnswer === 1 ? 'has' : 'have'} no answer.
+                        </span>
+                    )}
+                </AfterClickingNotice>
+            )
+        case 'scan-error':
+            return (
+                <AfterClickingNotice title="The scan didn't finish">
+                    <span className="text-secondary text-sm">{state.message}</span>
+                    {scanButton('Scan again')}
                 </AfterClickingNotice>
             )
     }

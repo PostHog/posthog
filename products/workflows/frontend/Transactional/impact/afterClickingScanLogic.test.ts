@@ -1,12 +1,9 @@
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { waitFor } from '@testing-library/react'
-import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -19,12 +16,11 @@ import type {
     ObservationRequestSessionApi,
 } from 'products/replay_vision/frontend/generated/api.schemas'
 
-import { SCAN_POLL_INTERVAL_MS, afterClickingScanLogic } from './afterClickingScanLogic'
+import { SCAN_POLL_INTERVAL_MS, afterClickingScanLogic, scanBlockedState } from './afterClickingScanLogic'
+import type { LinkTagging } from './impactSteps'
 
 const WORKFLOW_ID = '0192c3a4-5b6c-7d8e-9f01-23456789abcd'
 const REQUEST_ID = '01a21d51-012a-7d3d-a576-b38b7254d78a'
-const NEW_REQUEST_ID = '01a21d60-7a1b-7c2d-8e3f-4a5b6c7d8e9f'
-const NO_SKIPS = { busy: 0, quota: 0, questionLimit: 0, unscannable: 0 }
 
 function pollPath(requestId: string): string {
     return `/api/projects/${MOCK_TEAM_ID}/vision/requests/${requestId}/`
@@ -84,8 +80,15 @@ function scanRequest(
     }
 }
 
-const SUCCEEDED = { state: 'succeeded', observation_id: '01a21d52-3c4d-7e5f-8a9b-0c1d2e3f4a5b' } as const
-const OTHER_OBSERVATION_ID = '01a21d52-9e8d-7c6b-8a59-4f3e2d1c0b0a'
+const SUCCEEDED: Partial<ObservationRequestSessionApi> = {
+    state: 'succeeded',
+    observation_id: '01a21d52-3c4d-7e5f-8a9b-0c1d2e3f4a5b',
+    scanner_result: {
+        model_output: { scanner_type: 'monitor', verdict: 'no', reasoning: 'They left the pricing page.' },
+        signals_count: 0,
+    },
+}
+const GENERIC_ERROR = "Replay vision couldn't scan these sessions. Try again."
 
 describe('afterClickingScanLogic', () => {
     let logic: ReturnType<typeof afterClickingScanLogic.build>
@@ -95,13 +98,8 @@ describe('afterClickingScanLogic', () => {
     let createBodies: Record<string, unknown>[]
     let createGate: Promise<void>
     let retrieveAnswers: [number, unknown][]
-    let retrieveGate: Promise<void>
     let retrievedPaths: string[]
     let capturedEvents: { event: string; properties: unknown }[]
-
-    function captured(event: string): unknown[] {
-        return capturedEvents.filter((captured) => captured.event === event).map(({ properties }) => properties)
-    }
 
     beforeEach(() => {
         capturedEvents = []
@@ -115,20 +113,16 @@ describe('afterClickingScanLogic', () => {
         createBodies = []
         createGate = Promise.resolve()
         retrieveAnswers = []
-        retrieveGate = Promise.resolve()
         retrievedPaths = []
         useMocks({
             get: {
-                '/api/projects/:team_id/transactional_email_log/impact/': () => [404, {}],
                 '/api/projects/:team_id/transactional_email_log/impact_sessions/': ({ request }) => {
                     sessionsParams.push(new URL(request.url).searchParams)
                     return sessionsAnswer
                 },
-                '/api/projects/:team_id/vision/requests/:id/': async ({ request }) => {
+                '/api/projects/:team_id/vision/requests/:id/': ({ request }) => {
                     retrievedPaths.push(new URL(request.url).pathname)
-                    const answer = retrieveAnswers.shift() ?? [500, {}]
-                    await retrieveGate
-                    return answer
+                    return retrieveAnswers.shift() ?? [500, {}]
                 },
             },
             post: {
@@ -143,7 +137,7 @@ describe('afterClickingScanLogic', () => {
         initKeaTests()
         setScannerAccess(AccessControlLevel.Editor)
         silenceKeaLoadersErrors()
-        logic = afterClickingScanLogic({ workflowId: WORKFLOW_ID })
+        logic = afterClickingScanLogic({ workflowId: WORKFLOW_ID, days: 7 })
         logic.mount()
     })
 
@@ -153,318 +147,129 @@ describe('afterClickingScanLogic', () => {
         jest.useRealTimers()
     })
 
-    test.each([
-        { questionKey: 'stuck', question: 'Where do people get stuck after clicking?', source: 'suggested' },
-        { questionKey: null, question: 'Do people find the pricing page?', source: 'custom' },
-    ])(
-        'scans the listed sessions with a $source question and follows the scan until it finishes',
-        async ({ questionKey, question, source }) => {
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.scanState).toEqual({ kind: 'questions', sessionCount: 2, hasMore: false })
-
-            retrieveAnswers = [
-                [200, scanRequest('running', [scanSession('session-a', SUCCEEDED), scanSession('session-b')])],
-                [503, { detail: 'Service unavailable' }],
-                [
-                    200,
-                    scanRequest('completed', [
-                        scanSession('session-a', SUCCEEDED),
-                        scanSession('session-b', { state: 'failed' }),
-                    ]),
-                ],
-            ]
-            jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
-            logic.actions.askQuestion(question, questionKey)
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(createBodies).toEqual([
-                {
-                    session_ids: ['session-a', 'session-b'],
-                    inline: {
-                        prompt: `At some point in this session the person clicked a link in an email and landed on a page whose URL has a ph_workflow_run parameter. Look only at what they did from that page on, and answer this question: ${question}`,
-                    },
-                    reference: `workflows-email:${WORKFLOW_ID}`,
-                    idempotency_key: expect.any(String),
-                },
-            ])
-            expect(logic.values.scanState).toEqual({ kind: 'scanning', done: 0, total: 2, skipped: NO_SKIPS })
-
-            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
-            expect(logic.values.scanState).toEqual({ kind: 'scanning', done: 1, total: 2, skipped: NO_SKIPS })
-
-            // A poll the server answers with a 503 keeps the scan going.
-            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
-            expect(logic.values.scanState).toEqual({ kind: 'scanning', done: 1, total: 2, skipped: NO_SKIPS })
-
-            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
-            expect(logic.values.scanState).toEqual({
-                kind: 'finished',
-                withResult: 1,
-                scanned: 1,
-                skipped: { ...NO_SKIPS, unscannable: 1 },
-            })
-
-            // The plugin restarts registered timers when the tab comes back; a finished scan polls no more.
-            setTabHidden(true)
-            setTabHidden(false)
-            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * 3)
-            expect(retrievedPaths).toEqual(Array(3).fill(pollPath(REQUEST_ID)))
-            expect(captured('transactional email impact question asked')).toEqual([
-                expect.objectContaining({ source, question_key: questionKey }),
-            ])
-            expect(captured('transactional email impact scan finished')).toEqual([
-                { sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false },
-            ])
-        }
-    )
-
-    test.each([
-        {
-            name: 'AI analysis is not allowed',
-            answer: [400, { type: 'validation_error', code: 'ai_data_processing_not_approved', detail: 'off' }],
-            state: { kind: 'ai-analysis-not-allowed' },
-            finished: [],
-        },
-        {
-            name: 'the credits are used up',
-            answer: [
-                202,
-                scanRequest('completed', [
-                    scanSession('session-a', { state: 'skipped', scan_outcome: 'skipped_quota' }),
-                    scanSession('session-b', { state: 'skipped', scan_outcome: 'skipped_quota' }),
-                ]),
-            ],
-            state: { kind: 'credits-used-up' },
-            finished: [{ sessions: 2, sessions_with_result: 0, sessions_skipped: 2, credits_used_up: true }],
-        },
-        {
-            name: 'the scanner is busy',
-            answer: [
-                202,
-                scanRequest('completed', [
-                    scanSession('session-a', SUCCEEDED),
-                    scanSession('session-b', { state: 'skipped', scan_outcome: 'skipped_limit' }),
-                ]),
-            ],
-            state: {
-                kind: 'finished',
-                withResult: 1,
-                scanned: 1,
-                skipped: { busy: 1, quota: 0, questionLimit: 0, unscannable: 0 },
-            },
-            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
-        },
-        {
-            name: 'the question reached its credit limit',
-            answer: [
-                202,
-                scanRequest('completed', [
-                    scanSession('session-a', SUCCEEDED),
-                    scanSession('session-b', { state: 'skipped', scan_outcome: 'skipped_scanner_limit' }),
-                ]),
-            ],
-            state: {
-                kind: 'finished',
-                withResult: 1,
-                scanned: 1,
-                skipped: { busy: 0, quota: 0, questionLimit: 1, unscannable: 0 },
-            },
-            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
-        },
-        {
-            name: 'a scan fails to start',
-            answer: [
-                202,
-                scanRequest('completed', [
-                    scanSession('session-a', SUCCEEDED),
-                    scanSession('session-b', { state: 'failed', scan_outcome: 'failed' }),
-                ]),
-            ],
-            state: {
-                kind: 'finished',
-                withResult: 1,
-                scanned: 1,
-                skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 1 },
-            },
-            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
-        },
-        {
-            name: 'a session has no recording to watch',
-            answer: [
-                202,
-                scanRequest('completed', [
-                    scanSession('session-a', SUCCEEDED),
-                    scanSession('session-b', { state: 'ineligible', observation_id: OTHER_OBSERVATION_ID }),
-                ]),
-            ],
-            state: {
-                kind: 'finished',
-                withResult: 1,
-                scanned: 1,
-                skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 1 },
-            },
-            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
-        },
-        {
-            name: 'the worker drops a scan before it begins',
-            answer: [
-                202,
-                scanRequest('completed', [
-                    scanSession('session-a', SUCCEEDED),
-                    scanSession('session-b', { state: 'lost' }),
-                ]),
-            ],
-            state: {
-                kind: 'finished',
-                withResult: 1,
-                scanned: 1,
-                skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 1 },
-            },
-            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
-        },
-        {
-            name: 'a scan never gets an outcome',
-            answer: [
-                202,
-                scanRequest('completed', [
-                    scanSession('session-a', SUCCEEDED),
-                    scanSession('session-b', { state: 'failed', scan_outcome: null }),
-                ]),
-            ],
-            state: {
-                kind: 'finished',
-                withResult: 1,
-                scanned: 1,
-                skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 1 },
-            },
-            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
-        },
-        {
-            name: 'the server fails',
-            answer: [500, { detail: 'Server error' }],
-            state: { kind: 'scan-error', message: "Replay vision couldn't scan these sessions. Try again." },
-            finished: [],
-        },
-    ] as { name: string; answer: [number, unknown]; state: unknown; finished: Record<string, unknown>[] }[])(
-        'says so when $name',
-        async ({ answer, state, finished }) => {
-            await expectLogic(logic).toFinishAllListeners()
-            createAnswer = answer
-
-            await expectLogic(logic, () =>
-                logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
-            )
-                .toFinishAllListeners()
-                .toMatchValues({ scanState: state })
-            expect(captured('transactional email impact scan finished')).toEqual(finished)
-        }
-    )
-
-    it('gives Try again a fresh run of polls after the scan stopped on failed polls', async () => {
+    it("scans the period's sessions with the fixed question and lists each session's answer", async () => {
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.scanState).toEqual({ kind: 'ready', sessionCount: 2, hasMore: false })
+        expect(sessionsParams[0].get('workflow_id')).toBe(WORKFLOW_ID)
+        expect(Math.round(dayjs().diff(dayjs(sessionsParams[0].get('date_from')), 'hour', true))).toBe(7 * 24)
+
         retrieveAnswers = [
-            ...Array(6).fill([503, { detail: 'Service unavailable' }]),
+            [200, scanRequest('running', [scanSession('session-a', SUCCEEDED), scanSession('session-b')])],
             [
                 200,
                 scanRequest('completed', [
                     scanSession('session-a', SUCCEEDED),
-                    scanSession('session-b', { ...SUCCEEDED, observation_id: OTHER_OBSERVATION_ID }),
+                    scanSession('session-b', { state: 'failed' }),
                 ]),
             ],
         ]
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
-        logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
+        logic.actions.startScan()
         await expectLogic(logic).toFinishAllListeners()
-        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * 5)
-        expect(logic.values.scanState).toEqual(expect.objectContaining({ kind: 'scan-error' }))
 
-        logic.actions.retryScan()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.scanState).toEqual(expect.objectContaining({ kind: 'scanning' }))
+        expect(createBodies).toEqual([
+            {
+                session_ids: ['session-a', 'session-b'],
+                inline: {
+                    prompt: 'At some point in this session the person clicked a link in an email and landed on a page whose URL has a ph_workflow_run parameter. Look only at what they did from that page on, and answer this question: Did the person finish what they came to do?',
+                },
+                reference: `workflows-email:${WORKFLOW_ID}`,
+                idempotency_key: expect.any(String),
+            },
+        ])
+        expect(logic.values.scanState).toEqual({ kind: 'scanning', done: 0, total: 2 })
+
         await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
-        expect(logic.values.scanState).toEqual({ kind: 'finished', withResult: 2, scanned: 2, skipped: NO_SKIPS })
+        expect(logic.values.scanState).toEqual({ kind: 'scanning', done: 1, total: 2 })
+
+        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
+        expect(logic.values.scanState).toEqual({
+            kind: 'finished',
+            answers: [{ sessionId: 'session-a', verdict: 'no', reasoning: 'They left the pricing page.' }],
+            withoutAnswer: 1,
+        })
+
+        // The plugin restarts registered timers when the tab comes back; a finished scan polls no more.
+        setTabHidden(true)
+        setTabHidden(false)
+        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * 3)
+        expect(retrievedPaths).toEqual(Array(2).fill(pollPath(REQUEST_ID)))
+        expect(capturedEvents).toEqual([
+            { event: 'transactional email impact scan started', properties: { sessions: 2, days: 7 } },
+        ])
     })
 
-    it('stops polling once a poll fails for good', async () => {
+    test.each([
+        { name: 'a limit skipped it', session: { state: 'skipped', scan_outcome: 'skipped_limit' } },
+        {
+            name: 'its result has no verdict',
+            session: { ...SUCCEEDED, scanner_result: { model_output: {}, signals_count: 0 } },
+        },
+    ] as { name: string; session: Partial<ObservationRequestSessionApi> }[])(
+        'counts a session without an answer when $name',
+        async ({ session }) => {
+            await expectLogic(logic).toFinishAllListeners()
+            createAnswer = [
+                202,
+                scanRequest('completed', [scanSession('session-a', SUCCEEDED), scanSession('session-b', session)]),
+            ]
+
+            await expectLogic(logic, () => logic.actions.startScan())
+                .toFinishAllListeners()
+                .toMatchValues({
+                    scanState: {
+                        kind: 'finished',
+                        answers: [expect.objectContaining({ sessionId: 'session-a' })],
+                        withoutAnswer: 1,
+                    },
+                })
+        }
+    )
+
+    test.each([
+        {
+            name: "the API's reason when it refuses the scan",
+            answer: [400, { type: 'validation_error', code: 'ai_data_processing_not_approved', detail: 'AI is off.' }],
+            message: 'AI is off.',
+        },
+        {
+            name: 'a general error when the server fails',
+            answer: [500, { detail: 'Server error' }],
+            message: GENERIC_ERROR,
+        },
+    ] as { name: string; answer: [number, unknown]; message: string }[])('shows $name', async ({ answer, message }) => {
         await expectLogic(logic).toFinishAllListeners()
-        retrieveAnswers = [[404, { detail: 'Not found.' }]]
+        createAnswer = answer
+
+        await expectLogic(logic, () => logic.actions.startScan())
+            .toFinishAllListeners()
+            .toMatchValues({ scanState: { kind: 'scan-error', message } })
+    })
+
+    it('stops polling once a poll fails, and starts a new scan on Scan again', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        createAnswer = [202, scanRequest('running', [scanSession('session-a', SUCCEEDED), scanSession('session-b')])]
+        retrieveAnswers = [[503, { detail: 'Service unavailable' }]]
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
-        logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
+        logic.actions.startScan()
         await expectLogic(logic).toFinishAllListeners()
 
         await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
-        const failed = { kind: 'scan-error', message: "Replay vision couldn't scan these sessions. Try again." }
-        expect(logic.values.scanState).toEqual(failed)
-
+        expect(logic.values.scanState).toEqual({ kind: 'scan-error', message: GENERIC_ERROR })
         setTabHidden(true)
         setTabHidden(false)
         await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * 3)
         expect(retrievedPaths).toHaveLength(1)
-        expect(logic.values.scanState).toEqual(failed)
-    })
 
-    test.each([
-        { name: 'answers while the new scan still polls', oldAnswer: [200, null], failedBeforeIt: 4 },
-        { name: 'fails after the new scan stopped', oldAnswer: [503, {}], failedBeforeIt: 5 },
-    ] as { name: string; oldAnswer: [number, unknown]; failedBeforeIt: number }[])(
-        "ends the new scan after its own five failed polls when an old scan's poll $name",
-        async ({ oldAnswer, failedBeforeIt }) => {
-            await expectLogic(logic).toFinishAllListeners()
-            jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
-            logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
-            await expectLogic(logic).toFinishAllListeners()
-
-            let answerOldPoll: () => void = () => {}
-            retrieveGate = new Promise((resolve) => (answerOldPoll = resolve))
-            retrieveAnswers = [
-                oldAnswer[1] === null
-                    ? [200, scanRequest('running', [scanSession('session-a'), scanSession('session-b')])]
-                    : oldAnswer,
-            ]
-            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
-            expect(retrievedPaths).toEqual([pollPath(REQUEST_ID)])
-
-            logic.actions.setDays(1)
-            await waitFor(() =>
-                expect(logic.values.scanState).toEqual({ kind: 'questions', sessionCount: 2, hasMore: false })
-            )
-            retrieveGate = Promise.resolve()
-            retrieveAnswers = Array(5).fill([503, { detail: 'Service unavailable' }])
-            createAnswer = [
-                202,
-                scanRequest('running', [scanSession('session-a'), scanSession('session-b')], NEW_REQUEST_ID),
-            ]
-            logic.actions.askQuestion('Do people find the pricing page?', null)
-            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * failedBeforeIt)
-            expect(retrievedPaths).toEqual([
-                pollPath(REQUEST_ID),
-                ...Array(failedBeforeIt).fill(pollPath(NEW_REQUEST_ID)),
-            ])
-
-            answerOldPoll()
-            await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * (5 - failedBeforeIt + 3))
-            expect(retrievedPaths).toEqual([pollPath(REQUEST_ID), ...Array(5).fill(pollPath(NEW_REQUEST_ID))])
-            expect(logic.values.scanState).toEqual({
-                kind: 'scan-error',
-                message: "Replay vision couldn't scan these sessions. Try again.",
-            })
-        }
-    )
-
-    it('starts the scan again with the same idempotency key on retry', async () => {
+        let answerNewScan: () => void = () => {}
+        createGate = new Promise((resolve) => (answerNewScan = resolve))
+        logic.actions.startScan()
+        // The failed scan's last state belongs to the old request, so the new one starts from zero.
+        expect(logic.values.scanState).toEqual({ kind: 'scanning', done: 0, total: 2 })
+        answerNewScan()
         await expectLogic(logic).toFinishAllListeners()
-        createAnswer = [500, {}]
-        await expectLogic(logic, () => logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck'))
-            .toFinishAllListeners()
-            .toMatchValues({ scanState: expect.objectContaining({ kind: 'scan-error' }) })
-
-        createAnswer = [202, scanRequest('completed', [scanSession('session-a', SUCCEEDED)])]
-        await expectLogic(logic, () => logic.actions.retryScan())
-            .toFinishAllListeners()
-            .toMatchValues({ scanState: { kind: 'finished', withResult: 1, scanned: 1, skipped: NO_SKIPS } })
-
         expect(createBodies).toHaveLength(2)
-        expect(createBodies[1].idempotency_key).toEqual(createBodies[0].idempotency_key)
+        expect(createBodies[1].idempotency_key).not.toEqual(createBodies[0].idempotency_key)
     })
 
     test.each([
@@ -482,122 +287,50 @@ describe('afterClickingScanLogic', () => {
         }
     )
 
-    it('lists the sessions of a new period and drops the scan of the old one', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        createAnswer = [202, scanRequest('completed', [scanSession('session-a', SUCCEEDED)])]
-        await expectLogic(logic, () => logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck'))
-            .toFinishAllListeners()
-            .toMatchValues({ scanState: expect.objectContaining({ kind: 'finished' }) })
-
-        await expectLogic(logic, () => logic.actions.setDays(1))
-            .toFinishAllListeners()
-            .toMatchValues({ scanState: { kind: 'questions', sessionCount: 2, hasMore: false } })
-
-        expect(sessionsParams).toHaveLength(2)
-        expect(sessionsParams[1].get('workflow_id')).toBe(WORKFLOW_ID)
-        expect(Math.round(dayjs().diff(dayjs(sessionsParams[1].get('date_from')), 'hour', true))).toBe(24)
-    })
-    it("keeps the new period's scan when a scan of the old one fails late", async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        let failOldScan: () => void = () => {}
-        createGate = new Promise((resolve) => (failOldScan = resolve))
-        createAnswer = [500, {}]
-        logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
-        await waitFor(() => expect(createBodies).toHaveLength(1))
-
-        logic.actions.setDays(1)
-        await waitFor(() =>
-            expect(logic.values.scanState).toEqual({ kind: 'questions', sessionCount: 2, hasMore: false })
-        )
-
-        let answerNewScan: () => void = () => {}
-        createGate = new Promise((resolve) => (answerNewScan = resolve))
-        createAnswer = [202, scanRequest('completed', [scanSession('session-a', SUCCEEDED)])]
-        logic.actions.askQuestion('Do people find the pricing page?', null)
-        await waitFor(() => expect(createBodies).toHaveLength(2))
-        const shown: string[] = []
-        const unsubscribe = getContext().store.subscribe(() => shown.push(logic.values.scanState.kind))
-
-        failOldScan()
-        answerNewScan()
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ scanState: { kind: 'finished', withResult: 1, scanned: 1, skipped: NO_SKIPS } })
-        unsubscribe()
-
-        expect(shown).not.toContain('questions')
-        expect(captured('transactional email impact scan failed')).toEqual([])
-    })
-
     test.each([
         {
             name: 'outside the main environment',
             team: { ...MOCK_DEFAULT_TEAM, id: MOCK_TEAM_ID + 1 },
             access: AccessControlLevel.Editor,
-            sensitive: false,
+            linkTagging: 'on',
             state: { kind: 'not-main-environment' },
         },
         {
             name: 'to a viewer of scanners',
             team: MOCK_DEFAULT_TEAM,
             access: AccessControlLevel.Viewer,
-            sensitive: false,
+            linkTagging: 'on',
             state: { kind: 'no-access', reason: expect.stringContaining('(viewer)') },
         },
         {
             name: 'while link tracking is off',
-            team: {
-                ...MOCK_DEFAULT_TEAM,
-                workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, email_workflow_run_link_tag_enabled: false },
-            },
+            team: MOCK_DEFAULT_TEAM,
             access: AccessControlLevel.Editor,
-            sensitive: false,
-            sessions: { sessions: [], has_more: false },
+            linkTagging: 'off',
             state: { kind: 'link-tagging-off' },
         },
         {
             name: 'for an always sensitive email',
             team: MOCK_DEFAULT_TEAM,
             access: AccessControlLevel.Editor,
-            sensitive: true,
+            linkTagging: 'sensitive-email',
             state: { kind: 'sensitive-email' },
+        },
+        {
+            name: 'never for an editor in the main environment',
+            team: MOCK_DEFAULT_TEAM,
+            access: AccessControlLevel.Editor,
+            linkTagging: 'on',
+            state: null,
         },
     ] as {
         name: string
-        team: unknown
+        team: typeof MOCK_DEFAULT_TEAM
         access: AccessControlLevel
-        sensitive: boolean
-        sessions?: TransactionalEmailImpactSessionsApi
+        linkTagging: LinkTagging
         state: unknown
-    }[])('offers no questions $name', async ({ team, access, sensitive, sessions, state }) => {
-        logic.unmount()
-        sessionsAnswer = [200, sessions ?? SESSIONS]
+    }[])('blocks the scan $name', ({ team, access, linkTagging, state }) => {
         setScannerAccess(access)
-        teamLogic.actions.loadCurrentTeamSuccess(team as typeof MOCK_DEFAULT_TEAM)
-        logic = afterClickingScanLogic({ workflowId: WORKFLOW_ID, alwaysSensitive: sensitive })
-        logic.mount()
-
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ scanState: state })
-    })
-
-    it('loads the sessions again once link tracking turns on', async () => {
-        const trackingOff = {
-            ...MOCK_DEFAULT_TEAM,
-            workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, email_workflow_run_link_tag_enabled: false },
-        }
-        logic.unmount()
-        sessionsAnswer = [200, { sessions: [], has_more: false }]
-        teamLogic.actions.loadCurrentTeamSuccess(trackingOff as typeof MOCK_DEFAULT_TEAM)
-        logic = afterClickingScanLogic({ workflowId: WORKFLOW_ID })
-        logic.mount()
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ scanState: { kind: 'link-tagging-off' } })
-
-        sessionsAnswer = [200, SESSIONS]
-        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ scanState: { kind: 'questions', sessionCount: 2, hasMore: false } })
+        expect(scanBlockedState(team, linkTagging)).toEqual(state)
     })
 })
