@@ -106,7 +106,8 @@ declare -a failed_runs=()
 
 if [ ${#stories_to_verify[@]} -gt 0 ]; then
     # Scale repeats down for large story sets so the job fits its time budget
-    # (runs are sequential with --maxWorkers=1). Small PRs keep full verification;
+    # (every run is single-worker, and only the repeats overlap). Small PRs keep full
+    # verification;
     # mass refactors degrade to fewer passes instead of timing out.
     file_count=${#stories_to_verify[@]}
     if [ "$file_count" -gt 30 ] && [ "$REPEAT_COUNT" -gt 1 ]; then
@@ -117,7 +118,7 @@ if [ ${#stories_to_verify[@]} -gt 0 ]; then
         REPEAT_COUNT=2
     fi
 
-    echo "Verifying $file_count changed file(s): $REPEAT_COUNT chromium run(s), then 1 webkit run:"
+    echo "Verifying $file_count changed file(s): 1 chromium baseline run, $((REPEAT_COUNT - 1)) concurrent chromium repeat(s), and 1 concurrent webkit run:"
     printf "  %s\n" "${stories_to_verify[@]}"
     set_patterns "${stories_to_verify[@]}"
     echo ""
@@ -125,19 +126,61 @@ if [ ${#stories_to_verify[@]} -gt 0 ]; then
     echo ""
 
     # Each run does a full snapshot comparison. If any run fails, the story is flaky.
-    for run in $(seq 1 "$REPEAT_COUNT"); do
-        # First run: --updateSnapshot to create baselines for new stories.
-        # Subsequent runs: --ci to verify the snapshot is stable.
-        if [ "$run" -eq 1 ]; then
-            snapshot_flag="--updateSnapshot"
-        else
-            snapshot_flag="--ci"
-        fi
-        run_stories chromium "chromium-run-$run" "$snapshot_flag" || failed_runs+=("chromium-run-$run")
-    done
+    #
+    # Concurrency: every run below is single-worker (`--maxWorkers=1`), so running two at
+    # once uses a second core instead of waiting for the first. They used to run one after
+    # another, which made the job's wall the sum of four passes. On run 45907972522 (two
+    # changed story files) the passes took 46s for the baseline, 313s and 315s for the two
+    # `--ci` repeats and 14s for webkit: 688s of test time where the wall only needed to be
+    # the longest pass. Two orderings matter and are kept:
+    #   - chromium run 1 writes the baselines (`--updateSnapshot`), so it still finishes
+    #     before the `--ci` repeats that compare against them.
+    #   - the webkit pass writes its own `--webkit`-suffixed snapshots (`customSnapshotIdentifier`
+    #     in common/storybook/.storybook/test-runner.ts) and shares no file with chromium,
+    #     so it overlaps both.
+    # A backgrounded run writes its own log through the tee in run_stories and the log is
+    # printed after its wait, so the job log keeps one block of jest output per pass rather
+    # than two interleaved streams.
+    declare -a BACKGROUND_PIDS=()
 
-    # PR matrices render chromium only. --updateSnapshot stops a missing baseline from failing this run.
-    run_stories webkit webkit-run --updateSnapshot || failed_runs+=("webkit-run")
+    start_run() { # browser, run_name, snapshot_flag
+        run_stories "$1" "$2" "$3" > /dev/null 2>&1 &
+        BACKGROUND_PIDS+=("$!:$2")
+    }
+
+    collect_runs() {
+        local entry pid name status
+        for entry in "${BACKGROUND_PIDS[@]}"; do
+            pid="${entry%%:*}"
+            name="${entry#*:}"
+            status=0
+            wait "$pid" || status=$?
+            # Printed after the wait so a failure's diff output is in the log, in run order.
+            echo "=== $name (output) ==="
+            cat "/tmp/storybook-verify-${name}.log" 2>/dev/null || true
+            if [ "$status" -ne 0 ]; then
+                failed_runs+=("$name")
+            fi
+        done
+    }
+
+    # webkit first, so it overlaps both the baseline run and the chromium repeats.
+    # PR matrices render chromium only, so this pass exists for the webkit shards that
+    # run nightly; `--updateSnapshot` stops a missing baseline from failing it.
+    start_run webkit webkit-run --updateSnapshot
+
+    # First run writes baselines for new stories (`--updateSnapshot`).
+    run_stories chromium chromium-run-1 --updateSnapshot || failed_runs+=("chromium-run-1")
+
+    # Repeats verify the snapshot is stable (`--ci`). They read the baselines the first
+    # run just wrote and write nothing themselves, so they can run at the same time.
+    if [ "$REPEAT_COUNT" -gt 1 ]; then
+        for run in $(seq 2 "$REPEAT_COUNT"); do
+            start_run chromium "chromium-run-$run" --ci
+        done
+    fi
+
+    collect_runs
 fi
 
 if [ "${#failed_runs[@]}" -gt 0 ]; then
