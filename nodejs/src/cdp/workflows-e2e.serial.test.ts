@@ -1434,7 +1434,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await expectParked()
 
             // A subscribed event fires for this person — the matcher wakes the job.
-            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'wakeup_event' })])
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -1460,7 +1460,7 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['running'])
             }, 5000)
 
-            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'wakeup_event' })])
             openGate()
 
             await waitForExpect(() => {
@@ -1603,7 +1603,7 @@ describe('Workflows E2E (postgres-v2)', () => {
 
             // The action's underlying event fires — the matcher must wake the job via the action
             // entry even though filters.events is empty.
-            await matcher.processBatch([createGlobals({ event: 'action_wakeup_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'action_wakeup_event' })])
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -1624,7 +1624,11 @@ describe('Workflows E2E (postgres-v2)', () => {
 
             // A later $pageview with a posthog URL satisfies the property condition.
             await matcher.processBatch([
-                createGlobals({ event: '$pageview', properties: { $current_url: 'https://posthog.com' } }),
+                createGlobals({
+                    uuid: new UUIDT().toString(),
+                    event: '$pageview',
+                    properties: { $current_url: 'https://posthog.com' },
+                }),
             ])
 
             await waitForExpect(() => {
@@ -1642,7 +1646,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
 
             // An unrelated event passes through the matcher but must not wake the job.
-            await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'some_other_event' })])
 
             // After max_wait expires the job advances down the continue (timeout) branch.
             await waitForExpect(() => {
@@ -1661,7 +1665,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await expectParked()
 
             // An unrelated event must not wake the job.
-            await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'some_other_event' })])
 
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
@@ -1681,7 +1685,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await expectParked()
 
             // An unrelated event must not wake the job — the always-true bytecode would otherwise match.
-            await matcher.processBatch([createGlobals({ event: 'some_unrelated_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'some_unrelated_event' })])
 
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
@@ -1719,7 +1723,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await expectParked()
 
             // The configured event fires — the matcher wakes the job via the events entry.
-            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'wakeup_event' })])
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -1759,7 +1763,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await expectParked()
 
             // The wait's event fires during the delay — the job must stay parked in the delay.
-            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'wakeup_event' })])
 
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
@@ -1797,7 +1801,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await expectParked()
 
             // The conversion event fires during the delay — it must not pull the job out early.
-            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'conversion_event' })])
 
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
@@ -1834,7 +1838,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await expectParked()
 
             // The conversion event fires during the delay — the workflow must exit early.
-            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'conversion_event' })])
 
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
@@ -1921,7 +1925,9 @@ describe('Workflows E2E (postgres-v2)', () => {
             })
             await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
             await expectParked()
-            await matcher.processBatch([createGlobals({ event: 'billing_added', properties: {} })])
+            await matcher.processBatch([
+                createGlobals({ uuid: new UUIDT().toString(), event: 'billing_added', properties: {} }),
+            ])
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
@@ -1969,14 +1975,22 @@ describe('Workflows E2E (postgres-v2)', () => {
             await expectParked()
             // Right event, wrong property — must not wake.
             await matcher.processBatch([
-                createGlobals({ event: 'cal_booking', properties: { trigger_event: 'OTHER' } }),
+                createGlobals({
+                    uuid: new UUIDT().toString(),
+                    event: 'cal_booking',
+                    properties: { trigger_event: 'OTHER' },
+                }),
             ])
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
             // Right event and property — wakes.
             await matcher.processBatch([
-                createGlobals({ event: 'cal_booking', properties: { trigger_event: 'BOOKING_CREATED' } }),
+                createGlobals({
+                    uuid: new UUIDT().toString(),
+                    event: 'cal_booking',
+                    properties: { trigger_event: 'BOOKING_CREATED' },
+                }),
             ])
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -2351,14 +2365,14 @@ describe('Workflows E2E (postgres-v2)', () => {
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
             // First match counts the conversion once.
-            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'conversion_event' })])
             await waitForExpect(() => {
                 expect(conversionCount()).toBe(1)
             }, 5000)
 
             // The same conversion event firing again must NOT increment the count — the run already converted.
-            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
-            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'conversion_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'conversion_event' })])
             expect(conversionCount()).toBe(1)
 
             // Measurement-only: the run stays parked and the after-delay step never runs early.
@@ -2395,11 +2409,11 @@ describe('Workflows E2E (postgres-v2)', () => {
                     .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.metric_name === 'conversion')
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
-            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'conversion_event' })])
             expect(conversionCount()).toBe(0)
 
             await matcher.processBatch(
-                [createGlobals({ event: 'conversion_event' })],
+                [createGlobals({ uuid: new UUIDT().toString(), event: 'conversion_event' })],
                 'events',
                 () => new Date(expiredAt.getTime() - 1000)
             )
@@ -4235,7 +4249,7 @@ describe('Workflows E2E (email queue)', () => {
         // it sits on the email queue, the email worker resumes it down the matched branch, and the
         // second email is sent. This is the end-to-end "the job wakes and the next step runs" check.
         matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
-        await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+        await matcher.processBatch([createGlobals({ uuid: new UUIDT().toString(), event: 'wakeup_event' })])
 
         await waitForExpect(() => {
             expect(emailsSent()).toBe(2)
