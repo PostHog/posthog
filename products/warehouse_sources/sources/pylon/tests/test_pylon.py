@@ -260,7 +260,48 @@ def _scripted_page(items: list[dict[str, Any]], cursor: str | None = None) -> Sc
     return ScriptedResponse(json=_page(items, cursor))
 
 
+def test_surveys_reads_unpaginated_definitions() -> None:
+    survey = {"id": "survey-1", "name": "Support feedback", "type": "csat", "updated_at": "2026-06-22T10:00:00Z"}
+    result = _driver().run(
+        "surveys", route({"/surveys": [ScriptedResponse(json={"data": [survey], "request_id": "req"})]})
+    )
+
+    assert result.raised is None
+    assert result.paths == ["/surveys"]
+    assert result.rows == [survey]
+
+
 class TestChildEndpoints:
+    def test_account_relationships_walks_account_pages_and_fills_missing_child_ids(self) -> None:
+        relationship = {"id": "relationship-1", "parent_account_id": "parent-1", "related_object_id": "parent-1"}
+
+        result = _driver().run(
+            "account_relationships",
+            route(
+                {
+                    "/accounts": [_scripted_page([{"id": "child-1"}], "next"), _scripted_page([{"id": "child-2"}])],
+                    "/accounts/child-1/relationships": [
+                        ScriptedResponse(json={"data": [{**relationship, "child_account_id": "child-1"}]})
+                    ],
+                    "/accounts/child-2/relationships": [ScriptedResponse(json={"data": [relationship]})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/accounts",
+            "/accounts/child-1/relationships",
+            "/accounts",
+            "/accounts/child-2/relationships",
+        ]
+        assert result.params("cursor") == [None, None, "next", None]
+        assert result.params("limit") == ["999", None, "999", None]
+        assert result.rows == [
+            {**relationship, "child_account_id": "child-1"},
+            {**relationship, "child_account_id": "child-2"},
+        ]
+
     @parameterized.expand(
         [
             ("incremental", True, "2026-01-02T03:04:05Z", None, "2026-01-02T03:04:05Z", "2026-06-23T00:00:00Z"),
@@ -367,21 +408,38 @@ class TestChildEndpoints:
         assert result.raised is None
         assert [(row["knowledge_base_id"], row["id"]) for row in result.rows] == [("kb2", "a2")]
 
+    @parameterized.expand(
+        [
+            ("issue_messages", "messages", "1000"),
+            ("issue_threads", "threads", None),
+        ]
+    )
     @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    def test_issue_messages_fan_out_over_every_issues_window(self) -> None:
+    def test_issue_children_fan_out_over_every_issues_window(
+        self, table: str, child_path: str, child_limit: str | None
+    ) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
             if request.path == "/issues":
                 if request.param("start_time") == "2026-06-18T00:00:00Z":
                     return _scripted_page([{"id": "i1"}])
                 return _scripted_page([])
-            assert request.path == "/issues/i1/messages"
-            return _scripted_page([{"id": "m1"}, {"id": "m2"}])
+            assert request.path == f"/issues/i1/{child_path}"
+            assert request.param("limit") == child_limit
+            if child_path == "messages":
+                return _scripted_page([{"id": "row-1"}, {"id": "row-2"}])
+            return ScriptedResponse(
+                json={
+                    "data": [{"id": "row-1", "issue_id": "i1", "name": "Triage", "delivery_mode": "none"}],
+                    "request_id": "req",
+                }
+            )
 
-        result = _driver().run("issue_messages", respond)
+        result = _driver().run(table, respond)
 
         assert result.raised is None
         issue_requests = [request for request in result.requests if request.path == "/issues"]
         assert len(issue_requests) == 13
         assert issue_requests[0].param("start_time") == "2025-06-23T00:00:00Z"
         assert issue_requests[-1].param("end_time") == "2026-06-23T00:00:00Z"
-        assert [(row["issue_id"], row["id"]) for row in result.rows] == [("i1", "m1"), ("i1", "m2")]
+        expected_ids = ["row-1", "row-2"] if child_path == "messages" else ["row-1"]
+        assert [(row["issue_id"], row["id"]) for row in result.rows] == [("i1", row_id) for row_id in expected_ids]
