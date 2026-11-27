@@ -247,6 +247,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const broadcastDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ??
         (broadcastCohortLoading ? FINDING_FLAG_PEOPLE_MESSAGE : broadcastNoOneReason(featureFlag))
+    const broadcastShown =
+        canCreateFlagCohort && !broadcastDisabledReason
+            ? ({ source: FLAG_BROADCAST_SOURCE, destination: 'broadcast' } as const)
+            : null
 
     // Expose the flag's release conditions to PostHog AI so it can answer "who does this match?"
     // and build an equivalent insight. The blast-radius endpoint only returns counts, so without
@@ -526,9 +530,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 Create cohort
                             </ButtonPrimitive>
                         )}
-                        {canCreateFlagCohort && !broadcastDisabledReason && (
-                            <MessageAudienceShownInScenePanel source={FLAG_BROADCAST_SOURCE} destination="broadcast" />
-                        )}
+                        {broadcastShown && <MessageAudienceShownInScenePanel {...broadcastShown} />}
                         {canCreateFlagCohort && (
                             <ButtonPrimitive
                                 menuItem
@@ -685,9 +687,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             Cohort
                                         </SceneMenuBarItem>
                                     )}
-                                    {canCreateFlagCohort && !broadcastDisabledReason && (
-                                        <MessageAudienceShown source={FLAG_BROADCAST_SOURCE} destination="broadcast" />
-                                    )}
+                                    {broadcastShown && <MessageAudienceShown {...broadcastShown} />}
                                     {canCreateFlagCohort && (
                                         <SceneMenuBarItem
                                             onClick={() => findOrCreateBroadcastCohort()}
