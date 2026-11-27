@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { MAX_MISSING_KEYS_REASON, aiShellLogic } from '~/layout/ai/aiShellLogic'
+
 import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
 import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
@@ -11,6 +13,7 @@ export function TodayHomeComposer(): JSX.Element {
     const { isNewProject } = useValues(todayLogic)
     const { prefillRequest } = useValues(todayHomeComposerLogic)
     const { homeTaskStarted } = useActions(todayHomeComposerLogic)
+    const { isMaxAvailable } = useValues(aiShellLogic)
 
     return (
         <>
@@ -20,6 +23,7 @@ export function TodayHomeComposer(): JSX.Element {
                     autoFocus={false}
                     onTaskCreated={homeTaskStarted}
                     prefillRequest={prefillRequest}
+                    disabledReason={isMaxAvailable ? undefined : MAX_MISSING_KEYS_REASON}
                     fallback={<QuillTaskComposerSkeleton />}
                 />
             </div>

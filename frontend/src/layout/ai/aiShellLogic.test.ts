@@ -29,13 +29,23 @@ describe('aiShellLogic', () => {
             { realm: 'a not-yet-loaded preflight', preflight: null, expected: true },
             { realm: 'PostHog Cloud', preflight: { cloud: true }, expected: true },
             {
-                realm: 'self-hosted with an Anthropic key',
-                preflight: { cloud: false, is_debug: false, anthropic_available: true },
+                realm: 'self-hosted with both keys',
+                preflight: { cloud: false, is_debug: false, anthropic_available: true, openai_available: true },
                 expected: true,
             },
             {
+                realm: 'self-hosted with only an Anthropic key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: true, openai_available: false },
+                expected: false,
+            },
+            {
+                realm: 'self-hosted with only an OpenAI key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: false, openai_available: true },
+                expected: false,
+            },
+            {
                 realm: 'self-hosted without a key',
-                preflight: { cloud: false, is_debug: false, anthropic_available: false },
+                preflight: { cloud: false, is_debug: false, anthropic_available: false, openai_available: false },
                 expected: false,
             },
         ])('is $expected on $realm', async ({ preflight, expected }) => {

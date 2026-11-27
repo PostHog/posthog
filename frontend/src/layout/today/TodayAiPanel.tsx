@@ -30,8 +30,8 @@ export function TodayAiPanel(): JSX.Element {
                     </EmptyMedia>
                     <EmptyTitle>PostHog AI isn't set up yet</EmptyTitle>
                     <EmptyDescription>
-                        PostHog AI runs on your own LLM provider key. Set <code>ANTHROPIC_API_KEY</code> for this
-                        instance and restart PostHog to start chatting.
+                        PostHog AI runs on your own LLM provider keys. Set <code>ANTHROPIC_API_KEY</code> and{' '}
+                        <code>OPENAI_API_KEY</code> for this instance and restart PostHog to start chatting.
                     </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>
