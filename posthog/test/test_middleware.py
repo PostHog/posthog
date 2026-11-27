@@ -2720,7 +2720,8 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
 
 
 _LOGIN_DATA = {"email": APIBaseTest.CONFIG_EMAIL, "password": APIBaseTest.CONFIG_PASSWORD}
-_NO_ORGANIZATION_LOGIN_DATA = {"email": "no-organization@example.com", "password": APIBaseTest.CONFIG_PASSWORD}
+_NO_ORGANIZATION_EMAIL = "no-organization@example.com"
+_NO_ORGANIZATION_LOGIN_DATA = {"email": _NO_ORGANIZATION_EMAIL, "password": APIBaseTest.CONFIG_PASSWORD}
 
 
 class TestActivityLoggingMiddleware(APIBaseTest):
@@ -2828,7 +2829,7 @@ class TestActivityLoggingMiddleware(APIBaseTest):
             expected_id = key.id
         elif client_state == "anonymous":
             self.client.logout()
-            User.objects.create_user(**_NO_ORGANIZATION_LOGIN_DATA, first_name="")
+            User.objects.create_user(_NO_ORGANIZATION_EMAIL, APIBaseTest.CONFIG_PASSWORD, first_name="")
         elif client_state == "another_user_session":
             self.client.force_login(User.objects.create_and_join(self.organization, "another@example.com", None))
         entry_session_key = self.client.session.session_key
