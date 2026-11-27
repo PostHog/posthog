@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.billing import (
     get_destination_bytes_exported_by_team,
     get_free_historical_rows_synced_by_team,
     get_rows_synced_by_team,
+    get_rows_synced_for_team,
 )
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_destination_delivery import ExternalDataDestinationDelivery
@@ -96,6 +97,8 @@ class TestWarehouseRowsBilling(BaseTest):
         }
         assert self._report_totals() == expected
         assert self._collector_totals() == expected
+        assert get_rows_synced_for_team(self.team.pk, PERIOD_BEGIN, PERIOD_END) == 800
+        assert get_rows_synced_for_team(other_team.pk, PERIOD_BEGIN, PERIOD_END) == 800
 
     def test_collector_and_report_agree_during_the_free_period(self) -> None:
         begin = FREE_PERIOD_START

@@ -270,7 +270,7 @@ _get_business_context = get_team_business_context
 _MAX_COLUMN_NAME_LENGTH: int = WarehouseColumnAnnotation._meta.get_field("column_name").max_length or 400
 
 
-def _columns_for_enrichment(table: DataWarehouseTable, log: Any = logger) -> list[dict[str, Any]]:
+def _columns_for_enrichment(table: DataWarehouseTable, log: Any | None = logger) -> list[dict[str, Any]]:
     """User-facing columns to enrich (see `DataWarehouseTable.get_user_facing_columns`), minus any
     whose name exceeds the annotation key length — those can't be stored as a `WarehouseColumnAnnotation`.
     """
@@ -282,15 +282,21 @@ def _columns_for_enrichment(table: DataWarehouseTable, log: Any = logger) -> lis
         if len(name) > _MAX_COLUMN_NAME_LENGTH:
             # Surface the drop — otherwise the column silently vanishes from enrichment with no trace,
             # the same opacity that made the original DataError crash hard to diagnose.
-            log.warning(
-                "warehouse_enrichment.column_name_too_long",
-                column_name_prefix=name[:64],
-                column_name_length=len(name),
-                max_column_name_length=_MAX_COLUMN_NAME_LENGTH,
-            )
+            if log is not None:
+                log.warning(
+                    "warehouse_enrichment.column_name_too_long",
+                    column_name_prefix=name[:64],
+                    column_name_length=len(name),
+                    max_column_name_length=_MAX_COLUMN_NAME_LENGTH,
+                )
             continue
         result.append(column)
     return result
+
+
+def enrichable_column_names(table: DataWarehouseTable) -> set[str]:
+    """The column names `enrich_table_semantics_sync` enriches, for gates that predict whether it has work."""
+    return {column["name"] for column in _columns_for_enrichment(table, log=None)[:MAX_COLUMNS_PER_TABLE]}
 
 
 def _is_gateway_credit_refusal(error: Exception) -> bool:

@@ -60,6 +60,16 @@ SERVICENOW_ENDPOINTS: dict[str, ServiceNowEndpointConfig] = {
     # classes, plus business services from instances that have not moved them to the child table yet.
     "services": ServiceNowEndpointConfig(name="services", table="cmdb_ci_service"),
     "group_members": ServiceNowEndpointConfig(name="group_members", table="sys_user_grmember"),
+    "ci_relationships": ServiceNowEndpointConfig(name="ci_relationships", table="cmdb_rel_ci"),
+    # Journal entries are never edited, so the table has no `sys_updated_on` column.
+    "journal_entries": ServiceNowEndpointConfig(
+        name="journal_entries",
+        table="sys_journal_field",
+        default_incremental_field="sys_created_on",
+        incremental_fields=[option for option in SERVICENOW_INCREMENTAL_FIELDS if option["field"] == "sys_created_on"],
+    ),
+    "companies": ServiceNowEndpointConfig(name="companies", table="core_company"),
+    "locations": ServiceNowEndpointConfig(name="locations", table="cmn_location"),
 }
 
 ENDPOINTS = tuple(SERVICENOW_ENDPOINTS.keys())

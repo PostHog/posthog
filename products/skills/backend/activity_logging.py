@@ -90,7 +90,7 @@ def version_changes(previous: LLMSkill, published: LLMSkill) -> list[Change]:
 
 
 def _files_change(previous: LLMSkill, published: LLMSkill) -> Change | None:
-    # Compare digests, not content: a skill can hold 200 files of up to 1 MB each.
+    # Compare digests, not content: a skill can hold MAX_SKILL_FILE_COUNT files of up to 1 MB each.
     digests_by_skill: dict[Any, dict[str, str | None]] = {previous.pk: {}, published.pk: {}}
     for skill_id, path, digest in LLMSkillFile.objects.filter(skill_id__in=digests_by_skill).values_list(
         "skill_id", "path", "content_sha256"

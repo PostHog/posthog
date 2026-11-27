@@ -25,6 +25,7 @@ interface RuleModalProps {
     saveDisabledReason?: string
     suffix?: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
     filterLabels?: ReactNode
+    leadingFields?: ReactNode
     extraFields?: ReactNode
     footerExtra?: ReactNode
     samplingRate?: number
@@ -42,6 +43,7 @@ export function RuleModal({
     saveDisabledReason,
     suffix,
     filterLabels,
+    leadingFields,
     extraFields,
     footerExtra,
     samplingRate,
@@ -112,6 +114,7 @@ export function RuleModal({
                 saveDisabledReason={resolvedSaveDisabled}
                 suffix={suffix}
                 filterLabels={filterLabels}
+                leadingFields={leadingFields}
                 extraFields={extraFields}
                 footerExtra={footerExtra}
                 samplingRate={samplingRate}
@@ -180,6 +183,7 @@ export function RuleModal({
         >
             <div className="space-y-4 py-2">
                 {rule.disabled_data && <DisabledRuleBanner rule={rule} onClose={closeModal} />}
+                {leadingFields}
                 <div>
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-3">

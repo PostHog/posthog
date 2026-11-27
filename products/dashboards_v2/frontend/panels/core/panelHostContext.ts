@@ -1,6 +1,7 @@
 import { createContext } from 'react'
 
-export type QueryOutcome = 'success' | 'error'
+// `aborted` means the panel stopped waiting, such as when it unmounted, so it does not count as a failure.
+export type QueryOutcome = 'success' | 'error' | 'aborted'
 
 /** Told when a panel's query starts. The function it returns is called once the query ends. */
 export type QueryTiming = {

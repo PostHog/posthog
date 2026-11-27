@@ -5,6 +5,8 @@ from typing import Any
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
@@ -256,6 +258,90 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
         second = self._run_contacts()
 
         assert set(self._lists(second)) == {"Customer.io people (EU workspace 1002)"}
+
+    def test_segments_fill_a_cohort_each_next_to_any_realtime_cohort(self) -> None:
+        self.workspace.people = [person(1), person(2, unsubscribed=True), person(3, None), person(4)]
+        self.workspace.segments = [
+            {"id": 1, "name": "All Users", "type": "dynamic", "state": "finished"},
+            {"id": 2, "name": "VIP 🚀", "type": "manual", "state": "finished"},
+            {"id": 3, "name": "Empty", "type": "manual", "state": "finished"},
+            {"id": 4, "name": "Building", "type": "dynamic", "state": "build"},
+            {"id": 5, "name": "Rules", "type": "dynamic", "state": "finished"},
+            {"id": "²", "name": "Not a number", "type": "manual", "state": "finished"},
+            {"id": "9" * 5000, "name": "Too long", "type": "manual", "state": "finished"},
+        ]
+        everyone = {each["cio_id"] for each in self.workspace.people}
+        self.workspace.members = {
+            "1": everyone,
+            "2": {"c0000001", "c0000002", "c0000003"},
+            "4": everyone,
+            "5": everyone,
+        }
+        Cohort.objects.create(
+            team=self.team,
+            name="Rules",
+            description="Imported from Customer.io segment 5. Made by the workflow import from the segment's rules.",
+            cohort_type="realtime",
+            realtime_enabled_at=timezone.now(),
+        )
+        everyone_list = f"Customer.io people ({PLACE})"
+
+        first = self._run_contacts()
+
+        assert self._lists(first) == {
+            everyone_list: {
+                "person-1@example.com": True,
+                "person-2@example.com": False,
+                "person-4@example.com": True,
+            },
+            "VIP 🚀 (from Customer.io)": {"person-1@example.com": True, "person-2@example.com": False},
+            "All Users (from Customer.io)": {
+                "person-1@example.com": True,
+                "person-2@example.com": False,
+                "person-4@example.com": True,
+            },
+            # The automation import's realtime cohort stays, and the static copy sits next to it.
+            "Rules (from Customer.io)": {
+                "person-1@example.com": True,
+                "person-2@example.com": False,
+                "person-4@example.com": True,
+            },
+        }
+        warnings = " ".join(first.progress["contacts"]["warnings"])
+        assert '"Building" wasn\'t imported' in warnings and '"Rules"' not in warnings
+        assert [plan["send_events"] for plan in first.progress["contacts"]["people_imports"]] == [
+            True,
+            False,
+            False,
+            False,
+        ]
+        assert Cohort.objects.filter(team=self.team, name="Rules", cohort_type="realtime").exists()
+
+        runs.finish_run(self.team.id, first.id)
+        # A renamed segment keeps its cohort, and one that lost everyone empties it.
+        self.workspace.segments[1]["name"] = "Renamed"
+        self.workspace.members["2"] = set()
+        second = self._run_contacts()
+
+        cohorts = [
+            [plan["cohort_id"] for plan in run.progress["contacts"]["people_imports"]] for run in (first, second)
+        ]
+        assert cohorts[0] == cohorts[1]
+        assert self._lists(second)["VIP 🚀 (from Customer.io)"] == {}
+
+    @patch("products.messaging.backend.provider_imports.customerio.MAX_SEGMENT_MEMBERSHIPS", 2)
+    def test_segments_past_the_limit_are_left_out_after_the_manual_ones(self) -> None:
+        self.workspace.people = [person(1), person(2)]
+        self.workspace.segments = [
+            {"id": 1, "name": "All Users", "type": "dynamic", "state": "finished"},
+            {"id": 2, "name": "VIP", "type": "manual", "state": "finished"},
+        ]
+        self.workspace.members = {"1": {"c0000001", "c0000002"}, "2": {"c0000001"}}
+
+        run = self._run_contacts()
+
+        assert set(self._lists(run)) == {f"Customer.io people ({PLACE})", "VIP (from Customer.io)"}
+        assert "All Users" in run.progress["contacts"]["warnings"][0]
 
     @parameterized.expand(
         [

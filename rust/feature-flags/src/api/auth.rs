@@ -387,13 +387,17 @@ fn validate_personal_key_metadata(data: &TokenAuthData, team: &Team) -> Result<(
     }
 }
 
+pub struct ValidatedPersonalApiKey {
+    pub key_id: String,
+    pub user_id: i32,
+}
+
 /// Validates personal API key with feature flag scopes for a specific team
-/// Returns the PAK id (String) on success for use in last_used_at tracking
 pub async fn validate_personal_api_key_with_scopes_for_team(
     state: &AppState,
     key: &str,
     team: &Team,
-) -> Result<String, FlagError> {
+) -> Result<ValidatedPersonalApiKey, FlagError> {
     debug!(team_id = team.id, "Validating personal API key for team");
 
     let sha256_hash = hash_token_value(key);
@@ -410,15 +414,20 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
     match &result.value {
         Some(data) => {
             validate_personal_key_metadata(data, team)?;
-            let pak_id = match data {
-                TokenAuthData::Personal { key_id, .. } => key_id.clone().ok_or_else(|| {
-                    warn!("Cached personal API key missing key_id (stale cache entry)");
-                    FlagError::PersonalApiKeyInvalid
-                })?,
+            let validated = match data {
+                TokenAuthData::Personal {
+                    key_id, user_id, ..
+                } => ValidatedPersonalApiKey {
+                    key_id: key_id.clone().ok_or_else(|| {
+                        warn!("Cached personal API key missing key_id (stale cache entry)");
+                        FlagError::PersonalApiKeyInvalid
+                    })?,
+                    user_id: *user_id,
+                },
                 _ => return Err(FlagError::PersonalApiKeyInvalid),
             };
             debug!(team_id = team.id, "Personal API key validated successfully");
-            Ok(pak_id)
+            Ok(validated)
         }
         None => Err(FlagError::PersonalApiKeyInvalid),
     }

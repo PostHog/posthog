@@ -1,5 +1,5 @@
 import type { Ticket } from '../../types'
-import { scene, simplifiedRepliesFor } from './SupportTicketScene'
+import { personDistinctIdForTicket, scene, simplifiedRepliesFor } from './SupportTicketScene'
 
 describe('SupportTicketScene', () => {
     describe('paramsToProps', () => {
@@ -49,6 +49,37 @@ describe('SupportTicketScene', () => {
             ['an object name as JSON text', { first: 'Ada', last: 'Example' }, '{"first":"Ada","last":"Example"}'],
         ])('shows %s', (_name, name, expected) => {
             expect(simplifiedRepliesFor(slackTicket(name), '').recipient).toBe(expected)
+        })
+    })
+
+    describe('personDistinctIdForTicket', () => {
+        const emailTicket = (personDistinctIds: string[] | null): Ticket => ({
+            id: 'ticket-2',
+            ticket_number: 2,
+            distinct_id: 'sender@example.com',
+            status: 'open',
+            channel_source: 'email',
+            anonymous_traits: {},
+            identity_verified: false,
+            ai_resolved: false,
+            created_at: '2026-06-12T00:00:00Z',
+            updated_at: '2026-06-12T00:00:00Z',
+            message_count: 1,
+            last_message_at: '2026-06-12T00:00:00Z',
+            last_message_text: 'Hello',
+            unread_team_count: 0,
+            unread_customer_count: 0,
+            person: personDistinctIds
+                ? { id: 'person-2', name: '', distinct_ids: personDistinctIds, properties: {} }
+                : null,
+        })
+
+        test.each<[string, string[] | null, string]>([
+            ['the person matched by email property', ['user-42'], 'user-42'],
+            ['the ticket distinct_id when the person owns it', ['user-42', 'sender@example.com'], 'sender@example.com'],
+            ['the ticket distinct_id when no person matched', null, 'sender@example.com'],
+        ])('links to %s', (_name, personDistinctIds, expected) => {
+            expect(personDistinctIdForTicket(emailTicket(personDistinctIds))).toBe(expected)
         })
     })
 })

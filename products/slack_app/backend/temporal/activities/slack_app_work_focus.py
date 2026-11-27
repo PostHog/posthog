@@ -37,9 +37,31 @@ def find_slack_app_work_focus_activity(inputs: SlackAppWorkFocusInputs) -> str:
                 since=datetime.fromtimestamp(inputs.since, tz=UTC),
                 run_at=datetime.fromtimestamp(inputs.run_at, tz=UTC),
             )
-        report_daily_focus_run(integration, inputs.slack_user_id, outcome)
+        # The agent workflow reports the run when it ends, so each run has one final outcome.
+        if outcome != "agent_started":
+            report_daily_focus_run(integration, inputs.slack_user_id, outcome)
         return outcome
     return find_and_send_work_focus(integration, inputs.slack_user_id)
+
+
+@activity.defn
+def run_slack_app_daily_focus_agent_activity(inputs: SlackAppWorkFocusInputs) -> str:
+    from products.slack_app.backend.logic.daily_focus import person_zone, report_daily_focus_run
+    from products.slack_app.backend.logic.onboarding.daily_focus_agent import run_daily_focus_agent
+    from products.slack_app.backend.services.workspace_integrations import get_workspace_integration
+
+    integration = get_workspace_integration(inputs.integration_id, inputs.slack_team_id)
+    if integration is None or inputs.since is None or inputs.run_at is None:
+        return "integration_gone"
+    outcome = run_daily_focus_agent(
+        integration,
+        inputs.slack_user_id,
+        since=datetime.fromtimestamp(inputs.since, tz=UTC),
+        run_at=datetime.fromtimestamp(inputs.run_at, tz=UTC),
+        zone=person_zone(integration, inputs.slack_user_id),
+    )
+    report_daily_focus_run(integration, inputs.slack_user_id, outcome)
+    return outcome
 
 
 @activity.defn

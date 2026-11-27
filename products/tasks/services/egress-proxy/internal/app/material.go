@@ -3,6 +3,7 @@ package app
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"time"
 )
@@ -59,16 +60,44 @@ func verifyClientCertificate(cert tls.Certificate, caFile string) error {
 }
 
 func roots(path string) (*x509.CertPool, error) {
+	bundle, err := loadRoots(path)
+	return bundle.pool, err
+}
+
+type rootBundle struct {
+	pool    *x509.CertPool
+	expires time.Time
+}
+
+func loadRoots(path string) (rootBundle, error) {
 	if path == "" {
-		return nil, nil
+		return rootBundle{}, nil
 	}
 	data, err := readFile(path)
 	if err != nil {
-		return nil, err
+		return rootBundle{}, err
 	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(data) {
-		return nil, errors.New("invalid CA bundle")
+	bundle := rootBundle{pool: x509.NewCertPool()}
+	for len(data) > 0 {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		bundle.pool.AddCert(cert)
+		if bundle.expires.IsZero() || cert.NotAfter.Before(bundle.expires) {
+			bundle.expires = cert.NotAfter
+		}
 	}
-	return pool, nil
+	if bundle.expires.IsZero() {
+		return rootBundle{}, errors.New("invalid CA bundle")
+	}
+	return bundle, nil
 }
