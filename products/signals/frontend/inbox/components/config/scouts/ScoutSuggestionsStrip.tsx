@@ -115,7 +115,6 @@ function ExpandedHeader(): JSX.Element {
     )
 }
 
-/** The strip's own actions, folded into one menu so the rows below hold the only visible buttons. */
 function StripMenu(): JSX.Element {
     const { isRefreshing, suggestionSet, runningChatType, aiConsentDisabledReason, scoutChatDisabledReason } =
         useValues(scoutSuggestionsLogic)

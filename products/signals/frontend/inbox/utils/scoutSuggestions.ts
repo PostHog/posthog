@@ -35,11 +35,7 @@ export function suggestionMetaLine(config: ScoutSuggestionProposedConfigApi): st
     return config.emit ? cadence : `${cadence} · dry run, files nothing`
 }
 
-/**
- * One sentence that says what the suggested scout does. Batches stored before the producer wrote
- * `goal` have none, and a canonical pick has no `description`, so the last fallback is the first
- * sentence of the evidence.
- */
+/** A canonical pick has no description, so a batch stored before `goal` existed falls back to the evidence. */
 export function suggestionGoal(item: Pick<ScoutSuggestionItemApi, 'goal' | 'description' | 'why_here'>): string {
     const goal = item.goal?.trim() || item.description.trim()
     if (goal) {

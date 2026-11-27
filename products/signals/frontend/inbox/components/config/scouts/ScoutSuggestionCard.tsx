@@ -20,10 +20,8 @@ export interface ScoutSuggestionCardProps {
 }
 
 /**
- * The row carries a title, one sentence on what the scout does, and one action. The evidence folds
- * behind "Why this?", because a person new to scouts reads the goal first and the reasons only if
- * they doubt it. The create form already holds the draft, the schedule and the output setting, and
- * is where editing happens, so pressing the title or Review opens it before anything is written.
+ * The row carries the goal and one action. The create form already holds the draft, the schedule and
+ * the output setting, so pressing the title or Review opens it before anything is written.
  */
 export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps): JSX.Element {
     const { busySuggestionIds } = useValues(scoutSuggestionsLogic)

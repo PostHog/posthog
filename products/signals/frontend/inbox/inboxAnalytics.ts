@@ -1760,11 +1760,7 @@ export function captureScoutSuggestionsChatOpened(params: { batchStatus: string 
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_CHAT_OPENED, { batch_status: params.batchStatus })
 }
 
-/**
- * A folded explanation was opened. The rows lead with one plain sentence and fold the rest away, so
- * this shows whether people need the explainer or the evidence before they act. `why_this` names
- * the suggestion it opened; `whats_a_scout` is about the strip as a whole.
- */
+/** A folded explanation was opened. Only `why_this` names a suggestion. */
 export function captureScoutSuggestionDisclosureOpened(params: {
     disclosure: ScoutSuggestionDisclosure
     surface: ScoutSuggestionSurface

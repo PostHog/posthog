@@ -113,8 +113,6 @@ def validate_suggestion_items(
             continue
         if not item.title.strip() or not item.why_here.strip():
             continue
-        # The goal is optional, because the row falls back to other text without it, so an overlong
-        # goal is cleared rather than costing the project the whole suggestion.
         goal = item.goal.strip()
         seen.add(name)
         kept.append(
