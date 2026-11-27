@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -19,7 +19,12 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
 
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_TABLE
+from products.messaging.backend.facade.transactional_email import SentMessageMatch, match_sent_message_ids
+from products.messaging.backend.models.email_status_sql import (
+    EMAIL_STATUS_DATA_TABLE,
+    EMAIL_STATUS_EVENTS_DATA_TABLE,
+    EMAIL_STATUS_EVENTS_TABLE,
+)
 from products.messaging.backend.services.transactional_email_status import keyed_message_id, message_created_at
 
 # The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
@@ -288,6 +293,105 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(self._url(self.message_id))
 
         assert response.status_code == expected_status
+
+
+class TestMatchSentMessageIds(ClickhouseTestMixin, BaseTest):
+    def _sent_row(self, team: Team, message_id: str, provider_message_id: str) -> None:
+        now = datetime.now(UTC)
+        sync_execute(
+            f"""
+            INSERT INTO {EMAIL_STATUS_EVENTS_DATA_TABLE}
+                (team_id, message_id, status, version, created_at, status_at, provider_message_id,
+                 _timestamp, _offset, _partition)
+            VALUES
+            """,
+            [
+                {
+                    "team_id": team.id,
+                    "message_id": message_id,
+                    "status": "sent",
+                    "version": 0,
+                    "created_at": now,
+                    "status_at": now,
+                    "provider_message_id": provider_message_id,
+                    "_timestamp": now,
+                    "_offset": 0,
+                    "_partition": 0,
+                }
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "us_east_1",
+                ["<0100018c-ours-000000@email.amazonses.com>"],
+                {"<0100018c-ours-000000@email.amazonses.com>"},
+            ),
+            (
+                "another_region",
+                ["<0100018c-ours-000000@eu-central-1.amazonses.com>"],
+                {"<0100018c-ours-000000@eu-central-1.amazonses.com>"},
+            ),
+            (
+                "a_references_header_naming_two_sends",
+                [
+                    "<a@mail.gmail.com> <0100018c-other-000000@email.amazonses.com> "
+                    "<0100018c-unknown-000000@email.amazonses.com> <0100018c-ours-000000@email.amazonses.com>"
+                ],
+                {"<0100018c-other-000000@email.amazonses.com>", "<0100018c-ours-000000@email.amazonses.com>"},
+            ),
+            (
+                "in_reply_to_beside_a_long_references_header",
+                [
+                    "<0100018c-ours-000000@email.amazonses.com>",
+                    " ".join(f"<0100018c-unknown-{n}@email.amazonses.com>" for n in range(10)),
+                ],
+                {"<0100018c-ours-000000@email.amazonses.com>"},
+            ),
+            (
+                "older_than_the_newest_ten_of_its_header",
+                [
+                    "<0100018c-ours-000000@email.amazonses.com> "
+                    + " ".join(f"<0100018c-unknown-{n}@email.amazonses.com>" for n in range(10))
+                ],
+                set(),
+            ),
+            ("inside_a_comment", ["<a@example.com> (see <0100018c-ours-000000@email.amazonses.com>)"], set()),
+            (
+                "after_an_escaped_paren_in_a_comment",
+                ["(note \\) <0100018c-ours-000000@email.amazonses.com>) <a@example.com>"],
+                set(),
+            ),
+            (
+                "inside_a_nested_comment",
+                ["<a@example.com> (see (also <0100018c-ours-000000@email.amazonses.com>) here)"],
+                set(),
+            ),
+            (
+                "in_a_third_header",
+                ["<a@example.com>", "<b@example.com>", "<0100018c-ours-000000@email.amazonses.com>"],
+                set(),
+            ),
+            ("not_an_ses_domain", ["<0100018c-ours-000000@example.com>"], set()),
+            ("unbracketed", ["0100018c-ours-000000@email.amazonses.com"], set()),
+            ("another_teams_send", ["<0100018c-theirs-000000@email.amazonses.com>"], set()),
+            ("never_sent", ["<0100018c-unknown-000000@email.amazonses.com>"], set()),
+        ]
+    )
+    def test_matches_wire_message_ids_to_this_teams_sends(self, _name, headers, matched_wire_ids):
+        send_ids = {provider_id: str(UUIDT()) for provider_id in ("0100018c-ours-000000", "0100018c-other-000000")}
+        for provider_id, send_id in send_ids.items():
+            self._sent_row(self.team, send_id, provider_id)
+        other_team = Team.objects.create(organization=self.organization)
+        self._sent_row(other_team, str(UUIDT()), "0100018c-theirs-000000")
+
+        found = match_sent_message_ids(self.team.id, headers)
+
+        assert sorted(found, key=lambda match: match.wire_message_id) == [
+            SentMessageMatch(wire_message_id=wire_id, send_id=send_ids[wire_id[1:].split("@")[0]])
+            for wire_id in sorted(matched_wire_ids)
+        ]
 
 
 class TestKeyedMessageId(SimpleTestCase):

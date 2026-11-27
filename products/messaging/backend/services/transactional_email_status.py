@@ -4,7 +4,9 @@ The send API writes `queued`, or `scheduled` for a send that waits for its time,
 `complained`. A row's version only grows as an email moves forward, so the row with the highest version is the status.
 """
 
+import re
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid5
@@ -16,8 +18,9 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.event.new_events_schema import events_route_scope
 
-from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus
+from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus, SentMessageMatch
 from products.messaging.backend.models.email_status_sql import (
+    EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_RETENTION_DAYS,
     EMAIL_STATUS_SHOWN_REASON,
     EMAIL_STATUS_TABLE,
@@ -150,4 +153,74 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
         created_at=created_at,
         status_at=status_at,
         reason=reason or None,
+    )
+
+
+# Anyone can send these headers, and each extra id weakens the bloom index. References lists the newest ids last, and
+# those name the reply's parent, so only the last few of each header are read.
+_MAX_WIRE_IDS_PER_HEADER = 10
+# A reply needs In-Reply-To and References, and References keeps its newest ids at the end.
+_MAX_HEADERS = 2
+_MAX_HEADER_CHARS = 10_000
+
+# SES writes `<MessageId@email.amazonses.com>` or `@<region>.amazonses.com`, and the sent row keeps only the MessageId.
+_SES_WIRE_MESSAGE_ID = re.compile(r"<([^<>@\s]+)@[a-z0-9-]+\.amazonses\.com>", re.IGNORECASE)
+_SENT_MESSAGE_QUERY = f"""
+SELECT provider_message_id, any(message_id)
+FROM {EMAIL_STATUS_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND provider_message_id IN %(provider_message_ids)s
+GROUP BY provider_message_id
+"""
+
+
+def _without_comments(header: str) -> str:
+    """An RFC 5322 comment can quote another Message-ID, which names no parent of the reply. One pass, so nesting
+    in a header anyone can send costs no more than its length."""
+    depth = 0
+    escaped = False
+    kept = []
+    for char in header:
+        if escaped:
+            escaped = False
+        elif depth and char == "\\":
+            escaped = True
+        elif char == "(":
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+        elif not depth:
+            kept.append(char)
+    return "".join(kept)
+
+
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
+def match_sent_message_ids(team_id: int, headers: Sequence[str]) -> tuple[SentMessageMatch, ...]:
+    """The sends of this team named in these header values, such as a reply's raw In-Reply-To and References."""
+    wire_ids: dict[str, str] = {}
+    for header in headers[:_MAX_HEADERS]:
+        newest: dict[str, str] = {}
+        for match in _SES_WIRE_MESSAGE_ID.finditer(_without_comments(header[-_MAX_HEADER_CHARS:])):
+            newest.pop(match[1], None)
+            newest[match[1]] = match[0]
+            if len(newest) > _MAX_WIRE_IDS_PER_HEADER:
+                del newest[next(iter(newest))]
+        for provider_id, wire_id in newest.items():
+            wire_ids.setdefault(provider_id, wire_id)
+    if not wire_ids:
+        return ()
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    rows = cast(
+        list,
+        sync_execute(
+            _SENT_MESSAGE_QUERY,
+            {"team_id": team_id, "provider_message_ids": list(wire_ids)},
+            # Without the index this reads every row the team sent in 31 days, so refuse to run rather than scan.
+            settings={"force_data_skipping_indices": "provider_message_id_idx"},
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        ),
+    )
+    return tuple(
+        SentMessageMatch(wire_message_id=wire_ids[provider_id], send_id=str(send_id)) for provider_id, send_id in rows
     )

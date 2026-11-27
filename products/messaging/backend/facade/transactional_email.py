@@ -29,6 +29,7 @@ from products.messaging.backend.facade.contracts import (
     ReplyHeaders,
     SendWarning,
     SendWarningCode,
+    SentMessageMatch,
     TransactionalEmailError,
     UploadQuotaExceeded,
 )
@@ -54,7 +55,11 @@ from products.messaging.backend.services.transactional_email import (
     sync_transactional_workflow,
     transactional_email_stage,
 )
-from products.messaging.backend.services.transactional_email_status import get_email_status, keyed_message_id
+from products.messaging.backend.services.transactional_email_status import (
+    get_email_status,
+    keyed_message_id,
+    match_sent_message_ids,
+)
 
 __all__ = [
     "PIPELINE_ADDRESS_PATTERN",
@@ -89,6 +94,7 @@ __all__ = [
     "ReplyHeaders",
     "SendWarning",
     "SendWarningCode",
+    "SentMessageMatch",
     "TransactionalEmailError",
     "TransactionalEmailStage",
     "check_email_batch",
@@ -96,6 +102,7 @@ __all__ = [
     "get_email_status",
     "is_idempotency_key",
     "keyed_message_id",
+    "match_sent_message_ids",
     "lock_transactional_workflow_id",
     "make_transactional",
     "observe_transactional_email_stage",
