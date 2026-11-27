@@ -66,7 +66,11 @@ Without AI recommendations enabled, users configure goals manually; capability r
 ## Discovery and access
 
 Discovery reads PostgreSQL event definitions, event-property associations, and numeric property definitions instead of aggregating the ClickHouse events table.
-It reads at most 1,000 non-system event definitions in indexed name order and 50 recently updated accessible actions.
+It reads at most 1,000 non-system event definitions and 50 recently updated accessible actions.
+The events that queries used most in the last 30 days come first, then the rest in indexed name order.
+Query usage comes from the usage metrics that query execution records in ClickHouse, not from the events table.
+When that read fails or returns nothing, discovery keeps the name order.
+Usage is recorded per environment, so queries run in a sibling environment of the project do not count.
 It excludes hidden events, definitions last seen before the analysis cutoff, and sources already configured as goals.
 The initial catalog has a 60,000-character JSON budget, including event names and descriptions but no property values.
 Larger catalogs may omit useful sources; the scan is not exhaustive.

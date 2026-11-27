@@ -3,22 +3,26 @@ from datetime import timedelta
 from typing import Literal, TypeVar
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Q
 from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.api.statement_timeout import statement_timeout
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.utils.event_usage import fetch_most_used_event_names
 from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import DefinitionListTimedOut, definition_read_db_alias
-from posthog.taxonomy.definition_search import NAME_ORDER_MIN_DEFINITIONS, project_definition_scale
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.user_permissions import UserPermissions
 
@@ -37,6 +41,7 @@ logger = structlog.get_logger(__name__)
 RUN_DEADLINE = timedelta(minutes=5)
 SCAN_COOLDOWN = timedelta(hours=1)
 MAX_CATALOG_EVENTS = 1000
+MAX_USAGE_RANKED_EVENTS = 2 * MAX_CATALOG_EVENTS
 MAX_CATALOG_ACTIONS = 50
 MAX_CATALOG_CHARACTERS = 60_000
 MAX_SHORTLIST_SOURCES = 10
@@ -248,18 +253,28 @@ class ConversionRecommendationService:
             )
 
     def event_catalog(self, run: ConversionRecommendationRun) -> list[ConversionCandidate]:
+        used_names = self.most_used_event_names()
+        usage_rank = {name: rank for rank, name in enumerate(used_names)}
         alias = definition_read_db_alias(EventDefinition)
         with statement_timeout(alias, CATALOG_QUERY_TIMEOUT_MS, DefinitionListTimedOut, CATALOG_QUERY_TIMEOUTS):
-            scale = project_definition_scale("posthog_eventdefinition", self.team.project_id, alias)
-            definitions = list(
+            active = (
                 EventDefinition.objects.using(alias)
                 .alias(effective_project_id=effective_project_id_expr())
                 .filter(effective_project_id=self.team.project_id)
                 .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__gte=run.date_from))
                 .exclude(name__in=DEFAULT_EXCLUDED_EVENTS)
-                .order_by(*(["name"] if scale.orders_by_name else [F("last_seen_at").desc(nulls_last=True), "name"]))
-                .values_list("pk", "name")[:MAX_CATALOG_EVENTS]
             )
+            used: list[tuple[int, str]] = []
+            if used_names:
+                used = sorted(
+                    active.filter(name__in=used_names).values_list("pk", "name"),
+                    key=lambda definition: usage_rank[definition[1]],
+                )[:MAX_CATALOG_EVENTS]
+            unused = active.exclude(name__in=[name for _, name in used]) if used else active
+            definitions = [
+                *used,
+                *unused.order_by("name").values_list("pk", "name")[: MAX_CATALOG_EVENTS - len(used)],
+            ]
             descriptions: dict[str, str] = {}
             hidden: set[str] = set()
             if EE_AVAILABLE:
@@ -288,6 +303,19 @@ class ConversionRecommendationService:
             for _, name in definitions
             if name not in hidden
         ]
+
+    def most_used_event_names(self) -> list[str]:
+        try:
+            with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=self.team.pk):
+                return fetch_most_used_event_names(self.team, limit=MAX_USAGE_RANKED_EVENTS, workload=Workload.OFFLINE)
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as error:
+            logger.warning(
+                "marketing_conversion_event_usage_failed", team_id=self.team.pk, error_type=type(error).__name__
+            )
+            capture_exception(error)
+            return []
 
     def hydrate_candidates(self, candidates: list[ConversionCandidate]) -> list[ConversionCandidate]:
         self.require_access()
@@ -519,7 +547,7 @@ class ConversionRecommendationService:
         return ConversionRecommendationResults(
             recommendations=recommendations,
             limitations=[
-                f"Discovery reads up to 1,000 event definitions, most recently seen first, and 50 recently updated actions. Projects with more than {NAME_ORDER_MIN_DEFINITIONS:,} event definitions are read in name order. The catalog sent to AI is size-limited.",
+                "Discovery reads up to 1,000 event definitions and 50 recently updated actions. When query usage is available, events used in queries in the last 30 days come first, then the rest in name order. The catalog sent to AI is size-limited.",
                 "Up to 10 sources are selected for review, with up to 50 property names per event. Other sources may be omitted.",
                 "Event definitions last seen before the analysis period are excluded. Definitions without activity dates may be included.",
                 "The event catalog is shared across project environments. Counts and activity in this environment are not verified, and test accounts are not filtered.",
