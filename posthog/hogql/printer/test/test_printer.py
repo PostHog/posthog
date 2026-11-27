@@ -4586,26 +4586,26 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("same_function", "lookupPaidSourceType(lookupPaidSourceType('google'))", "lookupPaidSourceType"),
-            ("mixed_functions", "lookupOrganicMediumType(lookupDomainType('google.com'))", "lookupDomainType"),
-            ("wrapped", "lookupPaidSourceType(lower(lookupOrganicSourceType('google')))", "lookupOrganicSourceType"),
-            ("scalar_subquery", "lookupPaidMediumType((SELECT lookupPaidMediumType('cpc')))", "lookupPaidMediumType"),
+            ("convert_currency_amount", "convertCurrency('USD', 'EUR', {})", "1"),
+            ("convert_currency_from_currency", "convertCurrency({}, 'EUR', 1)", "event"),
+            ("channel_source_lookup", "lookupPaidSourceType({})", "event"),
+            ("channel_medium_lookup", "lookupOrganicMediumType({})", "event"),
+            ("nullable_comparison", "({} = properties.b)", "properties.a"),
         ]
     )
-    def test_nested_channel_lookup_is_rejected(self, _name: str, expr: str, inner_function: str):
-        with self.assertRaises(QueryError) as context:
-            self._print(f"select {expr} from events")
+    def test_nesting_that_multiplies_printed_sql_is_rejected(self, _name: str, template: str, innermost: str):
+        def nested(depth: int) -> str:
+            expr = innermost
+            for _ in range(depth):
+                expr = template.format(expr)
+            return f"select {expr} from events"
 
-        assert str(context.exception) == (
-            f"Function '{inner_function}' cannot be nested inside another channel lookup function."
-        )
+        with patch("posthog.hogql.printer.clickhouse.MAX_PRINTED_SQL_LENGTH", 100_000):
+            self._print(nested(2))
+            with self.assertRaises(QueryError) as context:
+                self._print(nested(12))
 
-    def test_sibling_channel_lookups_are_allowed(self):
-        printed = self._print(
-            "select lookupPaidSourceType('google'), lookupPaidMediumType('cpc'), lookupDomainType('google.com') from events"
-        )
-
-        assert printed.count("channel_definition_dict") == 5
+        assert str(context.exception) == "This query is too large to run. Reduce how deeply its expressions are nested."
 
     def test_currency_conversion(self):
         printed = self._print(

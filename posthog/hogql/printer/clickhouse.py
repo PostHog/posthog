@@ -58,6 +58,7 @@ from posthog.hogql.restricted_properties import (
 from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
@@ -214,17 +215,11 @@ def _channel_medium_lookup(channel_dict: str, attribute: str, key: str) -> str:
     return f"if(isNull({key}), NULL, dictGetOrNull('{channel_dict}', '{attribute}', (coalesce({key}, ''), 'medium')))"
 
 
-# These print their argument more than once, so each level of nesting multiplies the printed SQL. User HogQL can call
-# them, so a nested call is refused before the SQL grows exponentially.
-_CHANNEL_LOOKUP_FUNCTIONS = frozenset(
-    {
-        "lookupDomainType",
-        "lookupPaidSourceType",
-        "lookupPaidMediumType",
-        "lookupOrganicSourceType",
-        "lookupOrganicMediumType",
-    }
-)
+# Some expansions print an argument more than once: comparisons of nullable sides, the channel lookups and
+# convertCurrency. Each level of nesting multiplies the printed SQL, so a small query can make the printer build gigabytes.
+# Every visit checks its printed size, which stops the growth one level past this budget. ClickHouse rejects a query
+# over MAX_QUERY_SIZE_BYTES. The budget is twice that because a placeholder prints longer than most of its values.
+MAX_PRINTED_SQL_LENGTH = 2 * MAX_QUERY_SIZE_BYTES
 
 
 def _group_type_index_of_blob(column_name: str) -> int | None:
@@ -236,8 +231,6 @@ class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
     _unmasked_blob_type: ast.FieldType | None = None
-    # Set while the argument of a channel lookup is printed, which may hold a subquery (see _CHANNEL_LOOKUP_FUNCTIONS).
-    _inside_channel_lookup_argument: bool = False
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -496,20 +489,8 @@ class ClickHousePrinter(BasePrinter):
         is_null_literal = isinstance(column_type, ast.UnknownType) and not column_type.unanalyzable
         return column_type.nullable and not is_null_literal
 
-    def _print_channel_lookup_arguments(self, node: ast.Call) -> list[str]:
-        if self._inside_channel_lookup_argument:
-            raise QueryError(f"Function '{node.name}' cannot be nested inside another channel lookup function.")
-        self._inside_channel_lookup_argument = True
-        try:
-            return [self.visit(arg) for arg in node.args]
-        finally:
-            self._inside_channel_lookup_argument = False
-
     def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
-        if node.name in _CHANNEL_LOOKUP_FUNCTIONS:
-            args = self._print_channel_lookup_arguments(node)
-        else:
-            args = [self.visit(arg) for arg in node.args]
+        args = [self.visit(arg) for arg in node.args]
 
         if node.name == "embedText":
             return self.visit_constant(resolve_embed_text(self.context.team, node))
@@ -554,6 +535,9 @@ class ClickHousePrinter(BasePrinter):
         if node is None:
             return ""
         response = super().visit(node)
+        # A join prints to a JoinExprResponse, and the select query that holds it is checked.
+        if isinstance(response, str) and len(response) > MAX_PRINTED_SQL_LENGTH:
+            raise QueryError("This query is too large to run. Reduce how deeply its expressions are nested.")
 
         if len(self.stack) == 0 and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
