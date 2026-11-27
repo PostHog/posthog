@@ -359,8 +359,13 @@ class TransactionalEmailClickSessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(help_text="The session ID, the same one session recordings use.")
     landed_at = serializers.DateTimeField(help_text="When the first page the link opened was viewed.")
     landing_url = serializers.CharField(help_text="The URL of that page, with the email's run tag.")
-    duration_seconds = serializers.IntegerField(help_text="From the session's first event to its last, in seconds.")
-    pageview_count = serializers.IntegerField(help_text="How many pages the session viewed.")
+    duration_seconds = serializers.IntegerField(
+        allow_null=True,
+        help_text="From the session's first event to its last, in seconds. Null until the session's totals are ready.",
+    )
+    pageview_count = serializers.IntegerField(
+        allow_null=True, help_text="How many pages the session viewed. Null until the session's totals are ready."
+    )
     device_type = serializers.CharField(allow_null=True, help_text="Such as `Desktop` or `Mobile`. Null when unknown.")
     browser = serializers.CharField(allow_null=True, help_text="The browser of the session. Null when unknown.")
     city = serializers.CharField(allow_null=True, help_text="The city the session came from. Null when unknown.")

@@ -43,7 +43,6 @@ CLICK_EVENT = "$workflows_email_link_clicked"
 OWN_EVENTS = ("$workflows_email_sent", "$workflows_email_delivered", "$workflows_email_opened", CLICK_EVENT)
 LANDING_BEFORE_CLICK = timedelta(minutes=2)
 LANDING_AFTER_CLICK = timedelta(minutes=30)
-SESSION_SPAN = timedelta(days=1)
 
 # Events that describe the SDK rather than something the person did.
 HIDDEN_EVENTS = (
@@ -369,14 +368,14 @@ def _landings(
         workload=Workload.ONLINE,
     )
     landings = response.results or []
-    stats = _session_stats(team, user, [row[0] for row in landings], start - SESSION_SPAN, end + SESSION_SPAN)
+    stats = _session_stats(team, user, [row[0] for row in landings])
     return [
         TransactionalEmailClickSession(
             session_id=session_id,
             landed_at=landed_at.astimezone(UTC),
             landing_url=landing_url,
-            duration_seconds=stats[session_id][0],
-            pageview_count=stats[session_id][1],
+            duration_seconds=stats.get(session_id, (None, None))[0],
+            pageview_count=stats.get(session_id, (None, None))[1],
             device_type=device_type or None,
             browser=browser or None,
             city=city or None,
@@ -385,29 +384,18 @@ def _landings(
     ]
 
 
-def _session_stats(
-    team: Team, user: User | None, session_ids: list[str], start: datetime, end: datetime
-) -> dict[str, tuple[int, int]]:
+def _session_stats(team: Team, user: User | None, session_ids: list[str]) -> dict[str, tuple[int | None, int | None]]:
     if not session_ids:
         return {}
     response = execute_hogql_query(
-        """
-        SELECT $session_id, dateDiff('second', min(timestamp), max(timestamp)), countIf(event = '$pageview')
-        FROM events
-        WHERE timestamp >= {start} AND timestamp < {end} AND $session_id IN {session_ids}
-        GROUP BY $session_id
-        """,
+        "SELECT session_id, $session_duration, $pageview_count FROM sessions WHERE session_id IN {session_ids}",
         team=team,
         user=user,
-        placeholders={
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
-            "session_ids": ast.Constant(value=session_ids),
-        },
+        placeholders={"session_ids": ast.Constant(value=session_ids)},
         query_type="transactional_email_activity_session_stats",
         workload=Workload.ONLINE,
     )
-    return {session_id: (duration, pageviews) for session_id, duration, pageviews in response.results or []}
+    return {str(session_id): (duration, pageviews) for session_id, duration, pageviews in response.results or []}
 
 
 def _sessions_by_click(

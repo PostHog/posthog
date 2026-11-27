@@ -23,7 +23,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 from posthog.test.persons import create_person
-from posthog.uuidt import UUIDT
+from posthog.uuidt import UUIDT, uuid7
 
 from products.access_control.backend.facade.testing import (
     PropertyAccess,
@@ -597,14 +597,18 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             properties={"$workflow_invocation_id": message_id, **({"$link_url": link_url} if link_url else {})},
         )
 
-    def _visit(self, session_id: str, url: str, at: datetime, distinct_id: str = "anonymous-visitor") -> None:
+    def _session_id(self, name: str) -> str:
+        self.session_ids = getattr(self, "session_ids", {})
+        return self.session_ids.setdefault(name, str(uuid7(int(NOW.timestamp() * 1000), random=len(self.session_ids))))
+
+    def _visit(self, session: str, url: str, at: datetime, distinct_id: str = "anonymous-visitor") -> None:
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
             timestamp=at,
             properties={
-                "$session_id": session_id,
+                "$session_id": self._session_id(session),
                 "$current_url": url,
                 "$browser": "Chrome",
                 "$device_type": "Desktop",
@@ -615,8 +619,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def _clicks(self, message_id: str) -> list[tuple[str | None, str | None, str | None]]:
         response = self.client.get(self._url(f"{message_id}/activity/"))
         assert response.status_code == status.HTTP_200_OK, response.json()
+        names = {session_id: name for name, session_id in getattr(self, "session_ids", {}).items()}
         return [
-            (click["link_url"], (click["session"] or {}).get("session_id"), click["no_session_reason"])
+            (click["link_url"], names.get((click["session"] or {}).get("session_id")), click["no_session_reason"])
             for click in response.json()["clicks"]
         ]
 
@@ -671,7 +676,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         session = body["clicks"][0]["session"]
         assert datetime.fromisoformat(session.pop("landed_at")) == queued_at + timedelta(seconds=303)
         assert session == {
-            "session_id": "billing-visit",
+            "session_id": self._session_id("billing-visit"),
             "landing_url": f"https://example.com/billing?ph_workflow_run={message_id}",
             "duration_seconds": 97,
             "pageview_count": 2,

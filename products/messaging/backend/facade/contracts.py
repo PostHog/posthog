@@ -662,8 +662,8 @@ class TransactionalEmailClickSession:
     session_id: str
     landed_at: datetime
     landing_url: str
-    duration_seconds: int
-    pageview_count: int
+    duration_seconds: int | None
+    pageview_count: int | None
     device_type: str | None
     browser: str | None
     city: str | None
