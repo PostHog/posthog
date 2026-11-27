@@ -29,9 +29,7 @@ export const Narrow: Story = {
 export const WithoutApiKey: Story = {
     decorators: [
         mswDecorator({
-            get: {
-                '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
-            },
+            get: {},
         }),
     ],
 }

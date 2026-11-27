@@ -944,51 +944,6 @@ const llmaEvaluationBackfillList = (): ToolBase<
     },
 })
 
-const LlmaEvaluationConfigGetSchema = () => z.object({})
-
-const llmaEvaluationConfigGet = (): ToolBase<
-    ReturnType<typeof LlmaEvaluationConfigGetSchema>,
-    Schemas.EvaluationConfig
-> => ({
-    name: 'llma-evaluation-config-get',
-    schema: LlmaEvaluationConfigGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof LlmaEvaluationConfigGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EvaluationConfig>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_config/`,
-        })
-        return result
-    },
-})
-
-const LlmaEvaluationConfigSetActiveKeySchema = () => {
-    const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody =
-        orvalSchemas.LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody()
-    return LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody
-}
-
-const llmaEvaluationConfigSetActiveKey = (): ToolBase<
-    ReturnType<typeof LlmaEvaluationConfigSetActiveKeySchema>,
-    Schemas.EvaluationConfig
-> => ({
-    name: 'llma-evaluation-config-set-active-key',
-    schema: LlmaEvaluationConfigSetActiveKeySchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaEvaluationConfigSetActiveKeySchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.key_id !== undefined) {
-            body['key_id'] = params.key_id
-        }
-        const result = await context.api.request<Schemas.EvaluationConfig>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_config/set_active_key/`,
-            body,
-        })
-        return result
-    },
-})
-
 const LlmaEvaluationCreateSchema = () => {
     const EvaluationsCreateBody = orvalSchemas.EvaluationsCreateBody()
     return EvaluationsCreateBody
@@ -3775,8 +3730,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-backfill-estimate': llmaEvaluationBackfillEstimate,
     'llma-evaluation-backfill-get': llmaEvaluationBackfillGet,
     'llma-evaluation-backfill-list': llmaEvaluationBackfillList,
-    'llma-evaluation-config-get': llmaEvaluationConfigGet,
-    'llma-evaluation-config-set-active-key': llmaEvaluationConfigSetActiveKey,
     'llma-evaluation-create': llmaEvaluationCreate,
     'llma-evaluation-delete': llmaEvaluationDelete,
     'llma-evaluation-directory-create': llmaEvaluationDirectoryCreate,

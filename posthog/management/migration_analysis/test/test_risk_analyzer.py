@@ -1318,8 +1318,8 @@ class TestDropTableValidation:
         assert migration_risk.max_score == 2
 
     def test_drop_column_with_prior_state_removal_custom_db_table(self):
-        # ai_observability's EvaluationConfig model has a legacy custom db_table
-        # ("llm_analytics_evaluationconfig") that the app-label-derived string heuristic can't
+        # ai_observability's LLMProviderKey model has a legacy custom db_table
+        # ("llm_analytics_llmproviderkey") that the app-label-derived string heuristic can't
         # resolve; resolving through the app registry must still recognize this as staged.
         mock_migration = MagicMock()
         mock_migration.app_label = "ai_observability"
@@ -1328,7 +1328,7 @@ class TestDropTableValidation:
 
         drop_op = create_mock_operation(
             migrations.RunSQL,
-            sql="ALTER TABLE llm_analytics_evaluationconfig DROP COLUMN IF EXISTS trial_eval_limit;",
+            sql="ALTER TABLE llm_analytics_llmproviderkey DROP COLUMN IF EXISTS trial_eval_limit;",
         )
         mock_migration.operations = [drop_op]
 
@@ -1337,7 +1337,7 @@ class TestDropTableValidation:
         parent_migration.name = "0026_remove_trial_eval_limit_from_state"
 
         remove_field_op = create_mock_operation(
-            migrations.RemoveField, model_name="evaluationconfig", name="trial_eval_limit"
+            migrations.RemoveField, model_name="llmproviderkey", name="trial_eval_limit"
         )
         separate_op = create_mock_operation(
             migrations.SeparateDatabaseAndState,
@@ -1368,7 +1368,7 @@ class TestDropTableValidation:
 
         drop_op = create_mock_operation(
             migrations.RunSQL,
-            sql="ALTER TABLE llm_analytics_evaluationconfig DROP COLUMN IF EXISTS trial_eval_limit;",
+            sql="ALTER TABLE llm_analytics_llmproviderkey DROP COLUMN IF EXISTS trial_eval_limit;",
         )
         mock_migration.operations = [drop_op]
 

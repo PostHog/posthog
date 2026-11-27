@@ -120,10 +120,10 @@ Two ways to fix it on a ViewSet with custom actions:
   ViewSet's scope.
 
   ```python
-  class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-      scope_object = "evaluation"
-      scope_object_read_actions = ["list"]
-      scope_object_write_actions = ["set_active_key"]
+  class DatasetItemViewSet(AIObservabilityProjectKeyMixin, GenericViewSet):
+      scope_object = "dataset"
+      scope_object_read_actions = ["list", "retrieve", "versions"]
+      scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
   ```
 
 - **Per-action override.** Pass `required_scopes=[...]` to `@action(...)`.

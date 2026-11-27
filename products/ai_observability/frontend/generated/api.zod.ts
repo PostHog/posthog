@@ -2910,17 +2910,6 @@ export const LlmAnalyticsClusteringRunsCreateBody = /* @__PURE__ */ zod
     .describe('Serializer for clustering workflow request parameters.')
 
 /**
- * Set the active provider key for evaluations
- */
-export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ */ zod.object({
-    key_id: zod
-        .uuid()
-        .describe(
-            "UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide."
-        ),
-})
-
-/**
  * CRUD for evaluation report configurations + report run history.
  */
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMin = -2147483648
@@ -3182,8 +3171,6 @@ export const llmAnalyticsProviderKeysCreateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
 
-export const llmAnalyticsProviderKeysCreateBodySetAsActiveDefault = false
-
 export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .enum([
@@ -3225,7 +3212,6 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    set_as_active: zod.boolean().default(llmAnalyticsProviderKeysCreateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysUpdateBodyNameMax = 255
@@ -3233,8 +3219,6 @@ export const llmAnalyticsProviderKeysUpdateBodyNameMax = 255
 export const llmAnalyticsProviderKeysUpdateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysUpdateBodyApiVersionMax = 20
-
-export const llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
@@ -3277,7 +3261,6 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    set_as_active: zod.boolean().default(llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyNameMax = 255
@@ -3285,8 +3268,6 @@ export const llmAnalyticsProviderKeysPartialUpdateBodyNameMax = 255
 export const llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax = 20
-
-export const llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
@@ -3330,7 +3311,6 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
         .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    set_as_active: zod.boolean().default(llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
@@ -3338,8 +3318,6 @@ export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
 export const llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax = 20
-
-export const llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
@@ -3382,7 +3360,6 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
         .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    set_as_active: zod.boolean().default(llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsReviewQueueItemsCreateBodyTraceIdMax = 255

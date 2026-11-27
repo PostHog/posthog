@@ -35,7 +35,6 @@ function scene(matchingGenerations: number): ReturnType<typeof mswDecorator> {
             '/api/projects/:team_id/evaluation_directories/': [],
             '/api/environments/:team_id/llm_analytics/provider_keys/': toPaginatedResponse([]),
             '/api/projects/:team_id/llm_analytics/provider_keys/': toPaginatedResponse([]),
-            '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
         },
         // The query client puts the query kind in the path.
         post: {

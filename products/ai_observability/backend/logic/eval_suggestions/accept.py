@@ -32,6 +32,7 @@ from products.ai_observability.backend.api.evaluation_backfills import (
 from products.ai_observability.backend.api.evaluations import EvaluationSerializer, create_evaluation, update_evaluation
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+from products.ai_observability.backend.logic.eval_suggestions.judge_key import judge_key
 from products.ai_observability.backend.logic.eval_suggestions.ranking import judge_input_price
 from products.ai_observability.backend.logic.evaluations.settle import settle_horizon
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -40,9 +41,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionStatus,
 )
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
-from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 logger = structlog.get_logger(__name__)
 
@@ -147,10 +146,9 @@ def plan_backfill(
 
 
 def judge_model_configuration(team: Team) -> dict[str, Any]:
-    """The team's active key with its provider's default model. Raises when the team has no working key."""
-    config = EvaluationConfig.objects.filter(team_id=team.pk).select_related("active_provider_key").first()
-    key = config.active_provider_key if config else None
-    if key is None or key.state != LLMProviderKey.State.OK or key.provider not in DEFAULT_MODEL_BY_PROVIDER:
+    """The team's judge key with its provider's default model. Raises when the team has no working key."""
+    key = judge_key(team.pk)
+    if key is None:
         raise ValidationError(NO_KEY_MESSAGE)
     return {"provider": key.provider, "model": DEFAULT_MODEL_BY_PROVIDER[key.provider], "provider_key_id": str(key.id)}
 

@@ -33,7 +33,6 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionStatus,
 )
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -131,15 +130,14 @@ class TestEvalSuggestionsApi(APIBaseTest):
         return EvalSuggestion.objects.for_team(values["team"].pk).create(kind=kind, **values)
 
     def _judge_key(self) -> None:
-        key = LLMProviderKey.objects.create(
+        LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
-            name="Active key",
+            name="Judge key",
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
             created_by=self.user,
         )
-        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
 
     @parameterized.expand(
         [

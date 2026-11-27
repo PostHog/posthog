@@ -4,7 +4,7 @@ from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
@@ -45,8 +45,7 @@ from ..llm.providers.openai_compatible import (
     error_field_for_validation_message as openai_compatible_error_field,
     is_allowed_custom_base_url,
 )
-from ..models.evaluation_config import EvaluationConfig
-from ..models.evaluations import Evaluation, EvaluationStatus
+from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
@@ -152,7 +151,6 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
     base_url_display = serializers.SerializerMethodField(
         help_text="Configured provider base URL (read-only, for display)"
     )
-    set_as_active = serializers.BooleanField(write_only=True, required=False, default=False)
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -173,7 +171,6 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             "api_version",
             "azure_endpoint_display",
             "api_version_display",
-            "set_as_active",
             "created_at",
             "created_by",
             "last_used_at",
@@ -271,10 +268,6 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
                 )
         if self.instance is not None and provider != self.instance.provider:
             raise serializers.ValidationError({"provider": "A key's provider cannot change. Create a new key instead."})
-        if provider == LLMProvider.SYSTEM_ONE and data.get("set_as_active"):
-            raise serializers.ValidationError(
-                {"set_as_active": "Select the System One connection on an evaluation instead."}
-            )
         if provider == LLMProvider.AZURE_OPENAI:
             has_endpoint = bool(data.get("azure_endpoint"))
             has_existing_endpoint = self.instance and self.instance.encrypted_config.get("azure_endpoint")
@@ -357,7 +350,6 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         api_key = validated_data.pop("api_key", None)
-        set_as_active = validated_data.pop("set_as_active", False)
         provider = validated_data.get("provider", LLMProvider.OPENAI)
         team = self.context["get_team"]()
         validated_data["team"] = team
@@ -387,14 +379,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             validated_data["state"] = state
             validated_data["error_message"] = None
 
-        instance = super().create(validated_data)
-
-        if set_as_active and instance.state == LLMProviderKey.State.OK:
-            config, _ = EvaluationConfig.objects.get_or_create(team=team)
-            config.active_provider_key = instance
-            config.save(update_fields=["active_provider_key", "updated_at"])
-
-        return instance
+        return super().create(validated_data)
 
     def update(self, instance, validated_data):
         if instance.provider == LLMProvider.SYSTEM_ONE:
@@ -458,9 +443,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 class ProviderKeyDependentEvaluationSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Evaluation ID.")
     name = serializers.CharField(help_text="Evaluation name.")
-    model_configuration_id = serializers.CharField(
-        required=False, help_text="Model configuration that pins this key. Absent for evaluations on the active key."
-    )
+    model_configuration_id = serializers.CharField(help_text="Model configuration that pins this key.")
     enabled = serializers.BooleanField(help_text="Whether the evaluation is running.")
     status_reason = serializers.CharField(
         allow_null=True, help_text="Why the system turned the evaluation off, such as provider_key_quota_exceeded."
@@ -480,10 +463,6 @@ class ProviderKeyDependentConfigsSerializer(serializers.Serializer):
     alternative_keys = ProviderKeyAlternativeSerializer(
         many=True, help_text="Working keys for the same provider that could replace this one."
     )
-    active_key_evaluations = ProviderKeyDependentEvaluationSerializer(
-        many=True,
-        help_text="Errored evaluations with no pinned key, which run on this key while it is the project's active key.",
-    )
 
 
 class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
@@ -494,12 +473,6 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
     def safely_get_queryset(self, queryset: QuerySet[LLMProviderKey]) -> QuerySet[LLMProviderKey]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("-created_at")
-
-    def _require_evaluation_write_access(self) -> None:
-        if not is_service_auth(self.request) and not self.user_access_control.check_access_level_for_resource(
-            "evaluation", "editor"
-        ):
-            raise exceptions.PermissionDenied("You do not have editor access to evaluations.")
 
     def _require_write_access_to_evaluations(self, evaluations: list[Evaluation]) -> None:
         if is_service_auth(self.request):
@@ -512,9 +485,6 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             raise exceptions.PermissionDenied("You do not have editor access to all affected evaluations.")
 
     def perform_create(self, serializer):
-        if serializer.validated_data.get("set_as_active", False):
-            self._require_evaluation_write_access()
-
         instance = serializer.save()
         report_user_action(
             self.request.user,
@@ -676,25 +646,6 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             state=LLMProviderKey.State.OK,
         ).exclude(id=instance.id)
 
-        # Errored judges with no pinned key in a project whose active key this is. Listed apart, because
-        # replacing a key only re-pins the configs above.
-        active_key_evaluations = []
-        if EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).exists():
-            active_key_evaluations = [
-                {
-                    "id": str(evaluation.id),
-                    "name": evaluation.name,
-                    "enabled": evaluation.enabled,
-                    "status_reason": evaluation.status_reason,
-                }
-                for evaluation in Evaluation.objects.filter(
-                    team_id=self.team_id, deleted=False, status=EvaluationStatus.ERROR, id__in=visible_evaluation_ids
-                ).filter(
-                    Q(model_configuration__isnull=True)
-                    | Q(model_configuration__provider_key__isnull=True, model_configuration__provider=instance.provider)
-                )
-            ]
-
         return Response(
             ProviderKeyDependentConfigsSerializer(
                 {
@@ -702,7 +653,6 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     "alternative_keys": [
                         {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
                     ],
-                    "active_key_evaluations": active_key_evaluations,
                 }
             ).data
         )
@@ -712,9 +662,6 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         replacement_key_id = request.query_params.get("replacement_key_id")
-
-        if EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).exists():
-            self._require_evaluation_write_access()
 
         affected_evaluations = list(
             Evaluation.objects.filter(
@@ -751,14 +698,6 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 LLMModelConfiguration.objects.filter(id__in=model_config_ids, team_id=self.team_id).update(
                     provider_key=replacement_key
                 )
-
-                # The deleted key may also be the team's active key — the fallback that keyless
-                # evals resolve through. Honor the user's replacement choice instead of letting
-                # the SET_NULL cascade strand them.
-                config = EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).first()
-                if config:
-                    config.active_provider_key = replacement_key
-                    config.save(update_fields=["active_provider_key", "updated_at"])
 
                 _reload_model_config_dependents_on_commit(self.team_id, model_config_ids)
                 return super().destroy(request, *args, **kwargs)

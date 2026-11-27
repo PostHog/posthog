@@ -447,8 +447,7 @@ Always surface the relevant link so the user can verify in the UI.
 - When showing failure patterns to the user, always include 1-2 example trace links so
   they can validate the pattern visually
 - `llma-evaluation-*` tools use `evaluation:read` for read tools and `evaluation:write` for
-  mutating tools, except `llma-evaluation-config-get` and `llma-evaluation-judge-models`,
-  which use `llm_analytics:read`
+  mutating tools, except `llma-evaluation-judge-models`, which uses `llm_analytics:read`
 - Hog evaluators are reproducible — if you suspect a regression, `llma-evaluation-test-hog`
   with the suspect source against the failing generations is the fastest way to bisect
   whether the change is in the evaluator or in the producer of the generations

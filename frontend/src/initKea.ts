@@ -150,7 +150,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadAeoPromptChecks: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
     // llmProviderKeysLogic toasts each of these failures itself, or shows a rejected field under its input
     loadProviderKeys: 'products.ai_observability.settings.llmProviderKeysLogic',
-    loadEvaluationConfig: 'products.ai_observability.settings.llmProviderKeysLogic',
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     deleteProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',

@@ -57,11 +57,6 @@ describe('EvaluationCodeEditor', () => {
             get: {
                 '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
-                '/api/environments/:teamId/llm_analytics/evaluation_config/': {
-                    active_provider_key: null,
-                    created_at: '2024-01-01T00:00:00Z',
-                    updated_at: '2024-01-01T00:00:00Z',
-                },
                 '/api/projects/:teamId/evaluations/:id/': {},
             },
         })

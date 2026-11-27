@@ -34,7 +34,6 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionRun,
     EvalSuggestionRunStatus,
 )
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 
 from . import (
     call_review,
@@ -57,6 +56,7 @@ from .call_review_queries import (
 from .config import REVIEW_WINDOW, WINDOW, SuggestionSettings, runs_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
 from .eligibility import suggestions_turned_off
+from .judge_key import judge_key
 from .measure import discover_sample, hydrate_sample, measure, structured_outputs
 from .profile import TeamProfile, fetch_profile, find_structured_gaps, gap_holds, sample_per_mille
 from .queries import MAX_EXECUTION_TIME_SECONDS
@@ -73,14 +73,10 @@ MAX_DEDUPED_EVALS = 50
 PAID_STAGES = ("screening", "drafting")
 
 
-def judge_model(team: Team) -> str | None:
-    """The model a new judge would run on: the default for the team's active key, else the product default.
-
-    None when the key's provider has no default model, since the evaluator refuses to run a judge without one.
-    """
-    config = EvaluationConfig.objects.filter(team_id=team.pk).select_related("active_provider_key").first()
-    key = config.active_provider_key if config else None
-    return DEFAULT_MODEL_BY_PROVIDER.get(key.provider) if key else ranking.DEFAULT_JUDGE_MODEL
+def judge_model(team: Team) -> str:
+    """The model a new judge would run on: the default for the team's judge key, else the product default."""
+    key = judge_key(team.pk)
+    return DEFAULT_MODEL_BY_PROVIDER[key.provider] if key else ranking.DEFAULT_JUDGE_MODEL
 
 
 class _Stages:

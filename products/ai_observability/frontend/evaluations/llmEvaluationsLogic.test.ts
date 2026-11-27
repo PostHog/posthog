@@ -142,11 +142,6 @@ describe('llmEvaluationsLogic', () => {
             get: {
                 '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
-                '/api/environments/:teamId/llm_analytics/evaluation_config/': {
-                    active_provider_key: null,
-                    created_at: '2024-01-01T00:00:00Z',
-                    updated_at: '2024-01-01T00:00:00Z',
-                },
                 '/api/projects/:teamId/evaluations/': {
                     results: [
                         evaluationWithKey('eval-ok', 'key-ok'),
@@ -183,25 +178,13 @@ describe('llmEvaluationsLogic', () => {
     })
 
     describe('unhealthyProviderKeysUsedByEvaluations', () => {
-        it('allows Hog and sentiment evaluations when a provider key is required', async () => {
-            // Team with no active key → requiresProviderKey.
-            keysLogic.actions.loadEvaluationConfigSuccess({
-                active_provider_key: null,
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-01T00:00:00Z',
-            })
-
+        it('allows Hog and sentiment evaluations without a pinned key', async () => {
             expect(logic.values.canEnableEvaluation(hogEvaluation('hog'))).toBe(true)
             expect(logic.values.canEnableEvaluation(sentimentEvaluation('sentiment'))).toBe(true)
             expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(false)
         })
 
-        it('only a pinned key lets an llm_judge evaluation be enabled, whatever the active key', async () => {
-            keysLogic.actions.loadEvaluationConfigSuccess({
-                active_provider_key: mockProviderKeys[0],
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-01T00:00:00Z',
-            })
+        it('only a pinned key lets an llm_judge evaluation be enabled', async () => {
             const explicitKeyless: LLMJudgeEvaluation = {
                 ...evaluationWithKey('llm-explicit', null),
                 model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: null },

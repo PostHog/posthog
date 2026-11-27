@@ -110,7 +110,6 @@ describe('llmProviderKeysLogic', () => {
             useMocks({
                 get: {
                     '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [azureKey] },
-                    '/api/environments/:teamId/llm_analytics/evaluation_config/': { active_provider_key: null },
                 },
                 patch: {
                     '/api/environments/:teamId/llm_analytics/provider_keys/:id/': () => patchResponse,
@@ -181,7 +180,6 @@ describe('llmProviderKeysLogic', () => {
             useMocks({
                 get: {
                     '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
-                    '/api/environments/:teamId/llm_analytics/evaluation_config/': { active_provider_key: null },
                 },
                 post: {
                     '/api/environments/:teamId/llm_analytics/provider_keys/': () => [
@@ -236,7 +234,6 @@ describe('llmProviderKeysLogic', () => {
             useMocks({
                 get: {
                     '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [key] },
-                    '/api/environments/:teamId/llm_analytics/evaluation_config/': { active_provider_key: null },
                     '/api/environments/:teamId/llm_analytics/provider_keys/:id/dependent_configs/': {
                         evaluations: [
                             evaluation('by-key', false, 'provider_key_quota_exceeded'),
@@ -244,9 +241,6 @@ describe('llmProviderKeysLogic', () => {
                             evaluation('running', true, null),
                         ],
                         alternative_keys: [],
-                        active_key_evaluations: [
-                            { ...evaluation('by-active-key', false, 'provider_key_quota_exceeded') },
-                        ],
                     },
                 },
                 post: {
@@ -272,15 +266,12 @@ describe('llmProviderKeysLogic', () => {
             await expectLogic(logic, () => logic.actions.validateProviderKey({ id: key.id }))
                 .toDispatchActions(['validateProviderKeySuccess', 'loadTurnedOffEvaluationsSuccess'])
                 .toFinishAllListeners()
-            expect(logic.values.turnedOffEvaluations?.evaluations.map((turnedOff) => turnedOff.id)).toEqual([
-                'by-key',
-                'by-active-key',
-            ])
+            expect(logic.values.turnedOffEvaluations?.evaluations.map((turnedOff) => turnedOff.id)).toEqual(['by-key'])
 
             await expectLogic(logic, () => logic.actions.turnEvaluationsBackOn())
                 .toDispatchActions(['turnEvaluationsBackOnSuccess'])
                 .toFinishAllListeners()
-            expect(patched.sort()).toEqual(['by-active-key', 'by-key'])
+            expect(patched).toEqual(['by-key'])
             expect(logic.values.turnedOffEvaluations).toBeNull()
         })
     })

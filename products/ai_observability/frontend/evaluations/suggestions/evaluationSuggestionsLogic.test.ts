@@ -179,13 +179,13 @@ describe('evaluationSuggestionsLogic', () => {
     it.each([
         ['offers the key settings without a working key', null, true],
         ['leaves out the key settings with a working key', { id: 'key-1', provider: 'openai', state: 'ok' }, false],
-    ])('keeps the judge confirm open when accept is refused, and %s', async (_, activeProviderKey, needsKey) => {
+    ])('keeps the judge confirm open when accept is refused, and %s', async (_, providerKey, needsKey) => {
         const refusal =
             "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet."
         useMocks({
             get: {
-                '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                    active_provider_key: activeProviderKey,
+                '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    results: providerKey ? [providerKey] : [],
                 },
                 [`${SUGGESTIONS_URL}/:id/accept_estimate/`]: {
                     target: 'trace',
@@ -204,7 +204,7 @@ describe('evaluationSuggestionsLogic', () => {
             },
         })
         await expectLogic(llmProviderKeysLogic, () =>
-            llmProviderKeysLogic.actions.loadEvaluationConfig()
+            llmProviderKeysLogic.actions.loadProviderKeys()
         ).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.openJudgeConfirm(JUDGE))
             .toDispatchActions(['loadEvalSuggestionEstimateSuccess'])
