@@ -22,12 +22,20 @@ export function canWriteImage(format: ImageFormat): boolean {
     return document.createElement('canvas').toDataURL(`image/${format}`).startsWith(`data:image/${format}`)
 }
 
+/** A busy element the capture leaves out never shows in the image, so it does not hold the capture back. */
+function isLoading(root: HTMLElement): boolean {
+    return Array.from(root.querySelectorAll(NOT_READY)).some((element) => {
+        const leftOut = element.closest(LEFT_OUT)
+        return !leftOut || !root.contains(leftOut)
+    })
+}
+
 async function waitUntilReady(root: HTMLElement): Promise<void> {
     const deadline = Date.now() + READY_TIMEOUT_MS
     do {
         await new Promise((resolve) => setTimeout(resolve, POLL_MS))
-    } while (root.querySelector(NOT_READY) && Date.now() < deadline)
-    if (root.querySelector(NOT_READY)) {
+    } while (isLoading(root) && Date.now() < deadline)
+    if (isLoading(root)) {
         throw new Error('The dashboard did not finish loading in time to capture it.')
     }
 }
