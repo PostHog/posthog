@@ -35,10 +35,20 @@ from posthog.jwt import PosthogJwtAudience
 AUDIENCE = PosthogJwtAudience.CREDENTIALS_SERVICE_INTEGRATIONS.value
 ALLOWED_CLAIMS = frozenset({"aud", "exp", "iat", "jti", "owner", "ops", "kinds", "refs", "user_id", "caller"})
 CROSS_TEAM_OPS = frozenset(
-    {"list_across_teams", "read_by_external_id", "write_by_external_id", "delete_by_external_id"}
+    {
+        "list_across_teams",
+        "read_by_external_id",
+        "write_by_external_id",
+        "delete_by_external_id",
+        "reconcile",
+        "mirror_purge",
+    }
 )
 NEVER_EXPOSED = frozenset({"refresh_token", "client_secret"})
 EVERY_ROW = RowScope(kinds=None, source_rows=SourceRows.INCLUDE)
+MIRROR_ORIGINS = frozenset({"write", "retry", "backfill", "repair"})
+MAX_MIRROR_ROWS = 100
+MAX_BODY_BYTES = 1024 * 1024
 
 STATUS = {
     "validation": 400,
@@ -104,6 +114,12 @@ class CredentialsServiceStub:
         self.failures: list[Exception] = []
         # Another writer changes the row this many times, just before a PATCH or DELETE checks `If-Match`.
         self.concurrent_writes = 0
+        # The rows of `PUT /mirror`, by legacy id: the last body the stub stored, with `owner`.
+        self.mirrored: dict[int, dict[str, Any]] = {}
+        # The body of each `PUT /mirror` that passed the token check.
+        self.mirror_bodies: list[dict[str, Any]] = []
+        # Results, by legacy id, that the mirror route answers in order instead of writing the row.
+        self.mirror_answers: dict[int, list[dict[str, Any]]] = {}
 
     def request(
         self,
@@ -281,6 +297,8 @@ class CredentialsServiceStub:
             return self._create(body, headers)
         if method == "PUT" and segments == ["upsert"]:
             return self._upsert(body, headers)
+        if method == "PUT" and segments == ["mirror"]:
+            return self._mirror(body, headers)
         if len(segments) == 1 and method in ("GET", "PATCH", "DELETE"):
             return self._one(method, segments[0], body, headers)
         raise StubError("not_found")
@@ -397,6 +415,56 @@ class CredentialsServiceStub:
         if not created:
             self._bump(row.id)
         return response(201 if created else 200, {"record": self._json(row), "created": created})  # type: ignore[arg-type]
+
+    def _mirror(self, body: Any, headers: dict[str, str]) -> requests.Response:
+        rows = body["rows"]
+        claims = self._authorize("PUT", "/mirror", headers, "mirror", kinds=sorted({row["kind"] for row in rows}))
+        legacy_ids = [row["legacy_id"] for row in rows]
+        if (
+            body["origin"] not in MIRROR_ORIGINS
+            or not 1 <= len(rows) <= MAX_MIRROR_ROWS
+            or len(set(legacy_ids)) != len(legacy_ids)
+            or len(json.dumps(body)) > MAX_BODY_BYTES
+        ):
+            raise StubError("validation")
+        self.mirror_bodies.append(body)
+        owner = self._owner(claims)
+        return response(200, {"results": [self._mirror_row(owner, row, body.get("force", False)) for row in rows]})
+
+    def _mirror_row(self, owner: int, row: dict[str, Any], force: bool) -> dict[str, Any]:
+        """`decideMirror` of the service, over `self.mirrored`."""
+        legacy_id = row["legacy_id"]
+        if self.mirror_answers.get(legacy_id):
+            return {"legacy_id": legacy_id, **self.mirror_answers[legacy_id].pop(0)}
+        stored = self.mirrored.get(legacy_id)
+        if stored is not None and stored["owner"] != owner:
+            return {"legacy_id": legacy_id, "outcome": "owner_mismatch"}
+        if stored is None and row["deleted"] and not row["tombstone"]:
+            return {"legacy_id": legacy_id, "outcome": "absent"}
+        if stored is not None and stored["deleted"]:
+            return {"legacy_id": legacy_id, "outcome": "unchanged" if row["deleted"] else "stale"}
+        if stored is not None and not row["deleted"]:
+            if row["source_version"] < stored["source_version"]:
+                return {"legacy_id": legacy_id, "outcome": "stale"}
+            if row["source_version"] == stored["source_version"] and not force:
+                return {"legacy_id": legacy_id, "outcome": "unchanged"}
+        if not row["deleted"] and row["integration_id"] is not None:
+            for holder_id, holder in self.mirrored.items():
+                if (
+                    holder_id != legacy_id
+                    and not holder["deleted"]
+                    and (holder["owner"], holder["kind"], holder.get("integration_id"))
+                    == (owner, row["kind"], row["integration_id"])
+                ):
+                    return {"legacy_id": legacy_id, "outcome": "conflict", "conflicting_legacy_id": holder_id}
+        if row["deleted"]:
+            outcome = "deleted"
+            source_version = row.get("source_version", stored["source_version"] if stored else None)
+            self.mirrored[legacy_id] = {**(stored or {}), **row, "owner": owner, "source_version": source_version}
+        else:
+            outcome = "updated" if stored is not None else "created"
+            self.mirrored[legacy_id] = {**row, "owner": owner}
+        return {"legacy_id": legacy_id, "outcome": outcome, "id": str(uuid.UUID(int=legacy_id))}
 
     def _one(self, method: str, ref: str, body: Any, headers: dict[str, str]) -> requests.Response:
         op = {"GET": "read", "PATCH": "write", "DELETE": "delete"}[method]

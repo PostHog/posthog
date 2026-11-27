@@ -28,6 +28,7 @@ CELERY_IMPORTS: list[str] = [
     "posthog.api.oauth.provisioning_review",
     "posthog.caching.warming",
     "posthog.email",
+    "posthog.integrations.mirror.tasks",
     "posthog.models.product_intent.product_intent",
     "posthog.models.scoping",
     "posthog.query_cache.tasks",
