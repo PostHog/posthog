@@ -5,6 +5,7 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import InterfaceError, OperationalError
 from django.test import override_settings
 
 import requests
@@ -14,6 +15,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.integrations.backend.fake_backend import FakeBackend
+from posthog.integrations.mirror.snapshot import read_snapshot
 from posthog.integrations.mirror.tasks import MAX_RETRIES, mirror_integration_row
 from posthog.integrations.test.credentials_service_stub import CredentialsServiceStub, StubError, write_signing_key
 from posthog.models.integration import Integration
@@ -109,16 +111,34 @@ class TestMirrorIntegrationRowTask(BaseTest):
         assert logs == []
         assert _metric("integrations_mirror_rows_total", kind="slack", outcome="failed") == failed_before
 
-    def test_a_retry_after_an_unavailable_service_mirrors_the_row(self) -> None:
+    @parameterized.expand(
+        [
+            ("unavailable_service", requests.Timeout(), None, "unavailable"),
+            ("database_failover", None, OperationalError("server closed the connection"), "database"),
+            ("database_connection_gone", None, InterfaceError("connection already closed"), "database"),
+        ]
+    )
+    def test_a_retry_after_a_transient_failure_mirrors_the_row(
+        self, _name: str, service_failure: Exception | None, database_failure: Exception | None, reason: str
+    ) -> None:
         row = self._row()
-        self.stub.failures = [requests.Timeout()]
-        retries_before = _metric("integrations_mirror_task_retries_total", reason="unavailable")
+        if service_failure is not None:
+            self.stub.failures = [service_failure]
+        database_failures = [database_failure] if database_failure is not None else []
 
-        self._run(row.id)
+        def flaky_read(**kwargs: Any) -> Any:
+            if database_failures:
+                raise database_failures.pop()
+            return read_snapshot(**kwargs)
+
+        retries_before = _metric("integrations_mirror_task_retries_total", reason=reason)
+
+        with patch("posthog.integrations.mirror.tasks.read_snapshot", side_effect=flaky_read):
+            self._run(row.id)
 
         assert [body["origin"] for body in self.stub.mirror_bodies] == ["retry"]
         assert self.stub.mirrored[row.id]["deleted"] is False
-        assert _metric("integrations_mirror_task_retries_total", reason="unavailable") == retries_before + 1
+        assert _metric("integrations_mirror_task_retries_total", reason=reason) == retries_before + 1
 
     @parameterized.expand(
         [
@@ -172,15 +192,26 @@ class TestMirrorIntegrationRowTask(BaseTest):
             )
             assert _metric("integrations_mirror_task_retries_total", reason=reason) == retries_before[reason]
 
-    def test_key_conflict_mirrors_the_holder_first(self) -> None:
+    @parameterized.expand(
+        [
+            ("holder_repaired", False, ["write", "write", "repair", "write"]),
+            # The lost race on the holder retries the task, which repairs the holder again.
+            ("holder_lost_a_race", True, ["write", "write", "repair", "retry", "repair", "retry"]),
+        ]
+    )
+    def test_key_conflict_mirrors_the_holder_first(
+        self, _name: str, holder_loses_race: bool, origins: list[str]
+    ) -> None:
         holder = self._row(integration_id="T1")
         self._run(holder.id)
         Integration.objects.filter(pk=holder.pk).update(integration_id="T2")
         row = self._row(integration_id="T1")
+        if holder_loses_race:
+            self.stub.mirror_answers[holder.id] = [LOST_RACE]
 
         self._run(row.id)
 
-        assert [body["origin"] for body in self.stub.mirror_bodies] == ["write", "write", "repair", "write"]
+        assert [body["origin"] for body in self.stub.mirror_bodies] == origins
         assert self.stub.mirrored[holder.id]["integration_id"] == "T2"
         assert self.stub.mirrored[row.id]["integration_id"] == "T1"
 

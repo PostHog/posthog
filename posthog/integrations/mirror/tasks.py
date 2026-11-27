@@ -7,6 +7,7 @@ and a late run sends the current row, not the one that was written.
 import datetime as dt
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 
 import structlog
 from celery import shared_task
@@ -32,6 +33,8 @@ RETRY_BACKOFF_SECONDS = 5
 MAX_RETRY_DELAY_SECONDS = 600
 
 UNAVAILABLE = "unavailable"
+# The primary database dropped the connection or failed over while the task read the row.
+DATABASE = "database"
 
 
 def _send(client: MirrorClient, team_id: int, row: MirrorRow, origin: MirrorOrigin) -> MirrorResult:
@@ -49,7 +52,10 @@ def mirror_row(
     origin: MirrorOrigin,
     client: MirrorClient | None = None,
 ) -> MirrorResult:
-    """Mirrors the current state of one row. On a key conflict with another mirrored row, mirrors that row first."""
+    """Mirrors the current state of one row. On a key conflict with another mirrored row, mirrors that row first.
+
+    When the service loses a race on that row, the result is the holder's retryable result.
+    """
     client = client or MirrorClient()
     row: MirrorRow = (
         # The team's rows go with it, so no later upsert can come back for this id.
@@ -66,7 +72,9 @@ def mirror_row(
     ):
         # The stored copy of the key holder is out of date: it changed or lost the key in Django.
         holder = read_snapshot(team_id=team_id, kind=row.kind, legacy_id=result.conflicting_legacy_id)
-        _send(client, team_id, holder, MirrorOrigin.REPAIR)
+        repaired = _send(client, team_id, holder, MirrorOrigin.REPAIR)
+        if repaired.retryable:
+            return repaired
         result = _send(client, team_id, row, origin)
     return result
 
@@ -109,6 +117,9 @@ def mirror_integration_row(
     except IntegrationServiceUnavailable as error:
         MIRROR_ROWS.labels(kind=kind, outcome=UNAVAILABLE).inc()
         reason, code = UNAVAILABLE, error.code
+    except (OperationalError, InterfaceError) as error:
+        MIRROR_ROWS.labels(kind=kind, outcome=DATABASE).inc()
+        reason, code = DATABASE, type(error).__name__
     except Exception as error:
         # The type and the service code only: a message could quote row content.
         MIRROR_ROWS.labels(kind=kind, outcome=FAILED).inc()
