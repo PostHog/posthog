@@ -1,5 +1,42 @@
 # hog
 
+## 0.3.0 — 2026-11-26
+
+### Minor changes
+
+- [0a796e79dbe](https://github.com/PostHog/posthog/commit/0a796e79dbea0110378dd4d9aa9a3d059fd8ba8e) `hog setup` now runs the setup steps, and `hog setup status` shows where the setup stands. `hog setup next` is gone: run `hog setup` instead. — Thanks @rafaeelaudibert!
+- [108218d0f6d](https://github.com/PostHog/posthog/commit/108218d0f6db43b16ca0282e7ce2061485f148cc) `hog setup` now gives coding agents the exact login and wrap-up messages to send you, so you always get the link, the sign-up and region notes, and what to try next. When you pick session replay or error tracking, setup turns on session recording or exception capture in your project, and the install step names the skill for each other product you picked. A login you reject in the browser now ends the setup with a clear message, instead of an agent installing PostHog without a token. — Thanks @rafaeelaudibert!
+
+### Patch changes
+
+- [49ea501bd1d](https://github.com/PostHog/posthog/commit/49ea501bd1daf65305a8d3012aeeb1dc0a7e7647) In CI, hog now accepts a workload token from PostHog only when its `token_type` is `Bearer`, and it stops with an error when PostHog answers the exchange with a redirect, instead of sending the job's OIDC token to the new address. Logging in, renewing a login and `hog auth logout` also stop on a redirect instead of sending the device code or refresh token to the new address. — Thanks @rafaeelaudibert!
+- Changes built into hog since v0.2.1, from these pull requests:
+
+  - [#141655](https://github.com/PostHog/posthog/pull/141655) feat(marketing-analytics): warn when search spend has no search term
+  - [#142573](https://github.com/PostHog/posthog/pull/142573) feat(workflows): page message templates and filter them by creator
+  - [#141817](https://github.com/PostHog/posthog/pull/141817) feat(messaging): add template click_tracking_enabled setting and sync to workflows
+  - [#142527](https://github.com/PostHog/posthog/pull/142527) feat(agent-transcripts): ask ai signups for their agent transcript
+  - [#142154](https://github.com/PostHog/posthog/pull/142154) feat(tags): add tag management UI and navigation
+
+- [8d444828722](https://github.com/PostHog/posthog/commit/8d444828722032f6cc81ef91f6a2a122b3b84bf8) `hog setup` no longer has the agent ask what PostHog is for. The agent works it out from the conversation and the code, and goes straight on to the login. — Thanks @rafaeelaudibert!
+
+## 0.2.1 — 2026-11-26
+
+### Patch changes
+
+- [80884f7c8eb](https://github.com/PostHog/posthog/commit/80884f7c8eb418ca08e98e462983bbfac434b024) Tool results from the PostHog MCP are no longer shortened to 100,000 tokens. Only clients with their own documented limit, such as Codex, get a shortened result. — Thanks @richardsolomou!
+- [b99a19bc9cc](https://github.com/PostHog/posthog/commit/b99a19bc9cca775a5a55ed858fc06da1250b8dc9) fix(mcp): run the path cleaning sample preview in ClickHouse — Thanks @richardsolomou!
+- Changes built into hog since v0.2.0, from these pull requests:
+
+  - [#141604](https://github.com/PostHog/posthog/pull/141604) feat(aeo): cap active ai visibility prompts per team
+  - [#142406](https://github.com/PostHog/posthog/pull/142406) feat(cohorts): add mcp tool to turn realtime on and off
+  - [#141651](https://github.com/PostHog/posthog/pull/141651) feat(marketing-analytics): show server data gaps in recommendations
+  - [#141002](https://github.com/PostHog/posthog/pull/141002) feat(experiments): run the after-launch health checks on a draft at launch
+  - [#142110](https://github.com/PostHog/posthog/pull/142110) feat(signals): compact inbox list rows and defaults for mcp
+  - [#142422](https://github.com/PostHog/posthog/pull/142422) fix(mcp): keep the knowledge availability answer for an hour
+  - [#138743](https://github.com/PostHog/posthog/pull/138743) fix(feature-flags): let mcp flag tools set and keep release condition names
+  - [#142317](https://github.com/PostHog/posthog/pull/142317) chore(aio): remove the llma-tagger-list mcp redirect
+
 ## 0.2.0 — 2026-11-25
 
 ### Minor changes

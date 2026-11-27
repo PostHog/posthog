@@ -1007,6 +1007,7 @@ class TestOutputUnit(SimpleTestCase):
             ("unitless_without_rate", "", MetricAggregation.SUM, None, None),
             ("rate_of_disagreeing_units", None, MetricAggregation.RATE, None, None),
             ("count_rate_is_observations_per_second", "s", MetricAggregation.COUNT_RATE, None, "1/s"),
+            ("count_rate_of_disagreeing_units", None, MetricAggregation.COUNT_RATE, None, "1/s"),
             ("count_increase_is_a_plain_number", "s", MetricAggregation.COUNT_INCREASE, None, None),
             (
                 "unitless_seconds_histogram_quantile",
@@ -1629,6 +1630,49 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         rows = self._run(aggregation, metric_name="http.server.request.duration", metric_type=metric_type)
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], expected)
+
+    @parameterized.expand([("any_type", None, 43.0), ("histogram", "histogram", 23.0)])
+    def test_count_increase_reads_classic_count_rows_of_a_histogram_capture_could_not_fold(
+        self, _name: str, metric_type: str | None, expected: float
+    ):
+        for offset, count in [(-300, 1000), (20, 1020)]:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="http_latency_seconds",
+                metric_type="summary",
+                points=[(self.anchor + dt.timedelta(seconds=offset), 1.0)],
+                labels={"pod": "web-1"},
+                count=count,
+            )
+        for offset, count in [(-420, 10), (30, 40)]:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="http_latency_seconds",
+                metric_type="histogram",
+                points=[(self.anchor + dt.timedelta(seconds=offset), 1.0)],
+                labels={"pod": "web-1"},
+                histogram_bounds=[0.1, 1.0],
+                histogram_counts=[count, 0, 0],
+                count=count,
+            )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http_latency_seconds_count",
+            metric_type="sum",
+            is_monotonic=True,
+            points=[(self.anchor - dt.timedelta(seconds=120), 20.0)],
+            labels={"pod": "web-1"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http_latency_seconds_count",
+            metric_type="sum",
+            is_monotonic=True,
+            points=[(self.anchor - dt.timedelta(seconds=120), 5.0), (self.anchor + dt.timedelta(seconds=30), 8.0)],
+            labels={"pod": "web-2"},
+        )
+        rows = self._run("count_increase", metric_name="http_latency_seconds", metric_type=metric_type)
+        self.assertEqual([row["value"] for row in rows], [expected])
 
     @parameterized.expand(
         [

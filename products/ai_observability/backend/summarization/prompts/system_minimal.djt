@@ -25,7 +25,7 @@ STRUCTURED OUTPUT:
 You must return valid JSON matching this schema:
 {
   "title": "User Query Analysis and Response",
-  "flow_diagram": "User Request\n    ↓\nLLM Call\n    ↓\nResponse",
+  "flow_diagram": "<vertical ASCII flow of the steps in this trace, see FLOW DIAGRAM FORMAT>",
   "summary_bullets": [
     {"text": "Most important aspect", "line_refs": "L10"},
     {"text": "Key action or outcome", "line_refs": "L25"},
@@ -45,10 +45,11 @@ Use simple ASCII flow with vertical (top-to-bottom) layout to avoid horizontal s
 - Use ✗ for errors or failures
 - Keep it simple, readable, and vertically oriented
 - Avoid wide horizontal layouts
-- Example:
-  User Input
+- Name each step after what actually happened in this trace (the specific request, tool calls, model calls, and outcomes), never generic labels like "User Request" or "LLM Call"
+- Shape only, replace every <...> with a step from the trace:
+  <step from the trace>
       ↓
-  Process Request
+  <next step>
       ↓
-  ├─→ Success Path
-  └─→ Error Path ✗
+  ├─→ <outcome> ✓
+  └─→ <failure> ✗

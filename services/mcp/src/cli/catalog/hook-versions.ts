@@ -12,7 +12,7 @@ export const HOOK_SOURCE_HASHES: Record<string, readonly string[]> = {
     'experiments/updateExperimentHooks': ['dc26f14d64e9'],
     'featureFlags/conditionIdHooks': ['8715ed7c6985'],
     'featureFlags/createFeatureFlagHooks': ['d11c8de9d15f'],
-    'featureFlags/updateFeatureFlagHooks': ['f668908fbf86'],
+    'featureFlags/updateFeatureFlagHooks': ['f668908fbf86', '95b78e4811e6'],
     'groups/findGroupHooks': ['73a2295afd75'],
     'logs/groupByRedactionHooks': ['8758a390e643'],
     'logs/queryLogsHooks': ['859c79c16211'],

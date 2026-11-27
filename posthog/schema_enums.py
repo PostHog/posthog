@@ -1381,6 +1381,17 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingIssueTagColor(StrEnum):
+    BLUE = "blue"
+    TEAL = "teal"
+    GREEN = "green"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    RED = "red"
+    PINK = "pink"
+    PURPLE = "purple"
+
+
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
@@ -1703,6 +1714,7 @@ class FileSystemIconType(StrEnum):
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_TAGS = "llm_tags"
+    TAG = "tag"
     LLM_DATASETS = "llm_datasets"
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
@@ -2130,6 +2142,10 @@ class MCPDashboardSection(StrEnum):
     PROTOCOL_VERSION = "protocolVersion"
     TOOL = "tool"
     ERROR_TYPE = "errorType"
+    TOOL_SHARE = "toolShare"
+    HARNESS = "harness"
+    ERROR_TYPE_SHARE = "errorTypeShare"
+    USER = "user"
     LAB_USERS = "labUsers"
     NAMED_MODEL_USERS = "namedModelUsers"
     RELIABILITY = "reliability"
@@ -2294,6 +2310,7 @@ class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
     POSTHOG_CONVERSION_GOALS_UNUSABLE = "posthog_conversion_goals_unusable"
     POSTHOG_CAMPAIGNS_UNMATCHED = "posthog_campaigns_unmatched"
     POSTHOG_CONVERSIONS_FAILED = "posthog_conversions_failed"
+    HIDDEN_SEARCH_SPEND = "hidden_search_spend"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):

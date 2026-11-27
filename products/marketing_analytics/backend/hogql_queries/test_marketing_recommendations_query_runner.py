@@ -467,6 +467,42 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "account",
                 [],
             ),
+            (
+                "spend_on_hidden_searches",
+                None,
+                BOTH_SPLITS,
+                "alpha",
+                200.0,
+                "target_cpa",
+                ["hidden_search_spend"],
+                SIGNUP,
+                2000000000,
+            ),
+            (
+                "search_terms_synced_less_recently",
+                None,
+                BOTH_SPLITS,
+                "alpha",
+                200.0,
+                "target_cpa",
+                [],
+                SIGNUP,
+                2000000000,
+                "2026-01-20",
+            ),
+            (
+                "another_campaign_serves_after_search_stops",
+                None,
+                BOTH_SPLITS,
+                "alpha",
+                200.0,
+                "target_cpa",
+                ["hidden_search_spend"],
+                SIGNUP,
+                2000000000,
+                "2026-01-15",
+                "2026-01-20",
+            ),
         ]
     )
     def test_counts_only_the_selected_conversion_actions(
@@ -479,6 +515,9 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         benchmark_source: str,
         gaps: list[str],
         signup: str = SIGNUP,
+        campaign_cost_micros: int = 1000000000,
+        campaign_day: str = "2026-01-15",
+        other_campaign_day: str | None = None,
     ) -> None:
         campaigns = self._table(
             "campaign",
@@ -501,7 +540,8 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "metrics_cost_micros": "Int64",
                 "metrics_conversions": "Float64",
             },
-            "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
+            f"campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,{campaign_day},{campaign_cost_micros},10\n"
+            + (f"2,{other_campaign_day},1000000,0\n" if other_campaign_day else ""),
         )
         term_columns = {
             "search_term_view_search_term": "String",
@@ -573,6 +613,62 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert wasted[0].cpa is not None and wasted[0].cpa.bestCampaign == best_campaign_cpa
         assert wasted[0].cpa.benchmarkSource == benchmark_source
         assert [gap.kind for gap in response.dataGaps or []] == gaps
+
+    @parameterized.expand(
+        [
+            ("stats_table_missing", None),
+            ("stats_only_for_campaigns_without_search_terms", "2,2026-01-15,1000000,0\n"),
+        ]
+    )
+    def test_search_terms_without_campaign_stats_do_not_fail_the_response(
+        self, _name: str, stats_rows: str | None
+    ) -> None:
+        stats = (
+            self._table(
+                "campaign_stats",
+                {
+                    "campaign_id": "Int64",
+                    "segments_date": "Nullable(Date)",
+                    "metrics_cost_micros": "Int64",
+                    "metrics_conversions": "Float64",
+                },
+                "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n" + stats_rows,
+            )
+            if stats_rows
+            else "missing_stats"
+        )
+        term_columns = {
+            "search_term_view_search_term": "String",
+            "campaign_id": "Int64",
+            "segments_date": "Date",
+            "metrics_clicks": "Int64",
+            "metrics_impressions": "Int64",
+            "metrics_cost_micros": "Int64",
+            "metrics_conversions": "Float64",
+            "search_term_view_status": "String",
+        }
+        terms = self._table(
+            "search_term_stats",
+            term_columns,
+            ",".join(term_columns) + "\nalpha,1,2026-01-15,10,100,500000000,0,NONE\n",
+        )
+        source = MarketingAnalyticsRecommendationsSource(
+            sourceType="GoogleAds",
+            campaignTable="missing_campaign",
+            campaignStatsTable=stats,
+            searchTermTable=terms,
+        )
+
+        response = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"), sources=[source]
+            ),
+            team=self.team,
+            user=self.user,
+        ).calculate()
+
+        assert response.results == []
+        assert response.dataGaps in (None, [])
 
     def _google_ads_source(self, campaigns: str, stats: str) -> MarketingAnalyticsRecommendationsSource:
         source = ExternalDataSource.objects.create(

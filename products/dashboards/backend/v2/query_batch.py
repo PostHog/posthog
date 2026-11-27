@@ -94,12 +94,15 @@ MAX_UNREAD_BYTES = 64 * 1024 * 1024
 CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
-MAX_BATCHES_PER_ORG = 3
-# Below the organization's share, so one member cannot take every running slot their organization has.
-MAX_BATCHES_PER_USER = 1
+MAX_BATCHES_PER_ORG = 4
+# Below the organization's share, so one member cannot take every running slot their organization has. A board sends
+# up to `MAX_STREAMS` batches at once (`queryBatchRunner.ts`), and the queries they run together are still held to
+# `MAX_RUN_QUERIES_PER_USER`.
+MAX_BATCHES_PER_USER = 3
 MAX_OPEN_BATCHES = 16
-MAX_OPEN_BATCHES_PER_ORG = 4
-MAX_OPEN_BATCHES_PER_USER = 2
+MAX_OPEN_BATCHES_PER_ORG = 6
+# One more than a board's streams, so a second tab is not refused while the first board loads.
+MAX_OPEN_BATCHES_PER_USER = 4
 OPEN_WAIT_SECONDS = 10.0
 MAX_STREAM_SECONDS = 600.0
 # A stream that is still reading notices the deadline within a heartbeat and ends with timed-out lines, so only a

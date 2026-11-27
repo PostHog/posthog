@@ -84,6 +84,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingCachedEvent
 from products.dashboards.backend.v2 import (
     board_stream as v2_board_stream,
+    boards as v2_boards,
     cached_tiles as v2_cached_tiles,
     first_load as v2_first_load,
     query_batch as v2_query_batch,
@@ -300,6 +301,21 @@ def _team_dashboards(team_id: int, *, include_deleted: bool) -> QuerySet[Dashboa
     # `team_id=` goes through the root-team filter, so an environment's id finds its project's dashboards.
     manager = Dashboard.objects_including_soft_deleted if include_deleted else Dashboard.objects
     return manager.filter(team_id=team_id)
+
+
+def metric_variable_names(*, team_id: int) -> frozenset[str]:
+    """The names of the metrics variables that this team's dashboards define."""
+    names: set[str] = set()
+    for filters in (
+        _team_dashboards(team_id, include_deleted=False)
+        .filter(filters__has_key="metricVariables")
+        .values_list("filters", flat=True)
+    ):
+        variables = filters.get("metricVariables") if isinstance(filters, dict) else None
+        for variable in variables if isinstance(variables, list) else []:
+            if isinstance(variable, dict) and isinstance(variable.get("name"), str):
+                names.add(variable["name"])
+    return frozenset(names)
 
 
 def get_dashboard(*, team_id: int, dashboard_id: int, include_deleted: bool = False) -> DashboardSummary | None:
@@ -1436,3 +1452,39 @@ def query_batch_stream(
         result_format=result_format,
     )
     return batch.astream() if asynchronous else batch.stream()
+
+
+# `dashboard-v2` boards. Each is one row that holds the whole version 2 document.
+
+
+def list_boards(
+    team_id: int, page: PageRequest, access: contracts.BoardListAccess | None
+) -> Page[contracts.BoardSummary]:
+    """List a team's live boards the viewer may see, the most recently saved first. `None` access lists them all."""
+    return v2_boards.list_boards(team_id, page, access)
+
+
+def get_board(team_id: int, uid: str) -> contracts.BoardDetail:
+    """Read one live board. Raises `BoardNotFound` for a uid of another team or a deleted board."""
+    return v2_boards.get_board(team_id, uid)
+
+
+def create_board(team_id: int, user_id: int, spec: dict[str, JsonValue]) -> contracts.BoardDetail:
+    """Save a document as a new native board at version 1, upgraded to the current schema. Raises `BoardSpecInvalid`."""
+    return v2_boards.create_board(team_id, user_id, spec)
+
+
+def update_board(
+    team_id: int, uid: str, user_id: int, spec: dict[str, JsonValue], base_version: int | None
+) -> contracts.BoardDetail:
+    """Replace a board's document and add 1 to its version.
+
+    Raises `BoardVersionConflict` when `base_version` is given and the board is at another version, and
+    `BoardReadOnly` for a board that is not native.
+    """
+    return v2_boards.update_board(team_id, uid, user_id, spec, base_version)
+
+
+def delete_board(team_id: int, uid: str, user_id: int) -> None:
+    """Soft-delete a native board, which frees its uid. Raises `BoardReadOnly` for any other board."""
+    v2_boards.delete_board(team_id, uid, user_id)

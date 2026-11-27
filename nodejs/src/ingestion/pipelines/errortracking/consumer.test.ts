@@ -89,14 +89,17 @@ jest.mock('./cymbal', () => ({
     CymbalClient: jest.fn().mockImplementation(() => ({
         processExceptions: jest.fn().mockImplementation((items) =>
             items.map((item: any) => ({
-                uuid: item.request.uuid,
-                event: item.request.event,
-                team_id: item.request.team_id,
-                timestamp: item.request.timestamp,
-                properties: {
-                    ...item.request.properties,
-                    $exception_fingerprint: `fingerprint-${item.request.uuid}`,
-                    $exception_issue_id: `issue-${item.request.uuid}`,
+                result: 'ok',
+                value: {
+                    uuid: item.request.uuid,
+                    event: item.request.event,
+                    team_id: item.request.team_id,
+                    timestamp: item.request.timestamp,
+                    properties: {
+                        ...item.request.properties,
+                        $exception_fingerprint: `fingerprint-${item.request.uuid}`,
+                        $exception_issue_id: `issue-${item.request.uuid}`,
+                    },
                 },
             }))
         ),

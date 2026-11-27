@@ -229,6 +229,34 @@ describe('OAuth credentials', () => {
         expect((error as HogError).code).toBe('session_expired')
     })
 
+    test('a renewal and a logout that PostHog redirects never send the refresh token to where it points', async () => {
+        const runtime = fakeRuntime({
+            ...stored('pha_old', 30_000),
+            respond: (url) =>
+                url.startsWith(EU)
+                    ? { status: 307, body: '', headers: { Location: 'https://elsewhere.example.com/oauth/' } }
+                    : { status: 200, body: { access_token: 'pha_new', expires_in: 3600 } },
+        })
+        const redirectModes: (RequestRedirect | undefined)[] = []
+        const fetch = runtime.fetch
+        runtime.fetch = (input, init) => {
+            redirectModes.push(init?.redirect)
+            return fetch(input, init)
+        }
+
+        const error = await resolveCredentials(runtime, {}).catch((caught: unknown) => caught)
+        const loggedIn = await resolveCredentials(
+            fakeRuntime({ ...stored('pha_old', 3_600_000), respond: () => ({ status: 500, body: {} }) }),
+            {}
+        )
+        const outcome = await loggedIn.key.logout(runtime)
+
+        expect((error as HogError).code).toBe('refresh_failed')
+        expect(outcome.revoked).toBe(false)
+        expect(redirectModes).toEqual(['manual', 'manual'])
+        expect(runtime.requests.map((request) => request.url)).toEqual([`${EU}/oauth/token/`, `${EU}/oauth/revoke/`])
+    })
+
     test('a login for another host than posthog.json names fails before hog renews it', async () => {
         const runtime = fakeRuntime({
             ...stored('pha_old', 30_000),

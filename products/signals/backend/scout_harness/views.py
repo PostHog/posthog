@@ -805,7 +805,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` "
             "(`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the "
             "100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. "
-            "Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. "
+            "Pass `skill_name` (optionally with `skill_version`) to scope to a single scout, or "
+            "`exclude_skill_name` to leave one scout's runs out before `limit` applies. "
             "Results capped at 100."
         ),
     )
@@ -817,6 +818,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         emitted = validated.get("emitted")
         skill_name = validated.get("skill_name") or None
         skill_version = validated.get("skill_version")
+        exclude_skill_name = validated.get("exclude_skill_name") or None
         limit = validated.get("limit") or 20
         saved = saved_reads_for_request(request, _canonical_team_id(self))
         rows = search_recent_runs(
@@ -828,7 +830,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=skill_name,
             skill_version=skill_version,
             limit=limit,
-            exclude_skill_name=saved.context.skill_name if saved is not None else None,
+            exclude_skill_names=[
+                name for name in (exclude_skill_name, saved.context.skill_name if saved else None) if name
+            ],
         )
         if saved is not None:
             rows = saved.recent_runs(
@@ -840,6 +844,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 skill_name=skill_name,
                 skill_version=skill_version,
                 limit=limit,
+                exclude_skill_name=exclude_skill_name,
             )
         return Response(
             SignalScoutRunSummarySerializer(
@@ -2113,7 +2118,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`include_expired=true`, and are hard-deleted by a daily janitor once their expiry is "
             "more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
-            "from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the "
+            "from returning every entry's full prose. Pass `content_offset` to start each `content` at a "
+            "character, and page a long entry with the `content_next_offset` each entry returns. "
+            "Pass `include_revisions=true` with `key` to also get the "
             "entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last "
             "changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank "
             "`content` instead of nothing. Results capped at 1000."
@@ -2152,6 +2159,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 limit=limit,
                 keys_only=keys_only,
                 content_max_chars=content_max_chars,
+                content_offset=validated.get("content_offset") or 0,
                 include_expired=bool(validated.get("include_expired", False)),
             )
         return Response(ScratchpadEntrySerializer([row.as_dict() for row in rows], many=True).data)
@@ -3751,6 +3759,13 @@ def _scout_tool_catalogue_payload() -> dict[str, Any]:
     return dict(ScoutToolCatalogueSerializer(get_scout_tool_catalogue()).data)
 
 
+def _apply_trial_posture(row: dict[str, Any], trial: SignalScoutRun | None) -> None:
+    """Show a trial run its own scout as it runs: emitting, on the trial's model."""
+    if trial is not None and row["skill_name"] == trial.skill_name:
+        row["emit"] = True
+        row["model"] = (trial.metadata or {}).get("model")
+
+
 class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Per-scout config: list, register, tune, and delete each scout's schedule, enablement,
     and emit posture.
@@ -3904,11 +3919,37 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         serializer = SignalScoutConfigSerializer(configs, many=True, context=context)
         body = serializer.data
         trial = trial_run_for_request(request, team_id)
-        if trial is not None:
-            for row in body:
-                if row["skill_name"] == trial.skill_name:
-                    row["emit"] = True
-                    row["model"] = (trial.metadata or {}).get("model")
+        for row in body:
+            _apply_trial_posture(row, trial)
+        return Response(body)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(response=SignalScoutConfigSerializer, description="The scout config."),
+            404: OpenApiResponse(description="Config not found for this project."),
+        },
+        summary="Get a scout config",
+        description=(
+            "Return one scout config by its `id`, with every field the list returns: schedule, posture, "
+            "output destinations, write grants, pre-check queries, structured output schema, and owners."
+        ),
+        operation_id="signals_scout_config_retrieve",
+    )
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        team = _canonical_team(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = (
+            SignalScoutConfig.objects.unscoped()
+            .filter(team_id=team.id, id=config_id)
+            .exclude(skill_name__in=withheld_skills_for_team(team.id))
+            .select_related("status_changed_by")
+            .first()
+        )
+        if config is None:
+            raise exceptions.NotFound()
+        context = scout_config_context(team, [config.skill_name], request)
+        body = SignalScoutConfigSerializer(config, context=context).data
+        _apply_trial_posture(body, trial_run_for_request(request, team.id))
         return Response(body)
 
     @extend_schema(

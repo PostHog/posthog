@@ -1,10 +1,11 @@
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { OfflineHistoryPageApi, OfflineHistoryPointApi } from '../generated/api.schemas'
+import { experimentScoreLabel } from './ExperimentScoreResult'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import {
     OFFLINE_HISTORY_BREAKDOWN_LABELS,
@@ -23,6 +24,7 @@ export function OfflineScorerHistoryTable({
     loading,
     expandedRuns,
     onToggleRun,
+    experimentScope,
 }: {
     periodKey: string
     breakdown?: OfflineHistoryBreakdown
@@ -30,6 +32,7 @@ export function OfflineScorerHistoryTable({
     loading: boolean
     expandedRuns: ReadonlySet<string>
     onToggleRun: (key: string) => void
+    experimentScope: boolean
 }): JSX.Element {
     return (
         <LemonTable<OfflineHistoryPointApi>
@@ -116,26 +119,41 @@ export function OfflineScorerHistoryTable({
                     title: 'Score',
                     key: 'score',
                     width: breakdown ? '14%' : '12%',
-                    render: (_, point) => <OfflineScoreSummaryDisplay summary={point.summary} />,
+                    render: (_, point) =>
+                        point.summary ? (
+                            <OfflineScoreSummaryDisplay summary={point.summary} />
+                        ) : (
+                            point.experiment.experiment_score && (
+                                <div className="flex flex-wrap items-center gap-1">
+                                    <strong>{experimentScoreLabel(point.experiment.experiment_score)}</strong>
+                                    <LemonTag type="muted" size="small">
+                                        v{point.experiment.experiment_score.version}
+                                    </LemonTag>
+                                </div>
+                            )
+                        ),
                 },
                 {
-                    title: 'Coverage',
+                    title: experimentScope ? 'Items' : 'Coverage',
                     key: 'coverage',
                     className: '@max-[40rem]/scorer-history:hidden',
                     width: breakdown ? '14%' : '20%',
-                    render: (_, { summary }) => (
-                        <Tooltip
-                            title={`${summary.status_counts.ok} / ${summary.observed_item_count} scored items · ${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${offlineUnscoredLabel(summary)}`}
-                        >
-                            <div className="text-xs truncate">
-                                <span>{`${summary.status_counts.ok}/${summary.observed_item_count} scored · `}</span>
-                                <span
-                                    className={summary.status_counts.error > 0 ? 'text-danger' : 'text-muted'}
-                                >{`${summary.status_counts.error} errors`}</span>
-                                <span className="text-muted">{` · ${offlineUnscoredLabel(summary)}`}</span>
-                            </div>
-                        </Tooltip>
-                    ),
+                    render: (_, { experiment, summary }) =>
+                        summary ? (
+                            <Tooltip
+                                title={`${summary.status_counts.ok} / ${summary.observed_item_count} scored items · ${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${offlineUnscoredLabel(summary)}`}
+                            >
+                                <div className="text-xs truncate">
+                                    <span>{`${summary.status_counts.ok}/${summary.observed_item_count} scored · `}</span>
+                                    <span
+                                        className={summary.status_counts.error > 0 ? 'text-danger' : 'text-muted'}
+                                    >{`${summary.status_counts.error} errors`}</span>
+                                    <span className="text-muted">{` · ${offlineUnscoredLabel(summary)}`}</span>
+                                </div>
+                            </Tooltip>
+                        ) : (
+                            experiment.accepted_item_count
+                        ),
                 },
             ]}
             expandable={{

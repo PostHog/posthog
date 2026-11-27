@@ -12,7 +12,7 @@ import { classifyError } from '../monitoring/hog-invocation-results.service'
 
 const counterEmailStatusRowsProduced = new Counter({
     name: 'cdp_email_status_rows_produced',
-    help: 'Transactional email status rows produced to the email_status Kafka topic, by status and reason. The reason is empty for a status without one, a skip reason or a run error kind for failed, the bounce type for bounced, and untracked for a sent email with open and click tracking off.',
+    help: 'Transactional email status rows produced to the email_status Kafka topic, by status and reason. The reason is empty for a status without one, a skip reason or a run error kind for failed, the bounce type for bounced, untracked for a sent email with open and click tracking off, and clicks_untracked for one with only click tracking off.',
     labelNames: ['status', 'reason'],
 })
 
@@ -49,9 +49,10 @@ export type EmailStatusReason =
     // A send that was skipped. The first four are also the codes the transactional email API
     // returns when it refuses a send before it queues the run.
     | EmailSkipReason
-    // A sent email that went out with open and click tracking off, so it never records an open or a click. It is
-    // the only reason a `sent` row carries, so a reader must not show it as a failure.
+    // A sent email that went out with open and click tracking off, so it never records an open or a click. It and
+    // `clicks_untracked` are the only reasons a `sent` row carries, so a reader must not show them as a failure.
     | 'untracked'
+    | 'clicks_untracked'
     // A run that was canceled before it finished.
     | 'canceled'
     // A run whose workflow or team no longer exists when it is dequeued.

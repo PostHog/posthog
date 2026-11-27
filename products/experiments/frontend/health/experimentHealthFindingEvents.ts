@@ -38,6 +38,7 @@ export type ExperimentHealthFindingCode =
     | 'feature_flags_billing_limit'
     | 'no_metric'
     | 'metric_event_not_ingested'
+    | 'metric_uses_feature_flag_called'
     | 'metric_cannot_compile'
     | 'metric_calculation_failed'
     | 'metric_all_zero'
@@ -51,6 +52,7 @@ export type ExperimentHealthFindingCode =
     | 'new_flag_no_traffic'
     | 'early_significance'
     | 'metrics_not_matured'
+    | 'result_ready'
     | 'flag_shared'
     | 'stale_experiment'
 
