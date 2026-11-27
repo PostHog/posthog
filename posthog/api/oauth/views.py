@@ -13,7 +13,6 @@ from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
 from django.db import DatabaseError, OperationalError, transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -84,7 +83,6 @@ from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_contex
 from posthog.api.oauth.metadata import (
     Document,
     authorization_server_metadata,
-    client_manifest_scopes,
     openid_provider_metadata,
     protected_resource_metadata,
 )
@@ -3141,21 +3139,3 @@ class OAuthProtectedResourceMetadataView(_PublicMetadataView):
 
     def get(self, request, *args, **kwargs):
         return self.document(protected_resource_metadata(self.base_url()))
-
-
-class OAuthClientManifestView(_PublicMetadataView):
-    """
-    auth.md agent-registration manifest (https://workos.com/auth-md).
-
-    A Markdown document agents read to learn how to register and authenticate
-    against PostHog without a human-driven signup. Served at /auth.md, the
-    location the authorization server metadata's `agent_auth.skill` points at.
-    """
-
-    def get(self, request, *args, **kwargs):
-        return render(
-            request,
-            "auth_md.md",
-            {"base_url": self.base_url(), "scopes": client_manifest_scopes()},
-            content_type="text/markdown; charset=utf-8",
-        )

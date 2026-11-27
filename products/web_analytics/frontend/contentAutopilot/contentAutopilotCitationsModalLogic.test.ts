@@ -90,6 +90,18 @@ describe('contentAutopilotCitationsModalLogic', () => {
         expect(logic.values.isOwnPage).toBe(false)
     })
 
+    it.each([
+        ['a report that marks the page as yours', true, true],
+        ['the answers alone', undefined, false],
+    ])('takes a page cited only with tracking parameters as yours from %s', async (_, isOwnPage, expected) => {
+        const tracked = { ...EXAMPLE_PROMPT_CITATIONS[0], target_urls: [`${OWN_PAGE.value}?utm_source=openai`] }
+        mockCitations.mockResolvedValue({ count: 1, next: null, previous: null, results: [tracked] })
+
+        logic.actions.openCitations({ ...OWN_PAGE, isOwnPage }, 'rankings-pages')
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ isOwnPage: expected })
+    })
+
     it('closes and opens a prompt from the list on the prompts tab', async () => {
         mockCitations.mockImplementation(() => page(0, 10))
         jest.mocked(aeoPromptsRetrieve).mockResolvedValue(EXAMPLE_PROMPTS[1])

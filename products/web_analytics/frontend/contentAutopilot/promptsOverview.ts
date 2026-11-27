@@ -1,8 +1,9 @@
-import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { AEOPromptSetOverviewApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { positionLabel } from './promptReport'
+import { formatShare } from './shares'
 import { sortEngines } from './utils'
 
 /** Without a single check in either window, the overview has nothing to show. */
@@ -70,7 +71,7 @@ export type OverviewTileKey = 'prompts' | 'visibility' | 'cited' | 'position'
 export const overviewTiles = (overview: AEOPromptSetOverviewApi): Record<OverviewTileKey, string> => {
     const { current } = overview
     const answered = current.checks - current.failed
-    const share = (part: number): string => (answered > 0 ? percentage(part / answered, 0) : '-')
+    const share = (part: number): string => (answered > 0 ? formatShare(part / answered) : '-')
     return {
         prompts: humanFriendlyNumber(overview.prompts_tracked),
         visibility: share(current.mentioned),

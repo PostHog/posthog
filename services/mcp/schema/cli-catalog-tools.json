@@ -10791,6 +10791,18 @@
                 {
                     "param": "review_on_clean_external_review",
                     "key": "review_on_clean_external_review"
+                },
+                {
+                    "param": "broadcast_enabled",
+                    "key": "broadcast_enabled"
+                },
+                {
+                    "param": "broadcast_slack_channel_id",
+                    "key": "broadcast_slack_channel_id"
+                },
+                {
+                    "param": "broadcast_slack_channel_name",
+                    "key": "broadcast_slack_channel_name"
                 }
             ],
             "injectBody": {},
@@ -10981,6 +10993,14 @@
                 {
                     "param": "pr_number",
                     "key": "pr_number"
+                },
+                {
+                    "param": "allow_broadcast",
+                    "key": "allow_broadcast"
+                },
+                {
+                    "param": "note",
+                    "key": "note"
                 }
             ],
             "injectBody": {},

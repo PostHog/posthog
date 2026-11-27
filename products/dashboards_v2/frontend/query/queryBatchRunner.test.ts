@@ -11,7 +11,7 @@ import type { QueryRequest } from './queryTypes'
 const TIME = { from: 'now-7d', to: 'now' }
 const SQL: QueryRequest = { query: { language: 'hogql', query: 'select 1 as total' }, time: TIME }
 const TRENDS: QueryRequest = {
-    query: { language: 'insight', query: { kind: NodeKind.TrendsQuery, series: [] } },
+    query: { language: 'query', query: { kind: NodeKind.TrendsQuery, series: [] } },
     time: TIME,
 }
 const LATENCY: QueryRequest = {
@@ -315,7 +315,9 @@ describe('createQueryBatchRunner', () => {
             streams[0].push(`${JSON.stringify({ i: 0, error: 'Query timed out' })}\n`)
             await expect(sql).rejects.toThrow('Query timed out')
             clock = 1400
-            streams[0].push(`${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true } } })}\n`)
+            streams[0].push(
+                `${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true }, provenance: { mode: 'derived', timeline: [{ source: 'engine', ms: 250.4 }] } } })}\n`
+            )
             await expect(latency).resolves.toEqual({ frames: [], stale: true })
             clock = 1500
             streams[0].close()
@@ -329,8 +331,8 @@ describe('createQueryBatchRunner', () => {
                         trace_id: '4bf92f3577b34da6a3ce929d0e0e4736',
                         batch_index: 0,
                         query_count: 3,
-                        query_languages: { hogql: 1, promql: 1, insight: 1 },
-                        language_mix: 'hogql+insight+promql',
+                        query_languages: { hogql: 1, promql: 1, query: 1 },
+                        language_mix: 'hogql+promql+query',
                         status: 200,
                         failed: true,
                         error: 'No answer came back for this query',
@@ -345,6 +347,8 @@ describe('createQueryBatchRunner', () => {
                         error_lines: 1,
                         cache_hits: 1,
                         stale_lines: 1,
+                        derived_lines: 1,
+                        engine_ms: 250,
                         since_mount_request_ms: 40,
                         since_mount_first_result_ms: 400,
                         since_mount_last_result_ms: 400,

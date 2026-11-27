@@ -23,6 +23,11 @@ const MarkdownPanel = lazyWithRetry(() =>
 
 export const markdownPanel = definePanel({
     ...markdownSpec,
-    addTileOptions: [{ label: 'Text', create: () => ({ type: 'markdown', config: { text: '' } }) }],
+    addTileOptions: [
+        {
+            label: 'Text',
+            create: () => ({ type: 'markdown', config: { text: '' }, appearance: { backgroundColor: 'transparent' } }),
+        },
+    ],
     Component: MarkdownPanel,
 })

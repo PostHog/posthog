@@ -648,8 +648,6 @@ jobs:
                         - 'products/desktop/pnpm-lock.yaml'
                         - 'pyproject.toml'
                         - 'uv.lock'
-                        - 'services/llm-gateway/pyproject.toml'
-                        - 'services/llm-gateway/uv.lock'
                         - 'common/ingestion/acceptance_tests/requirements.txt'
                         - 'tools/infra-scripts/clitools/requirements.txt'
                         - 'tools/infra-scripts/clitools/constraints.txt'
@@ -4086,7 +4084,7 @@ jobs:
                     if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
-                        full_targets="./posthog/clickhouse/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
+                        full_targets="./posthog/clickhouse/ ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086
@@ -5041,10 +5039,14 @@ jobs:
                   path: .
 
             - name: Run test selection and verdict
+              id: verdict
               env:
                   DIFF_BASE: ${{ format('{0}^1', github.sha) }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_DRAFT: ${{ toJSON(github.event.pull_request.draft) }}
+                  MERGE_QUEUE: ${{ startsWith(github.head_ref, 'trunk-merge/') }}
+                  BRANCH: ${{ github.head_ref || github.ref_name }}
               run: |
                   set -euo pipefail
                   mkdir -p /tmp/verdict
@@ -5065,6 +5067,7 @@ jobs:
                       /tmp/verdict/selection.json \
                       /tmp/junit-results/ \
                       --summary-path "$GITHUB_STEP_SUMMARY" \
+                      --event-path /tmp/verdict/event.json \
                       --pretty \
                       > /tmp/verdict/verdict.json
 
@@ -5075,6 +5078,24 @@ jobs:
                   name: test-selection-verdict-pr${{ github.event.pull_request.number }}
                   path: /tmp/verdict/
                   retention-days: 90
+
+            - name: Build verdict event properties
+              id: verdict-event
+              if: >-
+                  !cancelled() && steps.verdict.outcome == 'success' && github.run_attempt == '1'
+                  && github.actor != 'dependabot[bot]'
+                  && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+              continue-on-error: true
+              run: echo "properties=$(jq -c . /tmp/verdict/event.json)" >> "$GITHUB_OUTPUT"
+
+            - name: Capture test selection verdict to DevEx PostHog
+              if: ${{ !cancelled() && steps.verdict-event.outputs.properties != '' }}
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-test-selection-verdict'
+                  properties: ${{ steps.verdict-event.outputs.properties }}
 
     capture-test-selection:
         name: Capture test selection

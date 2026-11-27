@@ -176,6 +176,7 @@ class CreateExportAssetsResult:
     insight_limit: int = 0
     status: str = ExportAssetPreparationStatus.READY
     failure_context: NoExportableInsightsContext | None = None
+    batch_render_chunk_size: int = 0
 
 
 @dataclasses.dataclass

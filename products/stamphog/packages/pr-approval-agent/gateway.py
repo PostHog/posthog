@@ -60,8 +60,10 @@ def _misconfig(url: str, api_key: str) -> str | None:
     # A query/fragment survives /v1 stripping and would corrupt the base URL.
     if parsed.query or parsed.fragment:
         return "AI_GATEWAY_URL must not contain a query string or fragment"
-    if not parsed.path.rstrip("/").endswith("/v1"):
-        return "AI_GATEWAY_URL must include the OpenAI base path, e.g. https://<host>/v1"
+    # Exactly /v1: a prefix such as the retired /stamphog/v1 route must not receive the key.
+    path = parsed.path.rstrip("/")
+    if path != "/v1":
+        return f"AI_GATEWAY_URL path must be /v1, e.g. https://<host>/v1, got {path or '/'}"
     return None
 
 
