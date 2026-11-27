@@ -327,9 +327,11 @@ describe('emailImpactLogic', () => {
     })
 
     it.each([
-        ['keeps the funnel it showed when the refresh after a turn-on fails', 'ready'],
-        ['shows only the error when a new period fails', 'error'],
-    ])('%s, and says why until a retry answers', async (_, failedState) => {
+        ['keeps the funnel it showed, without the turn-on prompt, when the refresh after a turn-on fails', true, false],
+        ['shows only the error when a new period fails', false, false],
+        ['shows only the error when the refresh after a turn-on fails for a period changed since', true, true],
+    ])('%s, and says why until a retry answers', async (_, turnsOn, changesPeriod) => {
+        const failedState = turnsOn && !changesPeriod ? 'ready' : 'error'
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, workflows_config: { email_workflow_run_link_tag_enabled: false } })
         useMocks({
             patch: {
@@ -348,18 +350,20 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         answer = [429, { detail: 'Request was throttled.' }]
-        if (failedState === 'ready') {
+        if (changesPeriod || !turnsOn) {
+            otherLogic.actions.setDays(7)
+        }
+        if (turnsOn) {
             logic.actions.turnOnLinkTracking()
             await expectLogic(logic).toFinishAllListeners()
-        } else {
-            otherLogic.actions.setDays(7)
         }
         await expectLogic(otherLogic).toFinishAllListeners()
 
-        expect([otherLogic.values.funnelState, otherLogic.values.impactError]).toEqual([
-            failedState,
-            'Too many queries are running right now. Wait a few seconds, then try again.',
-        ])
+        expect([
+            otherLogic.values.funnelState,
+            otherLogic.values.impactError,
+            otherLogic.values.showsLinkTrackingPrompt,
+        ]).toEqual([failedState, 'Too many queries are running right now. Wait a few seconds, then try again.', false])
 
         answer = [200, { ...WITHOUT_EVENT, sessions: 3 }]
         otherLogic.actions.loadImpact()

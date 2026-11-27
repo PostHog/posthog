@@ -65,12 +65,12 @@ export interface emailImpactLogicValues {
     impact: TransactionalEmailImpactApi | null
     impactError: string | null
     impactLoading: boolean
-    keepsFunnelOnFailure: boolean
     lift: ImpactLift | null
     linkTagging: LinkTagging
     linkTrackingDisabledReason: string | null
     linkTrackingSave: TeamWorkflowsConfigApi | null
     linkTrackingSaveLoading: boolean
+    selectionChangedSinceLoad: boolean
     replayEnabled: boolean
     showsLinkTrackingPrompt: boolean
     steps: ImpactStep[] | null
@@ -108,9 +108,6 @@ export interface emailImpactLogicActions {
         event: string | null
         source: ConversionEventSource
     }
-    refreshImpact: () => {
-        value: true
-    }
     setAlwaysSensitive: (alwaysSensitive: boolean) => {
         alwaysSensitive: boolean
     }
@@ -145,10 +142,11 @@ export interface emailImpactLogicMeta {
             impact: TransactionalEmailImpactApi | null,
             impactLoading: boolean,
             impactError: string | null,
-            keepsFunnelOnFailure: boolean
+            selectionChangedSinceLoad: boolean
         ) => ImpactFunnelState
         linkTagging: (
             impact: TransactionalEmailImpactApi | null,
+            impactError: string | null,
             currentTeam: TeamPublicType | TeamType | null,
             alwaysSensitive: boolean
         ) => LinkTagging
@@ -217,7 +215,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         pickEvent: (event: string | null, source: ConversionEventSource) => ({ event, source }),
         setDays: (days: number) => ({ days }),
         setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
-        refreshImpact: true,
     }),
     reducers(({ props }) => ({
         // A selector that reads props keeps its result while the store is unchanged, so a template's new
@@ -225,16 +222,9 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         alwaysSensitive: [!!props.alwaysSensitive, { setAlwaysSensitive: (_, { alwaysSensitive }) => alwaysSensitive }],
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
-        // A failed refresh leaves the funnel it would have replaced, whose numbers still hold. After a new period
-        // or event, the old funnel would show numbers for something the tab no longer asks about.
-        keepsFunnelOnFailure: [
+        selectionChangedSinceLoad: [
             false,
-            {
-                refreshImpact: () => true,
-                setDays: () => false,
-                setEvent: () => false,
-                loadImpactSuccess: () => false,
-            },
+            { setDays: () => true, setEvent: () => true, loadImpactSuccess: () => false },
         ],
         impactError: [
             null as string | null,
@@ -330,25 +320,26 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     })),
     selectors({
         funnelState: [
-            (s) => [s.impact, s.impactLoading, s.impactError, s.keepsFunnelOnFailure],
+            (s) => [s.impact, s.impactLoading, s.impactError, s.selectionChangedSinceLoad],
             (
                 impact: TransactionalEmailImpactApi | null,
                 impactLoading: boolean,
                 impactError: string | null,
-                keepsFunnelOnFailure: boolean
+                selectionChangedSinceLoad: boolean
             ): ImpactFunnelState =>
-                impactFunnelState(impact, impactLoading, keepsFunnelOnFailure && impact ? null : impactError),
+                impactFunnelState(impact, impactLoading, impact && !selectionChangedSinceLoad ? null : impactError),
         ],
         linkTagging: [
-            (s) => [s.impact, s.currentTeam, s.alwaysSensitive],
+            (s) => [s.impact, s.impactError, s.currentTeam, s.alwaysSensitive],
             (
                 impact: TransactionalEmailImpactApi | null,
+                impactError: string | null,
                 currentTeam: TeamPublicType | TeamType | null,
                 alwaysSensitive: boolean
             ): LinkTagging =>
                 alwaysSensitive
                     ? 'sensitive-email'
-                    : (impact?.link_tagging_enabled ??
+                    : ((impactError ? undefined : impact?.link_tagging_enabled) ??
                         currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ??
                         true)
                       ? 'on'
@@ -401,7 +392,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setEvent(event)
         },
         setDays: () => actions.loadImpact(),
-        refreshImpact: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
             if (!values.impact && !values.impactLoading) {
                 actions.loadImpact()
@@ -426,7 +416,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         }
     }),
     afterMount(({ actions, props }) => {
-        mountedImpactReloads.set(props.workflowId, actions.refreshImpact)
+        mountedImpactReloads.set(props.workflowId, actions.loadImpact)
         actions.loadImpact()
     }),
     beforeUnmount(({ props }) => {

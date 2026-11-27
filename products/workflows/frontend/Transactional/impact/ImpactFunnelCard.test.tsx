@@ -330,6 +330,8 @@ describe('ImpactFunnelCard', () => {
             await screen.findByText('Too many queries are running right now. Wait a few seconds, then try again.')
         ).toBeInTheDocument()
         expect(screen.getByText('Clicked')).toBeInTheDocument()
+        expect(screen.getByText("Couldn't count")).toBeInTheDocument()
+        expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
 
         answer = [200, IMPACT]
         fireEvent.click(screen.getAllByText('Try again')[0])
