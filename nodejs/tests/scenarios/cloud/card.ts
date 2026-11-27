@@ -41,6 +41,10 @@ export function runCardOf(
         throw new Error(problem)
     }
     const failovers = card.valves.filter(({ valve }) => valve === FAILOVER_VALVE)
+    // The report judges the reader once, warm or idle, so one card cannot ask for both.
+    if (new Set(failovers.map(({ dose }) => dose.warmReader === true)).size > 1) {
+        throw new Error(`${id} fails the reader over both with and without warmReader`)
+    }
     return {
         id,
         failsOver: failovers.length > 0,

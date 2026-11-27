@@ -153,7 +153,7 @@ type Judged = {
 function judgeCapacity(
     { minutes }: Capacity,
     t0: number,
-    { min, idleMax }: CloudProfile['readerAcu'],
+    { min, max, idleMax }: CloudProfile['readerAcu'],
     warmReader: boolean
 ): Judged {
     const t0Minute = minuteOf(t0)
@@ -178,34 +178,38 @@ function judgeCapacity(
             .map(({ at }) => iso(at)),
     }
     const readerAtT0 = before.find(({ at }) => at === t0Minute - MINUTE_MS)?.max ?? null
+    const pre = minutes.filter(({ at }) => at < t0Minute && at >= t0Minute - CAPACITY_MINUTES * MINUTE_MS)
+    const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
+    const lastAvg = pre.find(({ at }) => at === t0Minute - MINUTE_MS)?.avg
+    const scored = {
+        ...scalars,
+        acu_pre_t0_avg: watched.map((at) => pre.find((minute) => minute.at === at)?.avg ?? null),
+        reader_at_t0: lastAvg === undefined || idleMax === undefined ? 'unknown' : lastAvg > idleMax ? 'warm' : 'cold',
+    }
     if (before.length === 0) {
-        return { scalars, readerAtT0, reason: 'no reader capacity before T0' }
+        return { scalars: scored, readerAtT0, reason: 'no reader capacity before T0' }
     }
     if (after.length === 0) {
-        return { scalars, readerAtT0, reason: 'no measured reader maximum from T0 on' }
+        return { scalars: scored, readerAtT0, reason: 'no measured reader maximum from T0 on' }
     }
     if (idleMax === undefined) {
         return {
-            scalars,
+            scalars: scored,
             readerAtT0,
             reason: 'the cloud profile sets no readerAcu.idleMax, so the reader was not judged',
         }
     }
-    const pre = minutes.filter(({ at }) => at < t0Minute && at >= t0Minute - CAPACITY_MINUTES * MINUTE_MS)
     const above = pre.filter(({ avg }) => avg !== undefined && avg > idleMax)
     const under = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading < min))
     const inverted = pre.filter(({ max, avg }) => max !== undefined && avg !== undefined && avg > max)
     const unshown = pre.filter(({ max, avg }) => avg === undefined && max !== undefined && max > idleMax)
-    const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
+    const over = minutes.filter(
+        ({ at, max: top, avg }) => at < t0Minute && [top, avg].some((reading) => reading !== undefined && reading > max)
+    )
     const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
-    const warm = above.length > 0 || unshown.length > 0
-    const scored = {
-        ...scalars,
-        acu_pre_t0_avg: watched.map((at) => pre.find((minute) => minute.at === at)?.avg ?? null),
-        reader_at_t0: warm ? 'warm' : 'cold',
-    }
     const reasons = [
+        over.length > 0 && `reader above its ${max} ACU maximum before T0 (${listed(over)})`,
         !warmReader && above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
         under.length > 0 && `reader capacity under its ${min} ACU minimum before T0 (${listed(under)})`,
         inverted.length > 0 && `reader average above its maximum before T0 (${listed(inverted)})`,
