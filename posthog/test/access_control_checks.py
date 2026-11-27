@@ -53,8 +53,12 @@ KNOWN_GAPS: dict[tuple[str, str, str], str] = {
         "Actions already linked to the survey stay allowed. The view does not prefetch them, so these checks cannot "
         "tell them from new links without an extra query."
     ),
-    ("referenced_object", "EventViewSet.list", "Action"): "Not fixed yet.",
-    ("referenced_object", "InsightViewSet.create", "Action"): "Not fixed yet.",
+    ("referenced_object", "EventViewSet.list", "Action"): (
+        "Action rules only narrow editing, so using an action in a query never needs a check."
+    ),
+    ("referenced_object", "InsightViewSet.create", "Action"): (
+        "Action rules only narrow editing, so using an action in a query never needs a check."
+    ),
     ("referenced_object", "DataWarehouseExpressionViewSet.create", "ExternalDataSource"): (
         "The built-in managed warehouse connection is open to the whole project, so get_direct_connection_source "
         "skips the object check for it."
