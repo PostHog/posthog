@@ -417,6 +417,7 @@ def test_reopened_alert_names_the_release(version: str | None, expected_reply: s
     ]
     assert (expected_reply.removeprefix("🔄 ") in root_context) == (release is not None)
     # Alert and Inbox filters read these extras, so they must carry what the internal event carries.
+    assert alert.extra is not None
     assert alert.extra.get("reopen_reason") == expected_reason
     assert alert.extra.get("reopened_by_release_id") == (str(release.id) if release else None)
 
