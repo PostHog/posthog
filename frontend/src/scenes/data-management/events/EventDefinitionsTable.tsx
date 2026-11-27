@@ -44,14 +44,8 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 ]
 
 export function EventDefinitionsTable(): JSX.Element {
-    const {
-        eventDefinitions,
-        eventDefinitionsLoading,
-        filters,
-        showVerifiedFilter,
-        bulkVerifiedResultLoading,
-        bulkHiddenResultLoading,
-    } = useValues(eventDefinitionsTableLogic)
+    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter, bulkEditLoading } =
+        useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters, applyBulkTagUpdates, bulkUpdateVerified, bulkUpdateHidden } =
         useActions(eventDefinitionsTableLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -340,9 +334,7 @@ export function EventDefinitionsTable(): JSX.Element {
                                     type="secondary"
                                     size="small"
                                     sideIcon={<IconChevronDown />}
-                                    disabledReason={
-                                        bulkVerifiedResultLoading || bulkHiddenResultLoading ? 'Updating…' : undefined
-                                    }
+                                    disabledReason={bulkEditLoading ? 'Updating…' : undefined}
                                     data-attr="event-definitions-bulk-edit"
                                 >
                                     Bulk edit

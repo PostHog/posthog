@@ -982,6 +982,30 @@ class EventDefinitionViewSet(
         )
         return response.Response({"updated": updated, "skipped": skipped})
 
+    def _log_bulk_state_change(
+        self,
+        definition: EventDefinition,
+        before: dict[str, bool],
+        after: dict[str, bool],
+        *,
+        user: User,
+        was_impersonated: bool,
+    ) -> None:
+        """Log a "changed" activity for one event of a bulk update, as the single-object path does."""
+        log_activity(
+            organization_id=None,
+            team_id=self.team_id,
+            user=user,
+            item_id=str(definition.id),
+            scope="EventDefinition",
+            activity="changed",
+            was_impersonated=was_impersonated,
+            detail=Detail(
+                name=str(definition.name),
+                changes=dict_changes_between("EventDefinition", before, after, use_field_exclusions=True),
+            ),
+        )
+
     @extend_schema(
         request=EventDefinitionBulkUpdateVerifiedRequestSerializer,
         responses={200: EventDefinitionBulkUpdateVerifiedResponseSerializer},
@@ -1072,21 +1096,12 @@ class EventDefinitionViewSet(
                 enterprise.save()
 
                 # `verified` was necessarily the opposite before (no-ops were skipped above).
-                changes = dict_changes_between(
-                    "EventDefinition",
+                self._log_bulk_state_change(
+                    enterprise,
                     {"verified": not verified, "hidden": before_hidden},
                     {"verified": verified, "hidden": bool(enterprise.hidden)},
-                    use_field_exclusions=True,
-                )
-                log_activity(
-                    organization_id=None,
-                    team_id=self.team_id,
                     user=user,
-                    item_id=str(enterprise.id),
-                    scope="EventDefinition",
-                    activity="changed",
                     was_impersonated=was_impersonated,
-                    detail=Detail(name=str(enterprise.name), changes=changes),
                 )
                 updated.append({"id": enterprise.id, "verified": verified})
 
@@ -1155,21 +1170,12 @@ class EventDefinitionViewSet(
                     enterprise.scheduled_deletion_at = None  # a scheduled delete only applies to hidden events
                 enterprise.save()
 
-                changes = dict_changes_between(
-                    "EventDefinition",
+                self._log_bulk_state_change(
+                    enterprise,
                     {"hidden": before_hidden, "verified": before_verified},
                     {"hidden": hidden, "verified": bool(enterprise.verified)},
-                    use_field_exclusions=True,
-                )
-                log_activity(
-                    organization_id=None,
-                    team_id=self.team_id,
                     user=user,
-                    item_id=str(enterprise.id),
-                    scope="EventDefinition",
-                    activity="changed",
                     was_impersonated=was_impersonated,
-                    detail=Detail(name=str(enterprise.name), changes=changes),
                 )
                 updated.append({"id": enterprise.id, "hidden": hidden})
 
