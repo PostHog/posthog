@@ -888,6 +888,22 @@ async def _import_data_with_reporting(
                     job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
                 )
 
+            # Function-local: importing `sync_new_schemas` at module level is circular.
+            from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (  # noqa: PLC0415
+                include_new_columns_before_sync,
+            )
+
+            try:
+                enabled_columns = await database_sync_to_async_pool(include_new_columns_before_sync)(
+                    new_source, config, schema, model.pipeline
+                )
+            except Exception:
+                # The run still syncs the stored selection, and the next discovery pass adds the columns.
+                await logger.aexception("Failed to add new source columns to the column selection before the sync")
+            else:
+                schema.enabled_columns = enabled_columns
+                source_inputs.enabled_columns = enabled_columns
+
             # Probing before source setup is what makes the fast return cheap: everything past
             # this point (connections, metadata queries, the delta log read) is spent whether or
             # not the sync has anything to move. The probe reads the same `source_inputs` the

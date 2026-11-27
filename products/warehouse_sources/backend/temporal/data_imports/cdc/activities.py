@@ -251,7 +251,7 @@ class CDCExtractActivity:
         self.split_key_columns: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
-        # Known columns of `include` tables. Any other column is new and syncs until discovery adds it to the selection.
+        # Known columns of `include` tables. Any other column is new and syncs until it joins the selection.
         self.known_columns_by_table: dict[str, set[str]] = {}
         # Folded names of the columns to mask. Missing entry = mask nothing.
         self.masked_columns_by_table: dict[str, set[str]] = {}

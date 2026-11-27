@@ -332,9 +332,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "current columns. Null (default) syncs new columns only on tables without a column selection. "
             "Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` "
             "overrides this. A pinned table has a column selection, so on a source with live queries `exclude` "
-            "turns off raw SQL. SQL tables without CDC get an `include` column at the next schema refresh, so "
-            "rows an incremental sync reads before it lack the column. Not supported for sources whose tables "
-            "have a fixed schema, such as Stripe."
+            "turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe."
         ),
     )
     source_type = SourceTypeField(read_only=True, help_text="The source type (e.g. 'Postgres', 'Stripe').")
