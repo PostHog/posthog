@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AdventCalendarAnswerApi,
+    AdventCalendarResultsApi,
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
     ApplyUtmDefaultsRequestApi,
@@ -1633,6 +1635,43 @@ export const pushTokenImportsLatestRetrieve = async (
     options?: RequestInit
 ): Promise<PushTokenImportLatestApi> => {
     return apiMutator<PushTokenImportLatestApi>(getPushTokenImportsLatestRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowAdventCalendarAnswerUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/answer/`
+}
+
+/**
+ * How people answer the questions of the Workflows advent calendar.
+ */
+export const workflowAdventCalendarAnswer = async (
+    projectId: string,
+    adventCalendarAnswerApi: AdventCalendarAnswerApi,
+    options?: RequestInit
+): Promise<AdventCalendarResultsApi> => {
+    return apiMutator<AdventCalendarResultsApi>(getWorkflowAdventCalendarAnswerUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(adventCalendarAnswerApi),
+    })
+}
+
+export const getWorkflowAdventCalendarResultsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/results/`
+}
+
+/**
+ * How people answer the questions of the Workflows advent calendar.
+ */
+export const workflowAdventCalendarResults = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AdventCalendarResultsApi> => {
+    return apiMutator<AdventCalendarResultsApi>(getWorkflowAdventCalendarResultsUrl(projectId), {
         ...options,
         method: 'GET',
     })

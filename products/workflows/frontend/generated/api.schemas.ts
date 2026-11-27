@@ -2867,6 +2867,127 @@ export interface PushTokenImportLatestApi {
     latest: PushTokenImportApi | null
 }
 
+/**
+ * * `2` - Favorite founder
+ * * `5` - Pineapple on pizza
+ * * `10` - Tabs or spaces
+ * * `13` - Dark or light mode
+ * * `18` - Ship on a Friday
+ * * `21` - Coffee or tea
+ */
+export type AdventCalendarDayEnumApi = (typeof AdventCalendarDayEnumApi)[keyof typeof AdventCalendarDayEnumApi]
+
+export const AdventCalendarDayEnumApi = {
+    Number2: 2,
+    Number5: 5,
+    Number10: 10,
+    Number13: 13,
+    Number18: 18,
+    Number21: 21,
+} as const
+
+/**
+ * * `james` - James
+ * * `tim` - Tim
+ * * `yes` - Yes
+ * * `no` - No
+ * * `tabs` - Tabs
+ * * `spaces` - Spaces
+ * * `dark` - Dark mode
+ * * `light` - Light mode
+ * * `coffee` - Coffee
+ * * `tea` - Tea
+ */
+export type AdventCalendarOptionEnumApi = (typeof AdventCalendarOptionEnumApi)[keyof typeof AdventCalendarOptionEnumApi]
+
+export const AdventCalendarOptionEnumApi = {
+    James: 'james',
+    Tim: 'tim',
+    Yes: 'yes',
+    No: 'no',
+    Tabs: 'tabs',
+    Spaces: 'spaces',
+    Dark: 'dark',
+    Light: 'light',
+    Coffee: 'coffee',
+    Tea: 'tea',
+} as const
+
+export interface AdventCalendarAnswerApi {
+    /** The calendar day of the question the person answers.
+     *
+     * * `2` - Favorite founder
+     * * `5` - Pineapple on pizza
+     * * `10` - Tabs or spaces
+     * * `13` - Dark or light mode
+     * * `18` - Ship on a Friday
+     * * `21` - Coffee or tea */
+    day: AdventCalendarDayEnumApi
+    /** The option the person picks. It must be one of the two options of that day's question.
+     *
+     * * `james` - James
+     * * `tim` - Tim
+     * * `yes` - Yes
+     * * `no` - No
+     * * `tabs` - Tabs
+     * * `spaces` - Spaces
+     * * `dark` - Dark mode
+     * * `light` - Light mode
+     * * `coffee` - Coffee
+     * * `tea` - Tea */
+    option: AdventCalendarOptionEnumApi
+}
+
+export interface AdventCalendarShareApi {
+    /** One option of the question.
+     *
+     * * `james` - James
+     * * `tim` - Tim
+     * * `yes` - Yes
+     * * `no` - No
+     * * `tabs` - Tabs
+     * * `spaces` - Spaces
+     * * `dark` - Dark mode
+     * * `light` - Light mode
+     * * `coffee` - Coffee
+     * * `tea` - Tea */
+    option: AdventCalendarOptionEnumApi
+    /** Percent of all answers to the question that picked this option, rounded to a whole number. 0 for every option while the question has no answers. */
+    share: number
+}
+
+export interface AdventCalendarQuestionResultApi {
+    /** The calendar day of the question.
+     *
+     * * `2` - Favorite founder
+     * * `5` - Pineapple on pizza
+     * * `10` - Tabs or spaces
+     * * `13` - Dark or light mode
+     * * `18` - Ship on a Friday
+     * * `21` - Coffee or tea */
+    day: AdventCalendarDayEnumApi
+    /** The option the signed-in person picked, or null when they have not answered this question.
+     *
+     * * `james` - James
+     * * `tim` - Tim
+     * * `yes` - Yes
+     * * `no` - No
+     * * `tabs` - Tabs
+     * * `spaces` - Spaces
+     * * `dark` - Dark mode
+     * * `light` - Light mode
+     * * `coffee` - Coffee
+     * * `tea` - Tea */
+    answer: AdventCalendarOptionEnumApi | null
+    /** Each option of the question, in the calendar's order, with its share of all answers. */
+    shares: AdventCalendarShareApi[]
+}
+
+export interface AdventCalendarResultsApi {
+    /** Every advent calendar question, by day. Shares count the answers of every user of this PostHog instance, not only this project's members. Each cloud region counts its own users. */
+    questions: AdventCalendarQuestionResultApi[]
+}
+
 export interface DataSuggestionBuildRequestApi {
     /** The id of a suggestion from the list endpoint. */
     suggestion_id: string
