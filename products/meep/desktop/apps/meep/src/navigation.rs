@@ -2027,6 +2027,7 @@ impl Desktop {
             .max_w(px(440.))
             .gap_0()
             .mb(px(48.))
+            .child(div().mb(px(18.)).child(super::brand::wordmark(144.)))
             .child(
                 div()
                     .text_size(px(20.))

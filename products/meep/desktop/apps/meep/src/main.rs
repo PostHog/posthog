@@ -1,5 +1,6 @@
 //! Meep: the native, replica-backed topics workspace.
 mod backend;
+mod brand;
 #[cfg(feature = "demo-driver")]
 mod demo_driver;
 mod desktop;
@@ -62,6 +63,8 @@ fn main() -> Result<()> {
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             meep_render::init(cx);
+            #[cfg(target_os = "macos")]
+            brand::install_dock_icon();
             meep_shell::puppet::preload();
             meep_shell::workspace::install_menus("Meep", cx);
             let options_window = WindowOptions {
@@ -190,6 +193,8 @@ impl Host {
             Some(e) => ("Meep couldn't open your workspace", boot_line(Some(e))),
         };
         ui::page()
+            .relative()
+            .child(div().absolute().bottom(px(26.)).child(brand::wordmark(84.)))
             .justify_center()
             .items_center()
             .pb(px(48.))
