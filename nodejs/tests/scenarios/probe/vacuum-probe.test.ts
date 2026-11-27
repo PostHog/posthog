@@ -30,38 +30,60 @@ describe('vacuum probe', () => {
         await SCHEMA.drop()
     })
 
-    it('reads the live and dead tuples and the sizes of cyclotron_jobs and its indexes', async () => {
-        await insertJobs(400)
-        await run(`DELETE FROM cyclotron_jobs WHERE ctid IN (SELECT ctid FROM cyclotron_jobs LIMIT 100)`)
+    it('reads the live and dead tuples and the sizes of cyclotron_jobs, its TOAST and its indexes', async () => {
         const probe = createVacuumProbe(PROBE_URL)
+        const empty = await probe.sample()
+        await insertJobs(400)
+        await run(
+            `UPDATE cyclotron_jobs SET state = convert_to(
+                 (SELECT string_agg(md5(random()::text), '') FROM generate_series(1, 2000)), 'UTF8')
+             WHERE id = (SELECT id FROM cyclotron_jobs LIMIT 1)`
+        )
+        await run(
+            `DELETE FROM cyclotron_jobs WHERE ctid IN (SELECT ctid FROM cyclotron_jobs WHERE state IS NULL LIMIT 100)`
+        )
 
         const sample = await probe.sample()
 
-        expect(sample).toMatchObject({ liveTuples: 300, deadTuples: 100, autovacuums: 0, lastAutovacuumAt: null })
+        expect(sample).toMatchObject({ liveTuples: 300, deadTuples: 101, autovacuums: 0, lastAutovacuumAt: null })
         expect(sample.heapBytes).toBeGreaterThan(0)
+        expect(sample.toastBytes).toBeGreaterThan(empty.toastBytes)
         expect(Object.keys(sample.indexBytes)).toContain('cyclotron_jobs_pkey')
         expect(Object.values(sample.indexBytes).every((bytes) => bytes > 0)).toBe(true)
         expect(sample.vacuumingSince).toBeNull()
     })
 
     it('counts a vacuum and reads the dead tuples it removed', async () => {
+        await insertJobs(50)
+        await run(`DELETE FROM cyclotron_jobs WHERE ctid IN (SELECT ctid FROM cyclotron_jobs LIMIT 50)`)
         const probe = createVacuumProbe(PROBE_URL)
         const before = await probe.sample()
 
         await run('VACUUM cyclotron_jobs')
         const after = await probe.sample()
 
+        expect(before.deadTuples).toBeGreaterThan(0)
         expect(after.vacuums).toBe(before.vacuums + 1)
         expect(after.deadTuples).toBe(0)
     })
 
-    it('reads the autovacuum settings and the storage options of the table and its indexes', async () => {
+    it('reads the autovacuum settings, the storage options of the table and its indexes, and whether autovacuum workers are visible', async () => {
         await run('ALTER INDEX cyclotron_jobs_pkey SET (fillfactor = 80)')
+        const server = await withPostgres(
+            async (client) =>
+                (
+                    await client.query<{ autovacuum: string; visible: boolean }>(
+                        `SELECT current_setting('autovacuum') AS autovacuum, pg_has_role('pg_read_all_stats', 'USAGE') AS visible`
+                    )
+                ).rows[0],
+            PROBE_URL
+        )
         const probe = createVacuumProbe(PROBE_URL)
 
-        const { settings, storage } = await probe.settings()
+        const { settings, storage, workersVisible } = await probe.settings()
 
-        expect(settings.autovacuum).toBe('on')
+        expect(settings.autovacuum).toBe(server.autovacuum)
+        expect(workersVisible).toBe(server.visible)
         expect(settings).toHaveProperty('autovacuum_vacuum_scale_factor')
         expect(settings).toHaveProperty('vacuum_cost_limit')
         expect(storage).toMatchObject({

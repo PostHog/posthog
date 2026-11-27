@@ -205,13 +205,14 @@ async function startProbes(
     })
     const vacuumProbe = createVacuumProbe(cyclotronUrl)
     const vacuumSettings = await vacuumProbe.settings().catch((error: unknown) => ({ error: messageOf(error) }))
-    const vacuum: Sampling<VacuumRead> = sampleEvery(VACUUM_PROBE_EVERY_MS, async () => {
+    const readVacuum = async (): Promise<VacuumRead> => {
         const at = Date.now()
         return vacuumProbe.sample().then(
             (sample) => ({ at, ...sample }),
             (error: unknown) => ({ at, error: messageOf(error) })
         )
-    })
+    }
+    const vacuum: Sampling<VacuumRead> = sampleEvery(VACUUM_PROBE_EVERY_MS, readVacuum)
     let stopping: Promise<Probed> | undefined
     return {
         commits: () => writer.taken(),
@@ -221,7 +222,7 @@ async function startProbes(
                 const [writerSamples, queueSamples, vacuumSamples] = await Promise.all([
                     writer.stop(),
                     queue.stop(),
-                    vacuum.stop(),
+                    vacuum.stop().then(async (taken) => [...taken, await readVacuum()]),
                 ])
                 await writerProbe.end()
                 return { writer: writerSamples, queue: queueSamples, vacuum: vacuumSamples, vacuumSettings }
