@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from datetime import datetime
 from enum import StrEnum
 
 from products.ai_observability.backend.logic.traces.trace_metrics import ChangeTone
@@ -6,6 +7,8 @@ from products.ai_observability.backend.logic.traces.trace_metrics import ChangeT
 INCREASE_MIN_PERCENT = 20
 DECREASE_MIN_PERCENT = 20
 TREND_MIN_OCCURRENCES = 10
+FAILING_MIN_RATE = 0.05
+FAILING_MIN_RESULTS = 20
 
 MINUS_SIGN = "−"
 
@@ -47,3 +50,10 @@ def error_change_tone(trend: Trend) -> ChangeTone:
             return ChangeTone.GOOD
         case Trend.STEADY:
             return ChangeTone.NEUTRAL
+
+
+def series_of(counts: Mapping[int, int], starts: Sequence[datetime]) -> tuple[int, ...]:
+    """The count in each bucket, from counts keyed by each bucket's start in Unix seconds. A start with no count had no
+    occurrence."""
+    # Unix seconds name one instant in any zone, so the two buckets of the hour a clock goes back stay apart.
+    return tuple(counts.get(int(start.timestamp()), 0) for start in starts)

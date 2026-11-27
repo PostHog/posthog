@@ -41,6 +41,7 @@ from products.ai_observability.backend.presentation.views.session_previews impor
 from products.ai_observability.backend.presentation.views.session_resource import SESSION_LOOKUP
 from products.ai_observability.backend.presentation.views.session_turns import SessionTurnsViewSet
 from products.ai_observability.backend.presentation.views.sessions import SessionViewSet
+from products.ai_observability.backend.presentation.views.tools import ToolViewSet
 from products.ai_observability.backend.presentation.views.trace_clusters import TraceClustersViewSet
 from products.ai_observability.backend.presentation.views.trace_evaluations import TraceEvaluationsViewSet
 from products.ai_observability.backend.presentation.views.trace_exports import TraceExportViewSet
@@ -134,6 +135,7 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(r"ai_observability/errors", ErrorViewSet, "project_ai_observability_errors", ["team_id"])
+    routers.projects.register(r"ai_observability/tools", ToolViewSet, "project_ai_observability_tools", ["team_id"])
     routers.root.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
     # @me/spend is only useful where billing data is available; mirrors the
     # CLOUD/DEBUG/TEST gate the registration carried inline.

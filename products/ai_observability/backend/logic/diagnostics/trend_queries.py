@@ -1,7 +1,14 @@
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
-from .trends import DECREASE_MIN_PERCENT, INCREASE_MIN_PERCENT, TREND_MIN_OCCURRENCES, Trend
+from .trends import (
+    DECREASE_MIN_PERCENT,
+    FAILING_MIN_RATE,
+    FAILING_MIN_RESULTS,
+    INCREASE_MIN_PERCENT,
+    TREND_MIN_OCCURRENCES,
+    Trend,
+)
 
 
 def trend_expression(current: ast.Expr, previous: ast.Expr | None) -> ast.Expr:
@@ -26,5 +33,25 @@ def trend_expression(current: ast.Expr, previous: ast.Expr | None) -> ast.Expr:
             "increasing": ast.Constant(value=Trend.INCREASING.value),
             "decreasing": ast.Constant(value=Trend.DECREASING.value),
             "steady": ast.Constant(value=Trend.STEADY.value),
+        },
+    )
+
+
+def failure_rate_expression(results: ast.Expr, failures: ast.Expr) -> ast.Expr:
+    """The share of the captured results that failed, NULL when no result was captured."""
+    return parse_expr(
+        "if({results} = 0, NULL, {failures} / {results})", placeholders={"results": results, "failures": failures}
+    )
+
+
+def failing_expression(results: ast.Expr, rate: ast.Expr) -> ast.Expr:
+    """Whether a tool with `results` captured results failing at `failure_rate_expression`'s `rate` is failing."""
+    return parse_expr(
+        "{results} >= {min_results} AND {rate} >= {min_rate}",
+        placeholders={
+            "results": results,
+            "rate": rate,
+            "min_results": ast.Constant(value=FAILING_MIN_RESULTS),
+            "min_rate": ast.Constant(value=FAILING_MIN_RATE),
         },
     )

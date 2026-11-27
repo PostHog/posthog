@@ -1,4 +1,3 @@
-from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Final
 
@@ -44,10 +43,3 @@ class ErrorCountsRow:
 def first_seen_in_range(first_seen: datetime | None, range_start: datetime) -> bool:
     """Whether an error is new to a range: it has an occurrence and none from the lookback start to `range_start`."""
     return first_seen is not None and first_seen >= range_start
-
-
-def series_of(counts: Mapping[int, int], starts: Sequence[datetime]) -> tuple[int, ...]:
-    """The count in each bucket, from counts keyed by each bucket's start in Unix seconds. A start with no count had no
-    occurrence."""
-    # Unix seconds name one instant in any zone, so the two buckets of the hour a clock goes back stay apart.
-    return tuple(counts.get(int(start.timestamp()), 0) for start in starts)

@@ -1,15 +1,20 @@
 from typing import Any
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 
-from ...facade import contracts, diagnostics
+from ...facade import diagnostics
 from ...facade.diagnostics_contracts import ErrorGroupDetail, ErrorList
-from .diagnostics_resource import DIAGNOSTICS_PAGE_DEFAULT_LIMIT, DiagnosticsViewSet
+from .diagnostics_resource import (
+    DIAGNOSTICS_PAGE_DEFAULT_LIMIT,
+    RANGE_TOO_LONG_RESPONSE,
+    SCOPE_RESPONSE,
+    DiagnosticsViewSet,
+    entity_key_parameter,
+)
 from .list_filters import (
     SelectionFilterQuerySerializer,
     group_scope_field,
@@ -17,19 +22,7 @@ from .list_filters import (
     page_offset_field,
     property_filters_field,
 )
-from .property_filters import QUERY_SCOPE
 from .trace_resource import THROTTLED_RESPONSE
-
-ERROR_KEY_PARAMETER = OpenApiParameter(
-    "id",
-    OpenApiTypes.STR,
-    OpenApiParameter.PATH,
-    description="The error's key, as the errors list hands it out.",
-)
-RANGE_TOO_LONG_RESPONSE = OpenApiResponse(response=contracts.TraceMetricsRangeTooLong)
-SCOPE_RESPONSE = OpenApiResponse(
-    description=f"The key lacks a required scope, or a property filter needs the {QUERY_SCOPE} scope."
-)
 
 
 class ErrorSelectionQuerySerializer(SelectionFilterQuerySerializer):
@@ -95,11 +88,12 @@ class ErrorViewSet(DiagnosticsViewSet):
                 order=diagnostics.ErrorOrder(query["order"]) if "order" in query else None,
                 page=page,
             ),
+            ErrorList,
         )
 
     @validated_request(
         query_serializer=ErrorSelectionQuerySerializer,
-        parameters=[ERROR_KEY_PARAMETER],
+        parameters=[entity_key_parameter("error", "errors")],
         responses={
             200: OpenApiResponse(response=ErrorGroupDetail),
             400: OpenApiResponse(description="The key, a parameter, the date range or a property filter is invalid."),

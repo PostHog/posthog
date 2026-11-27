@@ -22,6 +22,11 @@ from ..logic.diagnostics.error_groups import (
     ErrorView as ErrorView,
     first_seen_in_range,
 )
+from ..logic.diagnostics.tool_group_queries import ToolPageRead, has_any_tool_call, load_tool_group, load_tool_page
+from ..logic.diagnostics.tool_groups import (
+    ToolView as ToolView,
+    tool_item,
+)
 from ..logic.diagnostics.trends import change_label, error_change_tone, paired_with_range
 from ..logic.traces.lookback import has_no_lookback, seen_before
 from ..logic.traces.trace_metrics import bucket_size_for, bucket_starts, has_too_many_buckets, zoned_selection
@@ -40,6 +45,10 @@ from .diagnostics_contracts import (
     ErrorOrder as ErrorOrder,
     ErrorPage as ErrorPage,
     ErrorTrend,
+    ToolGroupDetail,
+    ToolListCounts,
+    ToolOrder as ToolOrder,
+    ToolPage as ToolPage,
 )
 
 DIAGNOSTICS_PAGE_MAX_LIMIT: Final = 100
@@ -56,6 +65,10 @@ class ErrorNotFoundError(Exception):
 
 
 class ErrorFirstSeenTooManyKeysError(ValueError):
+    pass
+
+
+class ToolNotFoundError(Exception):
     pass
 
 
@@ -130,6 +143,45 @@ def count_new_errors(team: Team, user: User | None, selection: TraceSelection, *
     return ErrorNewCount(count=count_new_error_rows(team, user, zoned, search=search))
 
 
+def load_tool_list(
+    team: Team,
+    user: User | None,
+    selection: TraceSelection,
+    *,
+    search: str | None,
+    view: ToolView | None,
+    order: ToolOrder | None,
+    page: PageRequest,
+) -> Callable[[], ToolPage]:
+    """Reads a page of the tools the selection's generations call, and returns the step that builds it. `search`
+    narrows the tools and the counts, and `view` only the page. Without an `order` the page is sorted by the default
+    one, and it says which order it applied. Raises the range errors of `load_error_list`.
+
+    On an empty first page, a second read checks for any tool call since the lookback start, so the client can tell a
+    quiet range from a project that sends no tool calls. The step runs no ClickHouse query."""
+    zoned = _readable(team, selection)
+    read = load_tool_page(team, user, zoned, search=search, view=view, order=order, page=page)
+    nothing_captured = page.offset == 0 and read.counts.total == 0 and not has_any_tool_call(team, user, zoned)
+    return lambda: _to_tool_page(read, nothing_captured)
+
+
+def get_tool(team: Team, user: User | None, selection: TraceSelection, key: str) -> Callable[[], ToolGroupDetail]:
+    """Reads the tool `key` names over the selection, with its series over the previous period, and returns the step
+    that builds it. Raises `MalformedEntityKeyError` for a key that names no tool, `ToolNotFoundError` when no
+    generation in the selection calls the tool, and the range errors of `load_error_list`."""
+    name = decode_entity_key(key)
+    zoned = _readable(team, selection)
+    detail = load_tool_group(team, user, zoned, name)
+    if detail is None:
+        raise ToolNotFoundError(key)
+    starts = bucket_starts(zoned.window, bucket_size_for(zoned.window))
+    return lambda: ToolGroupDetail(
+        item=tool_item(detail.row),
+        bucket_starts=starts,
+        previous_series=list(paired_with_range(detail.previous_series, len(starts))),
+    )
+
+
 def _readable(team: Team, selection: TraceSelection) -> TraceSelection:
     # Buckets start at midnight in the project's zone, so every step works on the window in that zone.
     zoned = zoned_selection(selection, team.timezone_info)
@@ -168,4 +220,14 @@ def _to_list_item(row: ErrorGroupRow) -> ErrorListItem:
         models=list(row.models),
         last_seen=row.last_seen,
         series=list(row.series),
+    )
+
+
+def _to_tool_page(read: ToolPageRead, nothing_captured: bool) -> ToolPage:
+    return ToolPage(
+        page=Page(results=[tool_item(row) for row in read.rows], count=read.count),
+        counts=ToolListCounts(total=read.counts.total, failing=read.counts.failing, max_calls=read.counts.max_calls),
+        bucket_starts=list(read.bucket_starts),
+        nothing_captured=nothing_captured,
+        order=read.order,
     )

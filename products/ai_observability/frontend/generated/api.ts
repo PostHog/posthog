@@ -27,6 +27,8 @@ import type {
     AiObservabilitySessionsListParams,
     AiObservabilitySessionsRetrieveParams,
     AiObservabilitySessionsTurnsRetrieveParams,
+    AiObservabilityToolsListParams,
+    AiObservabilityToolsRetrieveParams,
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
@@ -200,6 +202,8 @@ import type {
     TestHogResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
+    ToolGroupDetailApi,
+    ToolListApi,
     TraceApi,
     TraceAvailabilityApi,
     TraceAvailabilityRequestApi,
@@ -1271,6 +1275,74 @@ export const aiObservabilitySessionsPreviewsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sessionPageRequestApi),
+    })
+}
+
+export const getAiObservabilityToolsListUrl = (projectId: string, params?: AiObservabilityToolsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/tools/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/tools/`
+}
+
+/**
+ * The tools that the project's generations call in a date range, a page at a time. Each tool says how its
+ * calls moved from the period of the same length before the range, and how often its captured results
+ * failed.
+ */
+export const aiObservabilityToolsList = async (
+    projectId: string,
+    params?: AiObservabilityToolsListParams,
+    options?: RequestInit
+): Promise<ToolListApi> => {
+    return apiMutator<ToolListApi>(getAiObservabilityToolsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityToolsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityToolsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/tools/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/tools/${id}/`
+}
+
+/**
+ * One tool over a date range, as the tools list shows it, with its calls in the period before the range.
+ * Send the filters of the list it came from, so the two agree.
+ */
+export const aiObservabilityToolsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityToolsRetrieveParams,
+    options?: RequestInit
+): Promise<ToolGroupDetailApi> => {
+    return apiMutator<ToolGroupDetailApi>(getAiObservabilityToolsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

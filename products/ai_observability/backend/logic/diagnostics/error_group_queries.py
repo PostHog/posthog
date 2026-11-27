@@ -13,14 +13,22 @@ from posthog.paging import PageRequest
 from ...facade.diagnostics_contracts import ErrorOrder
 from ..traces.lookback import lookback_selection
 from ..traces.trace_expression_queries import EVENTS_COLUMNS, error_message, event_anonymous, event_errored
-from ..traces.trace_metrics import BucketSize, bucket_size_for, bucket_starts, has_no_previous_window, previous_window
-from ..traces.trace_metrics_queries import last_moment, period_bucket
+from ..traces.trace_metrics import BucketSize, bucket_size_for, bucket_starts, has_no_previous_window
 from ..traces.trace_selection import TraceSelection, TraceWindow
-from ..traces.trace_selection_queries import counted_events, execute_selection, period_membership
-from .error_groups import DEFAULT_ERROR_ORDER, ErrorCountsRow, ErrorGroupRow, ErrorView, series_of
-from .group_page_queries import groups_to_sort
+from ..traces.trace_selection_queries import counted_events, execute_selection
+from .error_groups import DEFAULT_ERROR_ORDER, ErrorCountsRow, ErrorGroupRow, ErrorView
+from .group_page_queries import (
+    bucket_seconds,
+    change_order,
+    contains_search,
+    fields,
+    groups_to_sort,
+    previous_period,
+    rows_in_periods,
+    since_lookback,
+)
 from .trend_queries import trend_expression
-from .trends import Trend
+from .trends import Trend, series_of
 
 ERRORS_PAGE_QUERY_NAME = "ai_diagnostics_errors_page"
 ERROR_GROUP_QUERY_NAME = "ai_diagnostics_error_group"
@@ -31,13 +39,7 @@ ERRORS_CAPTURED_QUERY_NAME = "ai_diagnostics_errors_captured"
 # Each value is ascending in the page's sort, so a descending order negates its value.
 _ORDER_KEYS: dict[ErrorOrder, tuple[str, ...]] = {
     ErrorOrder.OCCURRENCES: ("negate(occurrences)",),
-    # A message absent last period has no percent change. It counts as the largest rise, so these messages lead, the
-    # larger count first.
-    ErrorOrder.CHANGE: (
-        "previous_occurrences != 0",
-        "negate(if(previous_occurrences = 0, 0, (occurrences - previous_occurrences) / previous_occurrences))",
-        "negate(occurrences)",
-    ),
+    ErrorOrder.CHANGE: change_order("occurrences", "previous_occurrences"),
     ErrorOrder.TRACES: ("negate(traces)",),
     ErrorOrder.USERS: ("negate(users)",),
     ErrorOrder.LAST_SEEN: ("negate(toUnixTimestamp64Milli(last_seen))",),
@@ -83,22 +85,8 @@ def _errored_matching(match: ast.Expr) -> ast.Expr:
     )
 
 
-def _searched(search: str | None) -> ast.Expr:
-    term = (search or "").strip()
-    if not term:
-        return ast.Constant(value=True)
-    return parse_expr(
-        "positionCaseInsensitiveUTF8({message}, {term}) > 0",
-        placeholders={"message": _message(), "term": ast.Constant(value=term)},
-    )
-
-
 def _named(messages: Sequence[str]) -> ast.Expr:
     return ast.CompareOperation(op=ast.CompareOperationOp.In, left=_message(), right=ast.Constant(value=list(messages)))
-
-
-def _previous(window: TraceWindow) -> TraceWindow | None:
-    return None if has_no_previous_window(window) else previous_window(window)
 
 
 def _counted_rows(
@@ -148,44 +136,20 @@ def _counted_rows(
 def _errored_events(
     team: Team, selection: TraceSelection, previous: TraceWindow | None, match: ast.Expr
 ) -> ast.SelectQuery:
-    # A row counts for the window whose traces hold it under the traces list's per-trace rules over all their events.
-    # A trace in both windows counts only for the current one.
-    query = parse_select(
-        """
-        SELECT
-            occurrence.trace_id AS trace_id,
-            traces.in_current AS in_current,
-            occurrence.message AS message,
-            occurrence.timestamp AS timestamp,
-            occurrence.model AS model,
-            occurrence.person_id AS person_id,
-            occurrence.anonymous AS anonymous
-        FROM {rows} AS occurrence
-        INNER JOIN {traces} AS traces ON occurrence.trace_id = traces.trace_id
-        WHERE (traces.in_current AND occurrence.timestamp >= {current_read_start})
-            OR (NOT traces.in_current AND traces.in_previous AND occurrence.timestamp <= {previous_read_end})
-        """,
-        placeholders={
-            "rows": _counted_rows(team, selection, previous, match),
-            "traces": period_membership(team, selection, previous, holding=event_errored(EVENTS_COLUMNS)),
-            "current_read_start": ast.Constant(value=selection.window.read_bounds().start),
-            "previous_read_end": ast.Constant(value=(previous or selection.window).read_bounds().end),
-        },
+    return rows_in_periods(
+        team,
+        selection,
+        previous,
+        _counted_rows(team, selection, previous, match),
+        ("message", "timestamp", "model", "person_id", "anonymous"),
+        holding=event_errored(EVENTS_COLUMNS),
     )
-    assert isinstance(query, ast.SelectQuery)
-    return query
 
 
 def _from_lookback(team: Team, selection: TraceSelection, match: ast.Expr) -> ast.Expr:
-    lookback = lookback_selection(selection)
-    widened = replace(lookback, window=TraceWindow(start=lookback.window.start, end=selection.window.end))
     return parse_expr(
-        "{counted} AND timestamp >= {start} AND {errored}",
-        placeholders={
-            "counted": counted_events(team, widened),
-            "start": ast.Constant(value=lookback.window.start),
-            "errored": _errored_matching(match),
-        },
+        "{since_lookback} AND {errored}",
+        placeholders={"since_lookback": since_lookback(team, selection), "errored": _errored_matching(match)},
     )
 
 
@@ -210,25 +174,11 @@ def _in_view(team: Team, selection: TraceSelection, view: ErrorView | None) -> a
     return parse_expr("trend = {trend}", placeholders={"trend": ast.Constant(value=_TREND_VIEWS[view].value)})
 
 
-def _bucket(size: BucketSize, window: TraceWindow, previous: TraceWindow | None) -> ast.Expr:
-    previous = previous or window
-    period_start = parse_expr(
-        "if(in_current, {current}, {previous})",
-        placeholders={"current": ast.Constant(value=window.start), "previous": ast.Constant(value=previous.start)},
-    )
-    period_last_moment = parse_expr(
-        "if(in_current, {current}, {previous})",
-        placeholders={"current": last_moment(window), "previous": last_moment(previous)},
-    )
-    bucket = period_bucket(size, ast.Field(chain=["timestamp"]), period_start, period_last_moment)
-    return ast.Call(name="toUnixTimestamp", args=[bucket])
-
-
 def _groups(
     team: Team, selection: TraceSelection, size: BucketSize, match: ast.Expr, in_view: ast.Expr
 ) -> ast.SelectQuery:
     """One row per message with a flagged event in the range, over the events `match` keeps, with `in_view`."""
-    previous = _previous(selection.window)
+    previous = previous_period(selection.window)
     # topK orders equal counts by merge order, which changes between runs, so models rank by count and then name.
     query = parse_select(
         """
@@ -255,16 +205,12 @@ def _groups(
                 ast.Field(chain=["previous_occurrences"]) if previous is not None else None,
             ),
             "in_view": in_view,
-            "bucket": _bucket(size, selection.window, previous),
+            "bucket": bucket_seconds(size, selection.window),
             "events": _errored_events(team, selection, previous, match),
         },
     )
     assert isinstance(query, ast.SelectQuery)
     return query
-
-
-def _fields(names: Sequence[str]) -> list[ast.Expr]:
-    return [ast.Field(chain=[name]) for name in names]
 
 
 def _page_query(
@@ -294,8 +240,10 @@ def _page_query(
             "decreasing": ast.Constant(value=Trend.DECREASING.value),
             "take": ast.Constant(value=groups_to_sort(page)),
             "sort_key": sort_key,
-            "row": ast.Tuple(exprs=_fields(_GROUP_COLUMNS)),
-            "groups": _groups(team, selection, size, _searched(search), _in_view(team, selection, view)),
+            "row": ast.Tuple(exprs=fields(_GROUP_COLUMNS)),
+            "groups": _groups(
+                team, selection, size, contains_search(_message(), search), _in_view(team, selection, view)
+            ),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -359,7 +307,7 @@ def load_error_group(
     query = parse_select(
         "SELECT {columns}, previous_series FROM {groups} LIMIT 1",
         placeholders={
-            "columns": ast.Tuple(exprs=_fields(_GROUP_COLUMNS)),
+            "columns": ast.Tuple(exprs=fields(_GROUP_COLUMNS)),
             "groups": _groups(team, selection, size, _named([message]), ast.Constant(value=True)),
         },
     )
@@ -367,7 +315,7 @@ def load_error_group(
     if not results:
         return None
     [[values, previous_series]] = results
-    previous = _previous(window)
+    previous = previous_period(window)
     return ErrorGroupDetailRow(
         row=_row(values, bucket_starts(window, size), has_previous=previous is not None),
         previous_series=series_of(dict(zip(*previous_series)), bucket_starts(previous, size))
@@ -380,7 +328,7 @@ def count_new_errors(team: Team, user: User | None, selection: TraceSelection, *
     query = parse_select(
         "SELECT count() FROM (SELECT DISTINCT message FROM {events} WHERE in_current) WHERE message NOT IN {seen}",
         placeholders={
-            "events": _errored_events(team, selection, None, _searched(search)),
+            "events": _errored_events(team, selection, None, contains_search(_message(), search)),
             "seen": _seen_before(team, selection),
         },
     )

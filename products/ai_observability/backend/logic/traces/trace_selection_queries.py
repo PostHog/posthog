@@ -30,6 +30,7 @@ from .trace_expression_queries import (
     grouped,
     names_session,
     not_impersonated,
+    tool_names,
     trace_errored,
 )
 from .trace_paging import AroundTakes, RowsAfter, RowsAround, RowsBefore
@@ -80,11 +81,8 @@ def _escape_like_pattern(term: str) -> str:
 
 def _named_in(property_name: str, name: str) -> ast.Expr:
     return parse_expr(
-        """
-        event = '$ai_generation'
-        AND has(arrayFilter(x -> x != '', arrayMap(x -> trim(x), splitByChar(',', ifNull({names}, '')))), {name})
-        """,
-        placeholders={"names": ast.Field(chain=["properties", property_name]), "name": ast.Constant(value=name)},
+        "event = '$ai_generation' AND has({names}, {name})",
+        placeholders={"names": tool_names(EVENTS_COLUMNS, property_name), "name": ast.Constant(value=name)},
     )
 
 

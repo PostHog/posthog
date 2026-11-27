@@ -1,8 +1,12 @@
 from collections.abc import Callable
-from typing import Final
+from datetime import datetime
+from enum import StrEnum
+from typing import Final, Protocol
 
 from django.core.exceptions import ImproperlyConfigured
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
@@ -19,14 +23,40 @@ from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 
 from ...facade import api, contracts, diagnostics
-from ...facade.diagnostics_contracts import ErrorList, ErrorListItem
 from ..query_concurrency import query_concurrency_slots
 from .list_filters import require_query_scope_for_filters, selection_filters
+from .property_filters import QUERY_SCOPE
 from .trace_resource import TraceResourceSchema
 
 DIAGNOSTICS_PAGE_DEFAULT_LIMIT: Final = 50
 MALFORMED_KEY = "This key isn't valid. Use a key from the list."
 UNKNOWN_KEY = "Nothing with this key occurred in the date range."
+RANGE_TOO_LONG_RESPONSE = OpenApiResponse(response=contracts.TraceMetricsRangeTooLong)
+SCOPE_RESPONSE = OpenApiResponse(
+    description=f"The key lacks a required scope, or a property filter needs the {QUERY_SCOPE} scope."
+)
+
+
+def entity_key_parameter(entity: str, list_name: str) -> OpenApiParameter:
+    return OpenApiParameter(
+        "id",
+        OpenApiTypes.STR,
+        OpenApiParameter.PATH,
+        description=f"The {entity}'s key, as the {list_name} list hands it out.",
+    )
+
+
+class DiagnosticsPage[Item](Protocol):
+    @property
+    def page(self) -> Page[Item]: ...
+    @property
+    def counts(self) -> contracts.Contract: ...
+    @property
+    def bucket_starts(self) -> list[datetime]: ...
+    @property
+    def nothing_captured(self) -> bool: ...
+    @property
+    def order(self) -> StrEnum: ...
 
 
 class DiagnosticsPagination(FacadeLimitOffsetPagination):
@@ -83,17 +113,19 @@ class DiagnosticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             **selection_filters(query),
         )
 
-    def _page_response(
+    def _page_response[Item](
         self,
         request: ValidatedRequest,
-        load: Callable[[User | None, PageRequest], Callable[[], diagnostics.ErrorPage]],
+        load: Callable[[User | None, PageRequest], Callable[[], DiagnosticsPage[Item]]],
+        contract: Callable[..., contracts.Contract],
     ) -> Response:
+        """Serves the page `load` builds as the `contract` list, its extras beside the page fields."""
         paginator = self.paginator
         if not isinstance(paginator, FacadeLimitOffsetPagination):
             raise ImproperlyConfigured(f"{type(self).__name__} needs a FacadeLimitOffsetPagination pagination_class.")
-        built: list[diagnostics.ErrorPage] = []
+        built: list[DiagnosticsPage[Item]] = []
 
-        def fetch(page: PageRequest) -> Page[ErrorListItem]:
+        def fetch(page: PageRequest) -> Page[Item]:
             build = self._read(request, lambda user: load(user, page))
             # Built after the query slot is released, so building a page never holds the team's slot.
             built.append(build())
@@ -101,7 +133,7 @@ class DiagnosticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         page = paginator.read_facade_page(request, fetch)
         [extras] = built
-        body = ErrorList(
+        body = contract(
             **paginator.get_paginated_response(page.results).data,
             counts=extras.counts,
             bucket_starts=extras.bucket_starts,
