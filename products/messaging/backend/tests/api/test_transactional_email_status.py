@@ -323,41 +323,60 @@ class TestMatchSentMessageIds(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("us_east_1", "<0100018c-ours-000000@email.amazonses.com>", "<0100018c-ours-000000@email.amazonses.com>"),
+            (
+                "us_east_1",
+                ["<0100018c-ours-000000@email.amazonses.com>"],
+                {"<0100018c-ours-000000@email.amazonses.com>"},
+            ),
             (
                 "another_region",
-                "<0100018c-ours-000000@eu-central-1.amazonses.com>",
-                "<0100018c-ours-000000@eu-central-1.amazonses.com>",
+                ["<0100018c-ours-000000@eu-central-1.amazonses.com>"],
+                {"<0100018c-ours-000000@eu-central-1.amazonses.com>"},
             ),
             (
-                "a_references_header",
-                "<a@mail.gmail.com> <0100018c-unknown-000000@email.amazonses.com> "
-                "<0100018c-ours-000000@email.amazonses.com>",
-                "<0100018c-ours-000000@email.amazonses.com>",
+                "a_references_header_naming_two_sends",
+                [
+                    "<a@mail.gmail.com> <0100018c-other-000000@email.amazonses.com> "
+                    "<0100018c-unknown-000000@email.amazonses.com> <0100018c-ours-000000@email.amazonses.com>"
+                ],
+                {"<0100018c-other-000000@email.amazonses.com>", "<0100018c-ours-000000@email.amazonses.com>"},
             ),
             (
-                "older_than_the_newest_ten",
-                "<0100018c-ours-000000@email.amazonses.com> "
-                + " ".join(f"<0100018c-unknown-{n}@email.amazonses.com>" for n in range(10)),
-                "",
+                "in_reply_to_beside_a_long_references_header",
+                [
+                    "<0100018c-ours-000000@email.amazonses.com>",
+                    " ".join(f"<0100018c-unknown-{n}@email.amazonses.com>" for n in range(10)),
+                ],
+                {"<0100018c-ours-000000@email.amazonses.com>"},
             ),
-            ("not_an_ses_domain", "<0100018c-ours-000000@example.com>", ""),
-            ("unbracketed", "0100018c-ours-000000@email.amazonses.com", ""),
-            ("another_teams_send", "<0100018c-theirs-000000@email.amazonses.com>", ""),
-            ("never_sent", "<0100018c-unknown-000000@email.amazonses.com>", ""),
+            (
+                "older_than_the_newest_ten_of_its_header",
+                [
+                    "<0100018c-ours-000000@email.amazonses.com> "
+                    + " ".join(f"<0100018c-unknown-{n}@email.amazonses.com>" for n in range(10))
+                ],
+                set(),
+            ),
+            ("inside_a_comment", ["<a@example.com> (see <0100018c-ours-000000@email.amazonses.com>)"], set()),
+            ("not_an_ses_domain", ["<0100018c-ours-000000@example.com>"], set()),
+            ("unbracketed", ["0100018c-ours-000000@email.amazonses.com"], set()),
+            ("another_teams_send", ["<0100018c-theirs-000000@email.amazonses.com>"], set()),
+            ("never_sent", ["<0100018c-unknown-000000@email.amazonses.com>"], set()),
         ]
     )
-    def test_matches_a_wire_message_id_to_this_teams_send(self, _name, header, matched_wire_id):
-        send_id = str(UUIDT())
-        self._sent_row(self.team, send_id, "0100018c-ours-000000")
+    def test_matches_wire_message_ids_to_this_teams_sends(self, _name, headers, matched_wire_ids):
+        send_ids = {provider_id: str(UUIDT()) for provider_id in ("0100018c-ours-000000", "0100018c-other-000000")}
+        for provider_id, send_id in send_ids.items():
+            self._sent_row(self.team, send_id, provider_id)
         other_team = Team.objects.create(organization=self.organization)
         self._sent_row(other_team, str(UUIDT()), "0100018c-theirs-000000")
 
-        found = match_sent_message_ids(self.team.id, [header])
+        found = match_sent_message_ids(self.team.id, headers)
 
-        assert found == (
-            (SentMessageMatch(wire_message_id=matched_wire_id, send_id=send_id),) if matched_wire_id else ()
-        )
+        assert sorted(found, key=lambda match: match.wire_message_id) == [
+            SentMessageMatch(wire_message_id=wire_id, send_id=send_ids[wire_id[1:].split("@")[0]])
+            for wire_id in sorted(matched_wire_ids)
+        ]
 
 
 class TestKeyedMessageId(SimpleTestCase):
