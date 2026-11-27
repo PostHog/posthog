@@ -66,15 +66,39 @@ class TestWrapClickhouseQueryError:
                 assert "private" not in wrapped.message, code
                 assert wrapped.nested is None, code
 
-    def test_argument_type_error_names_both_operand_types(self) -> None:
-        raw = ServerException(
-            "DB::Exception: Illegal types DateTime64(6, 'UTC') and String of arguments of function plus. "
-            "While processing private expression",
-            code=43,
-        )
-        assert str(wrap_clickhouse_query_error(raw)) == (
-            "`plus` cannot combine DateTime64 and String here. Check the types on both sides of the expression."
-        )
+    @parameterized.expand(
+        [
+            (
+                "arithmetic",
+                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
+                "`plus` cannot combine DateTime64 and String here. Check the types on both sides of the expression.",
+            ),
+            (
+                "comparison",
+                "Illegal types of arguments (`Array(UInt8)`, `UInt8`) of function `greater`",
+                "The > operator cannot compare Array(UInt8) and UInt8. Use compatible types on both sides of the comparison.",
+            ),
+            (
+                "comparison_with_type_parameters",
+                "Illegal types of arguments (`Tuple(private_field String)`, `DateTime64(3, 'UTC')`) of function `lessOrEquals`",
+                "The <= operator cannot compare Tuple and DateTime64. Use compatible types on both sides of the comparison.",
+            ),
+            (
+                "aggregate",
+                "Illegal type String of argument for aggregate function sum",
+                "`sum` cannot use an argument of type String here. Check the argument order and cast it to a supported type.",
+            ),
+            (
+                "date_argument",
+                "A value of illegal type was provided as 2nd argument 'startdate' to function 'dateDiff'. "
+                "Expected: Date[32] or DateTime[64], got: UInt8",
+                "The 2nd argument to `dateDiff` has type UInt8. Use a date or date-time value.",
+            ),
+        ]
+    )
+    def test_argument_type_error_identifies_the_expression(self, _case: str, diagnostic: str, expected: str) -> None:
+        raw = ServerException(f"DB::Exception: {diagnostic}: In scope SELECT private_expression", code=43)
+        assert str(wrap_clickhouse_query_error(raw)) == expected
 
     @parameterized.expand([(": while executing",), (": While processing",), (". While processing",)])
     def test_throw_if_preserves_the_message_and_drops_the_expression(self, separator: str) -> None:
@@ -83,8 +107,14 @@ class TestWrapClickhouseQueryError:
         )
         assert str(wrap_clickhouse_query_error(raw)) == "Check the input date"
 
-    def test_unrecognized_type_and_function_use_fixed_guidance(self) -> None:
-        raw = ServerException("DB::Exception: Illegal type Secretthing of argument of function privateFn", code=43)
+    @parameterized.expand(
+        [
+            ("Illegal type Secretthing of argument of function privateFn",),
+            ("Unexpected argument: In scope SELECT 'Illegal type String of argument of function length'",),
+        ]
+    )
+    def test_unrecognized_type_and_function_use_fixed_guidance(self, diagnostic: str) -> None:
+        raw = ServerException(f"DB::Exception: {diagnostic}", code=43)
         assert str(wrap_clickhouse_query_error(raw)) == CLICKHOUSE_ERROR_CODE_LOOKUP[43].user_safe
 
     def test_unknown_code_preserves_only_its_driver_number(self) -> None:
