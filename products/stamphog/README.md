@@ -196,6 +196,18 @@ digest:
 This key belongs to this product, not to the engine, which ignores it.
 It is read from the default branch too, so a PR cannot redirect its own digest.
 
+## Broadcast: asking people to review
+
+`@posthog stamp --allow-broadcast [note]`, or a review request with `allow_broadcast: true`, asks Stamphog for a review and opens a broadcast request for the pull request.
+A manager turns it on per repository with `broadcast_enabled` and a Slack channel on the repo config API (`manager` level to change, reset when a placeholder row binds).
+If Stamphog approves, or approval retention keeps its approval over a push, nothing is posted.
+If Stamphog refuses, escalates, is gated or fails, one message goes to the channel, with an "I'll take a look" button.
+That message changes as the pull request does: a person's approval of the current head, a push that makes it stale, a later Stamphog approval, a merge or a close.
+Each pull request has at most one active request, so asking again returns it.
+When the requester caused two or more messages in the last 7 days, the message says so, such as "5th this week". It matches the requester by PostHog account, Slack user or GitHub login, counts only messages that were posted, and keeps the number it was posted with.
+The note is shown in Slack only, because pull request comments are public.
+The logic is in `backend/logic/broadcast_requests.py`, and the events are `stamphog_broadcast_request_created`, `stamphog_broadcast_card_posted`, `stamphog_broadcast_look_clicked` and `stamphog_broadcast_request_status_changed`.
+
 ## Daily digest
 
 A repository with the digest turned on gets a daily Slack summary of its merged PRs (`backend/logic/digest_runs.py`, scheduled from `backend/tasks/digest.py`).
