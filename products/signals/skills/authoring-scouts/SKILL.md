@@ -11,6 +11,7 @@ description: >
   "write/edit/customize a signals scout", "new scout for X", "tune my scout schedule",
   "make a scout that watches <event>", "score/judge/measure X with a scout",
   "test/compare scout prompts", "generate scout rubrics", "structured output from a scout", "scout output to Slack",
+  "message me when a scout finds X",
   "leave a note for / give feedback to a scout".
 metadata:
   owner_team: signals
@@ -191,6 +192,16 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   `thread_reports: true` posts a report as a short lead message with the rest split into replies at the summary's section labels, so a long report isn't clipped; it doesn't change how findings post.
   Slack delivery is a firehose of that one scout's output — no priority filter, no reviewer routing — so it suits a scout whose bar is already tight rather than a chatty one you're still calibrating.
   A Slack-delivered scout is also exempt from the ignored-reports auto-pause, since consumption there isn't measurable.
+  Set `messages` to let the scout interrupt a person or a channel for a single finding, apart from its reports: up to 10 routes, each a `key` (a kebab-case slug the scout names), a `when` condition (up to 300 characters, shown in every run prompt), and `to` (one to five `slack_dm` or `slack_channel` targets).
+  Routes need `slack.integration_id`. Omit `messages` on an update to keep the routes, or send `[]` to clear them. Setting them needs the same skill-editor access as a note, because each `when` reaches the run prompt.
+  Where message sending is not switched on for the project, the routes are stored and the run prompt leaves them out.
+  The harness sets a high default bar: most runs send nothing, a doubtful finding stays in the report, only the top one or two qualifying findings go out, and each message is a few sentences that link to the report.
+  The `when` is where you tune that bar, and it takes a few rounds to get right:
+  - Name the event, who caused it, and the effect that makes it worth an interruption: "someone outside the team merges a change to billing code", not "important changes".
+  - Say what does not qualify, such as draft pull requests, dependency bumps, or the team's own work.
+  - Say how many messages a normal run should send, when that matters: "at most one a day".
+  - Preview with a dry run (`emit: false`): the scout records what it would send, and nobody receives it.
+  - Read the first few messages, then tighten the condition until each one is worth the interruption.
 - `display_name`: the name the UI shows for the scout. Leave blank to use the default derived from the skill name; it never changes `skill_name`, which stays fixed.
   The only setting here the nested `config` on `scout-create` does not take: set it with a `-config-update` after creation.
 - `model`: pins the model the scout's runs use. Leave unset to follow the fleet default, which is what most scouts should do; set it when a scout's job needs a stronger model (long research) or a cheaper one (a frequent, mechanical probe) and say why in the body.
