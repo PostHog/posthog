@@ -140791,6 +140791,7 @@ export namespace Schemas {
     /**
      * Lists only errors from traces whose events belong to the group with this key. Send it with group_type_index.
      * @minLength 1
+     * @maxLength 65536
      */
     group_key?: string;
     /**
@@ -140881,6 +140882,7 @@ export namespace Schemas {
     /**
      * Lists only errors from traces whose events belong to the group with this key. Send it with group_type_index.
      * @minLength 1
+     * @maxLength 65536
      */
     group_key?: string;
     /**

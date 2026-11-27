@@ -25,6 +25,7 @@ from products.ai_observability.backend.facade.diagnostics_contracts import (
     ErrorTrend,
 )
 from products.ai_observability.backend.presentation.views import diagnostics_resource
+from products.ai_observability.backend.presentation.views.list_filters import MAX_SCOPE_TEXT_LENGTH
 
 from ...logic.diagnostics.test_error_group_queries import _flagged
 from ...logic.traces.test_trace_selection_queries import T0, seed
@@ -175,6 +176,7 @@ class TestErrorViews(APIBaseTest):
             ("unknown order", "list", {"order": "newest"}),
             ("unparsable filters", "list", {"properties": "{"}),
             ("group key alone", "retrieve", {"group_key": "acme"}),
+            ("group key too long", "list", {"group_key": "g" * (MAX_SCOPE_TEXT_LENGTH + 1), "group_type_index": 0}),
         ]
     )
     def test_bad_input_is_a_400(self, _name: str, endpoint: str, params: dict[str, Any]) -> None:
