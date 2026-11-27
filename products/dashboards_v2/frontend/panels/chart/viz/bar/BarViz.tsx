@@ -21,11 +21,11 @@ export function BarViz({ frames, options }: { frames: DataFrame[]; options: BarO
         () => ({
             barLayout: stacked ? 'stacked' : 'grouped',
             xAxis: { allDays: labels },
-            yAxis: yAxisFor(axes),
+            yAxis: yAxisFor(axes, series),
             legend: { show: series.length > 1, position: 'top' },
             tooltip: { placement: 'cursor', sortedByValue: true },
         }),
-        [labels, series.length, stacked, axes]
+        [labels, series, stacked, axes]
     )
     return (
         <div className="relative flex min-h-0 w-full flex-1 flex-col">

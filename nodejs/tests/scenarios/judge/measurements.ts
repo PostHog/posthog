@@ -14,11 +14,13 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { acceptedDeliveriesOf, deliveryKey, isAccepted, truthGapOf } from './invariants'
 import type { JudgeEvidence } from './invariants'
+import { SCRAPE_GAP_MS, WORKER_OF } from './pickups'
 
 export type MetricSample = {
     role: string
     replica: number
     at: number
+    fetchedAt?: number
     startedAt: number
     cpuSeconds: number
     rssBytes: number
@@ -344,6 +346,19 @@ const byTime = <T extends { at: number }>(series: readonly T[]): T[] => [...seri
 
 const committedAt = ({ at, latencyMs }: WriterSample): number => at + latencyMs
 
+function longestIdle(writer: readonly WriterSample[], from: number, to: number): number {
+    let probedUntil = from
+    let longest = 0
+    for (const sample of byTime(writer)) {
+        if (sample.at >= to || committedAt(sample) <= probedUntil) {
+            continue
+        }
+        longest = Math.max(longest, sample.at - probedUntil)
+        probedUntil = committedAt(sample)
+    }
+    return Math.max(longest, to - probedUntil)
+}
+
 type Outage = { from: number; to?: number }
 
 function outagesOf(writer: readonly WriterSample[]): Outage[] {
@@ -397,8 +412,6 @@ const counted = (queue: readonly QueueSample[]): (QueueCounts & { at: number })[
 const ENVELOPE_MS = 10 * 60_000
 const DRAINED_FOR_MS = 60_000
 const QUEUE_GAP_MS = 15_000
-
-export const SCRAPE_GAP_MS = 15_000
 
 function readThroughout(queue: readonly QueueSample[], phase: Phase): boolean {
     const edges = [
@@ -627,6 +640,158 @@ export function baselineOf({
     }
 }
 
+export const RECOVERY_BAR_MULTIPLE = 2
+const SERIES_WINDOW_MS = 60_000
+const WRITER_PROBE_GAP_MS = 10_000
+const WRITER_PROBE_LONGEST_IDLE_MS = 1_500
+
+type WindowP99 = { value: number | null; clean: boolean; censored?: true; incomplete?: true; unmeasured?: string }
+
+type SeriesPoint = {
+    offsetS: number
+    value: number | null
+    recovered: boolean
+    censored?: true
+    incomplete?: true
+    unmeasured?: string
+}
+
+const NO_WHOLE_MINUTE = 'the valve phase holds no whole minute'
+const UNBOUNDED_PICKUPS = "scrape windows cannot bound a minute's pickups"
+
+type Series = {
+    baseline: number | null
+    bar: number | null
+    unmeasured?: string
+    points: SeriesPoint[]
+    valve: Phase
+}
+
+const recentBaselineOf = (baseline: Phase): Phase | undefined =>
+    seconds(baseline.to - baseline.from) < MIN_BASELINE_SECONDS
+        ? undefined
+        : { from: Math.max(baseline.from, baseline.to - ENVELOPE_MS), to: baseline.to }
+
+function windowsOf(phase: Phase): Phase[] {
+    const windows: Phase[] = []
+    for (let from = phase.from; from < phase.to; from += SERIES_WINDOW_MS) {
+        windows.push({ from, to: Math.min(from + SERIES_WINDOW_MS, phase.to) })
+    }
+    return windows
+}
+
+function seriesOver(
+    { drive, timeline }: Pick<MeasureEvidence, 'drive' | 'timeline'>,
+    p99: (window: Phase, baseline: boolean) => WindowP99,
+    { wholeMinutes = false } = {}
+): Series | undefined {
+    const { baseline, valve } = phasesOf(drive, timeline)
+    const recent = recentBaselineOf(baseline)
+    if (valve === undefined || recent === undefined) {
+        return undefined
+    }
+    const reference = p99(recent, true)
+    const usable = reference.value !== null && reference.clean && !reference.censored
+    const bar = usable ? RECOVERY_BAR_MULTIPLE * reference.value! : null
+    const judged = wholeMinutes
+        ? {
+              from: valve.from,
+              to: valve.from + Math.floor((valve.to - valve.from) / SERIES_WINDOW_MS) * SERIES_WINDOW_MS,
+          }
+        : valve
+    const windows = windowsOf(judged)
+    const points =
+        windows.length === 0
+            ? [{ offsetS: 0, value: null, recovered: false, censored: true as const, unmeasured: NO_WHOLE_MINUTE }]
+            : windows.map((window): SeriesPoint => {
+                  const { value, clean, censored, incomplete, unmeasured } = p99(window, false)
+                  return {
+                      offsetS: seconds(window.from - valve.from),
+                      value,
+                      recovered: bar !== null && value !== null && clean && value <= bar,
+                      ...(censored ? { censored } : {}),
+                      ...(incomplete ? { incomplete } : {}),
+                      ...(unmeasured ? { unmeasured } : {}),
+                  }
+              })
+    return {
+        baseline: usable ? reference.value : null,
+        bar,
+        ...(reference.unmeasured ? { unmeasured: reference.unmeasured } : {}),
+        points,
+        valve,
+    }
+}
+
+const valueOf = (value: number | null, censored?: true): Value =>
+    value === null ? { value, censored: true } : censored ? { value, censored } : { value }
+
+const pointsOf = ({ baseline, bar, unmeasured, points }: Series, prefix = ''): Measured[] => [
+    { key: `${prefix}baseline`, ...valueOf(baseline), ...(unmeasured ? { unmeasured } : {}) },
+    { key: `${prefix}bar`, ...valueOf(bar), ...(unmeasured ? { unmeasured } : {}) },
+    ...points.map(
+        ({ offsetS, value, censored, incomplete, unmeasured }): Measured => ({
+            key: `${prefix}t${offsetS}`,
+            ...valueOf(value, censored),
+            ...(incomplete ? { incomplete } : {}),
+            ...(unmeasured ? { unmeasured } : {}),
+        })
+    ),
+]
+
+function recoveryOf({ bar, points }: Series, unknown?: string): Measured {
+    if (unknown !== undefined) {
+        return { value: null, censored: true, unmeasured: unknown }
+    }
+    const lastUnrecovered = points.findLastIndex(({ recovered }) => !recovered)
+    return bar === null || lastUnrecovered === points.length - 1
+        ? { value: null, censored: true }
+        : { value: lastUnrecovered < 0 ? 0 : points[lastUnrecovered + 1].offsetS }
+}
+
+function writeLatencySeries({ writer, drive, timeline }: MeasureEvidence): Series | undefined {
+    const ends = writer.map(committedAt).sort((a, b) => a - b)
+    return seriesOver(
+        { drive, timeline },
+        (window, baseline) => {
+            const ended = writer.filter(
+                (sample) => within(window, committedAt(sample)) && (!baseline || within(window, sample.at))
+            )
+            const committed = ended
+                .filter(({ ok }) => ok)
+                .map(({ latencyMs }) => latencyMs)
+                .sort((a, b) => a - b)
+            const failed = ended.some(({ ok }) => !ok)
+            const previous = ends.findLast((at) => at < window.from) ?? window.from
+            const next = ends.find((at) => at >= window.to) ?? window.to
+            const inside = baseline ? ended.map(committedAt) : ends.filter((at) => within(window, at))
+            const bounds = [previous, ...inside.sort((a, b) => a - b), next]
+            const silent = bounds.some((at, i) => i > 0 && at - bounds[i - 1] > WRITER_PROBE_GAP_MS)
+            return {
+                value: committed.length === 0 ? null : nearestRank(committed, 0.99),
+                clean: !silent && !failed,
+                ...(silent ? { incomplete: true as const } : {}),
+            }
+        },
+        { wholeMinutes: true }
+    )
+}
+
+function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, Series][] {
+    return Object.entries(WORKER_OF).flatMap(([queue, role]) => {
+        if (!samples.some((sample) => sample.role === role)) {
+            return []
+        }
+        const series = seriesOver({ drive, timeline }, () => ({
+            value: null,
+            clean: false,
+            censored: true,
+            unmeasured: UNBOUNDED_PICKUPS,
+        }))
+        return series ? [[queue, series] as [string, Series]] : []
+    })
+}
+
 type PhaseName = 'valve' | 'failback'
 
 const inPhase = (
@@ -699,6 +864,65 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
     inPhase('consumer_loop_errors', 'errors', 'valve', ({ samples, missed }, phase) => [
         phaseIncrease(samples, missed, ({ consumerLoopErrors }) => consumerLoopErrors, phase),
     ]),
+    {
+        name: 'write_latency_p99_ms',
+        params: z.object({}).strict(),
+        unit: 'ms',
+        measure: (evidence) => {
+            const series = writeLatencySeries(evidence)
+            return series ? pointsOf(series) : []
+        },
+    },
+    {
+        name: 'write_latency_recovery_seconds',
+        params: z.object({}).strict(),
+        unit: 's',
+        measure: (evidence) => {
+            const series = writeLatencySeries(evidence)
+            if (series === undefined) {
+                return []
+            }
+            const { from, to } = series.valve
+            const settled = from + Math.floor((to - from) / SERIES_WINDOW_MS) * SERIES_WINDOW_MS
+            const inFlight = evidence.writer.some((sample) => sample.at < to && committedAt(sample) >= to)
+            const unsettled = evidence.writer.some((sample) => {
+                const end = committedAt(sample)
+                const late = !sample.ok || (series.bar !== null && sample.latencyMs > series.bar)
+                return settled < to && ((end >= settled && end < to && late) || (sample.at < settled && end >= settled))
+            })
+            const unsampled = settled < to && longestIdle(evidence.writer, settled, to) > WRITER_PROBE_LONGEST_IDLE_MS
+            return [
+                recoveryOf(
+                    series,
+                    inFlight
+                        ? 'a write probe was in flight at the valve end'
+                        : unsettled
+                          ? 'a write after the last whole minute of the valve failed or passed the bar'
+                          : unsampled
+                            ? 'the remainder after the last whole minute of the valve went unsampled'
+                            : undefined
+                ),
+            ]
+        },
+    },
+    {
+        name: 'pickup_p99_seconds',
+        params: z.object({}).strict(),
+        unit: 's',
+        measure: (evidence) => pickupSeries(evidence).flatMap(([queue, series]) => pointsOf(series, `${queue}_`)),
+    },
+    {
+        name: 'pickup_recovery_seconds',
+        params: z.object({}).strict(),
+        unit: 's',
+        measure: (evidence) =>
+            pickupSeries(evidence).map(([key]) => ({
+                key,
+                value: null,
+                censored: true as const,
+                unmeasured: UNBOUNDED_PICKUPS,
+            })),
+    },
     {
         name: 'baseline_claims_per_second',
         params: z.object({}).strict(),
@@ -874,9 +1098,10 @@ export async function startSampler(
                 const text = await internalFetch(target.metricsUrl, { timeoutMs })
                     .then((response) => (response.status === 200 ? response.text() : ''))
                     .catch(() => '')
+                const fetchedAt = Date.now()
                 const sample = sampleOf(target, at, text)
                 if (sample) {
-                    samples.push(sample)
+                    samples.push({ ...sample, fetchedAt })
                 } else {
                     failed.push({ role: target.role, replica: target.replica, at })
                 }

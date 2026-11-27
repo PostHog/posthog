@@ -18,7 +18,7 @@ class TestValidateCredentials:
     def test_unknown_table_fails_without_a_request(self) -> None:
         with scripted_network([]) as network:
             ok, message = SmartrecruitersSource().validate_credentials(
-                SmartrecruitersSourceConfig(api_key="sr-key"), team_id=1, schema_name="interviews"
+                SmartrecruitersSourceConfig(api_key="sr-key"), team_id=1, schema_name="attachments"
             )
 
         assert ok is False

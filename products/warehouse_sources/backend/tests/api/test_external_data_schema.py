@@ -38,7 +38,8 @@ from posthog.redis import get_client
 from posthog.temporal.common.schedule import create_schedule, describe_schedule
 
 from products.cdp.backend.facade.models import HogFunction
-from products.data_modeling.backend.facade.models import Edge, Node
+from products.data_modeling.backend.facade.api import set_declared_target
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_warehouse.backend.facade.api import (
     DIRECT_POSTGRES_URL_PATTERN,
     DIRECT_SNOWFLAKE_URL_PATTERN,
@@ -1858,8 +1859,16 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    def test_update_schema_to_xmin_rejected_when_table_not_capable(self):
-        # A plain view / partitioned parent reports supports_xmin=False — reject even with a PK.
+    @parameterized.expand(
+        [
+            # A plain view / partitioned parent reports supports_xmin=False — reject even with a PK.
+            ("table_not_capable", None, "xmin replication is not available"),
+            ("discovery_failed", ConnectionError("could not connect to server"), "couldn't check whether"),
+        ]
+    )
+    def test_update_schema_to_xmin_rejected_when_table_not_capable(
+        self, _name: str, discovery_error: Exception | None, expected_message: str
+    ):
         source = self._xmin_postgres_source()
         schema = ExternalDataSchema.objects.create(
             name="public.orders",
@@ -1870,14 +1879,15 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        with self._xmin_discovery_patch(supports_xmin=False):
+        with self._xmin_discovery_patch(supports_xmin=False) as get_schemas:
+            get_schemas.side_effect = discovery_error
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "xmin", "primary_key_columns": ["id"]},
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not available" in str(response.json()).lower()
+        assert expected_message in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
@@ -2321,6 +2331,81 @@ class TestExternalDataSchema(APIBaseTest):
         assert triggered == ([str(schema.id)] if expect_trigger else [])
         # A run in failure backoff creates no job, so only the job-creation activity sets Running.
         assert schema.status == schema_fields.get("status", ExternalDataSchema.Status.COMPLETED)
+
+    @parameterized.expand(
+        [
+            (
+                "view_follows_the_faster_source",
+                {"sync_frequency": "15min"},
+                timedelta(minutes=15),
+                [timedelta(minutes=15)],
+            ),
+            ("view_held_by_its_own_target", {"sync_frequency": "15min"}, timedelta(hours=24), []),
+            ("paused_source_frees_the_view", {"should_sync": False}, timedelta(minutes=15), [timedelta(minutes=15)]),
+        ]
+    )
+    def test_update_schema_sync_settings_reschedule_only_views_whose_cadence_moves(
+        self, _name, payload, view_target, expected_tier_intervals
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        table = DataWarehouseTable.objects.create(name="postgres_orders", team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            table=table,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=24),
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+        dag = DAG.get_or_create_default(self.team)
+        source_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="orders",
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(table.id)},
+        )
+        view = DataWarehouseSavedQuery.objects.create(
+            name="orders_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        view_node = Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source_node, target=view_node)
+        set_declared_target(view_node, view_target)
+
+        async def no_existing_schedules(*_args, **_kwargs):
+            async def empty():
+                return
+                yield
+
+            return empty()
+
+        data_modeling_temporal = mock.Mock(list_schedules=no_existing_schedules)
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        reconcile = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{service}.sync_connect"),
+            mock.patch(f"{service}.schedule_exists", return_value=True),
+            mock.patch(f"{service}.update_schedule"),
+            mock.patch(f"{service}.pause_schedule"),
+            mock.patch(f"{service}.trigger_schedule"),
+            mock.patch(f"{reconcile}.async_connect", new=mock.AsyncMock(return_value=data_modeling_temporal)),
+            mock.patch(f"{reconcile}.a_create_schedule", new=mock.AsyncMock()) as create_tier_schedule,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data=payload,
+            )
+
+        assert response.status_code == 200, response.content
+        created_tier_ids = [call.kwargs["id"] for call in create_tier_schedule.call_args_list]
+        assert created_tier_ids == [f"{dag.id}:{int(interval.total_seconds())}" for interval in expected_tier_intervals]
 
     @parameterized.expand(
         [

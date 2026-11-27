@@ -3997,9 +3997,9 @@ export interface EmitReportRequestApi {
      */
     metrics?: ReportMetricWriteApi[]
     /**
-     * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
-     * @maxItems 3
-     * @items.maxLength 200
+     * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out.
+     * @maxItems 10
+     * @items.maxLength 2000
      */
     suggested_prompts?: string[]
     /**
@@ -4040,6 +4040,7 @@ export const ReportQualityHintSeverityEnumApi = {
 /**
  * * `title` - title
  * * `summary` - summary
+ * * `suggested_prompts` - suggested_prompts
  */
 export type ReportQualityHintFieldEnumApi =
     (typeof ReportQualityHintFieldEnumApi)[keyof typeof ReportQualityHintFieldEnumApi]
@@ -4047,6 +4048,7 @@ export type ReportQualityHintFieldEnumApi =
 export const ReportQualityHintFieldEnumApi = {
     Title: 'title',
     Summary: 'summary',
+    SuggestedPrompts: 'suggested_prompts',
 } as const
 
 export interface ReportQualityHintApi {
@@ -4060,7 +4062,8 @@ export interface ReportQualityHintApi {
     /** The field the check matched.
      *
      * * `title` - title
-     * * `summary` - summary */
+     * * `summary` - summary
+     * * `suggested_prompts` - suggested_prompts */
     field: ReportQualityHintFieldEnumApi
     /** What the check found and what to do next time. */
     message: string
@@ -4096,7 +4099,7 @@ export interface EmitReportResponseApi {
     remediation: string | null
     /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
     idempotent_replay: boolean
-    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
     quality_hints: ReportQualityHintApi[]
 }
 
@@ -9279,6 +9282,69 @@ export const SignalScoutConfigManagedByEnumApi = {
     Background: 'background',
 } as const
 
+/**
+ * * `slack_dm` - Slack direct message
+ * * `slack_channel` - Slack channel
+ */
+export type SignalScoutMessageDeliveryTargetTypeEnumApi =
+    (typeof SignalScoutMessageDeliveryTargetTypeEnumApi)[keyof typeof SignalScoutMessageDeliveryTargetTypeEnumApi]
+
+export const SignalScoutMessageDeliveryTargetTypeEnumApi = {
+    SlackDm: 'slack_dm',
+    SlackChannel: 'slack_channel',
+} as const
+
+export interface SignalScoutMessageTargetApi {
+    type: SignalScoutMessageDeliveryTargetTypeEnumApi
+    /**
+     * Slack member ID, for `slack_dm`.
+     * @maxLength 255
+     */
+    user?: string
+    /**
+     * Slack channel ID, for `slack_channel`. Never a shared channel.
+     * @maxLength 255
+     */
+    channel?: string
+}
+
+export interface SignalScoutMessageRouteApi {
+    /**
+     * Slug the scout names to send on this route.
+     * @maxLength 64
+     * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * When the scout should send, shown in its run prompt.
+     * @maxLength 300
+     */
+    when: string
+    /**
+     * @minItems 1
+     * @maxItems 5
+     */
+    to: SignalScoutMessageTargetApi[]
+}
+
+/**
+ * Output destinations plus message routes. Only the config create and update paths take routes, so the
+ * scout and source-product create tools keep their schemas small.
+ */
+export interface SignalScoutRoutedOutputDestinationsApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationApi | null
+    /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+    webhook?: SignalScoutWebhookDestinationApi | null
+    /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
+    inbox?: boolean
+    /**
+     * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+     * @maxItems 10
+     */
+    messages?: SignalScoutMessageRouteApi[]
+}
+
 export type ScoutPrecheckQuerySourceEnumApi =
     (typeof ScoutPrecheckQuerySourceEnumApi)[keyof typeof ScoutPrecheckQuerySourceEnumApi]
 
@@ -9370,7 +9436,7 @@ export interface SignalScoutConfigApi {
      */
     readonly run_cron_schedule: string | null
     /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
-    readonly output_destinations: SignalScoutOutputDestinationsApi
+    readonly output_destinations: SignalScoutRoutedOutputDestinationsApi
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -9627,7 +9693,7 @@ export interface SignalScoutConfigCreateApi {
      */
     run_interval_minutes?: number
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
-    output_destinations?: SignalScoutOutputDestinationsApi
+    output_destinations?: SignalScoutRoutedOutputDestinationsApi
     /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
      *
      * * `trusted` - Trusted domains only
@@ -9684,6 +9750,10 @@ export interface SignalScoutSlackDestinationUpdateApi {
     thread_reports?: boolean
 }
 
+/**
+ * Output destinations plus message routes. Only the config create and update paths take routes, so the
+ * scout and source-product create tools keep their schemas small.
+ */
 export interface SignalScoutOutputDestinationsUpdateApi {
     /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
     slack?: SignalScoutSlackDestinationUpdateApi | null
@@ -9691,6 +9761,11 @@ export interface SignalScoutOutputDestinationsUpdateApi {
     webhook?: SignalScoutWebhookDestinationApi | null
     /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
     inbox?: boolean
+    /**
+     * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+     * @maxItems 10
+     */
+    messages?: SignalScoutMessageRouteApi[]
 }
 
 /**
@@ -12343,10 +12418,10 @@ export interface EditReportRequestApi {
      */
     metrics?: ReportMetricWriteApi[] | null
     /**
-     * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
-     * @maxItems 3
+     * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out. When every prompt you send is left out, the stored prompts stay as they were.
+     * @maxItems 10
      * @nullable
-     * @items.maxLength 200
+     * @items.maxLength 2000
      */
     suggested_prompts?: string[] | null
     /**
@@ -12465,7 +12540,7 @@ export interface EditReportResponseApi {
     decision_fields_set: string[]
     /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
     warnings: EditReportWarningApi[]
-    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
     quality_hints: ReportQualityHintApi[]
     /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
     corroboration_collapsed: boolean
@@ -12949,6 +13024,76 @@ export interface CreateReportCheckRequestApi {
 }
 
 /**
+ * Request body for `scout-send-message`: one message on an owner-set route.
+ */
+export interface SendScoutMessageRequestApi {
+    /**
+     * Key of the route to send on, from the scout config's `output_destinations.messages`. The route decides who receives the message; the scout never names a recipient.
+     * @maxLength 64
+     */
+    route: string
+    /**
+     * Id of the report this message is about. Required unless the scout is on a dry run. The report must belong to this project and must have been written or edited by this run.
+     * @maxLength 64
+     * @nullable
+     */
+    report_id?: string | null
+    /**
+     * Short plain-text title. At most 80 characters.
+     * @maxLength 80
+     */
+    title: string
+    /**
+     * Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.
+     * @maxLength 500
+     */
+    body: string
+    /**
+     * Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route and key replaces the queued message.
+     * @maxLength 200
+     */
+    dedupe_key: string
+}
+
+/**
+ * * `queued` - Queued
+ * * `replaced` - Replaced
+ * * `duplicate` - Duplicate
+ * * `over_cap` - Over Cap
+ * * `dry_run` - Dry Run
+ */
+export type SendMessageOutcomeEnumApi = (typeof SendMessageOutcomeEnumApi)[keyof typeof SendMessageOutcomeEnumApi]
+
+export const SendMessageOutcomeEnumApi = {
+    Queued: 'queued',
+    Replaced: 'replaced',
+    Duplicate: 'duplicate',
+    OverCap: 'over_cap',
+    DryRun: 'dry_run',
+} as const
+
+/**
+ * Outcome of a `scout-send-message` call.
+ */
+export interface SendScoutMessageResponseApi {
+    /** `queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this route and key, and it now holds this content. `duplicate`: the route and key were sent in the last 30 days, so nothing was queued. `over_cap`: the scout reached its message limit, so nothing was queued. `dry_run`: recorded for review and never sent.
+     *
+     * * `queued` - Queued
+     * * `replaced` - Replaced
+     * * `duplicate` - Duplicate
+     * * `over_cap` - Over Cap
+     * * `dry_run` - Dry Run */
+    outcome: SendMessageOutcomeEnumApi
+    /**
+     * Id of the queued message, or null when nothing was queued.
+     * @nullable
+     */
+    message_id: string | null
+    /** On `duplicate`: the keys recently sent on this route, newest first. Empty otherwise. */
+    recent_dedupe_keys: string[]
+}
+
+/**
  * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
  * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
  * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.
@@ -13135,6 +13280,8 @@ export interface SlackScoutChannelApi {
 export interface SlackScoutChannelSourceApi {
     /** Id of the Slack data warehouse source. */
     id: string
+    /** Name that tells the project's Slack sources apart: the source's table prefix, or the date it was connected when it has no prefix. */
+    label: string
     /** Channels the source syncs, ordered by name. */
     channels: SlackScoutChannelApi[]
 }

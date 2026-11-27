@@ -55,6 +55,7 @@ export type ExperimentHealthFindingCode =
     | 'result_ready'
     | 'flag_shared'
     | 'stale_experiment'
+    | 'exposure_rows_left_out'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode

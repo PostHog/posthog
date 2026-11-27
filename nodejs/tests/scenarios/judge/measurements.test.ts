@@ -450,10 +450,12 @@ describe('measurements', () => {
             const { samples, host } = await sampler.stop()
 
             expect(samples.map(({ role }) => role)).toEqual([ROLE, ROLE])
+            expect(samples.filter(({ at, fetchedAt }) => fetchedAt === undefined || fetchedAt < at)).toEqual([])
             expect(samples.at(-1)).toEqual({
                 role: ROLE,
                 replica: 0,
                 at: expect.any(Number),
+                fetchedAt: expect.any(Number),
                 startedAt: expect.any(Number),
                 cpuSeconds: expect.any(Number),
                 rssBytes: expect.any(Number),
@@ -677,6 +679,451 @@ describe('measurements', () => {
         expect(measure([{ name, params: {} }], evidence({ writer, drive: DRIVE, timeline }))).toEqual(
             measured.map((value) => ({ name, unit: 's', ...value }))
         )
+    })
+
+    type Latency =
+        | number
+        | 'failed'
+        | { failedAfterMs: number; startsLateMs?: number }
+        | { startsLateMs: number; latencyMs: number }
+
+    const latencyWriter = (latency: (second: number) => Latency): WriterSample[] =>
+        everySecondOf(0, 1500).map((second): WriterSample => {
+            const ms = latency(second)
+            const at = { at: atS(second), monoMs: second * 1000 }
+            return ms === 'failed'
+                ? { ...at, latencyMs: 0, ok: false, sqlstate: '57P01' }
+                : typeof ms === 'number'
+                  ? { ...at, latencyMs: ms, ok: true, inRecovery: false }
+                  : 'failedAfterMs' in ms
+                    ? {
+                          at: at.at + (ms.startsLateMs ?? 0),
+                          monoMs: at.monoMs + (ms.startsLateMs ?? 0),
+                          latencyMs: ms.failedAfterMs,
+                          ok: false,
+                          sqlstate: '57014',
+                      }
+                    : {
+                          at: at.at + ms.startsLateMs,
+                          monoMs: at.monoMs + ms.startsLateMs,
+                          latencyMs: ms.latencyMs,
+                          ok: true,
+                      }
+        })
+
+    const THREE_MINUTE_VALVE: ValveTimelineEntry[] = [{ ...VALVE, releasedAt: isoAt(880) }]
+    const UNSETTLED_REMAINDER = 'a write after the last whole minute of the valve failed or passed the bar'
+    const UNSAMPLED_REMAINDER = 'the remainder after the last whole minute of the valve went unsampled'
+    const IN_FLIGHT_AT_END = 'a write probe was in flight at the valve end'
+    const UNBOUNDED_PICKUPS = "scrape windows cannot bound a minute's pickups"
+    const NO_WHOLE_MINUTE = 'the valve phase holds no whole minute'
+
+    it.each<
+        [
+            string,
+            (second: number) => Latency,
+            ValveTimelineEntry[],
+            Omit<Measurement, 'name' | 'unit'>[],
+            ((second: number) => boolean)?,
+            DriveWindow?,
+        ]
+    >([
+        [
+            'recovers at the first minute from which every later minute stays at or under twice the baseline p99',
+            (second) => (between(700, 759)(second) ? 400 : between(760, 819)(second) ? 30 : second >= 820 ? 15 : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 30 },
+                { key: 't120', value: 15 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+        ],
+        [
+            'censors the recovery when a probe fails in the last minute, though its commits are fast',
+            (second) => (between(840, 845)(second) ? 'failed' : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
+            'reads a minute with no commit as not recovered',
+            (second) => (between(700, 759)(second) ? 'failed' : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: null, censored: true },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'marks a minute whose probes stop for over 10 seconds as incomplete and not recovered',
+            (second) => (between(700, 759)(second) ? 400 : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10, incomplete: true },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+            (second) => !between(822, 879)(second),
+        ],
+        [
+            'marks both minutes of a probe silence split by a minute boundary as incomplete and not recovered',
+            () => 10,
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10, incomplete: true },
+                { key: 't60', value: 10, incomplete: true },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+            (second) => !between(752, 768)(second),
+        ],
+        [
+            'counts a probe that fails after a minute boundary in the minute it ends',
+            (second) => (second === 759 ? { failedAfterMs: 2000 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+            (second) => second !== 760,
+        ],
+        [
+            'emits one censored valve point when the valve holds no whole minute',
+            () => 10,
+            [{ ...VALVE, releasedAt: isoAt(745) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: null, censored: true, unmeasured: NO_WHOLE_MINUTE },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
+            'keeps a probe that fails after T0 out of the baseline and counts it in the first valve minute',
+            (second) => (second === 699 ? { failedAfterMs: 2000 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'reads recovery over the whole minutes of a valve whose clean remainder follows them',
+            (second) => (between(700, 759)(second) ? 400 : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'leaves recovery unknown when the writer goes silent in the remainder after the last whole minute',
+            (second) => (between(700, 759)(second) ? 400 : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSAMPLED_REMAINDER },
+            ],
+            (second) => !between(881, 919)(second),
+        ],
+        [
+            'reads recovery when a timer wakes late before a slow probe under the bar in the remainder',
+            (second) =>
+                second < 700
+                    ? 990
+                    : second === 879
+                      ? { startsLateMs: 885, latencyMs: 1 }
+                      : second === 880
+                        ? { startsLateMs: 890, latencyMs: 1970 }
+                        : 10,
+            [{ ...VALVE, releasedAt: isoAt(885.39) }],
+            [
+                { key: 'baseline', value: 990 },
+                { key: 'bar', value: 1980 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 0 },
+            ],
+            (second) => second !== 881 && second !== 882,
+        ],
+        [
+            'reads recovery over a short remainder that follows a gap in the probes before it',
+            (second) =>
+                second === 878
+                    ? { startsLateMs: 490, latencyMs: 10 }
+                    : second === 880
+                      ? { startsLateMs: 100, latencyMs: 10 }
+                      : 10,
+            [{ ...VALVE, releasedAt: isoAt(880.3) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 0 },
+            ],
+            (second) => second !== 879,
+        ],
+        [
+            'leaves recovery unknown when the writer idles long enough to hide a timed-out write in the remainder',
+            (second) => (second === 883 ? { startsLateMs: 500, latencyMs: 10 } : 10),
+            [{ ...VALVE, releasedAt: isoAt(885.39) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSAMPLED_REMAINDER },
+            ],
+            (second) => second !== 881 && second !== 882,
+        ],
+        [
+            'leaves recovery unknown when a write in the remainder after the last whole minute is slow',
+            (second) => (second === 915 ? 400 : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSETTLED_REMAINDER },
+            ],
+        ],
+        [
+            'leaves recovery unknown when a write fails in the remainder after the last whole minute',
+            (second) => (second === 905 ? 'failed' : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSETTLED_REMAINDER },
+            ],
+        ],
+        [
+            'leaves recovery unknown when a write fails exactly at the valve end',
+            (second) => (second === 879 ? { failedAfterMs: 1000 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: IN_FLIGHT_AT_END },
+            ],
+        ],
+        [
+            'leaves the bar unset when a probe that started before the baseline hides a gap in it',
+            (second) => (second === 669 ? { failedAfterMs: 2000, startsLateMs: 500 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: null, censored: true },
+                { key: 'bar', value: null, censored: true },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+            (second) => !between(670, 679)(second),
+            { startedAt: atS(0), warmedAt: atS(670), endedAt: atS(1500) },
+        ],
+        [
+            'leaves recovery unknown when a write is still in flight at the valve end',
+            (second) => (second === 879 ? { startsLateMs: 800, latencyMs: 400 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: IN_FLIGHT_AT_END },
+            ],
+        ],
+        [
+            'counts a slow write in the minute it ended, though it started in the minute before',
+            (second) => (second === 759 ? { startsLateMs: 750, latencyMs: 400 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 400 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+        ],
+        [
+            'keeps a probe that started before the baseline out of it',
+            (second) => (second === 669 ? { startsLateMs: 750, latencyMs: 400 } : second >= 700 ? 300 : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 300 },
+                { key: 't60', value: 300 },
+                { key: 't120', value: 300 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+            () => true,
+            { startedAt: atS(0), warmedAt: atS(670), endedAt: atS(1500) },
+        ],
+        [
+            'keeps the minutes of a valve whose baseline had a failed probe, with no bar and no recovery',
+            (second) => (second === 650 ? 'failed' : between(700, 759)(second) ? 400 : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: null, censored: true },
+                { key: 'bar', value: null, censored: true },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        ['measures nothing for a card without a valve', () => 10, [], []],
+        ['measures nothing on a baseline under 30 seconds', () => 10, [{ ...VALVE, intentAt: isoAt(10) }], []],
+    ])('write latency p99 %s', (_story, latency, timeline, measured, probed = () => true, drive = DRIVE) => {
+        const names = ['write_latency_p99_ms', 'write_latency_recovery_seconds']
+        const recovery = measured.filter(({ key }) => key === 'recovery_seconds')
+
+        expect(
+            measure(
+                names.map((name) => ({ name, params: {} })),
+                evidence({
+                    writer: latencyWriter(latency).filter(({ at }) => probed(Math.floor((at - FROM) / 1000))),
+                    drive,
+                    timeline,
+                })
+            )
+        ).toEqual([
+            ...measured
+                .filter((value) => !recovery.includes(value))
+                .map((value) => ({ name: names[0], unit: 'ms', ...value })),
+            ...recovery.map(({ key: _key, ...value }) => ({ name: names[1], unit: 's', ...value })),
+        ])
+    })
+
+    const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
+
+    const pickedEvery5s = (slow: (second: number) => boolean, { offsetS = 0, slowCount = 10 } = {}): MetricSample[] => {
+        let fast = 0
+        let late = 0
+        return everySecondOf(0, 1500 - offsetS, 5).map((start) => {
+            const second = start + offsetS
+            if (slow(second)) {
+                late += slowCount
+            } else {
+                fast += 10
+            }
+            return {
+                ...sample(second, 0, 1),
+                role: HOGFLOW,
+                lateness: { hogflow: { '0.5': fast, '5': fast + late, '+Inf': fast + late } },
+            }
+        })
+    }
+
+    it('censors the pickup baseline, bar, valve points and recovery, since scrape windows cannot bound pickups at T0', () => {
+        expect(
+            measure(
+                ['pickup_p99_seconds', 'pickup_recovery_seconds'].map((name) => ({ name, params: {} })),
+                evidence({ samples: pickedEvery5s(between(705, 760)), drive: DRIVE, timeline: THREE_MINUTE_VALVE })
+            )
+        ).toEqual([
+            ...['baseline', 'bar', 't0', 't60', 't120'].map((key) => ({
+                name: 'pickup_p99_seconds',
+                unit: 's',
+                key: `hogflow_${key}`,
+                value: null,
+                censored: true,
+                unmeasured: UNBOUNDED_PICKUPS,
+            })),
+            {
+                name: 'pickup_recovery_seconds',
+                unit: 's',
+                key: 'hogflow',
+                value: null,
+                censored: true,
+                unmeasured: UNBOUNDED_PICKUPS,
+            },
+        ])
+    })
+
+    it('never recovers writes in a minute that a failed probe overlaps, and keeps a probe that fails after T0 out of the baseline', () => {
+        const names = ['write_latency_p99_ms', 'write_latency_recovery_seconds']
+        for (const boundaryS of [700, 760, 820]) {
+            for (const startOffsetMs of [-2500, -1500, -500, 500]) {
+                for (const failedAfterMs of [500, 1500, 2000]) {
+                    const at = atS(boundaryS) + startOffsetMs
+                    const endedAt = at + failedAfterMs
+                    if (endedAt < atS(700)) {
+                        continue
+                    }
+                    const failed: WriterSample = { at, monoMs: at - FROM, ok: false, latencyMs: failedAfterMs }
+                    const measured = measure(
+                        names.map((name) => ({ name, params: {} })),
+                        evidence({
+                            writer: [
+                                ...latencyWriter(() => 10).filter(({ at: start }) => start < at || start >= endedAt),
+                                failed,
+                            ].sort((a, b) => a.at - b.at),
+                            drive: DRIVE,
+                            timeline: THREE_MINUTE_VALVE,
+                        })
+                    )
+                    const lastOverlappedS = Math.floor((endedAt - atS(700)) / 60_000) * 60
+                    const recovery = measured.find(({ name }) => name === names[1])!.value
+                    expect({
+                        at: new Date(at).toISOString(),
+                        failedAfterMs,
+                        bar: measured.find(({ key }) => key === 'bar')!.value,
+                        recoveredAfterIt: recovery === null || recovery > lastOverlappedS,
+                    }).toEqual({ at: new Date(at).toISOString(), failedAfterMs, bar: 20, recoveredAfterIt: true })
+                }
+            }
+        }
     })
 
     const SPIKE_BEFORE_THE_ENVELOPE = (second: number): typeof QUIET =>

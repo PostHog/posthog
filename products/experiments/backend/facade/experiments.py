@@ -1,11 +1,12 @@
 """Experiment reads: one experiment as the experiment API shows it, a page of the experiments list, and the reads of
-the detail actions of the experiment API. Also the create and the update of the experiment API.
+the detail actions of the experiment API. Also the create, the update and the bulk tag change of the experiment API.
 
 A read that the API must refuse, such as an unknown `order`, raises the `ValidationError` of Django REST framework,
 with the message the API returns. A read that loads the experiment for a detail action raises `ExperimentNotFound`
 when the project has no live experiment with the id.
 """
 
+from collections.abc import Collection, Sequence
 from dataclasses import fields
 from typing import Any
 
@@ -37,10 +38,13 @@ from .contracts import (
     ExperimentHandle,
     ExperimentHoldoutView,
     ExperimentListFilters,
+    ExperimentRef,
     ExperimentSavedMetricLinkView,
+    ExperimentTagChange,
     ExperimentTimeseriesResults,
     ExperimentUpdate,
     ExperimentUpdateTarget,
+    ExperimentVelocityStats,
     FlagCleanupTarget,
     ListAccess,
 )
@@ -203,6 +207,51 @@ def _to_handle(experiment: Experiment) -> ExperimentHandle:
         flag_cleanup_task_id=experiment.flag_cleanup_task_id,
         warehouse_native_connection_id=warehouse_native_connection_id(experiment.exposure_criteria),
     )
+
+
+def _to_ref(experiment: Experiment) -> ExperimentRef:
+    return ExperimentRef(id=experiment.id, team_id=experiment.team_id, created_by_id=experiment.created_by_id)
+
+
+def list_experiment_refs(*, team: Team, filters: ExperimentListFilters) -> list[ExperimentRef]:
+    """Every experiment that the experiments list shows for the filters, across all of its pages, in the order of the
+    list. Raises the `ValidationError` of Django REST framework for a filter that the list refuses."""
+    return [_to_ref(experiment) for experiment in experiments.list_refs(team=team, filters=filters)]
+
+
+def experiment_refs_among(*, team: Team, experiment_ids: Collection[int]) -> list[ExperimentRef]:
+    """The live experiments of the project among `experiment_ids`, archived ones included, newest first."""
+    return [_to_ref(experiment) for experiment in experiments.refs_among(team=team, experiment_ids=experiment_ids)]
+
+
+def change_experiment_tags(
+    *,
+    team: Team,
+    user: User,
+    was_impersonated: bool,
+    experiment_ids: Sequence[int],
+    tag_action: str,
+    tags: Sequence[str],
+) -> list[ExperimentTagChange]:
+    """Add, remove or set tags on the live experiments of the project among `experiment_ids`, in the order of
+    `experiment_ids`.
+
+    `tag_action` is `add`, `remove` or `set`. Each experiment whose tags change gets an activity log entry by `user`.
+    Tags that no other object uses any more are deleted.
+    """
+    changes = experiments.change_tags(
+        team=team,
+        user=user,
+        was_impersonated=was_impersonated,
+        experiment_ids=experiment_ids,
+        tag_action=tag_action,
+        tags=tags,
+    )
+    return [ExperimentTagChange(id=change["id"], tags=tuple(change["tags"])) for change in changes]
+
+
+def get_velocity_stats(*, team: Team) -> ExperimentVelocityStats:
+    return ExperimentService(team=team, user=None).get_velocity_stats()
 
 
 def get_experiment_handle(*, team: Team, experiment_id: int) -> ExperimentHandle | None:

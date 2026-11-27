@@ -122,6 +122,7 @@ from products.stamphog.backend.logic.workflow_proofs import (
     seen_runs,
 )
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.tasks.broadcast_requests import queue_broadcast_request_refresh_after_verdict
 from products.stamphog.backend.tasks.tasks import (
     queue_routing_after_verdict,
     request_rereview_after_external_review,
@@ -2253,6 +2254,9 @@ def _notify_finished_review(
         verdict=finished.verdict,
         silent=run.is_silent,
     )
+    # Another of stamphog's own follow-ups. It refreshes only after an outcome that GitHub shows, because a card
+    # that reacted to a withheld verdict would tell the channel what the silent run kept off the PR.
+    queue_broadcast_request_refresh_after_verdict(run, finished.status)
 
 
 @activity.defn

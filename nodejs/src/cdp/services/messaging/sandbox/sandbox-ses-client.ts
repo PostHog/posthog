@@ -1,9 +1,8 @@
-import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
-
 import { logger } from '~/common/utils/logger'
 
 import { settleBeforeAbortEvenWhileCredentialsStall } from '../attachment-store'
 import { formatMailbox } from '../email.service'
+import { SandboxSesSender, SesEmail, isSesThrottle } from '../ses-transport'
 import { SES_SEND_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxMessage } from './sandbox-message'
 
@@ -36,16 +35,11 @@ export type SandboxSesResult =
 
 export type SandboxSesSettings = { configurationSet: string; tenantName: string; sendTimeoutMs?: number }
 
-const THROTTLE_ERROR_NAMES = new Set(['ThrottlingException', 'TooManyRequestsException'])
 const EMAIL_ADDRESS = /\S*@\S+/g
-
-export function createSandboxSesV2Client({ region, endpoint }: { region: string; endpoint: string }): SESv2Client {
-    return new SESv2Client({ region, endpoint: endpoint || undefined, maxAttempts: 1 })
-}
 
 export class SandboxSesClient {
     constructor(
-        private readonly client: Pick<SESv2Client, 'send'>,
+        private readonly client: SandboxSesSender,
         private readonly settings: SandboxSesSettings
     ) {}
 
@@ -55,7 +49,7 @@ export class SandboxSesClient {
         try {
             const response = await settleBeforeAbortEvenWhileCredentialsStall(
                 deadline.signal,
-                this.client.send(this.buildCommand(message, tags), { abortSignal: deadline.signal })
+                this.client.send(this.buildEmail(message, tags), deadline.signal)
             )
             return response.MessageId
                 ? { status: 'accepted', messageId: response.MessageId }
@@ -75,8 +69,8 @@ export class SandboxSesClient {
         }
     }
 
-    private buildCommand(message: SandboxMessage, tags: SandboxSendTags): SendEmailCommand {
-        return new SendEmailCommand({
+    private buildEmail(message: SandboxMessage, tags: SandboxSendTags): SesEmail {
+        return {
             FromEmailAddress: formatMailbox(message.from.name, message.from.address),
             Destination: { ToAddresses: [formatMailbox(message.to.name, message.to.address)] },
             ConfigurationSetName: this.settings.configurationSet,
@@ -100,7 +94,7 @@ export class SandboxSesClient {
                     Headers: message.headers.map(({ name, value }) => ({ Name: name, Value: value })),
                 },
             },
-        })
+        }
     }
 }
 
@@ -109,7 +103,7 @@ function withoutEmailAddresses(text: string): string {
 }
 
 function classifySesError(error: unknown): SandboxSesResult {
-    if (error instanceof Error && THROTTLE_ERROR_NAMES.has(error.name)) {
+    if (isSesThrottle(error)) {
         return { status: 'retry', reason: 'ses_throttled' }
     }
     const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode

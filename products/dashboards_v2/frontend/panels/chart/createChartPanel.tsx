@@ -1,9 +1,9 @@
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import type { ContentPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import type { RunQuery } from '../../query/queryTypes'
 import { type PanelType, type PanelMenuContext, definePanel } from '../core/panelDefinition'
+import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading } from '../core/PanelView'
 import { chartMenuActions } from './chartMenuActions'
 import { ChartPanel } from './ChartPanel'
@@ -42,6 +42,7 @@ function withExtraVizTypes(extra: VizDefinition[], states: ChartStates | undefin
  * - `extraVizTypes` adds a host's own kinds of chart, or replaces a built-in kind of the same type.
  * - `runQuery` runs each chart's query. The host supplies it, so the dashboard never fetches data itself.
  * - `states` sets the loading, empty, error and sample data states for every chart, unless one of the host's own kinds sets its own.
+ * - `sampleData` draws every chart from made-up data and runs no queries, such as in a project with no events yet.
  * - `menuActions` gets every chart's menu, with the chart's own entries added, so the host can add entries such as
  *   "Open in traces" or remove ones it does not want.
  */
@@ -49,17 +50,16 @@ export function createChartPanel({
     extraVizTypes = [],
     runQuery,
     states,
+    sampleData = false,
     menuActions,
 }: {
     extraVizTypes?: VizDefinition[]
     runQuery?: RunQuery
     states?: ChartStates
+    sampleData?: boolean
     menuActions?: (actions: MenuAction[], context: PanelMenuContext<ChartConfig>) => MenuAction[]
 } = {}): PanelType {
     const vizTypes = withExtraVizTypes(extraVizTypes, states)
-    function Chart({ panel }: { panel: ContentPanel<ChartConfig> }): JSX.Element {
-        return <ChartPanel panel={panel} vizTypes={vizTypes} runQuery={runQuery} states={states} />
-    }
     // Shaped like the chart's own kind, so a tile waiting to mount or load already looks like its chart.
     function ChartLoading({ panel }: { panel: ContentPanel<ChartConfig> }): JSX.Element {
         const viz = vizTypes.find((candidate) => candidate.type === panel.config.viz.type)
@@ -79,6 +79,12 @@ export function createChartPanel({
         }
         const Loading = viz.Loading ?? states?.Loading ?? PanelLoading
         return <ChartSampleData viz={viz} options={options.data} Loading={Loading} />
+    }
+    function Chart({ panel }: { panel: ContentPanel<ChartConfig> }): JSX.Element | null {
+        if (sampleData) {
+            return <ChartSample panel={panel} />
+        }
+        return <ChartPanel panel={panel} vizTypes={vizTypes} runQuery={runQuery} states={states} />
     }
     const firstType = vizTypes.find((viz) => viz.type === 'line')?.type ?? vizTypes[0]?.type ?? 'line'
     return definePanel<ChartConfig, 'chart'>({
@@ -100,7 +106,6 @@ export function createChartPanel({
         ],
         Component: Chart,
         Loading: ChartLoading,
-        SampleData: ChartSample,
         menuActions: (actions, context) => {
             const withChart = [...actions, ...chartMenuActions(vizTypes, context)]
             return menuActions ? menuActions(withChart, context) : withChart

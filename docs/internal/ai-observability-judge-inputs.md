@@ -2,13 +2,18 @@
 
 Online LLM-as-a-judge evaluations apply fixed character budgets to the text sent as the user prompt.
 These budgets include transcript headers and line numbers, but exclude the evaluation's system prompt.
-They do not change with the selected judge model.
 
 | Target     | Character budget |
 | ---------- | ---------------: |
 | Generation |          150,000 |
-| Trace      |          150,000 |
+| Trace      |          300,000 |
 | Session    |          500,000 |
+
+The budgets do not depend on the selected judge model, with one exception.
+When a judge model rejects a trace transcript that is longer than 150,000 characters because it exceeds the model's context window, the evaluation renders the trace again with a 150,000-character budget and sends that instead.
+When the rejected prompt carried images or files, the shorter transcript keeps them, so a judge asked about a screenshot still sees it. Only a rejection of that shorter prompt falls back to the text without attachments.
+The run is skipped with `context_window_exceeded` only when the shorter transcript is also rejected.
+The `LLMA_JUDGE_TRACE_MAX_CHARS` environment variable sets the trace budget on the evaluation workers, and must be at least 150,000.
 
 ## Trace and session formatting
 
@@ -21,6 +26,16 @@ Trace evaluations skip the LLM judge when a trace has no child events and no rea
 Message role headers, empty OpenTelemetry parts, and whitespace-only message bodies do not count as readable content.
 Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
 Root-only traces with readable state still reach the judge, and Hog evaluations can grade root-only traces from their metadata.
+
+Judge transcripts number each generation, as `[GEN 1]`, `[GEN 2]` and so on.
+A generation whose input starts with the same messages as an earlier generation's input shows those messages as one line that names the latest such generation, such as `[1-17] Same as messages 1-17 of the input to [GEN 4] above`.
+Its other messages keep their original numbers.
+Agent loops send the whole conversation again on every call, so without this a trace with seven generations repeats its first prompt seven times.
+The match is against every earlier generation, so sub-agent calls between two steps of an orchestrator do not break it.
+A session evaluation matches across all of the session's traces, so a chat that resends its history in every trace shows it once.
+The last fallback samples lines, so it shows every message in full and never points at an earlier one, because the sample could drop the message a reference points at.
+Messages must be equal in every field except `cache_control`, `signature` and `caller` on the message or its typed content blocks, which callers change between calls without changing the message. Tool results and other payloads keep those keys.
+A message that differs in any other field renders in full.
 
 Trace and session evaluations first render a text representation with message truncation and line sampling disabled.
 This attempt stops when the text exceeds the budget, before assembling the complete oversized transcript in memory.
@@ -36,6 +51,9 @@ If the transcript still exceeds its budget, the evaluation also truncates genera
 This final fallback can omit parts of an answer. It is used only when complete outputs and shortened inputs cannot fit.
 In this fallback, sessions divide their budget evenly across traces, with a minimum allocation of 2,000 characters per trace.
 If the assembled fallback session still exceeds 500,000 characters, the evaluation skips it with `session_too_long_to_judge`.
+
+When a trace evaluation's judge gets a truncated or sampled transcript, its `$ai_evaluation` event carries `$ai_evaluation_input_truncated: true`, so an analysis of pass rates can exclude those runs.
+Session evaluations do not set this property.
 
 ## Generation formatting
 

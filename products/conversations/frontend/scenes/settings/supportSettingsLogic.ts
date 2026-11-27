@@ -27,6 +27,8 @@ const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 const SLACK_FILE_SCOPES = ['files:read', 'files:write']
 // Pinned analytics event schema because dashboards and funnels depend on its name and status values.
 const TRUSTED_RELAY_UPDATE_EVENT = 'support trusted relay update'
+// Pinned analytics event schema because dashboards and funnels depend on its name and status values.
+const EMAIL_DISPLAY_NAME_UPDATE_EVENT = 'support email display name update'
 
 export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolean | string>): TicketChannel[] {
     const channels: TicketChannel[] = [...BASE_AI_CHANNELS]
@@ -95,6 +97,8 @@ export interface supportSettingsLogicValues {
     emailConfigs: EmailConfigStatus[]
     emailConnected: boolean
     emailConnecting: boolean
+    emailDisplayNameDrafts: Record<string, string>
+    emailDisplayNameSavingConfigId: string | null
     emailTestingConfigId: string | null
     emailVerifyingConfigId: string | null
     githubConnected: boolean
@@ -448,6 +452,19 @@ export interface supportSettingsLogicActions {
         editingIndex: number | null
         value: string
     }
+    saveEmailDisplayName: (configId: string) => {
+        configId: string
+    }
+    saveEmailDisplayNameDone: (
+        configId: string,
+        fromName: string
+    ) => {
+        configId: string
+        fromName: string
+    }
+    saveEmailDisplayNameFailed: () => {
+        value: true
+    }
     saveGreetingText: () => {
         value: true
     }
@@ -544,6 +561,13 @@ export interface supportSettingsLogicActions {
     }
     setEditingDomainIndex: (index: number | null) => {
         index: number | null
+    }
+    setEmailDisplayNameDraft: (
+        configId: string,
+        value: string
+    ) => {
+        configId: string
+        value: string
     }
     setGithubRepos: (repos: string[]) => {
         repos: string[]
@@ -807,6 +831,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             trustedRelaySender,
         }),
         saveTrustedRelaySenderFailed: true,
+        setEmailDisplayNameDraft: (configId: string, value: string) => ({ configId, value }),
+        saveEmailDisplayName: (configId: string) => ({ configId }),
+        saveEmailDisplayNameDone: (configId: string, fromName: string) => ({ configId, fromName }),
+        saveEmailDisplayNameFailed: true,
         // GitHub Issues channel settings
         connectGithub: (integrationId: number) => ({ integrationId }),
         disconnectGithub: true,
@@ -923,6 +951,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     state.map((config) =>
                         config.id === configId ? { ...config, trusted_relay_sender: trustedRelaySender } : config
                     ),
+                saveEmailDisplayNameDone: (state, { configId, fromName }) =>
+                    state.map((config) => (config.id === configId ? { ...config, from_name: fromName } : config)),
                 verifyEmailDomainDone: (state, { configId, verified, dnsRecords }) => {
                     const targetDomain = state.find((t) => t.id === configId)?.domain
                     if (!targetDomain) {
@@ -1004,6 +1034,23 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 saveTrustedRelaySender: (_, { configId }) => configId,
                 saveTrustedRelaySenderDone: () => null,
                 saveTrustedRelaySenderFailed: () => null,
+            },
+        ],
+        emailDisplayNameDrafts: [
+            {} as Record<string, string>,
+            {
+                loadEmailConfigsDone: (_, { configs }) =>
+                    Object.fromEntries(configs.map((config) => [config.id, config.from_name])),
+                setEmailDisplayNameDraft: (state, { configId, value }) => ({ ...state, [configId]: value }),
+                saveEmailDisplayNameDone: (state, { configId, fromName }) => ({ ...state, [configId]: fromName }),
+            },
+        ],
+        emailDisplayNameSavingConfigId: [
+            null as string | null,
+            {
+                saveEmailDisplayName: (_, { configId }) => configId,
+                saveEmailDisplayNameDone: () => null,
+                saveEmailDisplayNameFailed: () => null,
             },
         ],
         teamsInstallStatus: [
@@ -1783,6 +1830,24 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 actions.saveTrustedRelaySenderFailed()
                 posthog.capture(TRUSTED_RELAY_UPDATE_EVENT, { status: 'failed', enabled })
                 lemonToast.error(emailSettingsErrorMessage(error, "Couldn't save the trusted relay sender. Try again."))
+            }
+        },
+        saveEmailDisplayName: async ({ configId }) => {
+            const fromName = (values.emailDisplayNameDrafts[configId] ?? '').trim()
+            posthog.capture(EMAIL_DISPLAY_NAME_UPDATE_EVENT, { status: 'started' })
+            try {
+                // nosemgrep: prefer-codegen-api -- Conversations email settings endpoints are absent from generated clients.
+                await api.create('api/conversations/v1/email/set_display_name', {
+                    config_id: configId,
+                    from_name: fromName,
+                })
+                actions.saveEmailDisplayNameDone(configId, fromName)
+                posthog.capture(EMAIL_DISPLAY_NAME_UPDATE_EVENT, { status: 'completed' })
+                lemonToast.success('Display name saved')
+            } catch (error) {
+                actions.saveEmailDisplayNameFailed()
+                posthog.capture(EMAIL_DISPLAY_NAME_UPDATE_EVENT, { status: 'failed' })
+                lemonToast.error(emailSettingsErrorMessage(error, "Couldn't save the display name. Try again."))
             }
         },
         disconnectSlack: async () => {

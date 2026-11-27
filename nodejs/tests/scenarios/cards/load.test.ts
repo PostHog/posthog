@@ -1150,4 +1150,24 @@ describe('load', () => {
             expect(load(path.join(__dirname, `${id}.yaml`), { profilePath }).card.id).toBe(id)
         }
     )
+
+    it('admits cyclotron-failover-at-scale on a profile shaped like the US scale profile', () => {
+        const scaleShaped = {
+            name: 'scale-shaped',
+            traffic: {
+                event_email: { ratePerSecond: 20, parks: 1 },
+                event_webhook: { ratePerSecond: 20, parks: 1 },
+                transactional_email: { ratePerSecond: 5, parks: 1 },
+            },
+            replicas: { 'cdp-cyclotron-worker-hogflow': 4, 'cdp-cyclotron-worker-email': 4, 'cdp-api': 4 },
+            settings: { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2000', CDP_SES_RATE_LIMIT_CAPACITY: '5000' },
+            load: { targets: { claimsPerSecond: { hogflow: 40, email: 30 } }, tolerance: 0.1 },
+            host: { cpuCeiling: 0.5 },
+        }
+        const profilePath = write('profile.yaml', scaleShaped)
+
+        expect(load(path.join(__dirname, 'cyclotron-failover-at-scale.yaml'), { profilePath }).card.id).toBe(
+            'cyclotron-failover-at-scale'
+        )
+    })
 })

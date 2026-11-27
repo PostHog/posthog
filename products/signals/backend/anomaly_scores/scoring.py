@@ -89,7 +89,11 @@ class ScoredSeries:
 
 @frozen
 class StateIdentity:
-    """What a stored state was built from. A score step needs the same identity, or the visit trains."""
+    """What a stored state was built from.
+
+    A changed interval or query makes the visit train. A changed detector version only makes a soft retrain due,
+    because the stored model still fits the series. See `model_scoring`.
+    """
 
     interval: IntervalType
     detector_version: str
@@ -109,6 +113,8 @@ class TrainedState:
     artifact_sha256: str = ""
     # Stored series that the last score step did not get back.
     missing_series: int = 0
+    # The local settings that the artifacts were fit with. None for a row written before the settings were stored.
+    scoring: IntervalScoring | None = None
 
 
 @frozen
@@ -169,15 +175,63 @@ def _short_hash(payload: Any) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
+# Part of the detector version of every stored model. A detector change reaches the stored models in one of two ways:
+# - The old models are still valid, for example a new threshold, window or normalizer: change only the profile settings.
+#   Each stored model keeps scoring with the settings it was fit with, and the train pass replaces the models one
+#   insight at a time, at the pace of its budgets.
+# - The old models are invalid, because `fit` or `score` changed what an artifact means: also change this marker. Every
+#   stored model then stops scoring, and every insight trains before it scores again.
+FIT_VERSION = "artifact_v2"
+
+
 def detector_version(scoring: IntervalScoring, *, artifacts: bool = False) -> str:
     """Identifies the scoring behavior, so scores from different settings are never mixed in one series.
 
-    Score steps read stored artifacts, so the split gets its own version. Bump it when train-step scores change.
+    Score steps read stored artifacts, so the split gets its own version, which includes `FIT_VERSION`.
     """
     behavior: dict[str, Any] = {"min_points": scoring.min_points, "detector": scoring.detector}
     if artifacts:
-        behavior["fit"] = "artifact_v2"
+        behavior["fit"] = FIT_VERSION
     return _short_hash(behavior)
+
+
+def local_scoring(scoring: IntervalScoring) -> IntervalScoring:
+    """The settings without the AI member. Stored artifacts are fits of this part only."""
+    return dataclasses.replace(scoring, detector=split_ai_member(scoring.detector).local)
+
+
+def fit_by_current_version(version: str, scoring: IntervalScoring | None) -> bool:
+    """Whether a stored model of ``version`` was fit with the local settings ``scoring`` under the current `FIT_VERSION`."""
+    return scoring is not None and detector_version(scoring, artifacts=True) == version
+
+
+def model_scoring(state: TrainedState, identity: StateIdentity, current: IntervalScoring) -> IntervalScoring | None:
+    """The local settings that the stored model scores with, or None when it cannot score for ``identity``.
+
+    ``current`` is the local part of the insight's settings now. A model fit with older settings scores with
+    them until a train step replaces it. A model of another interval or query cannot score, and neither can a
+    model of an older `FIT_VERSION`, or of older settings that its row does not store.
+    """
+    if state.identity.interval != identity.interval or state.identity.query_hash != identity.query_hash:
+        return None
+    if state.identity.detector_version == identity.detector_version:
+        return current
+    return state.scoring if fit_by_current_version(state.identity.detector_version, state.scoring) else None
+
+
+def _with_local_part(detector: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
+    """``detector`` with its local part replaced by ``local``. The AI member keeps its place."""
+    lazy = split_ai_member(detector)
+    if lazy.judge is None:
+        return local
+    members = detector["detectors"]
+    judge_at = members.index(lazy.judge)
+    # `split_ai_member` returns one local member alone, and two or more as an ensemble of them.
+    if len(members) == 2 or not isinstance(local.get("detectors"), list):
+        outer, local_members = detector, [local]
+    else:
+        outer, local_members = local, list(local["detectors"])
+    return {**outer, "detectors": [*local_members[:judge_at], lazy.judge, *local_members[judge_at:]]}
 
 
 def query_hash(query: TrendsQuery, timezone: ZoneInfo, limits: ScoringLimits = DEFAULT_LIMITS) -> str:
@@ -377,10 +431,9 @@ def state_identity(query: TrendsQuery, scoring: IntervalScoring, team: Team, lim
 
     Profiles that differ only in their AI member get the same identity, and read each other's models.
     """
-    local = dataclasses.replace(scoring, detector=split_ai_member(scoring.detector).local)
     return StateIdentity(
         interval=scoring_interval(query),
-        detector_version=detector_version(local, artifacts=True),
+        detector_version=detector_version(local_scoring(scoring), artifacts=True),
         query_hash=query_hash(query, team.timezone_info, limits),
     )
 
@@ -512,7 +565,7 @@ def score_insight(
 ) -> InsightScores:
     """Score the new buckets of an insight.
 
-    With ``split``, a stored state with the insight's identity and its artifacts makes this a score step, and
+    With ``split``, a stored state that `model_scoring` accepts and its artifacts make this a score step, and
     anything else a train step. Both return the state for the next visit, and a train step returns the
     artifacts to store.
 
@@ -554,30 +607,43 @@ def score_insight(
         return dataclasses.replace(scores, series=series)
 
     identity = state_identity(query, scoring, team, limits)
-    state = split.state
-    detector = get_detector(local.detector)
-    if (
-        state is not None
-        and split.artifacts is not None
-        and state.identity == identity
-        and state.scored_through is not None
-        and supports_score_step(query)
-    ):
+    state, artifacts = split.state, split.artifacts
+    model = None
+    if state is not None and artifacts is not None and state.scored_through is not None and supports_score_step(query):
+        model = model_scoring(state, identity, local)
+    if state is not None and artifacts is not None and model is not None:
+        if model != local:
+            # The events carry the version of the settings that scored them, so two settings never share one version.
+            fitted = dataclasses.replace(model, detector=_with_local_part(scoring.detector, model.detector))
+            scores = dataclasses.replace(
+                scores,
+                detector=str(fitted.detector["type"]),
+                detector_version=detector_version(fitted, artifacts=True),
+            )
         return _score_step(
             insight,
             team,
             query,
             scores,
             state,
-            split.artifacts,
-            detector,
-            scoring=local,
+            artifacts,
+            get_detector(model.detector),
+            scoring=model,
             now=now,
             after=after,
             limits=limits,
         )
     return _train_step(
-        insight, team, query, scores, identity, detector, scoring=local, now=now, after=after, limits=limits
+        insight,
+        team,
+        query,
+        scores,
+        identity,
+        get_detector(local.detector),
+        scoring=local,
+        now=now,
+        after=after,
+        limits=limits,
     )
 
 
@@ -637,6 +703,7 @@ def _train_step(
             trained_at=now,
             scored_through=max(newest).astimezone(UTC) if newest else None,
             series_keys=tuple(artifacts),
+            scoring=scoring,
         ),
     )
 
@@ -700,7 +767,11 @@ def _score_step(
         run=ScoringRun.SCORE,
         unmatched_series=unmatched,
         state=dataclasses.replace(
-            state, scored_through=scored_through, missing_series=len(set(state.series_keys) - returned_keys)
+            state,
+            scored_through=scored_through,
+            missing_series=len(set(state.series_keys) - returned_keys),
+            # Fills the settings of a row written before they were stored, so a later settings change keeps the model.
+            scoring=scoring,
         ),
         model_id=model_id_of(state.artifact_key),
     )

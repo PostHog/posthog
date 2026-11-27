@@ -269,6 +269,7 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     // The evaluation preview shows why the server rejected the sampling, Hog code or judge setting
     loadSamples: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
     testRows: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
+    runValidate: 'products.autoresearch.autoresearchNewLogic', // Shows why the server refused the model definition
 }
 
 /*
