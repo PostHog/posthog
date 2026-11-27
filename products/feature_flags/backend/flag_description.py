@@ -39,6 +39,7 @@ def describe_flag(flag: FeatureFlag) -> FlagDescription | None:
     if detect_config_format(flag.filters).kind != "v1":
         return None
     filters: Mapping = flag.filters or {}
+    runtime = flag.evaluation_runtime
     variants = _mappings((filters.get("multivariate") or {}).get("variants"))
     conditions = tuple(
         ConditionShape(
@@ -54,7 +55,7 @@ def describe_flag(flag: FeatureFlag) -> FlagDescription | None:
         enrollment=bool(filters.get("feature_enrollment")),
         multivariate=bool(variants),
         early_exit=filters.get("early_exit") is True,
-        evaluation_runtime=flag.evaluation_runtime if flag.evaluation_runtime in ("all", "client", "server") else None,
+        evaluation_runtime=runtime if runtime in dict(flag.EVALUATION_RUNTIME_CHOICES) else None,
         conditions=conditions,
         variants=tuple(parse_percentage(variant.get("rollout_percentage")) for variant in variants),
     )

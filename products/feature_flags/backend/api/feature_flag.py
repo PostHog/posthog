@@ -2925,8 +2925,7 @@ class FeatureFlagSerializer(
 
     def _register_launch_check(self, before: FlagDescription | None, flag: FeatureFlag, request: Any) -> None:
         try:
-            after = before and describe_flag(flag)
-            if after and before and after != before:
+            if before and (after := describe_flag(flag)) and after != before:
                 properties = {"source": get_event_source(request), "was_impersonated": is_impersonated(request)}
                 properties |= {"before": asdict(before), "after": asdict(after)}
                 transaction.on_commit(functools.partial(_send_launch_check, flag.team, properties), robust=True)
