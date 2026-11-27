@@ -7,7 +7,15 @@ import { mswDecorator } from '~/mocks/browser'
 import type { ErrorListApi } from '../../generated/api.schemas'
 import { withWidth } from '../trace/storyFixtures'
 import { ErrorsListHost } from './ErrorsListHost'
-import { ERRORS_URL, makeErrorListItem, makeErrorListPage } from './testFixtures'
+import {
+    ERRORS_URL,
+    ERROR_FIRST_SEEN_URL,
+    ERROR_NEW_COUNT_URL,
+    makeErrorFirstSeen,
+    makeErrorFirstSeenList,
+    makeErrorListItem,
+    makeErrorListPage,
+} from './testFixtures'
 
 const PAGE: ErrorListApi = makeErrorListPage([], {
     count: 3,
@@ -41,15 +49,23 @@ const PAGE: ErrorListApi = makeErrorListPage([], {
     ],
 })
 
+const FIRST_SEEN = {
+    [ERROR_FIRST_SEEN_URL]: makeErrorFirstSeenList([
+        makeErrorFirstSeen('error-1', { firstSeen: null }),
+        makeErrorFirstSeen('error-2'),
+        makeErrorFirstSeen('error-3', { firstSeen: '2026-09-06T14:00:00Z', isNew: true }),
+    ]),
+}
+
 const meta: Meta<typeof ErrorsListHost> = {
     title: 'Scenes-App/AI observability/Errors/Errors list',
     component: ErrorsListHost,
     decorators: [mswDecorator({})],
     parameters: {
-        msw: { mocks: { get: { [ERRORS_URL]: PAGE } } },
+        msw: { mocks: { get: { [ERRORS_URL]: PAGE, [ERROR_NEW_COUNT_URL]: { count: 1 } }, post: FIRST_SEEN } },
         mockDate: '2026-09-08T12:00:00Z',
         pageUrl: urls.aiObservabilityErrors(),
-        testOptions: { snapshotBrowsers: [], waitForSelector: 'text=ValidationError' },
+        testOptions: { snapshotBrowsers: [], waitForSelector: 'text=Sep 6, 2026' },
     },
 }
 export default meta
@@ -57,6 +73,18 @@ export default meta
 type Story = StoryObj<typeof ErrorsListHost>
 
 export const Rows: Story = {}
+
+export const FirstSeenAndNewCountFailed: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: { [ERROR_NEW_COUNT_URL]: () => [500, { detail: 'New count read failed' }] },
+                post: { [ERROR_FIRST_SEEN_URL]: () => [500, { detail: 'First seen read failed' }] },
+            },
+        },
+        testOptions: { snapshotBrowsers: [], waitForSelector: '[role="img"][aria-label^="Couldn"]' },
+    },
+}
 
 export const NothingCaptured: Story = {
     parameters: {

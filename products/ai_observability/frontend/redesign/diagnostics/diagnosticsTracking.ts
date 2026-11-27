@@ -21,7 +21,7 @@ export interface DiagnosticsEntityOpened {
 
 export interface DiagnosticsReadFailed {
     kind: DiagnosticsEntityKind
-    read: 'list' | 'detail'
+    read: 'list' | 'detail' | 'first_seen' | 'new_count'
 }
 
 export const diagnosticsTracking = {
