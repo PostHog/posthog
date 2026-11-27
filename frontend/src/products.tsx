@@ -3229,10 +3229,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
         href: urls.metrics(),
         searchKeywords: ['time series', 'counters', 'gauges'],
-        searchTabs: [
-            { name: 'Viewer', href: urls.metrics('viewer') },
-            { name: 'SQL', href: urls.metrics('sql') },
-        ],
+        searchTabs: [{ name: 'Viewer', href: urls.metrics('viewer') }],
         tags: ['alpha'],
         sceneKey: 'Metrics',
         sceneKeys: ['Metrics', 'MetricsDashboardReview'],

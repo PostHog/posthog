@@ -405,6 +405,7 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 run_id=run_id,
                 batch_export_model=inputs.batch_export_model,
+                use_new_events_schema=inputs.use_new_events_schema,
                 batch_export_id=inputs.batch_export_id,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,

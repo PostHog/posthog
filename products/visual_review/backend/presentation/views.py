@@ -27,7 +27,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, PrecountedLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
-from posthog.auth import is_mcp_request
+from posthog.auth import SessionAuthentication, is_mcp_request
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from ..facade import api, contracts
@@ -35,26 +35,34 @@ from ..facade.contracts import (
     AddSnapshotsInput,
     ApproveRunInput,
     ApproveRunRequestInput,
+    ClearRunInput,
+    ClearRunRequestInput,
     CreateRepoInput,
     CreateRunInput,
     FinalizeRunRequestInput,
     LiftOnMergeInput,
     NoRunNeededInput,
     QuarantineInput,
+    RejectRunInput,
+    RejectRunRequestInput,
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
-from ..facade.enums import ActorType, RunReviewFilter
+from ..facade.enums import ActorType, DecisionChannel, RunReviewFilter
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     BaselineOverviewSerializer,
+    ClearRunInputSerializer,
     CompleteRunInputSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
+    DecisionErrorSerializer,
+    DecisionResultSerializer,
     ErrorDetailSerializer,
+    FinalizeConflictSerializer,
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
     FlakinessOverviewSerializer,
@@ -62,10 +70,12 @@ from .serializers import (
     MarkToleratedInputSerializer,
     NoRunNeededInputSerializer,
     NoRunNeededResultSerializer,
+    NotFullyResolvedDetailSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
     QuarantineLiftEntrySerializer,
     RecomputeResultSerializer,
+    RejectRunInputSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
@@ -85,9 +95,49 @@ def _actor(request: Request) -> ActorType:
 
     `is_mcp_request` needs both a scoped token and the MCP server's user agent, so a
     browser session is never recorded as an agent. The marker is client-supplied, so
-    this attributes a write and must never gate one.
+    it must never let a write through that it would otherwise refuse. Review decisions use
+    it only in the other direction, to refuse an agent's change of a person's decision:
+    an agent that drops the marker counts as a person, as it did before the rule.
     """
     return ActorType.AGENT if is_mcp_request(request) else ActorType.HUMAN
+
+
+def _channel(request: Request) -> DecisionChannel:
+    """How a review decision reached the server, with the same best-effort MCP marker as `_actor`."""
+    if is_mcp_request(request):
+        return DecisionChannel.MCP
+    if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
+        return DecisionChannel.WEB
+    return DecisionChannel.API
+
+
+def _decision_error(error: api.DecisionRefusedError) -> Response:
+    body = {
+        "detail": str(error),
+        "code": error.code,
+        "snapshots": [
+            {
+                "identifier": refusal.identifier,
+                "code": refusal.code,
+                "detail": refusal.detail,
+                "current_seq": refusal.current_seq,
+            }
+            for refusal in error.refusals
+            if refusal.identifier
+        ],
+    }
+    return Response(body, status=status.HTTP_409_CONFLICT if error.conflict else status.HTTP_400_BAD_REQUEST)
+
+
+_DECISION_RESPONSES = {
+    200: OpenApiResponse(response=DecisionResultSerializer),
+    400: OpenApiResponse(response=DecisionErrorSerializer, description="A snapshot cannot take the decision"),
+    404: OpenApiResponse(response=ErrorDetailSerializer, description="Run not found"),
+    409: OpenApiResponse(
+        response=DecisionErrorSerializer,
+        description="The pull request or a newer decision does not allow the decision now",
+    ),
+}
 
 
 REVIEW_STATE_PARAMETER = OpenApiParameter(
@@ -595,6 +645,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "skip",
         "complete",
         "approve",
+        "reject",
+        "clear",
         "auto_approve",
         "add_snapshots",
         "recompute",
@@ -709,7 +761,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get"], pagination_class=SnapshotsPagination)
     def snapshots(self, request: TypedRequest, pk: UUID, **kwargs) -> Response:
-        """Get a run's snapshots with diff results, excluding quarantined ones by default."""
+        """Get a run's snapshots with diff results and review decisions, excluding quarantined ones by default."""
         query = request.validated_query_data
         paginator = cast(SnapshotsPagination, self.paginator)
         try:
@@ -720,6 +772,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 exclude_unchanged=query["exclude_unchanged"],
                 snapshot_id=query.get("snapshot_id"),
                 quarantined_only=query["quarantined_only"],
+                review_state=query.get("review_state"),
                 limit=paginator.get_limit(request),
                 offset=paginator.get_offset(request),
             )
@@ -750,6 +803,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.RunNotFoundError:
             return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.SnapshotRejectedError as e:
+            return Response({"detail": str(e), "code": "rejected"}, status=status.HTTP_409_CONFLICT)
+        except api.DecidedByPersonError as e:
+            return Response({"detail": str(e), "code": "decided_by_person"}, status=status.HTTP_409_CONFLICT)
         except ValueError:
             return Response({"detail": "Snapshot cannot be marked as tolerated"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(SnapshotSerializer(instance=snapshot).data)
@@ -847,49 +904,103 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response
         return Response(RunSerializer(instance=run).data)
 
-    @validated_request(
-        request_serializer=ApproveRunInputSerializer,
-        responses={200: OpenApiResponse(response=RunSerializer)},
-    )
+    @validated_request(request_serializer=ApproveRunInputSerializer, responses={**_DECISION_RESPONSES})
     @action(detail=True, methods=["post"])
     def approve(self, request: TypedRequest[ApproveRunRequestInput], pk: UUID, **kwargs) -> Response:
-        """Mark snapshots reviewed (DB only).
+        """Accept snapshots (DB only).
 
-        Records the per-snapshot "Accept change" decision. Does not commit the baseline
-        or change the GitHub gate — call finalize to ship the run. Works on a quarantined
-        snapshot too: a quarantined snapshot approved here is committed by finalize, which
-        updates a quarantined story's baseline entry without lifting the quarantine.
+        Records the per-snapshot "Accept change" decision. Does not change the baseline or pass
+        the gate; call finalize on the pull request's newest run for that. In ledger mode the run
+        can be an older run of the pull request: the accept counts on every run that renders the
+        same pictures. Works on a quarantined snapshot too: finalize records or commits it, and the
+        quarantine stays.
         """
         body = request.validated_data
-        user_id = cast(int, request.user.id)
-
+        input_dto = ApproveRunInput(
+            run_id=pk,
+            user_id=cast(int, request.user.id),
+            snapshots=body.snapshots,
+            expected_seq=body.expected_seq,
+            override_rejection=body.override_rejection,
+        )
         try:
-            input_dto = ApproveRunInput(run_id=pk, user_id=user_id, snapshots=body.snapshots)
-            run = api.approve_snapshots(input_dto, team_id=self.team_id)
-            return Response(RunSerializer(instance=run).data)
+            result = api.approve_snapshots(input_dto, team_id=self.team_id, via=_channel(request))
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.DecisionRefusedError as e:
+            return _decision_error(e)
         except api.StaleRunError as e:
             return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
         except api.ArtifactNotFoundError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(DecisionResultSerializer(instance=result).data)
+
+    @validated_request(request_serializer=RejectRunInputSerializer, responses={**_DECISION_RESPONSES})
+    @action(detail=True, methods=["post"])
+    def reject(self, request: TypedRequest[RejectRunRequestInput], pk: UUID, **kwargs) -> Response:
+        """Reject snapshots of a pull request run with a reason, in ledger mode.
+
+        A rejected snapshot blocks finalize until the pull request renders a different picture or
+        the rejection is undone.
+        """
+        body = request.validated_data
+        input_dto = RejectRunInput(
+            run_id=pk, user_id=cast(int, request.user.id), snapshots=body.snapshots, expected_seq=body.expected_seq
+        )
+        try:
+            result = api.reject_snapshots(input_dto, team_id=self.team_id, via=_channel(request))
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.DecisionRefusedError as e:
+            return _decision_error(e)
+        return Response(DecisionResultSerializer(instance=result).data)
+
+    @validated_request(request_serializer=ClearRunInputSerializer, responses={**_DECISION_RESPONSES})
+    @action(detail=True, methods=["post"])
+    def clear(self, request: TypedRequest[ClearRunRequestInput], pk: UUID, **kwargs) -> Response:
+        """Undo the accept or reject of snapshots, in ledger mode, so they need review again."""
+        body = request.validated_data
+        input_dto = ClearRunInput(
+            run_id=pk,
+            user_id=cast(int, request.user.id),
+            identifiers=body.identifiers,
+            expected_seq=body.expected_seq,
+            override_rejection=body.override_rejection,
+        )
+        try:
+            result = api.clear_snapshot_decisions(input_dto, team_id=self.team_id, via=_channel(request))
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.DecisionRefusedError as e:
+            return _decision_error(e)
+        return Response(DecisionResultSerializer(instance=result).data)
 
     @validated_request(
         request_serializer=FinalizeRunInputSerializer,
-        responses={200: OpenApiResponse(response=FinalizeResultSerializer)},
+        responses={
+            200: OpenApiResponse(response=FinalizeResultSerializer),
+            409: OpenApiResponse(
+                response=FinalizeConflictSerializer,
+                description=(
+                    "`not_fully_resolved` lists every rejected snapshot and every snapshot that needs review. "
+                    "`stale_run` names the newest run of the pull request. `sha_mismatch` means the pull "
+                    "request's head moved past the run."
+                ),
+            ),
+        },
     )
     @action(detail=True, methods=["post"])
     def finalize(self, request: TypedRequest[FinalizeRunRequestInput], pk: UUID, **kwargs) -> Response:
-        """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+        """Finalize a fully-reviewed run: record or commit the accepted baseline and pass the gate.
 
-        Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
-        and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
-        any still-pending changed/new snapshot is approved first; quarantined snapshots are
-        skipped, but a quarantined snapshot approved by identifier is still committed.
-        With commit_to_github=false the server returns the signed baseline YAML instead of
-        committing it.
+        Succeeds only once every changed, new and removed snapshot is accepted, tolerated or
+        quarantined, and none is rejected. In ledger mode an accept made on an earlier run of the
+        pull request counts while the pictures are the same, and removals nobody rejected are
+        accepted. With approve_all=true every change nobody decided on is accepted first; a
+        rejected snapshot is never accepted. With commit_to_github=false the server returns the
+        signed baseline YAML instead of committing it.
         """
         body = request.validated_data
         user_id = cast(int, request.user.id)
@@ -902,14 +1013,24 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 approve_all=body.approve_all,
                 commit_to_github=body.commit_to_github,
                 add_images_to_comment_on_pr=body.add_images_to_comment_on_pr,
+                via=_channel(request),
             )
             return Response(FinalizeResultSerializer(instance=result).data)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.RunNotFullyResolvedError as e:
-            return Response({"detail": str(e), "code": "not_fully_resolved"}, status=status.HTTP_409_CONFLICT)
+            detail = NotFullyResolvedDetailSerializer(instance=api.not_fully_resolved_detail(e, self.team_id)).data
+            return Response({"detail": str(e), "code": "not_fully_resolved", **detail}, status=status.HTTP_409_CONFLICT)
         except api.StaleRunError as e:
-            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
+            return Response(
+                {
+                    "detail": str(e),
+                    "code": "stale_run",
+                    "head_run_id": str(e.head_run_id) if e.head_run_id else None,
+                    "head_commit_sha": e.head_commit_sha,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except api.ArtifactNotFoundError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except api.GitHubIntegrationNotFoundError:

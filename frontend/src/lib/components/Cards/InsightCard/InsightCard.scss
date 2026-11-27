@@ -54,6 +54,10 @@
     overflow: auto;
     border-radius: 0 0 var(--radius) var(--radius);
 
+    &.DataVisualization > .bg-surface-primary {
+        border-radius: 0;
+    }
+
     .LineGraph,
     .AnnotationsOverlay {
         padding: 0.5rem;

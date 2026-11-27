@@ -146,7 +146,12 @@ export interface CyclotronV2DequeuedJob {
     ): Promise<{ newJobIds: string[]; cancelRequested?: boolean }>
 }
 
-export type CyclotronV2ManagerConfig = {
+export type CyclotronV2QueueRoles = {
+    emailQueues: readonly string[]
+    fairDequeueQueues: readonly string[]
+}
+
+export type CyclotronV2ManagerConfig = CyclotronV2QueueRoles & {
     pool: CyclotronV2PoolConfig
     depthLimit?: number
     depthCheckIntervalMs?: number
@@ -265,7 +270,7 @@ export interface CyclotronV2JobProducer {
  */
 export type CyclotronV2BatchLimit = { limit: number; sleepMs?: number }
 
-export type CyclotronV2WorkerConfig = {
+export type CyclotronV2WorkerConfig = Pick<CyclotronV2QueueRoles, 'fairDequeueQueues'> & {
     pool: CyclotronV2PoolConfig
     queueName: string
     batchMaxSize?: number

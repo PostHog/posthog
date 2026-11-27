@@ -27,6 +27,11 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
     NO_ACTIVE_DESTINATIONS_MESSAGE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    coarsen_trigger_budget,
+    split_budget_bytes,
+    target_partition_bytes,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     JOB_CREATION_TIMED_OUT_MESSAGE,
@@ -126,18 +131,52 @@ class TestStatisticsStale:
     @parameterized.expand(
         [
             # Guards against re-profiling a freshly-computed table on every sync (the bug we're fixing).
-            ("recent_not_stale", dt.timedelta(hours=1), False),
+            ("recent_not_stale", {"amount": dt.timedelta(hours=1)}, True, None, False),
             # Guards against never recomputing once a row exists.
-            ("older_than_interval_stale", dt.timedelta(hours=25), True),
+            ("older_than_interval_stale", {"amount": dt.timedelta(hours=25)}, True, None, True),
+            ("no_rows_never_checked", {"amount": dt.timedelta(days=2)}, False, None, True),
+            ("no_rows_checked_within_interval", {"amount": dt.timedelta(days=2)}, False, dt.timedelta(hours=1), False),
+            ("no_rows_checked_past_interval", {"amount": dt.timedelta(days=2)}, False, dt.timedelta(hours=25), True),
+            ("rows_written_after_the_check", {"amount": dt.timedelta(days=2)}, True, dt.timedelta(hours=1), True),
+            ("no_rows_past_weekly_cap", {"amount": dt.timedelta(days=8)}, False, dt.timedelta(hours=1), True),
+            # The activity recomputes these whatever the version, so a recent check must not hold them back.
+            (
+                "a_column_without_a_row",
+                {"amount": dt.timedelta(days=2), "fee": None},
+                False,
+                dt.timedelta(hours=1),
+                True,
+            ),
+            (
+                "oldest_column_past_weekly_cap",
+                {"amount": dt.timedelta(days=2), "fee": dt.timedelta(days=8)},
+                False,
+                dt.timedelta(hours=1),
+                True,
+            ),
         ]
     )
-    def test_staleness_by_recency(self, _name: str, age: dt.timedelta, expected: bool) -> None:
+    def test_staleness_by_recency(
+        self,
+        _name: str,
+        column_ages: dict[str, dt.timedelta | None],
+        wrote_rows: bool,
+        checked_ago: dt.timedelta | None,
+        expected: bool,
+    ) -> None:
         team = _team()
-        table = _table(team)
-        WarehouseColumnStatistics.objects.for_team(team.id).create(
-            team=team, table=table, column_name="amount", computed_at=timezone.now() - age
-        )
-        assert _statistics_stale(team.id, table) is expected
+        table = _table(team, columns={name: {"clickhouse": "Nullable(Int64)"} for name in column_ages})
+        checked_at = timezone.now() - checked_ago if checked_ago is not None else None
+        for column_name, age in column_ages.items():
+            if age is not None:
+                WarehouseColumnStatistics.objects.for_team(team.id).create(
+                    team=team,
+                    table=table,
+                    column_name=column_name,
+                    computed_at=timezone.now() - age,
+                    checked_at=checked_at,
+                )
+        assert _statistics_stale(team.id, table, wrote_rows=wrote_rows) is expected
 
 
 @pytest.mark.django_db
@@ -181,6 +220,19 @@ class TestEnrichmentPending:
         )
         self._annotate(team, table, "amount")
         assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is False
+
+    def test_not_pending_when_renamed_columns_are_annotated_under_hogql_names(self) -> None:
+        team = _team()
+        table = _table(team, columns={"created": {}, "customer": {}})
+        self._annotate(team, table, "created_at")
+        self._annotate(team, table, "customer_id")
+        assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is False
+
+    def test_not_pending_without_enrichable_columns_even_when_the_description_is_missing(self) -> None:
+        # The activity skips a table with no enrichable columns before it looks at the description.
+        team = _team()
+        table = _table(team, columns={"x" * 401: {}})
+        assert _enrichment_pending(team.id, table, _schema(team, table)) is False
 
     def test_pending_when_table_description_missing(self) -> None:
         # Columns all annotated, but neither a schema description nor a table-level ("") annotation exists.
@@ -725,3 +777,55 @@ class TestCreateJobActivityPrepareRunOutputs:
         )
 
         assert result.source_templates_needed is expected
+
+    @parameterized.expand(
+        [
+            ("no_data_since_a_healthy_measurement", 0, False),
+            ("rows_written_since_the_measurement", 5, True),
+        ]
+    )
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_repartition_skipped_while_the_last_measurement_holds(
+        self,
+        _name: str,
+        rows_since_measurement: int,
+        expected: bool,
+        mock_activity: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
+        team = _team()
+        schema = _schema(team, None)
+        measured = ExternalDataJob.objects.create(
+            team=team, pipeline=schema.source, schema=schema, status=ExternalDataJob.Status.COMPLETED, rows_synced=10
+        )
+        ExternalDataJob.objects.create(
+            team=team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=rows_since_measurement,
+        )
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.sync_type_config = {
+            "partition_measurement": {
+                "healthy": True,
+                "job_id": str(measured.id),
+                "phase": "post_load",
+                "budget": target_partition_bytes(),
+                "split_budget": split_budget_bytes(schema),
+                "coarsen_budget": coarsen_trigger_budget(schema, operator_requested=False),
+            }
+        }
+        schema.save()
+
+        result = create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=False
+            )
+        )
+
+        assert result.repartition_needed is expected

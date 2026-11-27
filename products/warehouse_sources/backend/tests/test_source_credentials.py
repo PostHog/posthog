@@ -79,10 +79,18 @@ PG_TUNNEL_FIELDS: dict[str, Any] = {
         "auth_type": {"selection": "keypair", "username": "tunnel", "private_key": "fake-key", "passphrase": "fake"},
     },
 }
+AWS_KEY_FIELDS: dict[str, Any] = {
+    "region": "us-east-1",
+    "aws_auth": {"selection": "access_keys", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "fake"},
+}
+
+_DROP = object()
 
 
 def _with(fields: dict[str, Any], path: str, value: Any) -> dict[str, Any]:
     head, _, rest = path.partition(".")
+    if value is _DROP and not rest:
+        return {key: item for key, item in fields.items() if key != head}
     return {**fields, head: _with(fields[head], rest, value) if rest else value}
 
 
@@ -420,6 +428,15 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         [
             # (name, source type, fields, changed path, new value, outcome)
             ("nested_user", ExternalDataSourceType.SNOWFLAKE, SNOWFLAKE_FIELDS, "auth_type.user", "writer", "new_row"),
+            ("keys_to_role", ExternalDataSourceType.AWSCONFIG, AWS_KEY_FIELDS, "aws_auth", _DROP, "new_row"),
+            (
+                "auth_method_switch",
+                ExternalDataSourceType.SNOWFLAKE,
+                SNOWFLAKE_FIELDS,
+                "auth_type.selection",
+                "keypair",
+                "new_row",
+            ),
             (
                 "nested_secret",
                 ExternalDataSourceType.SNOWFLAKE,

@@ -24,6 +24,9 @@
             {% endfor %}
         </div>
     </div>
+    {% if related %}
+        {% include "admin_console/_related.html" %}
+    {% endif %}
     {% if attention %}
         <section class="quill-card group/card flex flex-col mb-4 console-attention"
                  data-quill
@@ -43,7 +46,7 @@
             </div>
         </section>
     {% endif %}
-    <div class="grid gap-4 @3xl:grid-cols-2 items-start">
+    <div class="@3xl:columns-2 gap-4 *:mb-4 *:break-inside-avoid">
         {% for rendered in regular_panels %}
             {% include "admin_console/_panel.html" %}
         {% endfor %}
@@ -59,7 +62,7 @@
                     <p class="m-0 text-muted-foreground">These change what the customer sees. Every action marked Risky asks for a reason and goes into the audit log.</p>
                 </div>
             </div>
-            <div class="grid gap-4 @3xl:grid-cols-2 items-start">
+            <div class="@3xl:columns-2 gap-4 *:mb-4 *:break-inside-avoid">
                 {% for rendered in danger_panels %}
                     {% include "admin_console/_panel.html" %}
                 {% endfor %}

@@ -22,6 +22,25 @@ import { navProductsTabLogic } from './navProductsTabLogic'
 import { NavProductTooltip } from './NavProductTooltip'
 import { productsItemName } from './productsCatalog'
 
+function isNavProductRowActive(href: string, path: string, currentPath: string): boolean {
+    return (
+        currentPath === href ||
+        (href !== urls.projectRoot() && currentPath.startsWith(`${href}/`)) ||
+        (href === urls.projectRoot() && currentPath === urls.projectHomepage()) ||
+        (path === 'Session replay' && currentPath.startsWith('/replay/'))
+    )
+}
+
+function starActionLook(starred: boolean): { label: string; icon: JSX.Element } {
+    return starred
+        ? { label: 'Remove from starred', icon: <IconStarFilled /> }
+        : { label: 'Add to starred', icon: <IconStar /> }
+}
+
+function starDisabledReason(disabledReason: string | undefined, shortcutDataLoading: boolean): string | undefined {
+    return disabledReason || (shortcutDataLoading ? 'Updating starred items' : undefined)
+}
+
 export function NavProductRow({ item, pinned = false }: { item: FileSystemImport; pinned?: boolean }): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
     const { resetPanelLayout } = useActions(panelLayoutLogic)
@@ -33,20 +52,15 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
     const shortcut = findProductShortcut(item, shortcutData)
     const currentPath = removeProjectIdIfPresent(pathname)
     const href = item.href ?? ''
-    const active =
-        currentPath === href ||
-        (href !== urls.projectRoot() && currentPath.startsWith(`${href}/`)) ||
-        (href === urls.projectRoot() && currentPath === urls.projectHomepage()) ||
-        (item.path === 'Session replay' && currentPath.startsWith('/replay/'))
+    const active = isNavProductRowActive(href, item.path, currentPath)
     const disabledReason = getProductAccessDisabledReason(item)
 
     const isHome = item.path === 'Home'
     const hasSideAction = isHome || !pinned
     const starAction = {
-        label: shortcut ? 'Remove from starred' : 'Add to starred',
-        icon: shortcut ? <IconStarFilled /> : <IconStar />,
+        ...starActionLook(!!shortcut),
         'data-attr': 'nav-apps-star',
-        disabledReason: disabledReason || (shortcutDataLoading ? 'Updating starred items' : undefined),
+        disabledReason: starDisabledReason(disabledReason, shortcutDataLoading),
         onClick: () => {
             if (!shortcut) {
                 addShortcutItem(item as FileSystemEntry)

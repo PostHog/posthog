@@ -212,7 +212,9 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         inputs.url,
     )
 
-    use_native_schema = batch_exports_read_new_events_table(inputs.team_id)
+    use_native_schema = batch_exports_read_new_events_table(
+        inputs.team_id, export_opted_in=inputs.use_new_events_schema
+    )
     interval_start = await maybe_resume_from_heartbeat(inputs)
     is_backfill = inputs.get_is_backfill()
 
@@ -437,6 +439,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
+            use_new_events_schema=inputs.use_new_events_schema,
         )
 
         await execute_batch_export_insert_activity(

@@ -1847,13 +1847,16 @@ describe('runInteractionLogic', () => {
         expect(send.params.content).not.toContain('- dashboard 7')
     })
 
-    it('prunes context whose rendered line the run log already carries, even with no sent-key bookkeeping', async () => {
+    it('prunes context whose rendered line the run log already carries, and does not report it as delivered', async () => {
         // The reload scenario: `sentContextKeysByTask` is empty (fresh session), but `runStreamLogic`
         // recorded the block lines it found replaying the resume-chain history — the same ref must not
         // be re-wrapped into the next send.
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         const seenItem = { type: 'insight', key: 'sig', label: 'Signups', hidden: true }
+        const seenSkill = { type: 'skill', key: 'setting-up-data-catalog', label: 'Setting up data catalog skill' }
         attachedContextLogic().actions.registerContext('scene', [seenItem])
-        attachedContextLogic().actions.markContextLinesSeen(TASK_ID, [contextItemLine(seenItem)])
+        attachedContextLogic().actions.pickItem(seenSkill, TASK_ID)
+        attachedContextLogic().actions.markContextLinesSeen(TASK_ID, [seenItem, seenSkill].map(contextItemLine))
         setThinking(false)
 
         logic.actions.setComposerFormValues({ draft: 'follow up' })
@@ -1862,8 +1865,9 @@ describe('runInteractionLogic', () => {
         }).toFinishAllListeners()
 
         const send = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
-        // The only attached item is already in the chain history, so no context block is prepended.
+        // Every attached item is already in the chain history, so no context block is prepended.
         expect(send.params.content).toBe('follow up')
+        expect(capture).not.toHaveBeenCalledWith('posthog ai context skill delivered', expect.anything())
     })
 
     it('sends /clear unwrapped so the agent still sees the command at the front, and keeps the context pending', async () => {

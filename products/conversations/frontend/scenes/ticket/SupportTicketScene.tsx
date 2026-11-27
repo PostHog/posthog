@@ -29,6 +29,7 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 
 import { conversationsTicketsAttachmentsCreate } from 'products/conversations/frontend/generated/api'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
@@ -95,6 +96,16 @@ export function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): S
         recipient: ticket.channel_source === 'email' ? emailRecipients : customerText,
         statusLabel: statusOptionsWithoutAll.find((option) => option.value === ticket.status)?.label,
     }
+}
+
+// Email tickets store the sender address as distinct_id, and the backend can match the person
+// by their email property instead, so that address need not be one of the person's distinct_ids.
+export function personDistinctIdForTicket(ticket: Ticket): string {
+    const personDistinctIds = ticket.person?.distinct_ids
+    if (!personDistinctIds?.length || personDistinctIds.includes(ticket.distinct_id)) {
+        return ticket.distinct_id
+    }
+    return pickBestPersonDistinctId(personDistinctIds) ?? ticket.distinct_id
 }
 
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
@@ -381,7 +392,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         type="secondary"
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
+                                            newInternalTab(urls.personByDistinctId(personDistinctIdForTicket(ticket)))
                                         }}
                                     >
                                         View person
@@ -393,7 +404,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                             ticket.person
                                                 ? {
                                                       id: ticket.person.id,
-                                                      distinct_id: ticket.distinct_id,
+                                                      distinct_id: personDistinctIdForTicket(ticket),
                                                       distinct_ids: ticket.person.distinct_ids,
                                                       // Merge anonymous_traits as fallback for missing person properties
                                                       properties: {
