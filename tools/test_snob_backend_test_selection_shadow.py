@@ -689,6 +689,10 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             selection.selected_seconds_by_segment(selected, durations),
             {"core": 170, "poe": 70, "temporal": 210},
         )
+        self.assertEqual(
+            selection.selected_seconds_by_suite(selected, durations),
+            {"django": 380, "product": 100_000},
+        )
 
 
 if __name__ == "__main__":
