@@ -11,7 +11,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.template.defaultfilters import filesizeformat
 from django.urls import reverse
 
-from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
+from posthog.admin.console.panels import Fact, Handoff, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Cell, ConsoleTool, FieldGroup, Filters, Notice, Page, Paging, Row, Table
@@ -33,6 +33,10 @@ from products.agent_transcripts.backend.facade.enums import SubmissionStatus
 
 GROWTH = Owner(name="Growth", crest="growth")
 
+# Hoglog viewer (github.com/PostHog/hoglog-viewer) reads agent logs in the browser. It accepts a handoff only from
+# the PostHog origins it lists, so a new region or domain needs adding there too.
+HOGLOG_VIEWER = Handoff(url="https://hoglog-viewer.hosthog.dev/#handoff", tool="Hoglog viewer")
+
 QUEUE_TOOL_KEY = "agent-transcripts"
 PANEL_KEY = "agent-transcript"
 SUBMISSIONS_PER_PAGE = 50
@@ -40,6 +44,7 @@ DEFAULT_QUEUE_STATUS = SubmissionStatus.SUBMITTED
 ANY_STATUS = "any"
 
 DOWNLOAD_OPERATION = "download"
+OPEN_IN_VIEWER_OPERATION = "open-in-viewer"
 APPROVE_OPERATION = "approve"
 REQUEST_CHANGES_OPERATION = "request-changes"
 DECLINE_OPERATION = "decline"
@@ -267,6 +272,21 @@ def download_transcript(request: HttpRequest, obj: Model, form: forms.Form | Non
     return HttpResponseRedirect(url)
 
 
+def open_in_viewer(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse:
+    try:
+        transcript = api.get_transcript_file(obj.pk)
+    except TranscriptStorageUnavailable:
+        messages.error(request, "Couldn't read the file from object storage. Try again.")
+        return HttpResponse(status=502)
+    if transcript is None:
+        messages.error(request, FILE_GONE_MESSAGE)
+        return HttpResponse(status=410)
+
+    response = HttpResponse(transcript.content, content_type=transcript.content_type)
+    response["Content-Disposition"] = f'attachment; filename="{transcript.filename}"'
+    return response
+
+
 def approve(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     assert form is not None
     merch_code = form.cleaned_data["merch_code"].strip()
@@ -348,6 +368,7 @@ class AgentTranscriptPanel(Panel):
     operation_keys = frozenset(
         {
             DOWNLOAD_OPERATION,
+            OPEN_IN_VIEWER_OPERATION,
             APPROVE_OPERATION,
             REQUEST_CHANGES_OPERATION,
             DECLINE_OPERATION,
@@ -404,6 +425,16 @@ class AgentTranscriptPanel(Panel):
                     label="Download transcript",
                     handler=download_transcript,
                     description="Downloads the file through a link that works for one minute.",
+                )
+            )
+            operations.append(
+                Operation(
+                    key=OPEN_IN_VIEWER_OPERATION,
+                    label="Open in Hoglog viewer",
+                    handler=open_in_viewer,
+                    description="Opens the transcript in Hoglog viewer in a new tab. The file goes from this page "
+                    "to that tab and is not stored anywhere else.",
+                    handoff=HOGLOG_VIEWER,
                 )
             )
 

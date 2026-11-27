@@ -12,6 +12,11 @@ document.addEventListener('submit', (event) => {
     if (!(form instanceof HTMLFormElement)) {
         return
     }
+    if (form.dataset.consoleHandoff) {
+        event.preventDefault()
+        void handOff(form)
+        return
+    }
     // A disabled button posts no value, so the value of the button that submits moves to a hidden field first.
     const submitter = event.submitter
     if (submitter instanceof HTMLButtonElement && submitter.name) {
@@ -251,3 +256,85 @@ window.addEventListener('pageshow', () => {
         syncSelection(form)
     }
 })
+
+// An operation with a `Handoff` (posthog/admin/console/panels.py) sends the file it returns to another tool. The
+// tab opens on the click, because browsers block a tab that a script opens later. The operation then runs in the
+// background, and the file goes to that tab when it says it is ready. Only the tab opened here, at the origin of
+// the tool's URL, can receive it.
+const HANDOFF_READY = 'posthog-admin:ready'
+const HANDOFF_MESSAGE = 'posthog-admin:handoff'
+const HANDOFF_VERSION = 1
+const HANDOFF_TIMEOUT_MS = 30000
+
+function handoffFileName(response) {
+    const disposition = response.headers.get('Content-Disposition') ?? ''
+    const match = /filename="([^"]+)"/.exec(disposition)
+    return match ? match[1] : 'file'
+}
+
+function waitForHandoffReady(tab, origin) {
+    return new Promise((resolve, reject) => {
+        const onMessage = (event) => {
+            if (event.source === tab && event.origin === origin && event.data?.type === HANDOFF_READY) {
+                window.clearTimeout(timer)
+                window.removeEventListener('message', onMessage)
+                resolve()
+            }
+        }
+        const timer = window.setTimeout(() => {
+            window.removeEventListener('message', onMessage)
+            reject(new Error('The tool did not say it was ready'))
+        }, HANDOFF_TIMEOUT_MS)
+        window.addEventListener('message', onMessage)
+    })
+}
+
+async function handOff(form) {
+    const tool = form.dataset.consoleHandoffTool
+    const origin = new URL(form.dataset.consoleHandoff).origin
+    const status = form.closest('li')?.querySelector('[data-console-handoff-status]')
+    const say = (text) => {
+        if (status) {
+            status.textContent = ` ${text}`
+        }
+    }
+    const button = form.querySelector('button[type="submit"]')
+
+    const tab = window.open(form.dataset.consoleHandoff, '_blank')
+    if (!tab) {
+        say(`The browser blocked the new tab. Allow pop-ups for this site and try again.`)
+        return
+    }
+    const ready = waitForHandoffReady(tab, origin)
+    ready.catch(() => {})
+    button.disabled = true
+    button.setAttribute('aria-busy', 'true')
+    say(`Opening ${tool}…`)
+    try {
+        const response = await fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            credentials: 'same-origin',
+        })
+        // A failed operation redirects to the record page with its error message, so show that page.
+        if (response.redirected) {
+            tab.close()
+            window.location.assign(response.url)
+            return
+        }
+        if (!response.ok) {
+            tab.close()
+            say(`Could not get the file (status ${response.status}). Reload the page and try again.`)
+            return
+        }
+        const file = { name: handoffFileName(response), text: await response.text() }
+        await ready
+        tab.postMessage({ type: HANDOFF_MESSAGE, version: HANDOFF_VERSION, files: [file] }, origin)
+        say(`Sent to ${tool}.`)
+    } catch {
+        say(`${tool} did not answer. Close its tab and try again.`)
+    } finally {
+        button.disabled = false
+        button.removeAttribute('aria-busy')
+    }
+}

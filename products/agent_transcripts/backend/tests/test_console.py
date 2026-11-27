@@ -18,6 +18,8 @@ from products.agent_transcripts.backend.console import (
     DECLINE_OPERATION,
     DELETE_FILE_OPERATION,
     DOWNLOAD_OPERATION,
+    HOGLOG_VIEWER,
+    OPEN_IN_VIEWER_OPERATION,
     PANEL_KEY,
     QUEUE_TOOL_KEY,
     REQUEST_CHANGES_OPERATION,
@@ -38,7 +40,7 @@ CUSTOMER_MESSAGE = "Upload the whole conversation, from the first prompt to the 
 INTERNAL_NOTE = "Only the last few messages were in the file."
 OTHER_ORGANIZATION_NAME = "Other organization"
 REVIEW_OPERATIONS = {APPROVE_OPERATION, REQUEST_CHANGES_OPERATION, DECLINE_OPERATION}
-FILE_OPERATIONS = {DOWNLOAD_OPERATION, DELETE_FILE_OPERATION}
+FILE_OPERATIONS = {DOWNLOAD_OPERATION, OPEN_IN_VIEWER_OPERATION, DELETE_FILE_OPERATION}
 
 EXPIRED = "expired"
 DELETED = "deleted"
@@ -222,13 +224,40 @@ class TestAgentTranscriptConsole(TranscriptStorageTestCase):
         assert submission.storage_key is not None
         assert submission.storage_key in response["Location"]
 
-    @parameterized.expand([(DELETED,), (EXPIRED,)])
-    def test_download_is_unavailable_when_the_file_is_gone(self, file: str) -> None:
+    @parameterized.expand(
+        [
+            (operation, file)
+            for operation in (DOWNLOAD_OPERATION, OPEN_IN_VIEWER_OPERATION)
+            for file in (DELETED, EXPIRED)
+        ]
+    )
+    def test_file_operations_are_unavailable_when_the_file_is_gone(self, operation: str, file: str) -> None:
         self._submission(SubmissionStatus.SUBMITTED, file=file)
 
-        response = self._post(DOWNLOAD_OPERATION)
+        response = self._post(operation)
 
         assert response.status_code == 404
+
+    def test_open_in_viewer_returns_the_file_for_the_page_to_hand_over(self) -> None:
+        self._submission(SubmissionStatus.SUBMITTED)
+
+        response = self._post(OPEN_IN_VIEWER_OPERATION)
+
+        assert response.status_code == 200
+        assert response.content == TRANSCRIPT_BYTES
+        assert response["Content-Disposition"] == f'attachment; filename="{TRANSCRIPT_FILENAME}"'
+
+    @parameterized.expand([(AVAILABLE, True, "same-origin-allow-popups"), (DELETED, False, "same-origin")])
+    def test_record_page_offers_the_viewer_handoff_only_with_a_file(
+        self, file: str, offered: bool, expected_policy: str
+    ) -> None:
+        self._submission(SubmissionStatus.SUBMITTED, file=file)
+
+        response = self.browser.get(f"/admin/console/organizations/{self.organization.pk}/")
+
+        assert response.status_code == 200
+        assert (f'data-console-handoff="{HOGLOG_VIEWER.url}"' in response.content.decode()) is offered
+        assert response["Cross-Origin-Opener-Policy"] == expected_policy
 
     def test_delete_file_removes_the_stored_transcript(self) -> None:
         submission = self._submission(SubmissionStatus.APPROVED)
