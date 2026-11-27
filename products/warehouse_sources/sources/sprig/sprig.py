@@ -1,20 +1,25 @@
 import dataclasses
+from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urljoin, urlparse
 
 import requests
 
 from products.warehouse_sources.sources.sdk import (
+    AuthConfig,
+    ClientConfig,
     EndpointResource,
+    FanoutEndpointLike,
     JSONResponseCursorPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.sources.sprig.settings import SPRIG_API_BASE_URL, SPRIG_ENDPOINTS
+from products.warehouse_sources.sources.sprig.settings import SPRIG_API_BASE_URL, SPRIG_ENDPOINTS, SprigApi
 
 
 @dataclasses.dataclass(frozen=False)
@@ -88,6 +93,47 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     }
 
 
+def _auth(api: SprigApi, api_key: str) -> AuthConfig:
+    if api == "study_v2":
+        return {"type": "api_key", "name": "Authorization", "api_key": f"API-Key {api_key}", "location": "header"}
+    return {"type": "bearer", "token": api_key}
+
+
+def _client_config(api: SprigApi, api_key: str) -> ClientConfig:
+    return {
+        "base_url": SPRIG_API_BASE_URL,
+        "auth": _auth(api, api_key),
+        # Sprig returns `{"data": [...], "cursor": "<base64>"|null}` — the same field name
+        # both as the response's next-page pointer and the request's pagination param.
+        "paginator": JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor"),
+        # A redirect must not carry the API key to another host; the REST client rejects
+        # any 3xx when redirects are off.
+        "allow_redirects": False,
+    }
+
+
+def _source_response(endpoint: str, items: Iterable[Any], column_hints: Optional[Any] = None) -> SourceResponse:
+    cfg = SPRIG_ENDPOINTS[endpoint]
+    return SourceResponse(
+        name=cfg.name,
+        items=lambda: items,
+        primary_keys=cfg.primary_keys,
+        column_hints=column_hints,
+        # The v1 export endpoints take no `sort` param and document no default order. The
+        # `start`/`end` window is documented as a created-since filter meant to be advanced
+        # forward for incremental sync, so ascending creation order is assumed there. Verify
+        # against a live account before relying on this in production — if the API actually
+        # returns newest-first, this must switch to sort_mode="desc" (see orb/orb.py) or the
+        # incremental watermark will skip data.
+        sort_mode=cfg.sort_mode,
+        partition_count=1 if cfg.partition_key else None,
+        partition_size=1 if cfg.partition_key else None,
+        partition_mode="datetime" if cfg.partition_key else None,
+        partition_format="week" if cfg.partition_key else None,
+        partition_keys=[cfg.partition_key] if cfg.partition_key else None,
+    )
+
+
 def sprig_source(
     api_key: str,
     endpoint: str,
@@ -98,21 +144,27 @@ def sprig_source(
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     cfg = SPRIG_ENDPOINTS[endpoint]
+    client_config = _client_config(cfg.api, api_key)
+
+    if cfg.fanout is not None:
+        # No resume hook: the per-parent resume state lists every completed Study and is rewritten
+        # after each child page, so it grows with the number of Studies.
+        child = build_dependent_resource(
+            endpoint_configs=cast(Mapping[str, FanoutEndpointLike], SPRIG_ENDPOINTS),
+            child_endpoint=endpoint,
+            fanout=cfg.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": "data"},
+            child_endpoint_extra={"data_selector": "data"},
+        )
+        return _source_response(endpoint, child)
 
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": SPRIG_API_BASE_URL,
-            "auth": {
-                "type": "bearer",
-                "token": api_key,
-            },
-            # Sprig returns `{"data": [...], "cursor": "<base64>"|null}` — the same field name
-            # both as the response's next-page pointer and the request's pagination param.
-            "paginator": JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor"),
-            # A redirect must not carry the bearer token to another host; the REST client rejects
-            # any 3xx when redirects are off.
-            "allow_redirects": False,
-        },
+        "client": client_config,
         "resource_defaults": None,
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
@@ -139,24 +191,7 @@ def sprig_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=resource.name,
-        items=lambda: resource,
-        primary_keys=cfg.primary_keys,
-        column_hints=resource.column_hints,
-        # Sprig's docs don't state the default sort order of `data`, and there's no `sort`
-        # query param to force one. The `start`/`end` window is documented as a created-since
-        # filter meant to be advanced forward for incremental sync, so we assume ascending
-        # creation order. Verify against a live account before relying on this in production —
-        # if the API actually returns newest-first, this must switch to sort_mode="desc" (see
-        # orb/orb.py) or the incremental watermark will skip data.
-        sort_mode="asc",
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if cfg.partition_key else None,
-        partition_format="week" if cfg.partition_key else None,
-        partition_keys=[cfg.partition_key] if cfg.partition_key else None,
-    )
+    return _source_response(endpoint, resource, resource.column_hints)
 
 
 def validate_credentials(api_key: str) -> bool:
