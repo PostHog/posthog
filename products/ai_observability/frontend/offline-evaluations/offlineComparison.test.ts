@@ -38,15 +38,33 @@ describe('offline experiment comparison', () => {
         ['lte', 0.75, '+0.25 worse', 'worse'],
         ['lte', 0.25, '−0.25 better', 'better'],
         ['lte', 0.5, 'Unchanged', 'neutral'],
-    ] as const)('uses the %s passing rule to interpret a candidate mean of %s', (operator, mean, label, outcome) => {
-        const scorer = { ...baseline.summary.scorer, config: { passing_rule: { operator, threshold: 0.8 } } }
-        expect(
-            aggregateDifference({ ...candidate.summary, mean, scorer }, { ...baseline.summary, mean: 0.5, scorer })
-        ).toEqual({
-            label,
-            outcome,
-        })
-    })
+    ] as const)(
+        'uses the %s passing rule for a partially scored run with mean %s',
+        (operator, mean, label, outcome) => {
+            const scorer = { ...baseline.summary.scorer, config: { passing_rule: { operator, threshold: 0.8 } } }
+            expect(
+                aggregateDifference(
+                    {
+                        ...candidate.summary,
+                        observed_item_count: 95,
+                        status_counts: { ...candidate.summary.status_counts, ok: 3 },
+                        mean,
+                        scorer,
+                    },
+                    {
+                        ...baseline.summary,
+                        observed_item_count: 95,
+                        status_counts: { ...baseline.summary.status_counts, ok: 95 },
+                        mean: 0.5,
+                        scorer,
+                    }
+                )
+            ).toEqual({
+                label,
+                outcome,
+            })
+        }
+    )
 
     const formula: ExperimentScoreApi = {
         definition_id: 'release-check',

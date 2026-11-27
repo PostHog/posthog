@@ -918,6 +918,8 @@ Short date ranges show time-of-day labels, and short period comparisons show ela
 
 Select 2 to 50 experiments in the experiments list and choose **Compare experiments** beside the search field to see their scores side by side.
 Scroll horizontally to see more runs. The measure column stays in view, and you can search the baseline picker by experiment name.
+Choose **Back to experiments** to adjust the selected runs. Comparisons with more than 20 scores show the scores in pages and keep the item counts and datasets on every page.
+If a run cannot load, the comparison lists it alongside the available results. Retry failed runs or choose an available baseline to compare score changes.
 Each row represents one pinned scorer version. **Shared scores only** shows the versions present in every selected run.
 Runs can have different item scorers and can omit the overall experiment score.
 Numeric means and boolean pass rates show the difference from the selected baseline for that version.
@@ -926,6 +928,7 @@ Higher pass rates are better. For numeric means, the pinned passing rule determi
 Hover over a score bar or focus it with the keyboard to see the pinned passing rule. Numeric bars show whether the mean meets the threshold, boolean bars show how many scored items passed, and category bars show how many scored items include that category.
 Numeric item scorers without a passing rule show a neutral difference.
 Overall experiment scores can also be compared when both runs produced a result from the same formula version with a passing rule. Numeric formulas show the signed score difference in the direction defined by the rule. Boolean and categorical formulas show whether the run now passes, now fails, or kept the same verdict.
+The overall value shows its passing verdict separately from its change against the baseline. Distinct numeric results that round to the same label show their full precision.
 These are whole-run aggregates, so check the dataset revision and coverage when the runs contain different cases or numbers of trials.
 Experiment names, scorer names, and coverage counts open in a new tab so the comparison stays open.
 For runs linked to a hosted dataset revision, the dataset label also opens the dataset in a new tab.

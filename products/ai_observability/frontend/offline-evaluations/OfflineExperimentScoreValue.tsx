@@ -1,4 +1,4 @@
-import { IconInfo } from '@posthog/icons'
+import { IconCheck, IconInfo, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -9,12 +9,24 @@ import { explainMixedScorerVersions, formatItemScorerVersions } from './offlineE
 
 export function OfflineExperimentScoreValue({
     score,
-    emphasized = false,
+    comparisonScores,
 }: {
     score: ExperimentScoreApi
-    emphasized?: boolean
+    comparisonScores?: ReadonlyMap<string, ExperimentScoreApi>
 }): JSX.Element {
     const label = experimentScoreLabel(score)
+    const emphasized = !!comparisonScores && score.status === 'ok' && score.value !== null
+    const needsPrecision =
+        emphasized &&
+        typeof score.value === 'number' &&
+        Array.from(comparisonScores.values()).some(
+            (other) =>
+                other.status === 'ok' &&
+                typeof other.value === 'number' &&
+                other.value !== score.value &&
+                experimentScoreLabel(other) === label
+        )
+    const verdict = emphasized ? score.passed : null
     const blockedInputs =
         score.status === 'mixed_versions' ? score.inputs.filter((input) => input.status === 'mixed_versions') : []
     return (
@@ -48,14 +60,15 @@ export function OfflineExperimentScoreValue({
                         className={cn(
                             'break-words min-w-0',
                             score.status === 'ok' && typeof score.value === 'number' && 'font-bold',
-                            emphasized &&
-                                score.status === 'ok' &&
-                                score.value !== null &&
-                                'text-xl leading-tight font-bold'
+                            emphasized && 'text-xl leading-tight font-bold',
+                            verdict === true && 'text-success',
+                            verdict === false && 'text-danger'
                         )}
                     >
-                        {label}
+                        {needsPrecision ? experimentScoreLabel(score, true) : label}
                     </span>
+                    {verdict === true && <IconCheck className="shrink-0 text-success" role="img" aria-label="Passed" />}
+                    {verdict === false && <IconX className="shrink-0 text-danger" role="img" aria-label="Failed" />}
                     {score.inputs.length > 0 && <IconInfo className="shrink-0 text-muted" aria-label="Score details" />}
                 </span>
             </span>

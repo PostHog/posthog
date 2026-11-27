@@ -38,8 +38,9 @@ import { OfflineScoreChooser } from './OfflineScoreChooser'
 
 export function OfflineExperimentsOverview({
     navigation,
+    initialSelectedKeys,
     ...props
-}: OfflineExperimentsLogicProps & { navigation?: ReactNode }): JSX.Element {
+}: OfflineExperimentsLogicProps & { navigation?: ReactNode; initialSelectedKeys?: string[] }): JSX.Element {
     const logic = offlineExperimentsLogic(props)
     const [selectionBarTarget, setSelectionBarTarget] = useState<HTMLDivElement | null>(null)
     const {
@@ -375,6 +376,7 @@ export function OfflineExperimentsOverview({
                         columns={columns}
                         rowKey="id"
                         bulkSelection={{
+                            initialSelectedKeys,
                             noun: ['experiment', 'experiments'],
                             barPortalTarget: selectionBarTarget,
                             getSelectionLabel: ({ selectedCount }) => `${selectedCount} selected`,

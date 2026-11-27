@@ -13,6 +13,7 @@ import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import { OfflineExperimentScoreValue } from './OfflineExperimentScoreValue'
 import { OfflineSummaryMetrics } from './OfflineScoreSummaryDisplay'
 import { formatOfflinePercentage } from './offlineScoreTrends'
+import { offlineUnscoredLabel } from './offlineUnscoredLabel'
 
 function BaselineDifference({ difference }: { difference: ScoreDifference | null }): JSX.Element | null {
     return (
@@ -48,7 +49,7 @@ export function OfflineComparisonScoreCell({
         const score = row.scores.get(experiment.id)
         return score ? (
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <OfflineExperimentScoreValue score={score} emphasized />
+                <OfflineExperimentScoreValue score={score} comparisonScores={row.scores} />
                 {experiment.id !== baselineId && (
                     <BaselineDifference difference={experimentScoreDifference(score, row.scores.get(baselineId))} />
                 )}
@@ -91,8 +92,7 @@ export function OfflineComparisonScoreCell({
                     `${counts.error} errors`,
                     `${counts.skipped} skipped`,
                     `${counts.not_applicable} not applicable`,
-                    `${summary.missing_result_count} missing`,
-                    `${summary.not_requested_count} not requested`,
+                    offlineUnscoredLabel(summary),
                 ].join(' · ')}
             >
                 <Link

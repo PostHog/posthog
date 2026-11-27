@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -27,6 +28,14 @@ export function OfflineExperimentsScene(): JSX.Element {
     const { user } = useValues(userLogic)
     const { activeTab, datasetsEnabled } = useValues(offlineEvaluationsLogic)
     const { searchParams } = useValues(router)
+    const { compare } = searchParams
+    const scope = `${currentTeam?.id}:${user?.id}`
+    const [lastComparison, setLastComparison] = useState<{ scope: string; ids: string[] } | null>(null)
+    useEffect(() => {
+        if (compare !== undefined) {
+            setLastComparison({ scope, ids: comparisonIds(compare) })
+        }
+    }, [scope, compare])
     const experimentsDisabledReason = getProductAccessDisabledReason({
         sceneKey: Scene.AIObservabilityOfflineExperiment,
         displayLabel: 'experiments',
@@ -70,6 +79,7 @@ export function OfflineExperimentsScene(): JSX.Element {
                         userId={user.id}
                         timezone={currentTeam.timezone}
                         navigation={navigation}
+                        initialSelectedKeys={lastComparison?.scope === scope ? lastComparison.ids : undefined}
                     />
                 )
             )}
