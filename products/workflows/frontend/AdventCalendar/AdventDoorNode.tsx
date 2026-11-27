@@ -8,7 +8,10 @@ import { cn } from 'lib/utils/css-classes'
 
 import { AdventDoor, adventDoorColor, AdventSide } from './adventGraph'
 
-export type AdventDoorNodeType = Node<{ door: AdventDoor; isSelected: boolean; isToday: boolean }, 'door'>
+export type AdventDoorNodeType = Node<
+    { door: AdventDoor; isSelected: boolean; isToday: boolean; isOpening: boolean },
+    'door'
+>
 
 const SIDES: Record<AdventSide, Position> = {
     left: Position.Left,
@@ -28,8 +31,8 @@ function doorLabel(door: AdventDoor, isToday: boolean): string {
 }
 
 export function AdventDoorNode({ data }: NodeProps<AdventDoorNodeType>): JSX.Element {
-    const { door, isSelected, isToday } = data
-    const isClosed = door.status !== 'open'
+    const { door, isSelected, isToday, isOpening } = data
+    const isClosed = door.status !== 'open' && !isOpening
     const color = adventDoorColor(door)
 
     return (
