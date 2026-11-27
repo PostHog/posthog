@@ -59,7 +59,6 @@ class VercelTestBase(APIBaseTest):
             config={
                 "billing_plan_id": "free",
                 "scopes": ["read", "write"],
-                "credentials": {"access_token": "test_token", "token_type": "Bearer"},
             },
             created_by=self.user,
         )

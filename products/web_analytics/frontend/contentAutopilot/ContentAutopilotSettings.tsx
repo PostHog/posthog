@@ -1,29 +1,45 @@
-import { LemonCard } from '@posthog/lemon-ui'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@posthog/quill'
 
+import { AiVisibilityAddBrandForm } from './AiVisibilityAddBrandForm'
 import { AiVisibilityBrandsSetting } from './AiVisibilityBrandsSetting'
 import { AiVisibilityEnginesSetting } from './AiVisibilityEnginesSetting'
-import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 
-export const ContentAutopilotSettings = (): JSX.Element => {
-    return (
-        <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-sections">
-            <ContentAutopilotSetup />
-            <LemonCard hoverEffect={false} className="w-full max-w-3xl p-4" data-attr="content-autopilot-brands-card">
-                <h3 className="m-0">Brands</h3>
-                <p className="m-0 mt-1 mb-4 text-secondary">
-                    Label the companies behind the sites AI answers cite. The competitors you confirm are the ones
-                    Rankings compares you against.
-                </p>
+const SECTIONS = [
+    {
+        title: 'Brands',
+        description:
+            'Add your own site and your competitors, and label the companies behind the sites AI answers cite. The competitors you confirm are the ones Rankings compares you against.',
+        dataAttr: 'content-autopilot-brands-card',
+        content: (
+            <>
+                <div className="mb-4">
+                    <AiVisibilityAddBrandForm formKey="settings" kinds={['own', 'competitor']} />
+                </div>
                 <AiVisibilityBrandsSetting />
-            </LemonCard>
-            <LemonCard hoverEffect={false} className="w-full max-w-3xl p-4" data-attr="content-autopilot-engines-card">
-                <h3 className="m-0">Engines</h3>
-                <p className="m-0 mt-1 mb-4 text-secondary">
-                    Choose which AI engines answer your tracked prompts, and how often. Each engine gets its own column
-                    in AI visibility.
-                </p>
-                <AiVisibilityEnginesSetting />
-            </LemonCard>
-        </div>
-    )
-}
+            </>
+        ),
+    },
+    {
+        title: 'Engines',
+        description:
+            'Choose which AI engines answer your tracked prompts, and how often. Each engine gets its own column in AI visibility.',
+        dataAttr: 'content-autopilot-engines-card',
+        content: <AiVisibilityEnginesSetting />,
+    },
+]
+
+export const ContentAutopilotSettings = (): JSX.Element => (
+    <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-sections">
+        {SECTIONS.map(({ title, description, dataAttr, content }) => (
+            <Card key={title} className="w-full max-w-3xl" data-attr={dataAttr}>
+                <CardHeader>
+                    <CardTitle role="heading" aria-level={3}>
+                        {title}
+                    </CardTitle>
+                    <CardDescription>{description}</CardDescription>
+                </CardHeader>
+                <CardContent>{content}</CardContent>
+            </Card>
+        ))}
+    </div>
+)

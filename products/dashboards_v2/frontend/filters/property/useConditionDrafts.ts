@@ -4,7 +4,7 @@ import type { PropertyOperator } from '~/types'
 
 import { type PropertyCondition, isCompleteCondition } from './propertyOperators'
 
-export interface Draft extends PropertyCondition {
+export type Draft = PropertyCondition & {
     id: number
 }
 

@@ -88,8 +88,8 @@ from products.error_tracking.backend.models import (
     update_error_tracking_issue_fingerprints,
 )
 from products.error_tracking.backend.sql import ERROR_TRACKING_ISSUE_TAGS_RAW_TABLE, INSERT_ERROR_TRACKING_ISSUE_TAG
+from products.event_definitions.backend.facade.enums import PropertyType
 from products.event_definitions.backend.models import PropertyDefinition
-from products.event_definitions.backend.property_type import PropertyType
 
 BLOCKS_CHECKOUT = IssueTagDefinition(
     key="blocks_checkout",
@@ -99,7 +99,7 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
     enabled_flag="error-tracking-issue-tag-blocks-checkout",
     taggers=(),
 )
-OTHER_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="other_tag", label="Other tag")
+OTHER_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="other_tag", label="Other tag", color="teal")
 THIRD_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="third_tag", label="Third tag")
 
 
@@ -1407,6 +1407,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 "key": definition.key,
                 "label": definition.label,
                 "description": definition.description,
+                "color": definition.color,
                 "source": None,
             }
 

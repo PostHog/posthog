@@ -3114,6 +3114,20 @@ describe('CDP API', () => {
             ])
         })
 
+        it.each([
+            ['transactional', 0],
+            ['marketing', 1],
+        ])('queues a %s code send on its email lane', async (type, queuePriority) => {
+            const res = await sendAccepted(hogFlow.id, {
+                ...body,
+                send: { ...codeSend, category: { id: 'news', type } },
+            })
+
+            expect(res.status).toEqual(202)
+            const [invocation] = mockQueueInvocations.mock.calls[0][0]
+            expect(invocation).toMatchObject({ queue: 'email', queuePriority })
+        })
+
         describe('with an idempotency key', () => {
             let keyed: Record<string, unknown>
             const sendKeyed = (payload: Record<string, unknown> = keyed) =>
@@ -3146,6 +3160,18 @@ describe('CDP API', () => {
                     'transactional_email/send',
                     { ...body, send: addresslessSend },
                     { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
+                ],
+                [
+                    'a code send after its category changed type',
+                    'transactional_email/send',
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'transactional' } } },
+                ],
+                [
+                    'a code send after its category was archived',
+                    'transactional_email/send',
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing', archived: true } } },
                 ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
@@ -3212,6 +3238,17 @@ describe('CDP API', () => {
                     'a changed cc',
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
+                ],
+                [
+                    'another category',
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
+                    ],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, category: { id: 'tips', type: 'marketing' } } },
+                    ],
                 ],
             ] as const)(
                 'rejects the key for a request with %s',
@@ -3602,6 +3639,14 @@ describe('CDP API', () => {
                     'more than 10 cc addresses',
                     { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
                 ],
+                [
+                    'a marketing category and cc',
+                    { ...codeSend, category: { id: 'news', type: 'marketing' }, cc: ['copy@example.com'] },
+                ],
+                [
+                    'a marketing category and bcc',
+                    { ...codeSend, category: { id: 'news', type: 'marketing' }, bcc: ['hidden@example.com'] },
+                ],
             ])('refuses a code send with %s', async (_desc, acceptedSend) => {
                 const invalidBefore = await outcomeCount('invalid_request')
 
@@ -3609,6 +3654,16 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(400)
                 expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+                expect(await queuedSends(hogFlow.id)).toEqual([])
+            })
+
+            it('refuses a send in an archived category that is no retry of an accepted send', async () => {
+                const archived = { ...codeSend, category: { id: 'news', type: 'marketing', archived: true } }
+
+                const res = await sendAccepted(hogFlow.id, { ...body, send: archived })
+
+                expect(res.status).toEqual(400)
+                expect(res.body).toEqual({ error: 'category_not_found' })
                 expect(await queuedSends(hogFlow.id)).toEqual([])
             })
         })
@@ -5752,6 +5807,15 @@ describe('CDP API', () => {
                     .send(`{"variables":${variables},"recipients":${recipients}}`)
 
                 expect([res.status, res.body]).toEqual([413, { error: 'too_large' }])
+                expect(intakeRecords()).toEqual([])
+            })
+
+            it('refuses a code send batch in an archived category and publishes nothing', async () => {
+                const archived = { ...codeSend, category: { id: 'news', type: 'transactional', archived: true } }
+
+                const res = await sendBatch(CODE, { send: archived, recipients: [recipient('ada@example.com')] })
+
+                expect([res.status, res.body]).toEqual([400, { error: 'category_not_found' }])
                 expect(intakeRecords()).toEqual([])
             })
 

@@ -4489,6 +4489,8 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
             for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
             for name, stored, submitted in (
                 ("ai_reply_modes_must_be_an_object", None, {"ai_reply_modes": ["not", "a", "dict"]}),
+                ("ai_rerun_mode_must_be_a_known_value", None, {"ai_rerun_mode": "every_reply"}),
+                ("ai_rerun_mode_must_be_a_string", None, {"ai_rerun_mode": ["until_team_reply"]}),
                 (
                     "changed_ai_reply_modes_must_be_an_object",
                     {"ai_reply_modes": ["old"]},

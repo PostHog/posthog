@@ -22,7 +22,7 @@ from posthog.schema import PrecomputationMode
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.recalculation import STALE_RECALC_THRESHOLD
+from products.experiments.backend.recalculation.runs import STALE_RECALC_THRESHOLD
 from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS,

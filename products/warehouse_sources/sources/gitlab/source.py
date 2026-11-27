@@ -4,6 +4,7 @@ from products.warehouse_sources.sources.gitlab._config import GitLabSourceConfig
 from products.warehouse_sources.sources.gitlab.gitlab import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
+    PAID_TIER_REQUIRED_ERROR,
     GitLabResumeConfig,
     gitlab_source,
     validate_credentials as validate_gitlab_credentials,
@@ -115,6 +116,7 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             "404 Client Error": "Project not found. Please verify the project id/path and the token's access.",
             HOST_NOT_ALLOWED_ERROR: "The GitLab host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The GitLab host must use HTTPS. Please update the instance URL to use https://.",
+            PAID_TIER_REQUIRED_ERROR: "This table needs GitLab Premium or Ultimate on GitLab.com or Enterprise Edition. Deselect it, or check the project and that your token has the `read_api` scope.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -143,10 +145,12 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             SourceSchema(
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                # An incremental fan-out re-emits every child of a re-fanned parent, which append
-                # would duplicate; merge dedupes them on the primary key.
+                # An incremental fan-out re-emits every child of a re-fanned parent, and a date
+                # filter re-reads the watermark's whole day, which append would duplicate; merge
+                # dedupes them on the primary key.
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint))
-                and GITLAB_ENDPOINTS[endpoint].fan_out_parent is None,
+                and GITLAB_ENDPOINTS[endpoint].fan_out_parent is None
+                and not GITLAB_ENDPOINTS[endpoint].incremental_filter_is_date,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in ENDPOINTS

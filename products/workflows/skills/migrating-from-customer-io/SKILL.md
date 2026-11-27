@@ -13,6 +13,8 @@ You move the data between two MCP servers. Read from Customer.io's MCP (or the `
 
 Pass automations, templates, sender identities and segment names only. Never fetch or pass customer profiles, segment members, deliveries or event data. The people are usually in PostHog already, and copying them is a privacy risk the user did not ask for.
 
+When the user does want their people moved, PostHog reads them from Customer.io itself, and none pass through you. Call `provider-imports-providers` and look for a `contacts` step under `customerio`. It's listed only where it's turned on. Each person counts as one event, so say how many people the workspace has before you start it. Run it with `categories`, `suppressions` and `opt_outs`, which it needs, and add `new_people` only if the user wants a person created for everyone PostHog doesn't have. People match by email, and people without an email are counted and skipped. The import opts out everyone who unsubscribed, turned email off or left a topic, so the CSV isn't needed for them. It doesn't opt people out of a topic they never subscribed to, and it can't read people Customer.io deleted and blocked.
+
 ## Keep message content out of your context
 
 Email templates are large, often tens of kilobytes of HTML each. When the PostHog project stored a Customer.io App API key (teams that ran the opt-out import have one), PostHog reads the message content from Customer.io itself. So pass the automation graph first, and read templates only if PostHog asks for them.
@@ -56,7 +58,7 @@ A real import turns each dynamic segment passed with its `conditions` into a rea
 
 A segment becomes a cohort only when every rule matches a cohort condition exactly: person attribute comparisons, such as equals, contains, exists, greater than and absolute dates. Rules on events, attribute changes, message activity, other segments, devices, relationships and relative dates ("in the last 30 days") have no exact match, so that segment is not converted and its automations get a `needs_input` note naming the rules. Creating cohorts needs the `cohort:write` scope and edit access to cohorts; the project also needs realtime cohorts and cohort triggers. When one is missing, the reason says which.
 
-If the user already has a PostHog cohort that matches a segment, pass `segment_cohorts: {"<segment id>": <cohort id>}` and the import uses it instead of creating one. A cohort trigger needs a realtime cohort. A static segment gets its own note: workflows cannot check a static cohort, so the user rebuilds it as conditions. Static segment members are never imported.
+If the user already has a PostHog cohort that matches a segment, pass `segment_cohorts: {"<segment id>": <cohort id>}` and the import uses it instead of creating one. A cohort trigger needs a realtime cohort. A static segment gets its own note: workflows cannot check a static cohort, so the user rebuilds it as conditions. The `contacts` step copies who is in each segment now, manual ones too, to a static cohort, which a broadcast can use.
 
 ## Push notifications
 

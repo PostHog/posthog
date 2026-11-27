@@ -217,13 +217,18 @@ class TestCheckProductAccess:
             assert expected_error_contains in error
 
     @pytest.mark.parametrize(
-        "model", ["deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"]
+        "model, allowed",
+        [
+            ("deepseek-ai/deepseek-v4-flash-0731", False),
+            ("zai-org/glm-5.3", False),
+            # The Slack app's daily focus agent runs on it.
+            ("zai-org/glm-5.3-flash", True),
+        ],
     )
-    def test_slack_app_rejects_restricted_models_despite_shared_allowlist(self, model: str):
-        allowed, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
-        assert allowed is False
-        assert error is not None
-        assert "not allowed" in error
+    def test_slack_app_admits_only_the_restricted_models_reserved_for_it(self, model: str, allowed: bool):
+        got, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
+        assert got is allowed
+        assert (error is None) is allowed
 
     @pytest.mark.parametrize(
         "model", [" deepseek-ai/deepseek-v4-flash-0731 ", " zai-org/glm-5.3 ", " zai-org/glm-5.3-flash "]

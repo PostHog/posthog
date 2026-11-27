@@ -81,6 +81,10 @@ from products.experiments.backend.health.checks.metric_event_not_ingested import
     metric_event_not_ingested,
     metric_event_rows,
 )
+from products.experiments.backend.health.checks.metric_uses_feature_flag_called import (
+    metric_uses_feature_flag_called,
+    metric_uses_feature_flag_called_values,
+)
 from products.experiments.backend.health.checks.metrics_not_matured import (
     metrics_not_matured,
     metrics_not_matured_values,
@@ -96,6 +100,7 @@ from products.experiments.backend.health.checks.new_flag_no_traffic import (
     new_flag_no_traffic_values,
 )
 from products.experiments.backend.health.checks.no_metric import no_metric, no_metric_values
+from products.experiments.backend.health.checks.result_ready import SIGNIFICANT_DAYS, result_ready, result_ready_values
 from products.experiments.backend.health.checks.shared_flag import flag_shared, flag_shared_values
 from products.experiments.backend.health.checks.split_changed import (
     split_changed_mid_run,
@@ -256,6 +261,17 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         read_rows=metric_event_rows,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_USES_FEATURE_FLAG_CALLED,
+        name='Metrics on the event "$feature_flag_called"',
+        description=(
+            'Looks for metrics that use the event "$feature_flag_called". PostHog is reducing how long it keeps this '
+            'event, so these metrics can lose their earlier data. Metrics on the event "$experiment_exposure" keep '
+            "working."
+        ),
+        run=metric_uses_feature_flag_called,
+        read=metric_uses_feature_flag_called_values,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE,
         name="Invalid metric definitions",
         description=(
@@ -329,6 +345,17 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         ),
         run=metrics_not_matured,
         read=metrics_not_matured_values,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.RESULT_READY,
+        name="When to end the experiment",
+        description=(
+            f"Checks whether the primary metric has its answer: a variant that every result has shown as significant "
+            f"for {SIGNIFICANT_DAYS} days or more, or as many users as the running time estimate needs without a "
+            "significant variant. You can then end the experiment, or keep it running to measure more."
+        ),
+        run=result_ready,
+        read=result_ready_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.STALE_EXPERIMENT,

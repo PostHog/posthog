@@ -25,6 +25,14 @@ class FredEndpointConfig:
     drill_down_elements: bool = False
     # Walk the whole category tree from the root, one children request per category.
     category_tree: bool = False
+    # Walk the category tree as above and page this endpoint for every category on the way.
+    per_category: bool = False
+    # Paginated endpoints taking a parent id: fetched once per row of this top-level
+    # endpoint, with the parent id sent as `parent_param` and stamped onto each row.
+    fan_out_parent: str | None = None
+    parent_param: str | None = None
+    # Drop rows whose `id` an earlier page of the same run already returned.
+    drop_repeated_ids: bool = False
     # Stamp the requested series id onto each row. Observations and the per-series lookups
     # return no series identifier of their own, so without it their rows can't be told
     # apart once several series land in the same table.
@@ -146,6 +154,25 @@ FRED_ENDPOINTS: dict[str, FredEndpointConfig] = {
         primary_keys=["id"],
         category_tree=True,
     ),
+    "category_series": FredEndpointConfig(
+        name="category_series",
+        path="/category/series",
+        data_key="seriess",
+        primary_keys=["category_id", "id"],
+        per_category=True,
+        paginated=True,
+        params={"order_by": "series_id", "sort_order": "asc"},
+    ),
+    "release_series": FredEndpointConfig(
+        name="release_series",
+        path="/release/series",
+        data_key="seriess",
+        primary_keys=["release_id", "id"],
+        fan_out_parent="releases",
+        parent_param="release_id",
+        paginated=True,
+        params={"order_by": "series_id", "sort_order": "asc"},
+    ),
     "sources": FredEndpointConfig(
         name="sources",
         path="/sources",
@@ -153,6 +180,30 @@ FRED_ENDPOINTS: dict[str, FredEndpointConfig] = {
         primary_keys=["id"],
         paginated=True,
         params={"order_by": "source_id", "sort_order": "asc"},
+    ),
+    "source_releases": FredEndpointConfig(
+        name="source_releases",
+        path="/source/releases",
+        data_key="releases",
+        primary_keys=["source_id", "id"],
+        fan_out_parent="sources",
+        parent_param="source_id",
+        paginated=True,
+        params={"order_by": "release_id", "sort_order": "asc"},
+    ),
+    # FRED keeps only the last two weeks of updates and always sorts them newest first, with no
+    # stable order to page by. A series updated during the walk moves to the top: the rows it
+    # pushes onto the next page are dropped as repeats, but if it was on a page not read yet,
+    # this run misses it and the next sync picks it up. A fixed end_time does not help, because
+    # a series updated again then leaves the window and a later row is skipped instead.
+    "series_updates": FredEndpointConfig(
+        name="series_updates",
+        path="/series/updates",
+        data_key="seriess",
+        primary_keys=["id"],
+        paginated=True,
+        drop_repeated_ids=True,
+        params={"filter_value": "all"},
     ),
     "tags": FredEndpointConfig(
         name="tags",

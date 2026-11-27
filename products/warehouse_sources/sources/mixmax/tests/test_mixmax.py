@@ -143,6 +143,39 @@ class TestFanout:
                     {"expand": ("members.userId",)},
                 ],
             ),
+            (
+                "meeting_transcripts",
+                [
+                    ScriptedResponse(
+                        json={
+                            "meetings": [{"id": "u1/abc-def/2025-01-15T10:00:00.000Z"}, {"id": "u1/no-transcript/x"}],
+                            "total": 2,
+                            "hasMore": False,
+                        }
+                    ),
+                    ScriptedResponse(
+                        json={
+                            "id": "u1/abc-def/2025-01-15T10:00:00.000Z",
+                            "meetingId": "abc-def",
+                            "transcript": [{"name": "Sam Doe", "message": "Hello.", "timestamp": 1736935200000}],
+                        }
+                    ),
+                    ScriptedResponse(status=404, json={"name": "NOT_FOUND_ERROR"}),
+                ],
+                [
+                    {
+                        "id": "u1/abc-def/2025-01-15T10:00:00.000Z",
+                        "meetingId": "abc-def",
+                        "transcript": [{"name": "Sam Doe", "message": "Hello.", "timestamp": 1736935200000}],
+                    }
+                ],
+                [
+                    "/v1/meetings/summaries/search",
+                    "/v1/meetings/transcripts/u1%2Fabc-def%2F2025-01-15T10%3A00%3A00.000Z",
+                    "/v1/meetings/transcripts/u1%2Fno-transcript%2Fx",
+                ],
+                [{"skip": ("0",), "limit": ("100",)}, {}, {}],
+            ),
         ]
     )
     def test_fetches_children_per_parent_and_skips_missing_parents(
@@ -217,6 +250,58 @@ class TestSequenceRecipients:
         assert result.raised is None
         assert result.rows == []
         assert result.paths == ["/v1/sequences", "/v1/sequences/gone/recipients/"]
+
+
+def _meetings(start: int, count: int) -> list[dict[str, Any]]:
+    return [{"id": f"u1/m{i}/2025-01-15T10:00:00.000Z", "title": f"Meeting {i}"} for i in range(start, start + count)]
+
+
+class TestMeetingSummaries:
+    @parameterized.expand(
+        [
+            # Stops once `skip` reaches the reported total, with no extra empty request.
+            ("stops_at_total", [100, 20], 120, ["0", "100"]),
+            # A page short of the total still ends the walk once the next page comes back empty.
+            ("stops_on_empty_page", [100, 0], 500, ["0", "100"]),
+            ("no_meetings", [0], 0, ["0"]),
+        ]
+    )
+    def test_pages_by_skip(self, _name: str, page_sizes: list[int], total: int, expected_skips: list[str]) -> None:
+        pages = []
+        start = 0
+        for size in page_sizes:
+            pages.append(_meetings(start, size))
+            start += size
+        result = _driver().run(
+            "meeting_summaries",
+            [ScriptedResponse(json={"meetings": page, "total": total, "hasMore": False}) for page in pages],
+        )
+
+        assert result.raised is None
+        assert result.rows == [row for page in pages for row in page]
+        assert result.params("skip") == expected_skips
+        assert set(result.params("limit")) == {"100"}
+
+    def test_checkpoints_offset_and_resumes_from_it(self) -> None:
+        first = _driver().run(
+            "meeting_summaries",
+            [
+                ScriptedResponse(json={"meetings": _meetings(0, 100), "total": 150, "hasMore": True}),
+                ScriptedResponse(json={"meetings": _meetings(100, 50), "total": 150, "hasMore": False}),
+            ],
+        )
+        assert first.raised is None
+        assert first.saved_states == [MixmaxResumeConfig(offset=100)]
+
+        resumed = _driver().run(
+            "meeting_summaries",
+            [ScriptedResponse(json={"meetings": _meetings(100, 50), "total": 150, "hasMore": False})],
+            resume_state=MixmaxResumeConfig(offset=100),
+        )
+
+        assert resumed.raised is None
+        assert resumed.rows == _meetings(100, 50)
+        assert resumed.params("skip") == ["100"]
 
 
 class TestRetryClassification:

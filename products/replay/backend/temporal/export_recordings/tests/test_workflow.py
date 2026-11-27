@@ -29,6 +29,7 @@ async def run_export(
     failing_shard: tuple[str, int] | None = None,
     only_shards: tuple[str, ...] | None = None,
     unsafe_role: bool = False,
+    max_parallel_shards: int = 1,
 ) -> tuple[list[tuple[str, int]], list[WriteSummaryInput], ExportTotals | Exception]:
     started: list[tuple[str, int]] = []
     summaries: list[WriteSummaryInput] = []
@@ -89,7 +90,7 @@ async def run_export(
                             date_to="2026-02-01",
                             session_ids_prefix="unused",
                             shards_per_day=2,
-                            max_parallel_shards=1,
+                            max_parallel_shards=max_parallel_shards,
                             only_shards=only_shards,
                         ),
                         id=str(uuid.uuid4()),
@@ -126,6 +127,14 @@ async def test_runs_every_shard_oldest_day_first_across_continue_as_new() -> Non
     ]
     assert totals == ExportTotals(exported=12, missing=6, bytes=600)
     assert [(s.totals, s.failed_shards) for s in summaries] == [(totals, ())]
+
+
+@pytest.mark.asyncio
+async def test_days_waiting_for_the_pool_together_count_each_shard_once() -> None:
+    started, _, _ = await run_export(max_parallel_shards=3)
+
+    # Each run of 3 shards spans two days, and their pool waits together hold exactly the 3 shards in the pool's metric.
+    assert sorted(shards for kind, shards in started if kind == "pool") == [1, 1, 2, 2]
 
 
 @pytest.mark.asyncio

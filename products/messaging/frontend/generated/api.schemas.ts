@@ -7,163 +7,20 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface AttachmentUploadFileApi {
-    /**
-     * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
-     * @pattern ^[0-9a-f]{64}$
-     */
-    sha256: string
-    /**
-     * Size of the file in bytes.
-     * @minimum 1
-     */
-    size: number
-}
-
-export interface AttachmentUploadsRequestApi {
-    /**
-     * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
-     * @minItems 1
-     * @maxItems 10
-     */
-    files: AttachmentUploadFileApi[]
-}
-
-/**
- * * `present` - Present
- * * `upload` - Upload
- */
-export type AttachmentUploadStatusEnumApi =
-    (typeof AttachmentUploadStatusEnumApi)[keyof typeof AttachmentUploadStatusEnumApi]
-
-export const AttachmentUploadStatusEnumApi = {
-    Present: 'present',
-    Upload: 'upload',
-} as const
-
-/**
- * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
- */
-export type AttachmentUploadSlotApiHeaders = { [key: string]: string }
-
-export interface AttachmentUploadSlotApi {
-    /** SHA-256 of the file, as sent. */
-    sha256: string
-    /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
-     *
-     * * `present` - Present
-     * * `upload` - Upload */
-    status: AttachmentUploadStatusEnumApi
-    /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
-    expires_at?: string
-    /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
-    url?: string
-    /** For an `upload` file: the HTTP method, `PUT`. */
-    method?: string
-    /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
-    headers?: AttachmentUploadSlotApiHeaders
-    /** For an `upload` file: when `url` stops accepting the upload. */
-    url_expires_at?: string
-}
-
-export interface AttachmentUploadsResponseApi {
-    /** One answer per requested file, in request order. */
-    files: AttachmentUploadSlotApi[]
-}
-
-/**
- * * `scheduled` - Scheduled
- * * `queued` - Queued
- * * `failed` - Failed
- * * `sent` - Sent
- * * `delivered` - Delivered
- * * `bounced` - Bounced
- * * `complained` - Complained
- */
-export type EmailSendStatusEnumApi = (typeof EmailSendStatusEnumApi)[keyof typeof EmailSendStatusEnumApi]
-
-export const EmailSendStatusEnumApi = {
-    Scheduled: 'scheduled',
-    Queued: 'queued',
-    Failed: 'failed',
-    Sent: 'sent',
-    Delivered: 'delivered',
-    Bounced: 'bounced',
-    Complained: 'complained',
-} as const
-
-export interface EmailStatusApi {
-    /** The `message_id` that the send returned. */
-    id: string
-    /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
-     *
-     * * `scheduled` - Scheduled
-     * * `queued` - Queued
-     * * `failed` - Failed
-     * * `sent` - Sent
-     * * `delivered` - Delivered
-     * * `bounced` - Bounced
-     * * `complained` - Complained */
-    status: EmailSendStatusEnumApi
-    /** When PostHog accepted the send. */
-    created_at: string
-    /** When the email reached its current status. */
-    status_at: string
-    /**
-     * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
-     * @nullable
-     */
-    reason: string | null
-}
-
-/**
- * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
- */
-export type SetPreferencesApiTopics = { [key: string]: boolean }
-
-export interface SetPreferencesApi {
-    /**
-     * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
-     * @maxLength 512
-     */
-    identifier: string
-    /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
-    all_marketing?: boolean
-    /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
-    topics?: SetPreferencesApiTopics
-}
-
-/**
- * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
- */
-export type TopicPreferencesApiTopics = { [key: string]: boolean }
-
-export interface TopicPreferencesApi {
-    /** The recipient the preferences belong to. */
-    identifier: string
-    /**
-     * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
-     * @nullable
-     */
-    all_marketing: boolean | null
-    /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
-    topics: TopicPreferencesApiTopics
-}
-
 /**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
 /**
- * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
+ * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without `clicks`, PostHog follows the matched template's `click_tracking_enabled` setting (unless the send marks `sensitive: true` on a non-sensitive template), and otherwise tracks clicks only when the email is not sensitive. Pass `tracking: true` or `tracking: { clicks: true }` to opt a sensitive email into click tracking, or `tracking: { clicks: false }` to keep links direct even if its matched template opted in. A link with `data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
  */
 export type SendEmailApiTracking =
     | boolean
     | {
           /** Whether PostHog adds its open pixel to the email. Defaults to true. */
           opens?: boolean
-          /** Whether the email's links go through a redirect that counts clicks. Defaults to true, for sensitive emails too. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
+          /** Whether the email's links go through a redirect that counts clicks. When omitted, follows the matched template's `click_tracking_enabled` setting (unless the send marks `sensitive: true` on a non-sensitive template), and otherwise defaults to false on sensitive emails and true on others. Pass `false` to keep links direct even if the matched template opted in. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
           clicks?: boolean
           /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true. */
           engagement?: boolean
@@ -237,15 +94,20 @@ export interface SendEmailApi {
      * @deprecated
      */
     capture_engagement?: boolean
-    /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
+    /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without `clicks`, PostHog follows the matched template's `click_tracking_enabled` setting (unless the send marks `sensitive: true` on a non-sensitive template), and otherwise tracks clicks only when the email is not sensitive. Pass `tracking: true` or `tracking: { clicks: true }` to opt a sensitive email into click tracking, or `tracking: { clicks: false }` to keep links direct even if its matched template opted in. A link with `data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
     tracking?: SendEmailApiTracking
     /**
      * When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out or send null to send now. Send it once: a JSON body that repeats it keeps the last value, and a form body that repeats it gets a 400. Scheduling is on only in some projects so far, and a project without it refuses a time with a 400.
      * @nullable
      */
     scheduled_at?: string | null
-    /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, record only the site address of a clicked link, and keep the content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
+    /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, turn click tracking off by default (unless the matched sensitive template opted in or `tracking` enables clicks), record only the site address of a clicked link when click tracking is on, and keep the content out of logs. Pass `tracking: { clicks: false }` to keep links direct even on a sensitive template that opted in. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
     sensitive?: boolean
+    /**
+     * Key of one of the project's message categories, such as `newsletter`, for the email your code rendered. A marketing category skips recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. A marketing email can't have `cc` or `bcc`. A send with `template_id` ignores this field and uses the template's own category. Categories on emails your code rendered are on only in some projects so far, and a project without them refuses this field with a 400.
+     * @maxLength 64
+     */
+    category?: string
     /**
      * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
      * @maxLength 1024
@@ -303,6 +165,149 @@ export interface SendTransactionalEmailResponseApi {
      * @nullable
      */
     scheduled_at?: string | null
+}
+
+/**
+ * * `scheduled` - Scheduled
+ * * `queued` - Queued
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ */
+export type EmailSendStatusEnumApi = (typeof EmailSendStatusEnumApi)[keyof typeof EmailSendStatusEnumApi]
+
+export const EmailSendStatusEnumApi = {
+    Scheduled: 'scheduled',
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
+
+export interface EmailStatusApi {
+    /** The `message_id` that the send returned. */
+    id: string
+    /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+     *
+     * * `scheduled` - Scheduled
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailSendStatusEnumApi
+    /** When PostHog accepted the send. */
+    created_at: string
+    /** When the email reached its current status. */
+    status_at: string
+    /**
+     * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+}
+
+export interface AttachmentUploadFileApi {
+    /**
+     * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256: string
+    /**
+     * Size of the file in bytes.
+     * @minimum 1
+     */
+    size: number
+}
+
+export interface AttachmentUploadsRequestApi {
+    /**
+     * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
+     * @minItems 1
+     * @maxItems 10
+     */
+    files: AttachmentUploadFileApi[]
+}
+
+/**
+ * * `present` - Present
+ * * `upload` - Upload
+ */
+export type AttachmentUploadStatusEnumApi =
+    (typeof AttachmentUploadStatusEnumApi)[keyof typeof AttachmentUploadStatusEnumApi]
+
+export const AttachmentUploadStatusEnumApi = {
+    Present: 'present',
+    Upload: 'upload',
+} as const
+
+/**
+ * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
+ */
+export type AttachmentUploadSlotApiHeaders = { [key: string]: string }
+
+export interface AttachmentUploadSlotApi {
+    /** SHA-256 of the file, as sent. */
+    sha256: string
+    /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
+     *
+     * * `present` - Present
+     * * `upload` - Upload */
+    status: AttachmentUploadStatusEnumApi
+    /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
+    expires_at?: string
+    /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
+    url?: string
+    /** For an `upload` file: the HTTP method, `PUT`. */
+    method?: string
+    /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
+    headers?: AttachmentUploadSlotApiHeaders
+    /** For an `upload` file: when `url` stops accepting the upload. */
+    url_expires_at?: string
+}
+
+export interface AttachmentUploadsResponseApi {
+    /** One answer per requested file, in request order. */
+    files: AttachmentUploadSlotApi[]
+}
+
+/**
+ * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+ */
+export type SetPreferencesApiTopics = { [key: string]: boolean }
+
+export interface SetPreferencesApi {
+    /**
+     * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
+     * @maxLength 512
+     */
+    identifier: string
+    /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
+    all_marketing?: boolean
+    /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+    topics?: SetPreferencesApiTopics
+}
+
+/**
+ * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
+ */
+export type TopicPreferencesApiTopics = { [key: string]: boolean }
+
+export interface TopicPreferencesApi {
+    /** The recipient the preferences belong to. */
+    identifier: string
+    /**
+     * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
+     * @nullable
+     */
+    all_marketing: boolean | null
+    /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
+    topics: TopicPreferencesApiTopics
 }
 
 /**
@@ -625,6 +630,8 @@ export interface ImportStepProgressApi {
     warnings_omitted: number
     /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
     items_omitted: number
+    /** True when the step completed without reading anything, because the key can't read it. `warnings` says why. */
+    skipped: boolean
 }
 
 export interface ProviderImportRunApi {
@@ -1198,8 +1205,6 @@ export interface UserBasicApi {
 }
 
 export interface MessageTemplateApi {
-    /** Project folder for the new email template. */
-    _create_in_folder?: string
     readonly id: string
     /**
      * Human-readable template name shown in the library.
@@ -1231,8 +1236,13 @@ export interface MessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
-    /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
+    /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, turns click tracking off by default, and records only the site address when click tracking is on. Can change at any time. */
     sensitive?: boolean
+    /**
+     * Whether links in emails sent from this template are rewritten to count clicks. Null uses the default: off when `sensitive` is true, on when `sensitive` is false. Set true to opt a sensitive template into click tracking, or false to turn click tracking off. Changing `sensitive` resets this to null unless `click_tracking_enabled` is sent in the same request.
+     * @nullable
+     */
+    click_tracking_enabled?: boolean | null
     /**
      * The workflow that sends this template over the transactional email or push API. Null until the template is made transactional. Each content save writes a new version of it.
      * @nullable
@@ -1254,8 +1264,6 @@ export interface PaginatedMessageTemplateListApi {
 }
 
 export interface PatchedMessageTemplateApi {
-    /** Project folder for the new email template. */
-    _create_in_folder?: string
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -1287,8 +1295,13 @@ export interface PatchedMessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
-    /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
+    /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, turns click tracking off by default, and records only the site address when click tracking is on. Can change at any time. */
     sensitive?: boolean
+    /**
+     * Whether links in emails sent from this template are rewritten to count clicks. Null uses the default: off when `sensitive` is true, on when `sensitive` is false. Set true to opt a sensitive template into click tracking, or false to turn click tracking off. Changing `sensitive` resets this to null unless `click_tracking_enabled` is sent in the same request.
+     * @nullable
+     */
+    click_tracking_enabled?: boolean | null
     /**
      * The workflow that sends this template over the transactional email or push API. Null until the template is made transactional. Each content save writes a new version of it.
      * @nullable
@@ -1382,14 +1395,6 @@ export interface MakeTransactionalApi {
     expected_type?: ExpectedTypeEnumApi
 }
 
-export interface MessageTemplatePlacementApi {
-    /**
-     * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
-     * @nullable
-     */
-    path: string | null
-}
-
 /**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
@@ -1436,7 +1441,7 @@ export interface CodeEmailApi {
     description: string
     /** Tags for organizing transactional emails. */
     tags: string[]
-    /** True when PostHog keeps no copy of each sent email's body and records only the site address of a clicked link. */
+    /** True when PostHog keeps no copy of each sent email's body, turns click tracking off by default, and records only the site address of a clicked link when click tracking is on. */
     sensitive: boolean
     /**
      * A link to the file in your repository that sends this email. Null when unlinked.
@@ -1761,6 +1766,13 @@ export interface TransactionalEmailImpactApi {
     after_click: TransactionalEmailConversionsApi | null
     /** Delivered sends nobody clicked and how many converted. Null without an event. */
     without_click: TransactionalEmailConversionsApi | null
+    /**
+     * Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends at most. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is false, when the user has no access to querying events, or when the count could not be computed.
+     * @nullable
+     */
+    sessions: number | null
+    /** Whether the project setting that tags tracked links on the sender's own domain with ph_workflow_run is on now. The tag connects a click to its session. When false, sessions is null. Set it with workflows_config.email_workflow_run_link_tag_enabled in the project settings. */
+    link_tagging_enabled: boolean
 }
 
 export interface TransactionalEmailResultsApi {
@@ -1992,6 +2004,10 @@ export type MessagingTemplatesListParams = {
      */
     basic?: boolean
     /**
+     * List only templates created by the user with this ID.
+     */
+    created_by?: number
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1999,6 +2015,17 @@ export type MessagingTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * List only templates whose name, description or a tag contains this text, ignoring case.
+     * @maxLength 400
+     */
+    search?: string
+    /**
+     * List only templates that carry at least one of these tags. Repeat the parameter for each tag.
+     * @maxItems 500
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.
      * @nullable

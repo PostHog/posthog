@@ -12,11 +12,18 @@ import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSugg
 
 const JOB_ID = '00000000-0000-4000-8000-000000000901'
 
-const PENDING_JOB: AEOPromptSuggestionJobApi = { id: JOB_ID, status: 'pending', suggestions: [], error: '' }
+const PENDING_JOB: AEOPromptSuggestionJobApi = {
+    id: JOB_ID,
+    status: 'pending',
+    suggestions: [],
+    competitors: [],
+    error: '',
+}
 
 const COMPLETED_JOB: AEOPromptSuggestionJobApi = {
     id: JOB_ID,
     status: 'completed',
+    competitors: [],
     error: '',
     suggestions: [
         {

@@ -380,6 +380,8 @@ class TestSendGridImport(BaseTest):
         assert run.status == "completed"
         for step in ("single_sends", "lists"):
             assert run.progress[step]["warnings"] == [NO_MARKETING_CAMPAIGNS_NOTE]
+            assert run.progress[step]["skipped"] is True
+        assert "skipped" not in run.progress["templates"]
         assert not any(path.startswith("/v3/marketing/") for path in self._paths())
         assert len(self._suppressions()) == 6
         assert MessageTemplate.objects.filter(team_id=self.team.id).exists()
@@ -609,7 +611,10 @@ class TestSendGridImport(BaseTest):
         assert run.progress["templates"]["counts"]["already_present"] == 4
         assert run.status == "completed"
 
-    def test_an_empty_account_completes_with_nothing_imported(self) -> None:
+    @parameterized.expand([("empty_lists", False), ("null_results", True)])
+    def test_an_empty_account_completes_with_nothing_imported(self, _name: str, null_when_empty: bool) -> None:
+        self.state.null_when_empty = null_when_empty
+
         run = self._run(api_key=EMPTY_ACCOUNT_KEY)
 
         assert run.status == "completed"
@@ -902,7 +907,8 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
         assert "Newsletter (from SendGrid)" in self._cohorts(run)
-        assert "Empty list wasn't imported" in run.progress["contacts"]["warnings"][0]
+        assert run.progress["contacts"]["warnings"][0].startswith("Empty list wasn't imported")
+        assert run.progress["contacts"]["warnings"][0].endswith("The list is empty in SendGrid.")
 
     def test_an_account_without_contacts_keeps_every_cohort(self) -> None:
         self.state.account["contact_count"] = {"contact_count": 0}
@@ -1172,7 +1178,9 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
             runs.run_step(self.team.id, run.id, step, attempt=1)
 
         run.refresh_from_db()
-        assert run.progress["contacts"]["warnings"] == [NO_MARKETING_CAMPAIGNS_NOTE]
+        for step in ("contacts", "new_people"):
+            assert run.progress[step]["warnings"] == [NO_MARKETING_CAMPAIGNS_NOTE]
+            assert run.progress[step]["skipped"] is True
         assert not self.people.stored
         assert not self._export_requests()
 

@@ -385,7 +385,9 @@ def _clickhouse_time(moment: datetime) -> str:
 def suggestions_sample(*, team_id: int, hog_flow_id: UUID) -> SuggestionsSample | None:
     """Whether any email step of the live version clears the scout's sample floor, or None without an email step."""
     flow = (
-        HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).only("id", "version", "actions", "created_at").first()
+        HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id)
+        .only("id", "version", "actions", "conversion", "trigger", "created_at")
+        .first()
     )
     if flow is None:
         return None
@@ -415,6 +417,11 @@ def suggestions_sample(*, team_id: int, hog_flow_id: UUID) -> SuggestionsSample 
         team_id=team_id,
     )
     tracked_sends = max((int(sent) - int(untracked) for _, sent, untracked, _ in rows), default=0)
+    sends = max((int(sent) for _, sent, _, _ in rows), default=0)
+    # Conversion is readable without open tracking, so a readable goal lets every send count.
+    reads_conversion = (
+        scout_conversion_window(ConversionBasis(conversion=flow.conversion, trigger=flow.trigger)) is not None
+    )
     first_sends = [first_send for *_, first_send in rows]
     if first_sends:
         # Activating a draft does not create a revision, so the version's first send is when it went live.
@@ -428,8 +435,11 @@ def suggestions_sample(*, team_id: int, hog_flow_id: UUID) -> SuggestionsSample 
         )
         live_since = revision.first() or flow.created_at
     return SuggestionsSample(
-        reached=tracked_sends >= MIN_EVIDENCE_SAMPLE and now - live_since >= SAMPLE_MIN_VERSION_AGE,
+        reached=(sends if reads_conversion else tracked_sends) >= MIN_EVIDENCE_SAMPLE
+        and now - live_since >= SAMPLE_MIN_VERSION_AGE,
         tracked_sends=tracked_sends,
+        sends=sends,
+        reads_conversion=reads_conversion,
         required_sends=MIN_EVIDENCE_SAMPLE,
         version_live_since=live_since,
     )

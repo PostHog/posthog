@@ -612,7 +612,7 @@ class Team(UUIDTClassicModel):
         "dashboards.Dashboard",
         on_delete=models.SET_NULL,
         null=True,
-        related_name="primary_dashboard_teams",
+        related_name="+",
         blank=True,
     )  # Dashboard shown on project homepage
 
