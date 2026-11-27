@@ -456,6 +456,16 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             },
             openDoor: ({ day }) => {
                 posthog.capture(EVENTS.doorOpened, { day })
+                const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
+                if (hoggy) {
+                    void api
+                        .workflowAdventCalendarOpen(String(values.currentProjectId), {
+                            day,
+                            hoggy: hoggy.id,
+                            utc_offset_minutes: -new Date().getTimezoneOffset(),
+                        })
+                        .catch(() => null)
+                }
                 actions.preloadImages()
             },
             clickTip: ({ day }) => {

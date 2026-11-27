@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
@@ -37,10 +38,11 @@ function resultsOf(...questions: object[]): { questions: object[] } {
 }
 
 function calendarApi(
-    replies: { answer?: Reply; results?: Reply } = {},
+    replies: { answer?: Reply; results?: Reply; open?: Reply } = {},
     results = resultsOf(DAY_TWO_ANSWERED)
-): { mocks: Mocks; answers: unknown[] } {
+): { mocks: Mocks; answers: unknown[]; opens: unknown[] } {
     const answers: unknown[] = []
+    const opens: unknown[] = []
     const mocks: Mocks = {
         get: {
             [`${CALENDAR_API}/results/`]: () => replyWith(replies.results ?? 200, results),
@@ -50,9 +52,13 @@ function calendarApi(
                 answers.push(await request.json())
                 return replyWith(replies.answer ?? 200, results)
             },
+            [`${CALENDAR_API}/open/`]: async ({ request }) => {
+                opens.push(await request.json())
+                return replyWith(replies.open ?? 200, { day: 1, opened_at: '2026-12-03T09:00:00Z' })
+            },
         },
     }
-    return { mocks, answers }
+    return { mocks, answers, opens }
 }
 
 function signIn(user: Partial<UserType>): void {
@@ -106,6 +112,32 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-1')?.status).toBe('open')
         expect(logic.values.openCount).toBe(1)
     })
+
+    it.each<Reply>([200, 500, 'network error'])(
+        'sends each opened door to the server once and keeps it open when it replies %s',
+        async (reply) => {
+            const api = calendarApi({ open: reply })
+            useMocks(api.mocks)
+            const offset = -new Date().getTimezoneOffset()
+
+            logic.actions.activateDoor('door-1')
+            logic.actions.finishReveal()
+            logic.actions.activateDoor('door-1')
+            logic.actions.answerDoor('door-2', 'tim')
+            await waitFor(() => expect(api.opens).toHaveLength(2))
+
+            const hoggyOne = logic.values.graph.doors.find((door) => door.id === 'door-1')?.reward?.id
+            expect(hoggyOne).toMatch(/^[a-z0-9-]+$/)
+            expect(api.opens).toHaveLength(2)
+            expect(api.opens).toEqual(
+                expect.arrayContaining([
+                    { day: 1, hoggy: hoggyOne, utc_offset_minutes: offset },
+                    { day: 2, hoggy: 'tim', utc_offset_minutes: offset },
+                ])
+            )
+            expect(doorOf(logic, 'door-1')?.status).toBe('open')
+        }
+    )
 
     it('keeps a door shut until its day comes, then unlocks it on an open page', () => {
         logic.actions.activateDoor('door-1')
