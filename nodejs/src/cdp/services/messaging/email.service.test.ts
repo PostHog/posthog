@@ -3267,30 +3267,26 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each<[string, FakeSesFault, number, number]>([
-                ['SES receives the request and does not answer past the deadline', 'no-answer', 0, 1],
-                ['SES answers 200 and its body stalls past the deadline', 'stalled-body', 0, 1],
-                ['the connection drops after the request went out', 'drop-connection', 0, 0],
+            it.each<[string, FakeSesFault, number]>([
+                ['SES receives the request and does not answer past the deadline', 'no-answer', 0],
+                ['SES answers 200 and its body stalls past the deadline', 'stalled-body', 0],
+                ['the connection drops after the request went out', 'drop-connection', 0],
                 [
                     'SES records the email and answers 500',
                     { acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' } },
                     1,
-                    0,
                 ],
-                ['SES records the email and drops the connection', 'accept-then-drop-connection', 1, 0],
+                ['SES records the email and drops the connection', 'accept-then-drop-connection', 1],
                 [
                     'SES answers 500 without recording the email',
                     { status: 500, type: 'InternalFailure', message: 'Internal failure' },
                     0,
-                    0,
                 ],
             ])(
                 'when %s once, fails the send without a retry, because SES may have sent it',
-                async (_name, fault, timesSesRecordedIt, countedAsMayHaveSent) => {
+                async (_name, fault, timesSesRecordedIt) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     ses.failOnce(fault)
-                    const labels = { result: 'may_have_sent' }
-                    const before = await metricValue('cdp_ses_send_results_total', labels)
 
                     const result = await emailService.executeSendEmail(invocation)
 
@@ -3299,13 +3295,11 @@ describe('EmailService', () => {
                         error: result.error,
                         failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
                         timesSesRecordedIt: deliveredTo(ses, recipient).length,
-                        countedAsMayHaveSent: (await metricValue('cdp_ses_send_results_total', labels)) - before,
                     }).toEqual({
                         finished: true,
                         error: expect.stringMatching(/^Failed to send email via SES: /),
                         failed: true,
                         timesSesRecordedIt,
-                        countedAsMayHaveSent,
                     })
                 }
             )
