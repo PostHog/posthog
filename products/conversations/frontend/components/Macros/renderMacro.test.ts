@@ -30,6 +30,7 @@ describe('support macros', () => {
         ['See {{customer.plan}}', ctx, 'See {{customer.plan}}'],
         ['No vars', ctx, 'No vars'],
         ['Hi \\{\\{customer\\.first\\_name\\}\\}, \\{\\{ticket\\.number\\}\\}', ctx, 'Hi Jane, 42'],
+        ['Hi {{customer.first\\_name}}, {{ticket.number}}', ctx, 'Hi Jane, 42'],
         ["What's up\\! {{customer.first_name}}", ctx, "What's up\\! Jane"],
     ])('renders %s', (body, context, expected) => {
         expect(renderMacro(body, context)).toBe(markdownToHtml(expected))
