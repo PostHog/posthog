@@ -91,7 +91,7 @@ from products.tasks.backend.facade.access import (
     usage_limit_response,
 )
 from products.tasks.backend.facade.api import asks_for_run, idempotent_request, uses_public_create
-from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_compute_cost, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
     TASK_CLIENT_PROVENANCE_HEADER,
     get_oauth_access_token,
@@ -203,6 +203,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCancelRequestSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
+    TaskRunComputeUsageResponseSerializer,
     TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
@@ -3004,6 +3005,28 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "id": session_id,
                     "download_url": download_url,
                     "content_sha256": content_sha256,
+                }
+            ).data
+        )
+
+    @extend_schema(
+        responses={
+            200: TaskRunComputeUsageResponseSerializer,
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get task run compute usage",
+        description="Return the estimated sandbox compute cost of a task run, split by the meter that bills it. "
+        "Unlike the task usage endpoint, it does not read model spend.",
+    )
+    @action(detail=True, methods=["get"], url_path="compute_usage", required_scopes=["task:read"])
+    def compute_usage(self, request, pk=None, **kwargs):
+        run = self._get_run_or_404(pk)
+        compute = get_task_compute_cost(team_id=self.team_id, task_id=run.task, run_id=run.id)
+        return Response(
+            TaskRunComputeUsageResponseSerializer(
+                {
+                    "posthog_code_compute_cost_usd": compute.posthog_code_usd,
+                    "ai_credits_compute_cost_usd": compute.ai_credits_usd,
                 }
             ).data
         )

@@ -48,10 +48,22 @@ class TaskUsage:
         return self.token_cost_usd + self.compute_cost_usd
 
 
+@frozen
+class TaskComputeCost:
+    """Sandbox compute, split by the meter that bills it. A task's origin decides its meter."""
+
+    posthog_code_usd: Decimal
+    ai_credits_usd: Decimal
+
+
+_NO_COMPUTE_COST = TaskComputeCost(posthog_code_usd=Decimal(0), ai_credits_usd=Decimal(0))
+
+
 def get_task_usage(*, team_id: int, task_id: UUID, task_created_at: datetime) -> TaskUsage:
+    # PostHog Desktop reads this, so its compute is only what the `posthog_code` meter bills.
     return TaskUsage(
         token_cost_usd=_get_task_token_cost(team_id=team_id, task_id=task_id, task_created_at=task_created_at),
-        compute_cost_usd=_get_task_compute_cost(team_id=team_id, task_id=task_id),
+        compute_cost_usd=get_task_compute_cost(team_id=team_id, task_id=task_id).posthog_code_usd,
     )
 
 
@@ -232,37 +244,36 @@ def get_local_task_run_token_costs(
     return {str(row[0]): Decimal(str(row[1])) for row in rows if row[0] and row[1] is not None}
 
 
-def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
+def get_task_compute_cost(*, team_id: int, task_id: UUID, run_id: UUID | None = None) -> TaskComputeCost:
+    """The billed sandbox compute of a task, or of one of its runs. It reads only Postgres, unlike the token cost."""
     if not COMPUTE_RATE_CARDS:
-        return Decimal(0)
+        return _NO_COMPUTE_COST
 
     rate_cards = validate_compute_rate_cards(COMPUTE_RATE_CARDS)
     calculated_at = timezone.now()
     pricing_start = rate_cards[0].effective_at
     # Rates are published ahead of the date they take effect, so until then nothing is priced.
     if calculated_at <= pricing_start:
-        return Decimal(0)
+        return _NO_COMPUTE_COST
 
     # The same sessions the usage report bills: PostHog Desktop's into `posthog_code` credits,
     # and the origins AI_CREDITS_COMPUTE_BILLED_ORIGINS lists into `ai_credits`, whatever their client.
-    billed = Q(client_provenance__in=TaskClientProvenance.values, origin_product=Task.OriginProduct.USER_CREATED)
-    if ai_origins := ai_credits_compute_origins():
-        billed |= Q(origin_product__in=ai_origins)
-    sessions = (
-        SandboxSession.objects.for_team(team_id)
-        .filter(task_run__task_id=task_id, user_attributed_at__isnull=False)
-        .filter(billed)
+    ai_origins = ai_credits_compute_origins()
+    billed = Q(client_provenance__in=TaskClientProvenance.values, origin_product=Task.OriginProduct.USER_CREATED) | Q(
+        origin_product__in=ai_origins
     )
-    return sum(
-        (
-            calculate_sandbox_compute_cost(
-                session,
-                pricing_start,
-                calculated_at,
-                calculated_at=calculated_at,
-                rate_cards=rate_cards,
-            ).total_cost_usd
-            for session in sessions.iterator()
-        ),
-        Decimal(0),
+    sessions = SandboxSession.objects.for_team(team_id).filter(
+        billed, task_run__task_id=task_id, user_attributed_at__isnull=False
     )
+    if run_id is not None:
+        sessions = sessions.filter(task_run_id=run_id)
+    posthog_code = ai_credits = Decimal(0)
+    for session in sessions.iterator():
+        cost = calculate_sandbox_compute_cost(
+            session, pricing_start, calculated_at, calculated_at=calculated_at, rate_cards=rate_cards
+        ).total_cost_usd
+        if session.origin_product in ai_origins:
+            ai_credits += cost
+        else:
+            posthog_code += cost
+    return TaskComputeCost(posthog_code_usd=posthog_code, ai_credits_usd=ai_credits)

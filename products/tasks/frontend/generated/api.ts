@@ -102,6 +102,7 @@ import type {
     TaskRunCancelRequestApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
+    TaskRunComputeUsageResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailDTOApi,
     TaskRunLivingArtifactChartRequestApi,
@@ -2008,6 +2009,26 @@ export const tasksRunsCommandCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunCommandRequestApi),
+    })
+}
+
+export const getTasksRunsComputeUsageRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/compute_usage/`
+}
+
+/**
+ * Return the estimated sandbox compute cost of a task run, split by the meter that bills it. Unlike the task usage endpoint, it does not read model spend.
+ * @summary Get task run compute usage
+ */
+export const tasksRunsComputeUsageRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunComputeUsageResponseApi> => {
+    return apiMutator<TaskRunComputeUsageResponseApi>(getTasksRunsComputeUsageRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

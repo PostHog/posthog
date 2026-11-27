@@ -4218,6 +4218,13 @@ export interface TaskRunCommandResponseApi {
     error?: TaskRunCommandResponseApiError
 }
 
+export interface TaskRunComputeUsageResponseApi {
+    /** Estimated sandbox compute cost of this run that bills to PostHog Desktop credits, in US dollars. */
+    posthog_code_compute_cost_usd: number
+    /** Estimated sandbox compute cost of this run that bills to PostHog AI credits, in US dollars. Zero unless the task's origin is one whose compute PostHog AI credits bill. */
+    ai_credits_compute_cost_usd: number
+}
+
 /**
  * Response containing a JWT token for direct sandbox connection
  */

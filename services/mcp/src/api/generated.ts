@@ -128158,6 +128158,13 @@ export namespace Schemas {
       error?: TaskRunCommandResponseError;
     }
 
+    export interface TaskRunComputeUsageResponse {
+      /** Estimated sandbox compute cost of this run that bills to PostHog Desktop credits, in US dollars. */
+      posthog_code_compute_cost_usd: number;
+      /** Estimated sandbox compute cost of this run that bills to PostHog AI credits, in US dollars. Zero unless the task's origin is one whose compute PostHog AI credits bill. */
+      ai_credits_compute_cost_usd: number;
+    }
+
     export interface TaskRunResumeRequestSchema {
       /**
          * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.

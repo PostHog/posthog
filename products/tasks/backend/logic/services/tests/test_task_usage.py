@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -355,9 +355,10 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
         task = Task.objects.create(
             team=self.team, created_by=self.user, title="AI task", description="", origin_product=origin
         )
+        run = TaskRun.objects.create(task=task, team=self.team)
         SandboxSession.objects.unscoped().create(
             team=self.team,
-            task_run=TaskRun.objects.create(task=task, team=self.team),
+            task_run=run,
             sandbox_id="sandbox-ai",
             origin_product=origin,
             client_provenance=None,
@@ -378,8 +379,13 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
             patch.object(task_usage.timezone, "now", return_value=rate_start + timedelta(minutes=1)),
         ):
             usage = task_usage.get_task_usage(team_id=self.team.id, task_id=task.id, task_created_at=task.created_at)
+            run_compute = task_usage.get_task_compute_cost(team_id=self.team.id, task_id=task.id, run_id=run.id)
+            other_run_compute = task_usage.get_task_compute_cost(team_id=self.team.id, task_id=task.id, run_id=uuid4())
 
-        assert usage.compute_cost_usd == expected
+        assert run_compute == task_usage.TaskComputeCost(posthog_code_usd=Decimal(0), ai_credits_usd=expected)
+        assert other_run_compute.ai_credits_usd == 0
+        # PostHog Desktop reads the task usage, so it must not show compute that the AI credits meter bills.
+        assert usage.compute_cost_usd == 0
 
     def test_usage_is_reported_before_the_first_rate_card_takes_effect(self) -> None:
         rate_start = datetime(2026, 8, 1, tzinfo=UTC)

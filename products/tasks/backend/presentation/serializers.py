@@ -3501,6 +3501,16 @@ class TaskUsageResponseSerializer(serializers.Serializer):
     total_cost_usd = serializers.FloatField(help_text="Estimated total cost attributed to this task in US dollars.")
 
 
+class TaskRunComputeUsageResponseSerializer(serializers.Serializer):
+    posthog_code_compute_cost_usd = serializers.FloatField(
+        help_text="Estimated sandbox compute cost of this run that bills to PostHog Desktop credits, in US dollars."
+    )
+    ai_credits_compute_cost_usd = serializers.FloatField(
+        help_text="Estimated sandbox compute cost of this run that bills to PostHog AI credits, in US dollars. "
+        "Zero unless the task's origin is one whose compute PostHog AI credits bill."
+    )
+
+
 class InternalTaskUsageRequestSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(help_text="Team identifier used to scope attributed model generations.")
     task_id = serializers.UUIDField(help_text="Task identifier used to attribute model generations.")
