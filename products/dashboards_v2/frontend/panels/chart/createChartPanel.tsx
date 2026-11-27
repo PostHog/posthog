@@ -12,7 +12,7 @@ import { type PanelType, type PanelMenuContext, definePanel } from '../core/pane
 import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading } from '../core/PanelView'
 import { chartMenuActions } from './chartMenuActions'
-import { ChartPanel, shownFramesOf } from './ChartPanel'
+import { ChartPanel, hasNoValues, shownFramesOf } from './ChartPanel'
 import { ChartSampleData } from './ChartSampleData'
 import { type ChartConfig, chartSpec } from './chartSpec'
 import { framesToCsv } from './data/framesToCsv'
@@ -108,7 +108,7 @@ export const DEFAULT_VIZ_TYPES: VizDefinition[] = [
 // The data the chart drew, so it matches the chart whatever runner, time range and filters gave it.
 function csvOf(panel: ContentPanel<ChartConfig>): string | null {
     const frames = shownFramesOf(panel)
-    if (!frames || frames.every((frame) => frame.fields.every((field) => field.values.length === 0))) {
+    if (!frames || hasNoValues(frames)) {
         lemonToast.warning('This chart has no data to export.')
         return null
     }
