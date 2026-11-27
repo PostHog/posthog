@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Generator, Mapping
 from dataclasses import asdict, replace
 from datetime import timedelta
+from functools import partial
 from typing import Any
 from uuid import UUID
 
@@ -206,7 +207,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> list[People
                 run_id,
                 step,
                 attempt,
-                lambda progress: progress.update(last_error=last_error, error_class=error_class),
+                partial(_mark_failed_attempt, last_error=last_error, error_class=error_class),
             )
         except (StaleImportAttempt, ImportRunClosed):
             pass
@@ -574,6 +575,12 @@ def _new_step_progress() -> dict[str, Any]:
         "checkpoint": None,
         "attempt": None,
     }
+
+
+def _mark_failed_attempt(progress: dict[str, Any], last_error: str, error_class: str) -> None:
+    progress.update(last_error=last_error, error_class=error_class)
+    # Waiting for the retry reads nothing, so the pace so far can't say how long is left. The next attempt starts anew.
+    progress.pop("reading_since", None)
 
 
 def _mark_completed(progress: dict[str, Any]) -> None:

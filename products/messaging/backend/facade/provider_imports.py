@@ -329,9 +329,6 @@ def _estimate(
         return _Estimate()
     total = max(totals)
     since = progress.get("reading_since") or {}
-    # Waiting to retry after an error reads nothing, so the pace so far says nothing about the time left.
-    if progress.get("last_error"):
-        return _Estimate(total=total)
     started_at = parse_datetime(since["at"]) if isinstance(since.get("at"), str) else None
     read = processed - since.get("processed", processed)
     elapsed = (timezone.now() - started_at).total_seconds() if started_at else 0

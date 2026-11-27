@@ -698,11 +698,14 @@ class TestResendImport(BaseTest):
                 runs.run_step(self.team.id, run.id, "topic_opt_outs", attempt=1)
             clock.shift(timedelta(minutes=1))
 
-            # Waiting to retry after the error reads nothing, so it gives no time left.
             assert steps() == [(4, None, None), (2, 4, None)]
 
-            # Still reading: half of the contacts the opt-outs step read took a minute, so the other half should too.
-            edit_progress(lambda progress: progress.update(last_error=None))
+            # The next attempt read the first half in a minute, so the other half should take one too.
+            edit_progress(
+                lambda progress: progress.update(
+                    reading_since={"at": (timezone.now() - timedelta(minutes=1)).isoformat(), "processed": 0}
+                )
+            )
             assert steps() == [(4, None, None), (2, 4, 60)]
 
             # A worker from before this field existed still shows the total, with no time left.
