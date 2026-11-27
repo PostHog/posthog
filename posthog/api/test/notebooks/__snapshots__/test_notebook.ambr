@@ -966,12 +966,14 @@
   FROM "posthog_activitylog"
   WHERE ("posthog_activitylog"."scope" = 'Notebook'
          AND "posthog_activitylog"."team_id" = 99999
-         AND NOT (("posthog_activitylog"."detail" -> 'changes') @> '[{"field": "app_view_grant"}]'::jsonb
-                  AND "posthog_activitylog"."detail" IS NOT NULL)
-         AND NOT ((("posthog_activitylog"."scope" = 'AccountView'
-                    AND "posthog_activitylog"."activity" IN ('created',
-                                                             'updated',
-                                                             'deleted'))
+         AND NOT ((("posthog_activitylog"."scope" = 'Notebook'
+                    AND "posthog_activitylog"."activity" IN ('updated')
+                    AND "posthog_activitylog"."detail" @> '{"changes": [{"field": "app_view_grant"}]}'::jsonb
+                    AND "posthog_activitylog"."detail" IS NOT NULL)
+                   OR ("posthog_activitylog"."scope" = 'AccountView'
+                       AND "posthog_activitylog"."activity" IN ('created',
+                                                                'updated',
+                                                                'deleted'))
                    OR ("posthog_activitylog"."scope" = 'Integration'
                        AND "posthog_activitylog"."activity" IN ('github_diagnostic'))
                    OR ("posthog_activitylog"."scope" = 'User'
@@ -1085,12 +1087,14 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_activitylog"."user_id" = "posthog_user"."id")
   WHERE ("posthog_activitylog"."scope" = 'Notebook'
          AND "posthog_activitylog"."team_id" = 99999
-         AND NOT (("posthog_activitylog"."detail" -> 'changes') @> '[{"field": "app_view_grant"}]'::jsonb
-                  AND "posthog_activitylog"."detail" IS NOT NULL)
-         AND NOT ((("posthog_activitylog"."scope" = 'AccountView'
-                    AND "posthog_activitylog"."activity" IN ('created',
-                                                             'updated',
-                                                             'deleted'))
+         AND NOT ((("posthog_activitylog"."scope" = 'Notebook'
+                    AND "posthog_activitylog"."activity" IN ('updated')
+                    AND "posthog_activitylog"."detail" @> '{"changes": [{"field": "app_view_grant"}]}'::jsonb
+                    AND "posthog_activitylog"."detail" IS NOT NULL)
+                   OR ("posthog_activitylog"."scope" = 'AccountView'
+                       AND "posthog_activitylog"."activity" IN ('created',
+                                                                'updated',
+                                                                'deleted'))
                    OR ("posthog_activitylog"."scope" = 'Integration'
                        AND "posthog_activitylog"."activity" IN ('github_diagnostic'))
                    OR ("posthog_activitylog"."scope" = 'User'
