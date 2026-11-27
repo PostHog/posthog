@@ -837,7 +837,7 @@ class TestEnrichTableSemanticsSync:
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "capture_exception") as mock_capture,
-            override_settings(LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="", AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+            override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
         ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
 

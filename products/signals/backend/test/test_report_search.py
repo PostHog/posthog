@@ -1,10 +1,12 @@
 import json
 import datetime
+import threading
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import DEFAULT, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -18,7 +20,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY
-from products.signals.backend.report_search import keyword_terms
+from products.signals.backend.report_search import SEMANTIC_WORKERS, keyword_terms
 
 SEARCH = "products.signals.backend.report_search"
 
@@ -148,6 +150,40 @@ class TestReportSearchAPI(ClickhouseTestMixin, APIBaseTest):
         if expected_status == 200:
             assert response.json()["semantic_available"] is False
             assert [row["match_kinds"] for row in response.json()["results"]] == [["keyword"]]
+
+    @parameterized.expand([("a_free_worker", SEMANTIC_WORKERS, True), ("a_busy_pool", 0, False)])
+    def test_a_hybrid_search_runs_the_semantic_side_during_the_keyword_query_with(
+        self, _name: str, free_workers: int, overlaps: bool
+    ) -> None:
+        report = self._report("Checkout button does nothing")
+        self._embed(report, _vector(1.0, 0.0))
+        embedding_started = threading.Event()
+        embedding_threads: list[threading.Thread] = []
+
+        def embed(*args: Any, **kwargs: Any) -> EmbeddingResponse:
+            embedding_threads.append(threading.current_thread())
+            embedding_started.set()
+            return EmbeddingResponse(_vector(1.0, 0.0), 1, False)
+
+        self.embed.side_effect = embed
+        keyword_query_saw_embedding: list[bool] = []
+
+        def watch_keyword_query(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
+            if "LIKE" in sql:
+                keyword_query_saw_embedding.append(embedding_started.wait(timeout=5 if overlaps else 0))
+            return execute(sql, params, many, context)
+
+        with (
+            patch(f"{SEARCH}._SEMANTIC_SLOTS", threading.BoundedSemaphore(free_workers)),
+            connection.execute_wrapper(watch_keyword_query),
+        ):
+            response = self._search(query="checkout")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["semantic_available"] is True
+        assert [row["match_kinds"] for row in response.json()["results"]] == [["keyword", "semantic"]]
+        assert keyword_query_saw_embedding == [overlaps]
+        assert (embedding_threads[0] is not threading.current_thread()) is overlaps
 
     def test_a_vector_read_refused_at_the_query_limit_still_returns_semantic_matches(self) -> None:
         report = self._report("Purchases stall after the payment step")

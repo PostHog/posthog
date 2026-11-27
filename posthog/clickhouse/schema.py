@@ -408,7 +408,7 @@ from products.error_tracking.backend.sql import (
     WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
     WRITABLE_ERROR_TRACKING_ISSUE_TAGS_TABLE_SQL,
 )
-from products.event_definitions.backend.models.property_definition import PROPERTY_DEFINITIONS_TABLE_SQL
+from products.event_definitions.backend.sql import PROPERTY_DEFINITIONS_TABLE_SQL
 from products.messaging.backend.facade.clickhouse import (
     DISTRIBUTED_EMAIL_STATUS_EVENTS_TABLE_SQL,
     DISTRIBUTED_EMAIL_STATUS_TABLE_SQL,

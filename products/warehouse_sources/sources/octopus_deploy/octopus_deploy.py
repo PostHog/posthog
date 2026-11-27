@@ -166,7 +166,7 @@ def _build_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"skip": skip, "take": config.page_size}
+    params: dict[str, Any] = {"skip": skip, "take": config.page_size, **config.extra_params}
 
     if config.incremental_param and should_use_incremental_field and db_incremental_field_last_value:
         params[config.incremental_param] = _format_incremental_value(db_incremental_field_last_value)

@@ -49,7 +49,7 @@ describe('PropertyFilters recent selections', () => {
                     results: [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
                     refreshing: false,
                 },
-                '/api/event/values/': {
+                '/api/projects/:team_id/events/values/': {
                     results: [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
                     refreshing: false,
                 },
@@ -194,7 +194,7 @@ describe('PropertyFilters recent selections', () => {
             description: 'pageview URL',
             taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties],
             mockOverrides: {
-                '/api/environments/:team/events/values': [
+                '/api/projects/:team_id/events/values/': [
                     { name: 'https://example.com/pricing' },
                     { name: 'https://example.com/blog' },
                 ],
@@ -211,7 +211,7 @@ describe('PropertyFilters recent selections', () => {
             description: 'screen name',
             taxonomicGroupTypes: [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.EventProperties],
             mockOverrides: {
-                '/api/environments/:team/events/values': [{ name: 'HomeScreen' }, { name: 'SettingsScreen' }],
+                '/api/projects/:team_id/events/values/': [{ name: 'HomeScreen' }, { name: 'SettingsScreen' }],
             },
             tabTestId: 'taxonomic-tab-screens',
             searchQuery: 'Home',

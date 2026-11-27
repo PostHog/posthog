@@ -1732,6 +1732,19 @@ describe('buildResponseFilter', () => {
         expect(result.helperImports).toEqual(['omitResponseFields'])
     })
 
+    it('maps over the rows of a list endpoint that returns a bare array', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            response: { include: ['id'] },
+        }
+        const result = buildResponseFilter(config, 'Schemas.Thing[]')
+        expect(result.code).toContain(
+            "Array.isArray(result) ? result.map((item: any) => pickResponseFields(item, ['id']))"
+        )
+    })
+
     it('wraps the exclude expression in stripNullFields for response.strip_nulls', () => {
         const config: ToolConfig = {
             operation: 'things_retrieve',

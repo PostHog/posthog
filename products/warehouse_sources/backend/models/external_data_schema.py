@@ -291,6 +291,9 @@ FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 # Set by a manual sync so its run skips the gap. The next failed run rewrites the streak without it.
 FAILURE_STREAK_MANUAL_RUN_KEY = "manual_run_requested"
+# In `sync_type_config`: when someone last asked for a sync of this schema, failing or not. A run that
+# would stand down because it has nothing to do goes ahead while no full run has finished since.
+MANUAL_RUN_REQUESTED_AT_KEY = "manual_run_requested_at"
 
 
 # Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
@@ -689,6 +692,19 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         except (TypeError, ValueError):
             return None
         return stamped if stamped.tzinfo is not None else None
+
+    @property
+    def manual_sync_pending(self) -> bool:
+        """Whether someone asked for a sync that no full run has finished since."""
+        raw = (self.sync_type_config or {}).get(MANUAL_RUN_REQUESTED_AT_KEY)
+        try:
+            requested = datetime.fromisoformat(raw) if isinstance(raw, str) else None
+        except ValueError:
+            return False
+        if requested is None or requested.tzinfo is None:
+            return False
+        last_full_run = self.last_full_run
+        return last_full_run is None or requested > last_full_run
 
     @property
     def last_run_at(self) -> datetime | None:
@@ -2059,22 +2075,25 @@ def update_sync_type_config_keys(
 
 
 def request_manual_runs(schema_ids: Iterable[str | uuid.UUID], team_id: int) -> None:
-    """Let the next run of each failing schema go ahead instead of standing down.
+    """Let the next run of each schema go ahead instead of standing down.
 
-    A run of a schema that keeps failing stands down until its gap has passed. Someone asking for a sync has
-    usually just changed what made it fail, and a run that stands down creates no job, so their sync would
-    show as Running with nothing behind it.
+    A run of a schema that keeps failing stands down until its gap has passed, and a run of a CDC table
+    with nothing to load stands down too. Someone asking for a sync has usually just changed something,
+    and a run that stands down creates no job, so their sync would show as Running with nothing behind it.
     """
-    failing_ids = ExternalDataSchema.objects.filter(
-        id__in=list(schema_ids), team_id=team_id, sync_type_config__has_key=FAILURE_STREAK_KEY
-    ).values_list("id", flat=True)
+    requested_at = timezone.now().isoformat()
 
     def _mark(config: dict[str, Any]) -> None:
+        config[MANUAL_RUN_REQUESTED_AT_KEY] = requested_at
         streak = config.get(FAILURE_STREAK_KEY)
         if isinstance(streak, dict):
             streak[FAILURE_STREAK_MANUAL_RUN_KEY] = True
 
-    for schema_id in failing_ids:
+    # One short transaction per schema. Holding a single row lock at a time cannot deadlock with the
+    # writers that lock a source and then its schemas.
+    for schema_id in ExternalDataSchema.objects.filter(id__in=list(schema_ids), team_id=team_id).values_list(
+        "id", flat=True
+    ):
         update_sync_type_config_keys(schema_id, team_id, mutate=_mark)
 
 

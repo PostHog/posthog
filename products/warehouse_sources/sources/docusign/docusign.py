@@ -257,8 +257,7 @@ def _flatten_recipients(envelope: dict[str, Any], parent: dict[str, Any]) -> lis
     return rows
 
 
-def _flatten_custom_fields(envelope: dict[str, Any], parent: dict[str, Any]) -> list[dict[str, Any]]:
-    custom_fields = envelope.get("customFields")
+def _flatten_custom_fields(custom_fields: Any, parent: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(custom_fields, dict):
         return []
 
@@ -292,7 +291,7 @@ def _flatten_envelope_children(
             continue
 
         if endpoint.derived_from_envelopes == "custom_fields":
-            rows.extend(_flatten_custom_fields(envelope, parent))
+            rows.extend(_flatten_custom_fields(envelope.get("customFields"), parent))
             continue
 
         for key in endpoint.envelope_child_keys:
@@ -484,6 +483,10 @@ def get_rows(
                 parent_id = parent_row.get(endpoint.fan_out.parent_id_key)
                 if parent_id:
                     yield from fan_out_rows(endpoint.fan_out, str(parent_id))
+        elif endpoint.custom_fields_body:
+            rows = _flatten_custom_fields(body, {})
+            if rows:
+                yield rows
         else:
             rows = _flatten_envelope_children(endpoint, page) if endpoint.derived_from_envelopes else page
             if rows:
