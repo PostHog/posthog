@@ -44,8 +44,8 @@ Use a domain with mail servers. MailDev catches the email, so nothing reaches th
 
 Metrics arrive through Kafka and ClickHouse, a few seconds after the action.
 Wait for the chart or counter to load with a `wait_for`, and read the number in the contact sheet.
-A local stack can count a workflow run twice. Its ClickHouse has two Kafka tables, `kafka_app_metrics2` and `kafka_app_metrics2_ws`, that read the same topic into `app_metrics2`.
-ClickHouse drops most of the copies as duplicate inserts, but not all, so a count can come out one or two high.
+A local stack that has not run ClickHouse migration 0397 can count a workflow run twice. Its ClickHouse has two Kafka tables, `kafka_app_metrics2` and `kafka_app_metrics2_ws`, that read the same topic into `app_metrics2`.
+Run the ClickHouse migrations to drop the second one.
 When a number is off in a take, reset and record again rather than share it, or keep the counter out of the shot.
 
 ## The local stack lost its data

@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import TestCase, mock
 
 from infi.clickhouse_orm.utils import import_submodules
+from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import DATA_NODE_ROLES, NodeRole
 
@@ -302,3 +303,32 @@ class TestUniqueMigrationPrefixes(TestCase):
             return False
         first = tree.body[0].value
         return first is node
+
+
+class TestWarpstreamIngestionConsumers(TestCase):
+    @parameterized.expand(
+        [
+            ("local_dev", "", True, 0, 6),
+            ("hobby", "", False, 6, 0),
+            ("e2e", "E2E", True, 0, 6),
+            ("cloud", "US", False, 6, 0),
+        ]
+    )
+    def test_second_consumer_is_dropped_only_on_local_stacks(
+        self, _name: str, deployment: str, debug: bool, created: int, dropped: int
+    ) -> None:
+        modules = [
+            importlib.import_module("posthog.clickhouse.migrations.0227_warpstream_kafka_engines"),
+            importlib.import_module("posthog.clickhouse.migrations.0397_drop_local_warpstream_ingestion_kafka_engines"),
+        ]
+        try:
+            with (
+                mock.patch("posthog.settings.CLOUD_DEPLOYMENT", deployment),
+                mock.patch("posthog.settings.DEBUG", debug),
+            ):
+                counts = [len(importlib.reload(module).operations) for module in modules]
+        finally:
+            for module in modules:
+                importlib.reload(module)
+
+        assert counts == [created, dropped]

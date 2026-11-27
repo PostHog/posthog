@@ -123,15 +123,6 @@ CREATE TABLE posthog.kafka_log_entries_v3 (
   level LowCardinality(String),
   message String
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries', kafka_skip_broken_messages = 100, kafka_topic_list = 'log_entries';
-CREATE TABLE posthog.kafka_log_entries_ws (
-  team_id UInt64,
-  log_source LowCardinality(String),
-  log_source_id String,
-  instance_id String,
-  timestamp DateTime64(6, 'UTC'),
-  level LowCardinality(String),
-  message String
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries_ws', kafka_skip_broken_messages = 100, kafka_topic_list = 'log_entries';
 CREATE TABLE posthog.kafka_person (
   id UUID,
   created_at DateTime64(3),
@@ -784,18 +775,6 @@ CREATE MATERIALIZED VIEW posthog.log_entries_v3_mv TO posthog.writable_log_entri
   _timestamp,
   _offset
 FROM posthog.kafka_log_entries_v3
-WHERE toDate(timestamp) <= today();
-CREATE MATERIALIZED VIEW posthog.log_entries_ws_mv TO posthog.writable_log_entries (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
-  team_id,
-  log_source,
-  log_source_id,
-  instance_id,
-  timestamp,
-  level,
-  message,
-  _timestamp,
-  _offset
-FROM posthog.kafka_log_entries_ws
 WHERE toDate(timestamp) <= today();
 CREATE MATERIALIZED VIEW posthog.person_distinct_id2_mv TO posthog.writable_person_distinct_id2 (team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
