@@ -201,13 +201,50 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
     return CHQueryErrorBadGet(message, code=err.code, code_name="bad_get")
 
 
+def _public_operand_type(raw_type: str) -> str | None:
+    type_name = raw_type.strip("`")
+    wrapper = re.fullmatch(r"(?:Array|Nullable|LowCardinality)\(([A-Za-z0-9]+)\)", type_name)
+    if wrapper and _SIMPLE_CLICKHOUSE_TYPE.fullmatch(wrapper[1]):
+        return type_name
+    family = type_name.partition("(")[0]
+    return family if _SIMPLE_CLICKHOUSE_TYPE.fullmatch(family) else None
+
+
+def _comparison_type_message(message: str) -> str | None:
+    operand = r"(`[^`\n]{1,256}`|[A-Za-z0-9]+)"
+    pair = re.search(rf"\bIllegal types of arguments \({operand}, {operand}\) of function `?([A-Za-z]+)\b", message)
+    if not pair:
+        return None
+    from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
+
+    operator = HOGQL_COMPARISON_MAPPING.get(pair[3])
+    left, right = _public_operand_type(pair[1]), _public_operand_type(pair[2])
+    if operator and left and right:
+        return f"The {operator} operator cannot compare {left} and {right}. Use compatible types on both sides of the comparison."
+    return None
+
+
 def _argument_type_message(message: str, fallback: str) -> str:
+    message = re.split(
+        r": In scope\b|[.:] While (?:processing|executing)\b|Stack trace:", message, maxsplit=1, flags=re.I
+    )[0]
+    if comparison := _comparison_type_message(message):
+        return comparison
     subject = "The function"
-    if match := re.search(r"\bof (?:aggregate )?function ([A-Za-z][A-Za-z0-9_]{0,63})\b", message):
+    if match := re.search(r"\b(?:of|for|to) (?:aggregate )?function [`']?([A-Za-z][A-Za-z0-9_]{0,63})\b", message):
         from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function
 
         if find_hogql_function(match[1]) or find_hogql_aggregation(match[1]):
             subject = f"`{match[1]}`"
+    date_argument = re.search(
+        r"as ([1-9][0-9]?(?:st|nd|rd|th)) argument '[^'\n]{1,64}' to function '[A-Za-z0-9_]+'\. "
+        r"Expected: Date\[32\] or DateTime\[64\], got: ([A-Za-z0-9]+)\b",
+        message,
+    )
+    if date_argument and subject != "The function" and _SIMPLE_CLICKHOUSE_TYPE.fullmatch(date_argument[2]):
+        return (
+            f"The {date_argument[1]} argument to {subject} has type {date_argument[2]}. Use a date or date-time value."
+        )
     pair = re.search(r"\bIllegal types ([A-Za-z0-9]+)(?:\([^()\n]{0,128}\))? and ([A-Za-z0-9]+)\b", message)
     if pair and all(_SIMPLE_CLICKHOUSE_TYPE.fullmatch(t) for t in pair.groups()):
         return (
@@ -690,7 +727,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     ),
     43: ErrorCodeMeta(
         "ILLEGAL_TYPE_OF_ARGUMENT",
-        user_safe="A function cannot use an argument of this type. Check the function signature and cast the argument to the expected type.",
+        user_safe="A function or operator received an incompatible type. Run each expression separately and use "
+        "toTypeName(expression) to check the type of each input.",
     ),
     44: ErrorCodeMeta(
         "ILLEGAL_COLUMN",
