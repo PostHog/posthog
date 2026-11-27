@@ -6348,6 +6348,9 @@ importers:
       clsx:
         specifier: '*'
         version: 2.1.1
+      dompurify:
+        specifier: ^3.4.0
+        version: 3.4.18
       elkjs:
         specifier: '*'
         version: 0.10.2

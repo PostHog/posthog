@@ -15,6 +15,7 @@ import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/
 import { EmailDirectionToggle } from '../comingSoon/EmailDirectionToggle'
 import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
 import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
+import { EmailAddress } from './EmailAddress'
 import {
     EMAIL_STATUS_DESCRIPTION,
     EMAIL_STATUS_LABEL,
@@ -25,24 +26,6 @@ import {
 import { QuillTransactionalEmailLogFilters } from './QuillTransactionalEmailLogFilters'
 import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
 import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
-
-/** Lets a long address wrap before its domain instead of mid-word. */
-function EmailAddress({ address }: { address: string }): JSX.Element {
-    if (!address) {
-        return <span className="text-secondary">Unknown recipient</span>
-    }
-    const at = address.lastIndexOf('@')
-    if (at <= 0) {
-        return <span className="break-all">{address}</span>
-    }
-    return (
-        <span className="break-words">
-            {address.slice(0, at)}
-            <wbr />
-            {address.slice(at)}
-        </span>
-    )
-}
 
 const STATUS_OPTIONS = (['delivered', 'sent', 'queued', 'bounced', 'complained', 'failed'] as const).map((status) => ({
     value: status,
@@ -74,6 +57,7 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
     const { setFilters, setPage, refresh, loadEmails } = useActions(transactionalEmailLogLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
+    const receivingEnabled = useFeatureFlag('WORKFLOWS_INBOUND_EMAIL')
     const oneEmail = !emailOptions
 
     const sendUrl = (email: TransactionalEmailLogEntryApi): string =>
@@ -84,7 +68,7 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
 
     return (
         <div className="flex flex-col gap-2">
-            {!oneEmail && <EmailDirectionToggle />}
+            {!oneEmail && !receivingEnabled && <EmailDirectionToggle />}
             {todayRailNav ? (
                 <QuillTransactionalEmailLogFilters
                     emailOptions={emailOptions}

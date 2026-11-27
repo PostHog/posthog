@@ -5,6 +5,8 @@ describe('transactionalRouteFor', () => {
         ['/transactional', 'transactional'],
         ['/project/2/transactional', 'transactional'],
         ['/project/2/transactional/log', 'log'],
+        ['/project/2/transactional/received', 'received'],
+        ['/project/2/transactional/received/01a1acb5-7506-0001-0f02-b0f2c0c0c108', null],
         ['/project/2/transactional/metrics', 'metrics'],
         ['/project/2/transactional/library', 'library'],
         ['/project/2/transactional/new', 'new'],
