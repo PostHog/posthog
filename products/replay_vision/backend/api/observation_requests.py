@@ -1,9 +1,12 @@
 """API for programmatic scan requests: start scans for named sessions and read them back as one handle."""
 
+from collections.abc import Iterable
+from datetime import timedelta
 from typing import Any, cast
 
 from django.db import models
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -42,7 +45,7 @@ from products.replay_vision.backend.observation_requests import (
     RequestSession,
     RequestSessionState,
     create_observation_request,
-    request_progress,
+    request_progress_many,
 )
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
@@ -57,6 +60,7 @@ from products.replay_vision.backend.temporal.types import ScannerResult
 logger = structlog.get_logger(__name__)
 
 MAX_LISTED_REQUESTS = 20
+LISTED_REQUESTS_WINDOW = timedelta(days=30)
 
 
 class ObservationRequestStatus(models.TextChoices):
@@ -190,7 +194,8 @@ class ObservationRequestSerializer(serializers.Serializer):
 class ListObservationRequestsQuerySerializer(serializers.Serializer):
     reference = serializers.CharField(
         max_length=200,
-        help_text=f"Only requests made with this `reference`. Returns the newest {MAX_LISTED_REQUESTS} at most.",
+        help_text=f"Only requests made with this `reference`. Returns the newest {MAX_LISTED_REQUESTS} of the last "
+        f"{LISTED_REQUESTS_WINDOW.days} days at most.",
     )
 
 
@@ -270,13 +275,23 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
         return queryset.filter(Q(scanner_id__in=readable) | Q(scanner__isnull=True))
 
     def _render(self, request: ReplayObservationRequest) -> dict[str, Any]:
-        progress = request_progress(request)
-        if self._is_service_call:
+        return self._render_many([request])[0]
+
+    def _render_many(self, requests: list[ReplayObservationRequest]) -> list[dict[str, Any]]:
+        progress = request_progress_many(requests)
+        readable = None if self._is_service_call else self._readable_observation_ids(progress.values())
+        return [self._render_with(request, progress[request.id], readable) for request in requests]
+
+    def _render_with(
+        self, request: ReplayObservationRequest, progress: RequestProgress, readable: set[Any] | None
+    ) -> dict[str, Any]:
+        if readable is None:
             sessions = progress.sessions
             completed = request.completed_at is not None or progress.settled
         else:
             # Judged on the visible rows alone: a hidden row still in flight would otherwise show through `status`.
-            sessions = self._readable_sessions(progress.sessions)
+            # A denied row is dropped, not blanked, since its state alone says the session was scanned and how it went.
+            sessions = [s for s in progress.sessions if s.observation is None or s.observation.id in readable]
             completed = RequestProgress(sessions=sessions).settled
         return ObservationRequestSerializer(
             {
@@ -289,18 +304,16 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
             }
         ).data
 
-    def _readable_sessions(self, sessions: list[RequestSession]) -> list[RequestSession]:
-        # A row authorizes against the experiment in its own snapshot, like every other observation read. A denied
-        # row is dropped, not blanked, since its state alone says the session was scanned and how it went.
-        ids = [s.observation.id for s in sessions if s.observation is not None]
-        readable = set(
+    def _readable_observation_ids(self, progresses: Iterable[RequestProgress]) -> set[Any]:
+        # A row authorizes against the experiment in its own snapshot, like every other observation read.
+        ids = [s.observation.id for p in progresses for s in p.sessions if s.observation is not None]
+        return set(
             accessible_observations(
                 self.user_access_control,
                 self.team_id,
                 ReplayObservation.objects.filter(team_id=self.team_id, id__in=ids),
             ).values_list("id", flat=True)
         )
-        return [s for s in sessions if s.observation is None or s.observation.id in readable]
 
     @extend_schema(
         parameters=[ListObservationRequestsQuerySerializer],
@@ -311,8 +324,10 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = ListObservationRequestsQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        requests = self.get_queryset().filter(reference=query.validated_data["reference"])[:MAX_LISTED_REQUESTS]
-        return Response([self._render(observation_request) for observation_request in requests])
+        requests = self.get_queryset().filter(
+            reference=query.validated_data["reference"], created_at__gte=timezone.now() - LISTED_REQUESTS_WINDOW
+        )
+        return Response(self._render_many(list(requests.order_by("-created_at", "-id")[:MAX_LISTED_REQUESTS])))
 
     @extend_schema(responses={200: ObservationRequestSerializer})
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -3635,7 +3635,7 @@ export type VisionObservationsSearchSuggestionsRetrieveParams = {
 
 export type VisionRequestsListParams = {
     /**
-     * Only requests made with this `reference`. Returns the newest 20 at most.
+     * Only requests made with this `reference`. Returns the newest 20 of the last 30 days at most.
      * @minLength 1
      * @maxLength 200
      */

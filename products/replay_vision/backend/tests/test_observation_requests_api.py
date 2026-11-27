@@ -206,10 +206,11 @@ class TestObservationRequestAPI(APIBaseTest):
         requests.filter(id=request.id).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
         return str(request.id)
 
-    def test_lists_the_readable_requests_with_a_reference_newest_first(self) -> None:
+    def test_lists_the_recent_readable_requests_with_a_reference_newest_first(self) -> None:
         newer = self._stored_request("email:welcome", 5)
         older = self._stored_request("email:welcome", 10)
         self._stored_request("email:receipt", 1)
+        self._stored_request("email:welcome", 31 * 24 * 60)
         self._stored_request("email:welcome", 1, team=Team.objects.create(organization=self.organization))
         experiment = create_experiment(self.team, "restricted-flag")
         hidden_scanner = ReplayScanner.objects.create(
